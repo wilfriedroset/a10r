@@ -27,7 +27,11 @@ func (h *observingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.calls.Add(1)
 	p := r.URL.Path
 	h.path.Store(&p)
-	t := r.Header.Get("X-Scope-OrgID")
+	// http.Header.Get canonicalises lookups, so "X-Scope-Orgid" reads
+	// the same value clients send as "X-Scope-OrgID" (Mimir's
+	// documented casing). The canonical form here keeps the linter
+	// happy without changing behaviour.
+	t := r.Header.Get("X-Scope-Orgid")
 	h.tHead.Store(&t)
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte("[]"))

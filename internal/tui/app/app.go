@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -56,6 +57,11 @@ type App struct {
 	// element is the active top-of-stack. Empty until the cmd
 	// wiring (#27 / cmd/tui.go) pushes the first page.
 	stack []Page
+
+	// modal is the open overlay (tenant picker, confirm dialog).
+	// When non-nil it captures every key event before the
+	// dispatcher and renders in the body slot. nil = no modal.
+	modal modal.Modal
 
 	width  int
 	height int
@@ -106,55 +112,17 @@ func (a *App) Init() tea.Cmd { return nil }
 // subcomponent owns it; falls back to the dispatcher for plain key
 // events. Returns the model verbatim and the resulting command.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch m := msg.(type) {
-	case tea.WindowSizeMsg:
-		a.width, a.height = m.Width, m.Height
-		cmd := a.forwardToTop(m)
+	if cmd, handled := a.handleLifecycle(msg); handled {
 		return a, cmd
-	case tea.QuitMsg:
-		a.quitting = true
-		return a, nil
-	case keys.ChordExpiredMsg:
-		cmd := a.dispatcher.HandleChordExpired(m)
-		return a, cmd
-	case pushPageMsg:
-		cmd := a.pushPage(m.Factory)
-		return a, cmd
-	case popPageMsg:
-		cmd := a.popPage()
-		return a, cmd
-	case replacePageMsg:
-		cmd := a.replacePage(m.Factory)
-		return a, cmd
-	case footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		// Routing of the resolved value is wired in #26. For now we
-		// only acknowledge so the prompt's Cmd doesn't bubble up to
-		// bubbletea's default handler (which would log a warning).
-		return a, nil
-	case tea.PasteMsg:
-		if a.prompt.IsOpen() {
-			var cmd tea.Cmd
-			a.prompt, cmd = a.prompt.Update(m)
-			return a, cmd
-		}
-		cmd := a.forwardToTop(m)
-		return a, cmd
-	case tea.KeyReleaseMsg, tea.PasteStartMsg, tea.PasteEndMsg:
-		// Bubbletea v2 emits release events alongside key presses
-		// when key-release reporting is enabled, plus paste-start /
-		// paste-end framing around bracketed paste. The app shell
-		// has no use for either today; explicit no-ops keep them out
-		// of the flash catch-all so the routing intent is auditable.
-		return a, nil
-	case tea.KeyPressMsg:
-		return a.handleKey(m)
 	}
-	// Flash-domain messages (the public FlashShowMsg and the
-	// internal auto-clear tick) route to flash exclusively. Everything
-	// else is page-domain so it goes to the top page only. This
-	// avoids the "every component must no-op on foreign types"
-	// invariant that a blanket forward would impose, which would
-	// scale badly once #24 lands data ticks.
+	if cmd, handled := a.handleInput(msg); handled {
+		return a, cmd
+	}
+	if isModalResult(msg) {
+		a.closeModal()
+		cmd := a.forwardToTop(msg)
+		return a, cmd
+	}
 	if a.flash.Owns(msg) {
 		var cmd tea.Cmd
 		a.flash, cmd = a.flash.Update(msg)
@@ -162,6 +130,65 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	cmd := a.forwardToTop(msg)
 	return a, cmd
+}
+
+// handleLifecycle covers the App's own message types: window
+// resize, quit, chord-timer, page stack ops, modal slot ops.
+// Returns (cmd, true) when handled.
+func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case tea.WindowSizeMsg:
+		a.width, a.height = m.Width, m.Height
+		return a.forwardToTop(m), true
+	case tea.QuitMsg:
+		a.quitting = true
+		return nil, true
+	case keys.ChordExpiredMsg:
+		return a.dispatcher.HandleChordExpired(m), true
+	case pushPageMsg:
+		return a.pushPage(m.Factory), true
+	case popPageMsg:
+		return a.popPage(), true
+	case replacePageMsg:
+		return a.replacePage(m.Factory), true
+	case openModalMsg:
+		return a.openModal(m.Factory), true
+	case closeModalMsg:
+		a.closeModal()
+		return nil, true
+	}
+	return nil, false
+}
+
+// handleInput covers the input pipeline: prompt results, paste,
+// key-release / paste-framing no-ops, and key presses. Returns
+// (cmd, true) when handled.
+func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
+		// Routing of the resolved value is wired in #26. For now we
+		// only acknowledge so the prompt's Cmd doesn't bubble up to
+		// bubbletea's default handler (which would log a warning).
+		return nil, true
+	case tea.PasteMsg:
+		if a.prompt.IsOpen() {
+			var cmd tea.Cmd
+			a.prompt, cmd = a.prompt.Update(m)
+			return cmd, true
+		}
+		return a.forwardToTop(m), true
+	case tea.KeyReleaseMsg, tea.PasteStartMsg, tea.PasteEndMsg:
+		// Bubbletea v2 emits release events alongside key presses
+		// when key-release reporting is enabled, plus paste-start /
+		// paste-end framing around bracketed paste. The app shell
+		// has no use for either today; explicit no-ops keep them out
+		// of the flash catch-all so the routing intent is auditable.
+		return nil, true
+	case tea.KeyPressMsg:
+		_, cmd := a.handleKey(m)
+		return cmd, true
+	}
+	return nil, false
 }
 
 // forwardToTop delivers msg to the top-of-stack page (if any). The
@@ -251,14 +278,24 @@ func (a *App) topPage() Page {
 	return a.stack[len(a.stack)-1]
 }
 
-// handleKey routes a single key event. An open prompt captures
-// every key including Esc — Esc dismisses the prompt itself per
-// keybindings.md ("Esc always reaches the modal/prompt to dismiss
-// it"). Otherwise the dispatcher's precedence stack decides.
-// Unconsumed keys drop silently because most keys (j/k motion,
-// shifted letters, etc.) are bound at the page layer and are valid
-// no-ops on placeholder pages.
+// handleKey routes a single key event. Precedence:
+//
+//  1. Open modal — captures every key including Esc, per
+//     keybindings.md. Esc inside the modal closes the modal.
+//  2. Open prompt — same rule for the bottom-strip prompt.
+//  3. Dispatcher precedence stack (modal > prompt > view > table
+//     > global). Bindings live at whichever layer makes sense.
+//  4. Top page — a final catch-all so vim motions and custom
+//     shortcuts a page handles locally don't need pre-registration.
+//
+// Unconsumed keys drop silently because most keys (j/k, shifted
+// letters, etc.) are valid no-ops on placeholder pages.
 func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if a.modal != nil {
+		next, cmd := a.modal.Update(m)
+		a.modal = next
+		return a, cmd
+	}
 	if a.prompt.IsOpen() {
 		var cmd tea.Cmd
 		a.prompt, cmd = a.prompt.Update(m)
@@ -320,9 +357,15 @@ func (a *App) headerState() header.State {
 	return state
 }
 
-// renderBody asks the top page to draw its body, or emits a styled
-// blank pane when the stack is empty (pre-#27 / first-run wizard).
+// renderBody asks the open modal (if any), the top page (if any),
+// or a styled blank pane (no page yet) to fill the body slot.
+// Modals replace the page body so the user can't accidentally act
+// on a row underneath while a confirm dialog is up — same rule
+// k9s applies to its overlays.
 func (a *App) renderBody(height int) string {
+	if a.modal != nil {
+		return a.modal.View(a.width, height)
+	}
 	if p := a.topPage(); p != nil {
 		return p.View(a.width, height)
 	}
