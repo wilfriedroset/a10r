@@ -158,6 +158,13 @@ linters:
           arguments:
             - "fmt.Print.*"
             - "fmt.Fprint.*"
+            # strings.Builder.WriteString / WriteByte / WriteRune are
+            # documented to always return nil — the error return is
+            # vestigial from the io.Writer interface.
+            - "strings.Builder.Write.*"
+            - "(\\*strings.Builder).Write.*"
+            - "bytes.Buffer.Write.*"
+            - "(\\*bytes.Buffer).Write.*"
 
     gocritic:
       enabled-tags:
