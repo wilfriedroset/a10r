@@ -332,24 +332,3 @@ func TestPage_EmptyStateMessages(t *testing.T) {
 	require.Contains(t, out, "no alerts match",
 		"with a non-matching filter the empty state hints at clearing it")
 }
-
-func TestPage_AgeFormatting(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		age  time.Duration
-		want string
-	}{
-		{name: "now", age: 100 * time.Millisecond, want: "now"},
-		{name: "5s", age: 5 * time.Second, want: "5s ago"},
-		{name: "2m", age: 2 * time.Minute, want: "2m ago"},
-		{name: "3h", age: 3 * time.Hour, want: "3h ago"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, formatAge(fixedNow, fixedNow.Add(-tc.age)))
-		})
-	}
-}

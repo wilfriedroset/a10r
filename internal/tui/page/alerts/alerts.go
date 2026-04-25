@@ -33,6 +33,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -352,11 +353,15 @@ func (p *Page) renderRows(width, maxRows int) string {
 		if i >= maxRows {
 			break
 		}
+		ageLabel := header.FormatAge(p.now(), a.StartsAt)
+		if ageLabel == "" {
+			ageLabel = "—"
+		}
 		row := []string{
 			severityOf(a),
 			a.Labels["alertname"],
 			string(a.State),
-			formatAge(p.now(), a.StartsAt),
+			ageLabel,
 		}
 		line := p.padColumns(row, width)
 		if i == p.cursor {
@@ -561,23 +566,4 @@ func severityOf(a backend.Alert) string {
 		return v
 	}
 	return "—"
-}
-
-// formatAge formats a "5s ago" / "2m ago" / "3h ago" string. Mirrors
-// header.FormatAge but operates on the alert's StartsAt directly.
-func formatAge(now, last time.Time) string {
-	if last.IsZero() {
-		return "—"
-	}
-	d := now.Sub(last)
-	switch {
-	case d < time.Second:
-		return "now"
-	case d < time.Minute:
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	default:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	}
 }
