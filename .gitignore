@@ -1,5 +1,6 @@
 # Build artifacts
 /a10r
+/smoke
 /dist/
 coverage.out
 *.test
