@@ -117,7 +117,7 @@ func TestValidateCmd_RegisteredOnRoot(t *testing.T) {
 	writeYAML(t, dir, "a10r.yaml", "backends:\n  - name: ok\n    url: http://x\n")
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, nil)
 	rootCmd.AddCommand(newValidateCmd(&flags))
 	rootCmd.SetArgs([]string{"validate", "--config-dir", dir})
 	var outBuf bytes.Buffer

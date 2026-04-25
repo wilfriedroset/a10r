@@ -17,11 +17,19 @@ const (
 	defaultLogFormat = "logfmt"
 )
 
+// RootRunFn is the RunE indirection the root command uses when no
+// subcommand is supplied. Production wires runTUI; tests inject a
+// no-op so the flag-binding suite doesn't try to open a TTY.
+type RootRunFn func(*cobra.Command, *GlobalFlags) error
+
 // newRootCmd builds the a10r root command and binds every K1 persistent
 // flag onto flags. Callers register subcommands via cmd.AddCommand
-// before calling Execute. The TUI launch (root with no subcommand) is
-// wired in a follow-up commit; today no-args prints help.
-func newRootCmd(flags *GlobalFlags) *cobra.Command {
+// before calling Execute. runFn is the no-subcommand RunE — typically
+// runTUI; tests pass a no-op so cobra's RunE doesn't try to open a TTY.
+func newRootCmd(flags *GlobalFlags, runFn RootRunFn) *cobra.Command {
+	if runFn == nil {
+		runFn = runTUI
+	}
 	rootCmd := &cobra.Command{
 		Use:   "a10r",
 		Short: "TUI for Prometheus Alertmanager and Grafana Mimir",
@@ -32,7 +40,7 @@ Run with no subcommand to launch the TUI.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+			return runFn(cmd, flags)
 		},
 		PersistentPreRunE: persistentPreRun(flags),
 	}

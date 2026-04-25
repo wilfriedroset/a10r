@@ -8,15 +8,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 )
+
+// noopRootRun is used by the flag-binding tests so the root
+// command's RunE doesn't try to open a TTY. The test suite cares
+// only that the flags struct is populated correctly.
+func noopRootRun(*cobra.Command, *GlobalFlags) error { return nil }
 
 func TestNewRootCmd_Defaults(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, noopRootRun)
 	rootCmd.SetArgs([]string{})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
@@ -85,7 +91,7 @@ func TestNewRootCmd_FlagBinding(t *testing.T) {
 			t.Parallel()
 
 			var flags GlobalFlags
-			rootCmd := newRootCmd(&flags)
+			rootCmd := newRootCmd(&flags, noopRootRun)
 			rootCmd.SetArgs(tc.args)
 			rootCmd.SetOut(io.Discard)
 			rootCmd.SetErr(io.Discard)
@@ -100,7 +106,7 @@ func TestNewRootCmd_DebugOverridesQuiet(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, noopRootRun)
 	rootCmd.SetArgs([]string{"--debug", "--quiet"})
 	rootCmd.SetOut(io.Discard)
 	var errBuf bytes.Buffer
@@ -116,7 +122,7 @@ func TestNewRootCmd_UnknownFlagFails(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, noopRootRun)
 	rootCmd.SetArgs([]string{"--no-such-flag"})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
@@ -129,7 +135,7 @@ func TestNewRootCmd_HelpListsAllPersistentFlags(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, noopRootRun)
 	rootCmd.SetArgs([]string{"--help"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
@@ -150,7 +156,7 @@ func TestNewRootCmd_BadDurationFails(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, noopRootRun)
 	rootCmd.SetArgs([]string{"--poll-interval", "notaduration"})
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)

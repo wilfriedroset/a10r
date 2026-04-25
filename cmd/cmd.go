@@ -23,7 +23,7 @@ var (
 // repo root simply forwards an error from this function.
 func Execute() error {
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, nil)
 	rootCmd.AddCommand(
 		newVersionCmd(),
 		newInfoCmd(&flags),

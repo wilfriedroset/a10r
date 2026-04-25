@@ -27,7 +27,7 @@ func TestVersionCommand_RegisteredOnRoot(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, nil)
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.SetArgs([]string{"version"})
 	var outBuf bytes.Buffer
@@ -43,7 +43,7 @@ func TestVersionCommand_RejectsExtraArgs(t *testing.T) {
 	t.Parallel()
 
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, nil)
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.SetArgs([]string{"version", "extra"})
 	rootCmd.SetOut(io.Discard)

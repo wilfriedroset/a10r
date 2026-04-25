@@ -27,7 +27,7 @@ import (
 // io.Discard since none of the current tests assert on it.
 func completionTestRoot() (out *bytes.Buffer, run func(args []string) error) {
 	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags)
+	rootCmd := newRootCmd(&flags, nil)
 	rootCmd.AddCommand(
 		newVersionCmd(),
 		newInfoCmd(&flags),
