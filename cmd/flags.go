@@ -2,24 +2,19 @@
 
 package cmd
 
-import "time"
+import "github.com/wilfriedroset/a10r/internal/config"
 
-// GlobalFlags holds the values bound to the cobra root command's
-// persistent flags. Per the project's "no globals beyond sentinels
-// and embeds" rule, callers construct one per Execute() invocation
-// and pass it to subcommands rather than relying on package state.
+// GlobalFlags is the type cobra binds persistent flags onto.
 //
-// The flag set mirrors open-question K1 in docs/design/open-questions.md.
-// Env var resolution and config-file precedence land alongside the
-// internal/config package; this struct is just the CLI-binding shape.
-type GlobalFlags struct {
-	ConfigDir    string
-	LogPath      string
-	LogFormat    string
-	Debug        bool
-	Quiet        bool
-	ReadOnly     bool
-	Tenant       string
-	PollInterval time.Duration
-	Theme        string
-}
+// It is a type alias for config.CLIFlags rather than a parallel
+// struct so the cobra binder (this package) and the precedence
+// resolver (internal/config.Resolve) share one shape and conversion
+// is a no-op. The struct definition lives in internal/config/resolve.go
+// because the resolver is the canonical consumer; cmd's role is just
+// to populate it via cobra.
+//
+// Do NOT extend this type by adding fields here — extend
+// config.CLIFlags instead. Adding fields on the alias side is a
+// compile error; this comment exists so a future contributor does
+// not "fix" the error by converting the alias into a new struct.
+type GlobalFlags = config.CLIFlags
