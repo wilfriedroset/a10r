@@ -1,0 +1,10 @@
+---
+name: bad-hex-test
+palette:
+  base: "#zzzzzz"  # invalid hex
+  text: "#ffffff"
+
+roles:
+  body:
+    fg: text
+    bg: base

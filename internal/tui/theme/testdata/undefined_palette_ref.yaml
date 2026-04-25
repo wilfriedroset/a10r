@@ -1,0 +1,10 @@
+---
+name: undefined-palette-ref-test
+palette:
+  base: "#000000"
+  text: "#ffffff"
+
+roles:
+  body:
+    fg: text
+    bg: nonexistent  # references a palette key that doesn't exist

@@ -1,0 +1,83 @@
+---
+name: catppuccin-latte
+description: Catppuccin Latte (light) — for terminals on light backgrounds
+author: Catppuccin authors
+
+palette:
+  base:     "#eff1f5"
+  surface:  "#ccd0da"
+  text:     "#4c4f69"
+  subtext:  "#6c6f85"
+  overlay:  "#9ca0b0"
+  red:      "#d20f39"
+  peach:    "#fe640b"
+  yellow:   "#df8e1d"
+  green:    "#40a02b"
+  sky:      "#04a5e5"
+  blue:     "#1e66f5"
+  lavender: "#7287fd"
+
+roles:
+  body:
+    fg: text
+    bg: base
+
+  header:
+    fg: text
+    bg: base
+    accent: blue
+    ok: green
+    warn: yellow
+    error: red
+
+  table:
+    header:        { fg: subtext, bg: base }
+    header_active: { fg: base, bg: blue }
+    row:           { fg: text, bg: base }
+    row_alt:       { fg: text, bg: surface }
+    cursor:        { fg: base, bg: lavender }
+    marked:        { fg: base, bg: peach }
+    dimmed:        { fg: overlay, bg: base }
+
+  severity:
+    critical: red
+    warning:  yellow
+    info:     sky
+    unknown:  overlay
+
+  silence_state:
+    active:  green
+    pending: yellow
+    expired: overlay
+
+  prompt:
+    fg: text
+    bg: base
+    suggestion: overlay
+
+  flash:
+    success: green
+    info:    sky
+    warn:    yellow
+    error:   red
+
+  crumbs:
+    fg: subtext
+    bg: base
+    active: peach
+
+  hint:
+    fg: subtext
+    bg: base
+    key: peach
+    help_key: green
+
+  modal:
+    fg: text
+    bg: base
+    border: overlay
+
+  yaml:
+    key:   blue
+    value: text
+    punct: overlay

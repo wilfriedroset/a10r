@@ -1,0 +1,83 @@
+---
+name: catppuccin-mocha
+description: Catppuccin Mocha (dark) — the v0.1 default skin
+author: Catppuccin authors
+
+palette:
+  base:     "#1e1e2e"
+  surface:  "#313244"
+  text:     "#cdd6f4"
+  subtext:  "#a6adc8"
+  overlay:  "#6c7086"
+  red:      "#f38ba8"
+  peach:    "#fab387"
+  yellow:   "#f9e2af"
+  green:    "#a6e3a1"
+  sky:      "#89dceb"
+  blue:     "#89b4fa"
+  lavender: "#b4befe"
+
+roles:
+  body:
+    fg: text
+    bg: base
+
+  header:
+    fg: text
+    bg: base
+    accent: blue
+    ok: green
+    warn: yellow
+    error: red
+
+  table:
+    header:        { fg: subtext, bg: base }
+    header_active: { fg: base, bg: blue }
+    row:           { fg: text, bg: base }
+    row_alt:       { fg: text, bg: surface }
+    cursor:        { fg: base, bg: lavender }
+    marked:        { fg: base, bg: peach }
+    dimmed:        { fg: overlay, bg: base }
+
+  severity:
+    critical: red
+    warning:  yellow
+    info:     sky
+    unknown:  overlay
+
+  silence_state:
+    active:  green
+    pending: yellow
+    expired: overlay
+
+  prompt:
+    fg: text
+    bg: base
+    suggestion: overlay
+
+  flash:
+    success: green
+    info:    sky
+    warn:    yellow
+    error:   red
+
+  crumbs:
+    fg: subtext
+    bg: base
+    active: peach
+
+  hint:
+    fg: subtext
+    bg: base
+    key: peach
+    help_key: green
+
+  modal:
+    fg: text
+    bg: base
+    border: overlay
+
+  yaml:
+    key:   blue
+    value: text
+    punct: overlay
