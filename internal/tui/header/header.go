@@ -35,8 +35,10 @@ const (
 	ConnUnreachable
 )
 
-// glyph returns the ●/◐/○ rune for the connection state.
-func (s ConnState) glyph() string {
+// String returns the ●/◐/○ rune for the connection state.
+// Exported so other packages (status pane, tenant table) can
+// surface the same indicator without re-implementing the mapping.
+func (s ConnState) String() string {
 	switch s {
 	case ConnConnected:
 		return "●"
@@ -159,7 +161,7 @@ func renderLeft(state State, styles theme.Styles) string {
 		b.WriteString(styles.Header.Accent.Render(state.Tenants))
 	}
 	b.WriteString(" ")
-	b.WriteString(connStyle(state.Conn, styles).Render(state.Conn.glyph()))
+	b.WriteString(connStyle(state.Conn, styles).Render(state.Conn.String()))
 
 	if state.Count != "" {
 		b.WriteString(styles.Header.Default.Render(" · "))
