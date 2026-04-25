@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package cmd implements the a10r command-line interface. The cobra
-// root command is wired in cmd/root.go (added in a follow-up commit);
-// this file keeps the version-injection variables that the goreleaser
-// ldflags target so the build succeeds from commit one.
+// root command is built in cmd/root.go; subcommands live alongside
+// (cmd/version.go, etc.). This file holds the package entrypoint and
+// the goreleaser ldflag-target variables.
 package cmd
-
-import (
-	"fmt"
-	"os"
-)
 
 // Version metadata is injected at build time via -X ldflags by
 // goreleaser. The defaults here let `go build` produce a usable
@@ -23,10 +18,12 @@ var (
 	date    = "unknown"
 )
 
-// Execute runs the root command. The full cobra wiring lands in a
-// follow-up commit; today the binary just prints its build metadata
-// so the scaffold is end-to-end runnable.
+// Execute builds the cobra root command, registers every subcommand
+// explicitly (no init() side effects), and runs it. main() in the
+// repo root simply forwards an error from this function.
 func Execute() error {
-	fmt.Fprintf(os.Stdout, "a10r %s (commit %s, built %s)\n", version, commit, date)
-	return nil
+	var flags GlobalFlags
+	rootCmd := newRootCmd(&flags)
+	rootCmd.AddCommand(newVersionCmd())
+	return rootCmd.Execute()
 }

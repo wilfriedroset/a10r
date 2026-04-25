@@ -1,10 +1,13 @@
-.PHONY: build test test-race vet prek lint run clean tidy help
+.PHONY: build test test-race cover vet prek lint run clean tidy help
 
 GO ?= go
 BINARY := a10r
 
 VERSION ?= dev
 # Deferred (=) so subshells run only for recipes that actually need them.
+# Note: DATE re-evaluates per recipe invocation, so two builds in the
+# same `make` chain may carry different timestamps. Reproducible
+# release builds go through goreleaser, which pins the date once.
 COMMIT   = $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE     = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS  = -s -w \
@@ -16,10 +19,14 @@ build: ## Build the a10r binary
 	$(GO) build -trimpath -ldflags='$(LDFLAGS)' -o $(BINARY) .
 
 test: ## Run unit tests
-	$(GO) test -coverprofile=coverage.out ./...
+	$(GO) test ./...
 
 test-race: ## Run unit tests with the race detector
-	$(GO) test -race -coverprofile=coverage.out ./...
+	$(GO) test -race ./...
+
+cover: ## Run unit tests with coverage profile (requires covdata; use CI Go toolchain)
+	$(GO) test -coverprofile=coverage.out ./...
+	$(GO) tool cover -func=coverage.out
 
 vet: ## Run go vet
 	$(GO) vet ./...
