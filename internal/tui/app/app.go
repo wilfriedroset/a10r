@@ -52,6 +52,11 @@ type App struct {
 	prompt footer.Prompt
 	flash  footer.Flash
 
+	// stack is the page stack. Index 0 is the home page; the last
+	// element is the active top-of-stack. Empty until the cmd
+	// wiring (#27 / cmd/tui.go) pushes the first page.
+	stack []Page
+
 	width  int
 	height int
 
@@ -80,13 +85,13 @@ func NewApp(opts Options) *App {
 // the app shell owns directly. Other globals (`:`, `/`, `Ctrl+T`,
 // numeric tenant quick-switch) ship with their respective subsystems
 // so each can be unit-tested in isolation.
-//
-// TODO(#23): bind `Esc` at LayerGlobal to popPageMsg once the page
-// stack lands. Today there's no stack, so an Esc with no prompt /
-// modal in flight is a silent no-op.
 func (a *App) registerGlobalBindings() {
 	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+C", func() tea.Cmd { return tea.Quit })
 	a.dispatcher.Set(keys.LayerGlobal, "q", func() tea.Cmd { return tea.Quit })
+	// `Esc` falls through to "pop stack" at the global layer per
+	// keybindings.md. Modal / prompt layers shadow this when active
+	// so Esc dismisses them first.
+	a.dispatcher.Set(keys.LayerGlobal, "Esc", PopPage)
 	// `?` reaches the help overlay in #37; today it's a placeholder
 	// that flashes a friendly message so users discover the binding.
 	a.dispatcher.Set(keys.LayerGlobal, "?", func() tea.Cmd {
@@ -104,12 +109,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
-		return a, nil
+		cmd := a.forwardToTop(m)
+		return a, cmd
 	case tea.QuitMsg:
 		a.quitting = true
 		return a, nil
 	case keys.ChordExpiredMsg:
-		return a, a.dispatcher.HandleChordExpired(m)
+		cmd := a.dispatcher.HandleChordExpired(m)
+		return a, cmd
+	case pushPageMsg:
+		cmd := a.pushPage(m.Factory)
+		return a, cmd
+	case popPageMsg:
+		cmd := a.popPage()
+		return a, cmd
+	case replacePageMsg:
+		cmd := a.replacePage(m.Factory)
+		return a, cmd
 	case footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		// Routing of the resolved value is wired in #26. For now we
 		// only acknowledge so the prompt's Cmd doesn't bubble up to
@@ -121,7 +137,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.prompt, cmd = a.prompt.Update(m)
 			return a, cmd
 		}
-		return a, nil
+		cmd := a.forwardToTop(m)
+		return a, cmd
 	case tea.KeyReleaseMsg, tea.PasteStartMsg, tea.PasteEndMsg:
 		// Bubbletea v2 emits release events alongside key presses
 		// when key-release reporting is enabled, plus paste-start /
@@ -132,13 +149,106 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return a.handleKey(m)
 	}
-	// Default: forward to Flash. Flash owns its own auto-clear ticks
-	// (flashClearMsg) and a public FlashShowMsg, both of which need
-	// to traverse the program loop. The Flash component no-ops on
-	// unrecognised messages so this is safe as a catch-all.
-	var cmd tea.Cmd
-	a.flash, cmd = a.flash.Update(msg)
+	// Flash-domain messages (the public FlashShowMsg and the
+	// internal auto-clear tick) route to flash exclusively. Everything
+	// else is page-domain so it goes to the top page only. This
+	// avoids the "every component must no-op on foreign types"
+	// invariant that a blanket forward would impose, which would
+	// scale badly once #24 lands data ticks.
+	if a.flash.Owns(msg) {
+		var cmd tea.Cmd
+		a.flash, cmd = a.flash.Update(msg)
+		return a, cmd
+	}
+	cmd := a.forwardToTop(msg)
 	return a, cmd
+}
+
+// forwardToTop delivers msg to the top-of-stack page (if any). The
+// page is value-typed in the stack so the new derivative replaces
+// the slot in-place. Returns the page's Cmd or nil when the stack
+// is empty.
+func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
+	if len(a.stack) == 0 {
+		return nil
+	}
+	top, cmd := a.stack[len(a.stack)-1].Update(msg)
+	a.stack[len(a.stack)-1] = top
+	a.refreshCrumbs()
+	return cmd
+}
+
+// pushPage adds a new page on top, runs its Init, and refreshes the
+// crumb strip. Returns the page's Init Cmd so callers can chain
+// follow-ups (e.g. an alerts page kicking off a poll).
+func (a *App) pushPage(factory func() Page) tea.Cmd {
+	if factory == nil {
+		return nil
+	}
+	page := factory()
+	if page == nil {
+		return nil
+	}
+	a.stack = append(a.stack, page)
+	a.refreshCrumbs()
+	return page.Init()
+}
+
+// popPage removes the top page when the stack has more than one
+// entry, calling Close on it so pollers and other background work
+// can wind down. Popping the last page is a no-op so the home view
+// always stays visible — a keybindings.md "Esc on home view does
+// nothing" is friendlier than ejecting the user into a black screen.
+func (a *App) popPage() tea.Cmd {
+	if len(a.stack) <= 1 {
+		return nil
+	}
+	departing := a.stack[len(a.stack)-1]
+	a.stack = a.stack[:len(a.stack)-1]
+	a.refreshCrumbs()
+	return departing.Close()
+}
+
+// replacePage swaps the top page for the factory's output. The
+// displaced page's Close runs so its background work tears down
+// before the new page's Init starts; the two Cmds run sequentially
+// to keep that ordering deterministic. When the stack is empty,
+// replacePage falls back to push so a user can always launch a
+// fresh view from a no-page state.
+func (a *App) replacePage(factory func() Page) tea.Cmd {
+	if factory == nil {
+		return nil
+	}
+	if len(a.stack) == 0 {
+		return a.pushPage(factory)
+	}
+	page := factory()
+	if page == nil {
+		return nil
+	}
+	departing := a.stack[len(a.stack)-1]
+	a.stack[len(a.stack)-1] = page
+	a.refreshCrumbs()
+	return tea.Sequence(departing.Close(), page.Init())
+}
+
+// refreshCrumbs rebuilds the breadcrumb strip from the current
+// stack. Cheap on every frame because Crumbs.Set already does a
+// defensive copy.
+func (a *App) refreshCrumbs() {
+	labels := make([]string, len(a.stack))
+	for i, p := range a.stack {
+		labels[i] = p.Crumb()
+	}
+	a.crumbs = a.crumbs.Set(labels)
+}
+
+// topPage returns the active page, or nil when the stack is empty.
+func (a *App) topPage() Page {
+	if len(a.stack) == 0 {
+		return nil
+	}
+	return a.stack[len(a.stack)-1]
 }
 
 // handleKey routes a single key event. An open prompt captures
@@ -159,14 +269,22 @@ func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if keyName == "" {
 		return a, nil
 	}
-	_, cmd := a.dispatcher.Dispatch(keyName)
+	consumed, cmd := a.dispatcher.Dispatch(keyName)
+	if consumed {
+		return a, cmd
+	}
+	// Unbound at the dispatcher: forward to the top page so it can
+	// react (vim motions, custom shortcuts) without the app shell
+	// pre-knowing every page's binding set.
+	cmd = a.forwardToTop(m)
 	return a, cmd
 }
 
-// View implements tea.Model. Composes header (top), body
-// placeholder (middle), and footer (bottom) into a full-screen
-// alt-screen view. Subcomponents render through theme.Styles so a
-// theme swap re-paints without touching this code.
+// View implements tea.Model. Composes header (top), body (the top
+// page's view, or a placeholder when the stack is empty), and
+// footer (bottom) into a full-screen alt-screen view. Subcomponents
+// render through theme.Styles so a theme swap re-paints without
+// touching this code.
 func (a *App) View() tea.View {
 	if a.width == 0 || a.height == 0 {
 		// Pre-resize: bubbletea's first WindowSizeMsg arrives in the
@@ -177,19 +295,41 @@ func (a *App) View() tea.View {
 		return v
 	}
 
-	headerLine := header.Render(header.State{Width: a.width}, a.styles)
+	headerLine := header.Render(a.headerState(), a.styles)
 	footerLines := a.renderFooter()
 
 	bodyHeight := max(a.height-1-linesIn(footerLines), 0)
-	body := a.styles.Body.Default.
-		Width(a.width).
-		Height(bodyHeight).
-		Render("")
+	body := a.renderBody(bodyHeight)
 
 	out := lipgloss.JoinVertical(lipgloss.Left, headerLine, body, footerLines)
 	v := tea.NewView(out)
 	v.AltScreen = true
 	return v
+}
+
+// headerState builds the header.State from the app shell's view of
+// the world plus the top page's per-view contributions. Connection
+// state, count, age, and tenant label remain placeholder until the
+// polling lifecycle (#24) and tenant management (#35) populate them.
+func (a *App) headerState() header.State {
+	state := header.State{Width: a.width}
+	if p := a.topPage(); p != nil {
+		state.Content = p.HeaderContent()
+		state.Hints = p.Bindings()
+	}
+	return state
+}
+
+// renderBody asks the top page to draw its body, or emits a styled
+// blank pane when the stack is empty (pre-#27 / first-run wizard).
+func (a *App) renderBody(height int) string {
+	if p := a.topPage(); p != nil {
+		return p.View(a.width, height)
+	}
+	return a.styles.Body.Default.
+		Width(a.width).
+		Height(height).
+		Render("")
 }
 
 // renderFooter stacks the crumbs / prompt / flash strips. Each can

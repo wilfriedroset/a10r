@@ -95,6 +95,20 @@ func (f Flash) Text() string { return f.text }
 // IsActive reports whether the flash currently has visible text.
 func (f Flash) IsActive() bool { return f.text != "" }
 
+// Owns reports whether msg is a Flash-domain message (the public
+// FlashShowMsg or the internal auto-clear tick). The App uses this
+// to route unrecognised messages without enumerating the unexported
+// internal type — keeping flashClearMsg an implementation detail
+// while still giving the app shell explicit, auditable routing.
+func (Flash) Owns(msg tea.Msg) bool {
+	switch msg.(type) {
+	case FlashShowMsg, flashClearMsg:
+		return true
+	default:
+		return false
+	}
+}
+
 // Render produces the styled flash line. Returns "" when no flash
 // is active so the app shell can collapse the strip.
 func (f Flash) Render(styles theme.Styles) string {
