@@ -1,0 +1,48 @@
+[
+  {
+    "labels": {
+      "team": "ops"
+    },
+    "receiver": {
+      "name": "team-ops"
+    },
+    "alerts": [
+      {
+        "fingerprint": "abc123",
+        "labels": {
+          "alertname": "HighCPU",
+          "team": "ops"
+        },
+        "annotations": {},
+        "startsAt": "2026-04-25T12:00:00Z",
+        "endsAt": "0001-01-01T00:00:00Z",
+        "status": {
+          "state": "active"
+        },
+        "receivers": [
+          {
+            "name": "team-ops"
+          }
+        ]
+      },
+      {
+        "fingerprint": "abc124",
+        "labels": {
+          "alertname": "DiskFull",
+          "team": "ops"
+        },
+        "annotations": {},
+        "startsAt": "2026-04-25T11:00:00Z",
+        "endsAt": "0001-01-01T00:00:00Z",
+        "status": {
+          "state": "active"
+        },
+        "receivers": [
+          {
+            "name": "team-ops"
+          }
+        ]
+      }
+    ]
+  }
+]

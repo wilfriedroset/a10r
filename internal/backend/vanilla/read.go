@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package vanilla
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/wilfriedroset/a10r/internal/backend"
+)
+
+// ListAlerts implements backend.Reader.
+func (c *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) ([]backend.Alert, error) {
+	u := c.urlFor("/alerts", encodeAlertFilter(filter))
+	var raw []wireAlert
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return nil, fmt.Errorf("list alerts: %w", err)
+	}
+	out := make([]backend.Alert, 0, len(raw))
+	for _, w := range raw {
+		out = append(out, toAlert(w))
+	}
+	return out, nil
+}
+
+// ListAlertGroups implements backend.Reader.
+func (c *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) ([]backend.AlertGroup, error) {
+	u := c.urlFor("/alerts/groups", encodeAlertFilter(filter))
+	var raw []wireAlertGroup
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return nil, fmt.Errorf("list alert groups: %w", err)
+	}
+	out := make([]backend.AlertGroup, 0, len(raw))
+	for _, w := range raw {
+		out = append(out, toAlertGroup(w))
+	}
+	return out, nil
+}
+
+// ListSilences implements backend.Reader.
+func (c *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) ([]backend.Silence, error) {
+	u := c.urlFor("/silences", encodeSilenceFilter(filter))
+	var raw []wireSilence
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return nil, fmt.Errorf("list silences: %w", err)
+	}
+	out := make([]backend.Silence, 0, len(raw))
+	for _, w := range raw {
+		out = append(out, toSilence(w))
+	}
+	return out, nil
+}
+
+// GetSilence implements backend.Reader.
+func (c *Client) GetSilence(ctx context.Context, id string) (backend.Silence, error) {
+	if id == "" {
+		return backend.Silence{}, errors.New("get silence: id is required")
+	}
+	u := c.urlFor("/silence/"+id, nil)
+	var raw wireSilence
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return backend.Silence{}, fmt.Errorf("get silence %q: %w", id, err)
+	}
+	return toSilence(raw), nil
+}
+
+// ListReceivers implements backend.Reader.
+func (c *Client) ListReceivers(ctx context.Context) ([]backend.Receiver, error) {
+	u := c.urlFor("/receivers", nil)
+	var raw []wireReceiver
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return nil, fmt.Errorf("list receivers: %w", err)
+	}
+	out := make([]backend.Receiver, 0, len(raw))
+	for _, w := range raw {
+		out = append(out, toReceiver(w))
+	}
+	return out, nil
+}
+
+// Status implements backend.Reader. The uptime field on the wire is
+// the AM-startup timestamp; the backend.Status surface carries a
+// duration, so we compute time.Since here.
+func (c *Client) Status(ctx context.Context) (backend.Status, error) {
+	u := c.urlFor("/status", nil)
+	var raw wireStatus
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return backend.Status{}, fmt.Errorf("status: %w", err)
+	}
+	return toStatus(raw, time.Now), nil
+}

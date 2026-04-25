@@ -1,0 +1,56 @@
+[
+  {
+    "fingerprint": "abc123",
+    "labels": {
+      "alertname": "HighCPU",
+      "severity": "critical",
+      "instance": "host-1"
+    },
+    "annotations": {
+      "summary": "CPU > 90%",
+      "description": "Sustained high CPU usage"
+    },
+    "startsAt": "2026-04-25T12:00:00Z",
+    "endsAt": "2026-04-25T13:00:00Z",
+    "generatorURL": "http://prom.example/graph?g0.expr=cpu",
+    "status": {
+      "state": "active",
+      "silencedBy": [],
+      "inhibitedBy": []
+    },
+    "receivers": [
+      {
+        "name": "team-ops"
+      },
+      {
+        "name": "pager"
+      }
+    ]
+  },
+  {
+    "fingerprint": "def456",
+    "labels": {
+      "alertname": "DiskFull",
+      "severity": "warning",
+      "r\u00e9gi\u00f3n": "eu-west"
+    },
+    "annotations": {
+      "summary": "Disk usage > 80%"
+    },
+    "startsAt": "2026-04-25T11:00:00Z",
+    "endsAt": "0001-01-01T00:00:00Z",
+    "generatorURL": "",
+    "status": {
+      "state": "suppressed",
+      "silencedBy": [
+        "sil-789"
+      ],
+      "inhibitedBy": []
+    },
+    "receivers": [
+      {
+        "name": "team-ops"
+      }
+    ]
+  }
+]
