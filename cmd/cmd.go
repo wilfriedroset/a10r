@@ -24,6 +24,10 @@ var (
 func Execute() error {
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags)
-	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(
+		newVersionCmd(),
+		newInfoCmd(&flags),
+		newValidateCmd(&flags),
+	)
 	return rootCmd.Execute()
 }

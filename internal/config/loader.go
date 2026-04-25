@@ -116,3 +116,12 @@ func decodeStrict(b []byte) (*Config, error) {
 func hostGetenv(name string) string { return os.Getenv(name) }
 func hostHomeDir() (string, error)  { return os.UserHomeDir() }
 func hostGOOS() string              { return runtime.GOOS }
+
+// ResolveDir returns the directory Load would consult under the K1
+// precedence (explicit > A10R_CONFIG_DIR env > OS default), without
+// touching the filesystem. Useful for diagnostics like `a10r info`
+// that need to display the location even when the config file does
+// not exist.
+func ResolveDir(explicit string) (string, error) {
+	return resolveConfigDir(explicit, hostGetenv, hostHomeDir, hostGOOS())
+}

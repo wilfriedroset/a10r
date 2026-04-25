@@ -1,0 +1,6 @@
+a10r dev commit=test built=test
+
+config dir: /home/test/.config/a10r
+log path:   /home/test/.local/state/a10r/a10r.log
+
+config: not found (run `a10r` with no subcommand to launch the first-run wizard)
