@@ -110,8 +110,7 @@ func TestPrompt_OpenAcceptsKeystrokes(t *testing.T) {
 
 	// Type "alerts"
 	for _, r := range "alerts" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	require.Equal(t, "alerts", p.Value())
 }
@@ -121,12 +120,10 @@ func TestPrompt_BackspaceRemovesLastRune(t *testing.T) {
 
 	p := NewPrompt().Open(PromptCommand)
 	for _, r := range "alerts" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
-	updated, _ := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	p = updated.(Prompt)
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.Equal(t, "alert", p.Value())
 }
 
@@ -136,13 +133,11 @@ func TestPrompt_BackspaceMultiByteRune(t *testing.T) {
 	// Regression: a byte-slicing implementation would corrupt this.
 	p := NewPrompt().Open(PromptFilter)
 	for _, r := range "caféñ" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	require.Equal(t, "caféñ", p.Value())
 
-	updated, _ := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	p = updated.(Prompt)
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.Equal(t, "café", p.Value(),
 		"backspace must pop one rune, not one byte (ñ is 2 bytes in UTF-8)")
 }
@@ -151,8 +146,7 @@ func TestPrompt_BackspaceOnEmptyIsNoOp(t *testing.T) {
 	t.Parallel()
 
 	p := NewPrompt().Open(PromptCommand)
-	updated, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	p = updated.(Prompt)
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.True(t, p.IsOpen(), "backspace on empty must NOT close the prompt")
 	require.Empty(t, p.Value())
 	require.Nil(t, cmd)
@@ -165,8 +159,7 @@ func TestPrompt_NonPrintableKeysIgnored(t *testing.T) {
 	// and have non-printable Codes — they must not corrupt the buffer.
 	p := NewPrompt().Open(PromptCommand)
 	for _, code := range []rune{tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd} {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: code})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: code})
 	}
 	require.Empty(t, p.Value(),
 		"non-printable navigation keys must not be appended")
@@ -178,8 +171,7 @@ func TestPrompt_PasteAppendsContent(t *testing.T) {
 	// Bracketed paste should append the pasted content as a single
 	// chunk so users can paste a UID / labelset into the command bar.
 	p := NewPrompt().Open(PromptCommand)
-	updated, cmd := p.Update(tea.PasteMsg{Content: "alertname=High_CPU"})
-	p = updated.(Prompt)
+	p, cmd := p.Update(tea.PasteMsg{Content: "alertname=High_CPU"})
 	require.Nil(t, cmd)
 	require.Equal(t, "alertname=High_CPU", p.Value())
 }
@@ -190,8 +182,7 @@ func TestPrompt_CodeFallbackForEmptyText(t *testing.T) {
 	// Some terminals report a printable rune via Code without
 	// populating Text. The prompt must still accept it.
 	p := NewPrompt().Open(PromptFilter)
-	updated, _ := p.Update(tea.KeyPressMsg{Code: 'a'})
-	p = updated.(Prompt)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 'a'})
 	require.Equal(t, "a", p.Value())
 }
 
@@ -200,13 +191,11 @@ func TestPrompt_CtrlUClearsBuffer(t *testing.T) {
 
 	p := NewPrompt().Open(PromptFilter)
 	for _, r := range "high cpu" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	require.Equal(t, "high cpu", p.Value())
 
-	updated, _ := p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	p = updated.(Prompt)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	require.Empty(t, p.Value(), "Ctrl+U clears the buffer per keybindings.md")
 }
 
@@ -215,12 +204,10 @@ func TestPrompt_EnterEmitsSubmittedAndCloses(t *testing.T) {
 
 	p := NewPrompt().Open(PromptCommand)
 	for _, r := range "sil" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
-	updated, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	p = updated.(Prompt)
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.False(t, p.IsOpen(), "submit must close the prompt")
 	require.Empty(t, p.Value(), "submit must clear the buffer")
 	require.NotNil(t, cmd)
@@ -237,12 +224,10 @@ func TestPrompt_EscEmitsCancelledAndCloses(t *testing.T) {
 
 	p := NewPrompt().Open(PromptFilter)
 	for _, r := range "stuff" {
-		updated, _ := p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		p = updated.(Prompt)
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 
-	updated, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	p = updated.(Prompt)
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	require.False(t, p.IsOpen())
 	require.NotNil(t, cmd)
 	cancel, ok := cmd().(PromptCancelledMsg)
@@ -255,9 +240,9 @@ func TestPrompt_ClosedIgnoresKeys(t *testing.T) {
 
 	p := NewPrompt()
 	require.False(t, p.IsOpen())
-	updated, cmd := p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	p, cmd := p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	require.Nil(t, cmd)
-	require.Empty(t, updated.(Prompt).Value(),
+	require.Empty(t, p.Value(),
 		"a closed prompt must not accept keystrokes")
 }
 
@@ -266,8 +251,7 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 
 	styles := loadStyles(t)
 	p := NewPrompt().Open(PromptCommand)
-	updated, _ := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	p = updated.(Prompt)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 
 	out := stripStyle(p.Render(styles))
 	require.Contains(t, out, ":", "command mode renders the : prefix")
@@ -298,8 +282,7 @@ func TestFlash_ShowAndAutoClear(t *testing.T) {
 	t.Parallel()
 
 	f := NewFlash()
-	updated, cmd := f.Update(FlashShowMsg{Level: FlashSuccess, Text: "saved"})
-	f = updated.(Flash)
+	f, cmd := f.Update(FlashShowMsg{Level: FlashSuccess, Text: "saved"})
 	require.True(t, f.IsActive())
 	require.Equal(t, "saved", f.Text())
 	require.NotNil(t, cmd, "Show must schedule the auto-clear tick")
@@ -308,8 +291,7 @@ func TestFlash_ShowAndAutoClear(t *testing.T) {
 	// in a unit test without a clock. Instead, inject the clear message
 	// directly with the matching id and verify the flash clears.
 	msg := flashClearMsg{id: 1} // first generation
-	updated, _ = f.Update(msg)
-	f = updated.(Flash)
+	f, _ = f.Update(msg)
 	require.False(t, f.IsActive(), "matching clear-msg must clear the flash")
 }
 
@@ -319,16 +301,13 @@ func TestFlash_StaleClearIgnored(t *testing.T) {
 	f := NewFlash()
 
 	// First show → generation 1
-	updated, _ := f.Update(FlashShowMsg{Level: FlashInfo, Text: "first"})
-	f = updated.(Flash)
+	f, _ = f.Update(FlashShowMsg{Level: FlashInfo, Text: "first"})
 
 	// Second show before the first's clear arrives → generation 2
-	updated, _ = f.Update(FlashShowMsg{Level: FlashInfo, Text: "second"})
-	f = updated.(Flash)
+	f, _ = f.Update(FlashShowMsg{Level: FlashInfo, Text: "second"})
 
 	// Stale clear from generation 1 must NOT clear the second flash.
-	updated, _ = f.Update(flashClearMsg{id: 1})
-	f = updated.(Flash)
+	f, _ = f.Update(flashClearMsg{id: 1})
 	require.True(t, f.IsActive(),
 		"stale clear (id=1) must not clear a newer flash (id=2)")
 	require.Equal(t, "second", f.Text())
@@ -336,8 +315,7 @@ func TestFlash_StaleClearIgnored(t *testing.T) {
 		"render must reflect the newer flash text, not the stale one")
 
 	// Matching clear (gen 2) does clear it.
-	updated, _ = f.Update(flashClearMsg{id: 2})
-	f = updated.(Flash)
+	f, _ = f.Update(flashClearMsg{id: 2})
 	require.False(t, f.IsActive())
 }
 
@@ -359,8 +337,7 @@ func TestFlash_RenderUsesLevelStyle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := NewFlash()
-			updated, _ := f.Update(FlashShowMsg{Level: tc.level, Text: "msg"})
-			f = updated.(Flash)
+			f, _ = f.Update(FlashShowMsg{Level: tc.level, Text: "msg"})
 			out := f.Render(styles)
 			require.NotEmpty(t, out)
 			require.Contains(t, stripStyle(out), "msg")

@@ -70,9 +70,6 @@ type Prompt struct {
 // NewPrompt constructs a closed Prompt.
 func NewPrompt() Prompt { return Prompt{} }
 
-// Init implements tea.Model.
-func (Prompt) Init() tea.Cmd { return nil }
-
 // Open opens the prompt in the given mode with an empty value.
 // Returns the new state; callers should reassign because Prompt is
 // a value type.
@@ -101,11 +98,12 @@ func (p Prompt) Mode() PromptMode { return p.mode }
 // Value returns the current input buffer.
 func (p Prompt) Value() string { return p.value }
 
-// Update implements tea.Model. Returns a derivative Prompt and an
-// optional tea.Cmd that emits PromptSubmittedMsg / Cancelled. The
-// Prompt does NOT close itself on Submit — the caller decides
-// whether to re-open or close based on how Submit was handled.
-func (p Prompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update is the keystroke handler. Returns a derivative Prompt and
+// an optional tea.Cmd that emits PromptSubmittedMsg / Cancelled.
+// Concrete-typed return so callers don't pay for an interface
+// assertion. The Prompt does not close itself on Submit — the app
+// shell does that after consuming the resulting message.
+func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if !p.open {
 		return p, nil
 	}
@@ -154,11 +152,6 @@ func (p Prompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return p, nil
 }
-
-// View implements tea.Model. Pages typically use Render(theme)
-// directly instead so they can apply per-frame styling; View exists
-// only to satisfy the interface.
-func (p Prompt) View() tea.View { return tea.NewView(p.value) }
 
 // Render produces the styled prompt line. Returns "" when closed.
 func (p Prompt) Render(styles theme.Styles) string {

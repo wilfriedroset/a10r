@@ -59,13 +59,11 @@ type Flash struct {
 // NewFlash constructs a closed Flash.
 func NewFlash() Flash { return Flash{} }
 
-// Init implements tea.Model.
-func (Flash) Init() tea.Cmd { return nil }
-
-// Update implements tea.Model. Returns the new state plus the
-// tea.Tick command that schedules the auto-clear when a Show
-// message arrives.
-func (f Flash) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+// Update routes a message into the Flash. Returns the new state
+// plus the tea.Tick command that schedules the auto-clear when a
+// Show message arrives. Concrete-typed return so callers don't pay
+// for an interface assertion.
+func (f Flash) Update(msg tea.Msg) (Flash, tea.Cmd) {
 	switch m := msg.(type) {
 	case FlashShowMsg:
 		ttl := m.TTL
@@ -90,13 +88,8 @@ func (f Flash) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return f, nil
 }
 
-// View implements tea.Model. Pages typically use Render(theme)
-// directly so they can apply per-frame styling; View exists only to
-// satisfy the interface.
-func (f Flash) View() tea.View { return tea.NewView(f.text) }
-
-// Text returns the active flash text. Used by tests and by callers
-// that need the unstyled message (e.g. accessibility / log lines).
+// Text returns the active flash text. Used by callers that need
+// the unstyled message (e.g. accessibility / log lines).
 func (f Flash) Text() string { return f.text }
 
 // IsActive reports whether the flash currently has visible text.

@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package footer renders the bottom strip of the TUI: crumbs,
-// prompt, flash. Each subcomponent is its own tea.Model so the app
-// shell (#22) can compose them in any order — there's no
-// aggregating Model in this package, by design.
+// prompt, flash. Each subcomponent is a value-typed bubble: Update
+// returns its concrete type (not tea.Model) so callers don't pay
+// for a type assertion and the receiver type is unambiguous in
+// reviews. The app shell (#22) composes them as fields and forwards
+// messages explicitly; there's no aggregating tea.Model in this
+// package, by design.
 package footer
 
 import (
 	"strings"
-
-	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -28,20 +29,6 @@ type Crumbs struct {
 
 // NewCrumbs constructs an empty Crumbs.
 func NewCrumbs() Crumbs { return Crumbs{} }
-
-// Init implements tea.Model. The crumb strip has no startup work.
-func (Crumbs) Init() tea.Cmd { return nil }
-
-// Update implements tea.Model. Crumbs are stateless w.r.t. messages
-// — the app shell rebuilds them via Set/Push/Pop. Update is a no-op
-// so Crumbs can be embedded in any larger Model without colliding
-// on message routing.
-func (c Crumbs) Update(_ tea.Msg) (tea.Model, tea.Cmd) { return c, nil }
-
-// View implements tea.Model. Pages typically use Render(theme)
-// directly so they can apply per-frame styling; View exists only to
-// satisfy the interface.
-func (Crumbs) View() tea.View { return tea.NewView("") }
 
 // Render produces the styled crumb strip given the theme. The last
 // entry (top-of-stack) gets the active highlight; everything else
