@@ -163,6 +163,13 @@ func compile(s skinFile) (*Styles, error) {
 
 // resolve looks up a palette ref. Returns an error naming the role
 // and the offending key so the user can fix the right field.
+//
+// `key` is a palette name (e.g. "blue"), NOT a hex literal. The
+// schema validator already rejects malformed hex in the palette
+// block, and roles deliberately reference palette keys by name so
+// renaming a colour is one edit. Chains (`palette.foo: bar` where
+// `bar` is itself a palette key) are not supported — palette values
+// must always be hex literals per `validate()`.
 func resolve(palette map[string]string, role, key string) (color.Color, error) {
 	if key == "" {
 		return nil, fmt.Errorf("role %q: missing palette ref", role)

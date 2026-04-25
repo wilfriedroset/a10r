@@ -12,7 +12,16 @@
 // rendered, filtered, or queried without spinning up a tea.Program.
 package action
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrDuplicate is the sentinel wrapped in the Register panic value
+// when a (View, Key) pair is already bound. Tests assert via
+// errors.Is rather than literal-string match so a future tweak to
+// the panic message format does not break the contract.
+var ErrDuplicate = errors.New("duplicate action registration")
 
 // Action is one keybinding's metadata. Run is intentionally NOT
 // part of this struct — coupling actions to tea.Cmd here would pull
@@ -78,11 +87,14 @@ func New() *Registry {
 // shadow the first. Production code registers bindings once during
 // page construction; tests and the help overlay never need a
 // dynamic Register/Unregister cycle.
+//
+// The panic value wraps ErrDuplicate so tests can assert via
+// errors.Is(recovered, ErrDuplicate) without coupling to the exact
+// message format.
 func (r *Registry) Register(a Action) {
 	k := registryKey{View: a.View, Key: a.Key}
 	if _, dup := r.seen[k]; dup {
-		panic(fmt.Sprintf("action.Registry: duplicate registration for view=%q key=%q",
-			a.View, a.Key))
+		panic(fmt.Errorf("%w: view=%q key=%q", ErrDuplicate, a.View, a.Key))
 	}
 	r.seen[k] = struct{}{}
 	r.actions = append(r.actions, a)
@@ -91,6 +103,9 @@ func (r *Registry) Register(a Action) {
 // Hints returns the actions visible for the given view, plus any
 // global (View=="") actions, in registration order. The J1 header
 // hint strip and the help overlay both render this slice.
+//
+// Returned slice is a fresh copy: mutating it does not affect the
+// registry. Symmetric with All() and Filter().
 func (r *Registry) Hints(view string) []Action {
 	out := make([]Action, 0, len(r.actions))
 	for _, a := range r.actions {
@@ -110,6 +125,9 @@ func (r *Registry) Hints(view string) []Action {
 // Callers compose them: `r.Filter(readOnly)` then per-view filter,
 // or `r.Hints(view)` then per-call read-only filter, depending on
 // whether they need the global cross-view list or a single view's.
+//
+// Returned slice is a fresh copy: mutating it does not affect the
+// registry. Symmetric with All() and Hints().
 func (r *Registry) Filter(readOnly bool) []Action {
 	if !readOnly {
 		return r.All()

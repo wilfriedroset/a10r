@@ -65,10 +65,13 @@ var chordPrefix = map[string]string{
 }
 
 // Dispatcher routes key events through the precedence stack with
-// chord-buffer support. Construct via New; safe for use from one
-// goroutine (the bubbletea Update loop). All state mutation happens
-// inside Dispatch / HandleChordExpired so callers don't need to
-// lock around access.
+// chord-buffer support. Construct via New.
+//
+// Not safe for concurrent use. The dispatcher mutates internal
+// chord state on every Dispatch / HandleChordExpired call and is
+// intended for the single-goroutine bubbletea Update loop. Callers
+// that need fan-out from multiple goroutines must wrap with their
+// own synchronisation.
 type Dispatcher struct {
 	layers [numLayers]KeyMap
 

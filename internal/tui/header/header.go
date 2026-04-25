@@ -89,17 +89,39 @@ const truncationMarker = "…"
 // dropped entirely rather than rendered as a meaningless `…`.
 const minMiddleWidth = 4
 
+// middleBreathingCols is the gap reserved between the middle zone
+// and the right zone so they don't visually run together when the
+// content slot is filled.
+const middleBreathingCols = 2
+
+// MinSensibleWidth is the floor below which the renderer no longer
+// guarantees the width-padding invariant. The left zone's required
+// content (tenants + glyph + count + age) can itself exceed very
+// small widths, and ANSI-aware truncation of styled left-zone
+// output is intentionally out of scope for v0.1. Pages should never
+// see a tea.WindowSizeMsg below this width on any modern terminal.
+const MinSensibleWidth = 50
+
 // Render produces the styled header string for state. Returns
 // width-padded output exactly state.Width columns wide so the
 // caller can paste it into a vertical layout without further
-// alignment.
+// alignment — provided state.Width >= MinSensibleWidth. At narrower
+// widths the right zone shrinks (dropping trailing hints, never
+// the left zone), so output may exceed state.Width when the left
+// zone's required content alone is wider.
 func Render(state State, styles theme.Styles) string {
 	left := renderLeft(state, styles)
-	right := renderHints(state.Hints, styles)
-
 	leftWidth := lipgloss.Width(left)
+
+	// Bound the right zone so the total stays within state.Width.
+	// Drop trailing hints (least important per registration order)
+	// until the strip fits the budget; the `?` help action — which
+	// pages register last — survives drops longest.
+	rightBudget := max(state.Width-leftWidth-minMiddleWidth, 0)
+	right := renderHintsWithBudget(state.Hints, rightBudget, styles)
 	rightWidth := lipgloss.Width(right)
-	middleBudget := state.Width - leftWidth - rightWidth - 2 // 2 cols of breathing room
+
+	middleBudget := state.Width - leftWidth - rightWidth - middleBreathingCols
 	middle := renderMiddle(state.Content, middleBudget, styles)
 	middleWidth := lipgloss.Width(middle)
 
@@ -107,6 +129,25 @@ func Render(state State, styles theme.Styles) string {
 	spacer := strings.Repeat(" ", gap)
 
 	return styles.Header.Default.Render(left + middle + spacer + right)
+}
+
+// renderHintsWithBudget formats the hint strip and drops trailing
+// entries until it fits the budget. Pages should register the most
+// important affordances first so the drop-from-end strategy keeps
+// the highest-priority hints visible at narrow widths.
+func renderHintsWithBudget(hints []action.Action, budget int, styles theme.Styles) string {
+	if len(hints) == 0 || budget <= 0 {
+		return ""
+	}
+	current := hints
+	for len(current) > 0 {
+		out := renderHints(current, styles)
+		if lipgloss.Width(out) <= budget {
+			return out
+		}
+		current = current[:len(current)-1]
+	}
+	return ""
 }
 
 // renderLeft formats the tenant indicator + glyph + count + age.

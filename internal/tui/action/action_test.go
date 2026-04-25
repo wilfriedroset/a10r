@@ -105,12 +105,18 @@ func TestRegistry_DuplicatePanics(t *testing.T) {
 	r := New()
 	r.Register(Action{Key: "s", View: "alerts"})
 
-	require.PanicsWithValue(t,
-		`action.Registry: duplicate registration for view="alerts" key="s"`,
-		func() {
-			r.Register(Action{Key: "s", View: "alerts"})
-		},
-		"duplicate (view, key) must panic at startup so the bug surfaces in dev rather than runtime")
+	defer func() {
+		recovered := recover()
+		require.NotNil(t, recovered, "duplicate (view, key) must panic at startup")
+		err, ok := recovered.(error)
+		require.True(t, ok, "panic value must be an error wrapping ErrDuplicate, got %T", recovered)
+		require.ErrorIs(t, err, ErrDuplicate)
+		require.Contains(t, err.Error(), `view="alerts"`,
+			"error must name the offending view so the dev knows where the duplicate is")
+		require.Contains(t, err.Error(), `key="s"`,
+			"error must name the offending key")
+	}()
+	r.Register(Action{Key: "s", View: "alerts"})
 }
 
 func TestRegistry_SameKeyDifferentViewIsAllowed(t *testing.T) {

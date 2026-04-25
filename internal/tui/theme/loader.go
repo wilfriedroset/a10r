@@ -3,6 +3,7 @@
 package theme
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -137,9 +138,17 @@ func bundledExists(name string) bool {
 
 // parseAndCompile is the shared parse → validate → compile pipeline
 // used by both the user and bundled paths.
+//
+// Strict-mode YAML decoding (KnownFields(true)) means a typo in a
+// top-level role block — `bocy:` instead of `body:` — surfaces here
+// with a precise field-name error rather than a downstream
+// "missing palette ref" leaf error from compile().
 func parseAndCompile(raw []byte, name string) (*Styles, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+
 	var f skinFile
-	if err := yaml.Unmarshal(raw, &f); err != nil {
+	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("%w: %q: %w", ErrInvalidSkin, name, err)
 	}
 	if err := f.validate(); err != nil {

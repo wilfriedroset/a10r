@@ -212,6 +212,38 @@ func TestHandleChordExpired_NoPendingChord(t *testing.T) {
 	require.Nil(t, cmd, "expired tick with no pending chord is a no-op")
 }
 
+func TestHandleChordExpired_RoundTripClearsState(t *testing.T) {
+	t.Parallel()
+
+	// The full round-trip path: chord prefix arrives → tea.Tick is
+	// scheduled → no second key arrives → ChordExpiredMsg routes
+	// back through HandleChordExpired → chord state is cleared and
+	// the next "g" starts a fresh chord rather than completing the
+	// previous one.
+	clock := newFakeClock()
+	d := New(clock)
+	d.Set(LayerTable, "gg", func() tea.Cmd { return nil })
+
+	consumed, cmd := d.Dispatch("g")
+	require.True(t, consumed)
+	require.NotNil(t, cmd, "chord prefix must schedule a tick")
+
+	// Simulate the tea.Tick firing at the exact expiry time.
+	expiredAt := clock.Now().Add(ChordTimeout)
+	expiredCmd := d.HandleChordExpired(ChordExpiredMsg{At: expiredAt})
+	require.Nil(t, expiredCmd, "v0.1 has no single-g binding to fall back to")
+
+	// Now any g must start a fresh chord, NOT complete the original.
+	r := &recorder{}
+	d.Set(LayerTable, "gg", r.handler("first row"))
+	clock.advance(ChordTimeout + time.Millisecond) // ensure now > original expiry
+	consumed2, cmd2 := d.Dispatch("g")
+	require.True(t, consumed2)
+	require.NotNil(t, cmd2, "fresh g must schedule its own tick")
+	require.EqualValues(t, 0, r.count.Load(),
+		"the original chord must NOT have completed retroactively after expiry")
+}
+
 func TestSet_OverwritesSilently(t *testing.T) {
 	t.Parallel()
 

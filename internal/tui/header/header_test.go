@@ -207,6 +207,67 @@ func TestRender_PadsToFullWidth(t *testing.T) {
 		"rendered header must occupy exactly state.Width columns")
 }
 
+func TestRender_WidthInvariantHoldsAtNarrowWidths(t *testing.T) {
+	t.Parallel()
+
+	// Regression test for the bug where a small Width caused the
+	// right zone to overflow because the middleBudget went negative
+	// and the gap clamped to zero. The right zone must shrink
+	// (dropping trailing hints) to keep the total within Width.
+	styles := loadDefaultStyles(t)
+	hints := []action.Action{
+		{Key: "s", Description: "silence", View: "alerts"},
+		{Key: "Ctrl+S", Description: "bulk silence", View: "alerts"},
+		{Key: "?", Description: "help", View: ""},
+	}
+
+	// At MinSensibleWidth and above, the invariant always holds even
+	// when content + hints overflow. Below MinSensibleWidth the
+	// header documents that left-zone overflow may occur (ANSI-
+	// aware truncation of the styled left zone is out of scope for
+	// v0.1).
+	for _, width := range []int{MinSensibleWidth, 60, 80, 120, 200} {
+		out := Render(State{
+			Tenants: "prod",
+			Conn:    ConnConnected,
+			Count:   "142 alerts",
+			Age:     "5s ago",
+			Content: "filter: severity=critical AND alertname=~High.*",
+			Hints:   hints,
+			Width:   width,
+		}, styles)
+		require.Equal(t, width, lipgloss.Width(out),
+			"width=%d (>= MinSensibleWidth): rendered header must occupy exactly width columns even when content + hints overflow",
+			width)
+	}
+}
+
+func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
+	t.Parallel()
+
+	styles := loadDefaultStyles(t)
+	hints := []action.Action{
+		{Key: "s", Description: "silence"},
+		{Key: "Ctrl+S", Description: "bulk silence"},
+		{Key: "?", Description: "help"},
+	}
+
+	// Generous budget keeps everything.
+	full := renderHintsWithBudget(hints, 200, styles)
+	require.Contains(t, stripStyle(full), "[s]")
+	require.Contains(t, stripStyle(full), "[Ctrl+S]")
+	require.Contains(t, stripStyle(full), "[?]")
+
+	// Tight budget drops trailing entries — `[s]` (registered first)
+	// should survive longer than `[?]` (registered last).
+	tight := renderHintsWithBudget(hints, 12, styles)
+	require.Contains(t, stripStyle(tight), "[s]",
+		"the first-registered hint must survive at the tightest budget")
+
+	// Zero budget renders nothing.
+	require.Empty(t, renderHintsWithBudget(hints, 0, styles))
+}
+
 func TestFormatAge(t *testing.T) {
 	t.Parallel()
 
