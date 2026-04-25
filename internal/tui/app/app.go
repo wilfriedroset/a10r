@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -116,10 +117,16 @@ func (a *App) registerGlobalBindings() {
 	// / PromptCancelled messages are handled by handleInput later.
 	a.dispatcher.Set(keys.LayerGlobal, ":", a.openPromptCmd(footer.PromptCommand))
 	a.dispatcher.Set(keys.LayerGlobal, "/", a.openPromptCmd(footer.PromptFilter))
-	// `?` reaches the help overlay in #37; today it's a placeholder
-	// that flashes a friendly message so users discover the binding.
+	// `?` opens the help overlay. The overlay reads the active page's
+	// crumb to label its per-view section, and respects read-only
+	// mode by hiding Dangerous bindings.
 	a.dispatcher.Set(keys.LayerGlobal, "?", func() tea.Cmd {
-		return showFlash(footer.FlashInfo, "help overlay arrives in #37")
+		return OpenModal(func() modal.Modal {
+			return help.New(help.Options{
+				Registry: a.registry,
+				View:     a.activeViewLabel(),
+			})
+		})
 	})
 }
 
@@ -335,6 +342,16 @@ func (a *App) topPage() Page {
 		return nil
 	}
 	return a.stack[len(a.stack)-1]
+}
+
+// activeViewLabel returns the top page's crumb (used by the help
+// overlay to label its per-view section). Empty when no page is
+// pushed.
+func (a *App) activeViewLabel() string {
+	if p := a.topPage(); p != nil {
+		return p.Crumb()
+	}
+	return ""
 }
 
 // handleKey routes a single key event. Precedence:

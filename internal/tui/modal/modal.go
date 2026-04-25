@@ -43,10 +43,20 @@ type Modal interface {
 // auto-close path switches on this interface so any future modal
 // type whose result implements ResultMsg gets correct routing for
 // free — the App does NOT enumerate the concrete result types
-// directly. Picker and Confirm result types both implement it.
+// directly. Picker, Confirm, and Help result types implement it.
 type ResultMsg interface {
-	// modalResult is unexported so only types declared in this
-	// package can satisfy the interface — that's the safety net
-	// against accidental matches by unrelated tea.Msg types.
-	modalResult()
+	// IsModalResult is the marker method. The empty body makes
+	// satisfaction explicit (an unrelated tea.Msg can't accidentally
+	// match) while still letting modals declared in other packages
+	// — like the help overlay — implement the interface.
+	IsModalResult()
 }
+
+// HelpClosedMsg is emitted when the help overlay is dismissed.
+// Lives in this package (rather than internal/tui/help) so that
+// other modals don't need to reach across packages to satisfy
+// ResultMsg.
+type HelpClosedMsg struct{}
+
+// IsModalResult satisfies ResultMsg.
+func (HelpClosedMsg) IsModalResult() {}

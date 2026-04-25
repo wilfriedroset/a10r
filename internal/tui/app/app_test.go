@@ -109,7 +109,7 @@ func TestApp_QQuits(t *testing.T) {
 	require.IsType(t, tea.QuitMsg{}, cmd())
 }
 
-func TestApp_HelpKeyFlashes(t *testing.T) {
+func TestApp_HelpKeyOpensModal(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -117,16 +117,9 @@ func TestApp_HelpKeyFlashes(t *testing.T) {
 
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	a = updated.(*App)
-	require.NotNil(t, cmd, "? must produce the placeholder flash")
-
-	// Run the cmd — bubbletea would do this — and feed the resulting
-	// FlashShowMsg back through Update so the flash becomes active.
-	msg := cmd()
-	require.IsType(t, footer.FlashShowMsg{}, msg)
-	updated, _ = a.Update(msg)
-	a = updated.(*App)
-	require.True(t, a.flash.IsActive(), "flash must become active after ?")
-	require.Contains(t, a.flash.Text(), "help overlay")
+	require.NotNil(t, cmd, "? must produce a Cmd that opens the help overlay")
+	drive(t, a, cmd)
+	require.NotNil(t, a.modal, "? must open the help modal")
 }
 
 func TestApp_UnknownKeyIsNoOp(t *testing.T) {

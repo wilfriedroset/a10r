@@ -28,7 +28,8 @@ type ConfirmResultMsg struct {
 	Cancelled bool
 }
 
-func (ConfirmResultMsg) modalResult() {}
+// IsModalResult satisfies ResultMsg.
+func (ConfirmResultMsg) IsModalResult() {}
 
 // Confirm is a yes/no dialog. Default-No matches keybindings.md
 // where every destructive flow shows a confirm before acting.

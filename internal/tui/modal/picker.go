@@ -33,12 +33,14 @@ type PickerSubmittedMsg struct {
 	Selections []string
 }
 
-func (PickerSubmittedMsg) modalResult() {}
+// IsModalResult satisfies ResultMsg.
+func (PickerSubmittedMsg) IsModalResult() {}
 
 // PickerCancelledMsg is emitted on Esc. Carries no selection.
 type PickerCancelledMsg struct{}
 
-func (PickerCancelledMsg) modalResult() {}
+// IsModalResult satisfies ResultMsg.
+func (PickerCancelledMsg) IsModalResult() {}
 
 // Picker is the fuzzy-matched item picker per C3 / k9s audit §3.
 // Items are rendered top-down with the cursor highlighted; typing
