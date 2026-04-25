@@ -1,0 +1,4 @@
+backends:
+  - name: typo-backend
+    url: http://localhost:9093
+    pollInterval: 30s

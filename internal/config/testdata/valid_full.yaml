@@ -1,0 +1,44 @@
+defaults:
+  poll_interval: 30s
+  read_only: false
+  log_format: json
+
+theme:
+  name: gruvbox-dark
+
+log:
+  path: /var/log/a10r/a10r.log
+  level: info
+
+backends:
+  - name: prod-vanilla
+    url: https://am-prod.internal
+    auth:
+      type: bearer
+      bearer:
+        token: ${A10R_PROD_TOKEN}
+
+  - name: staging-mimir
+    url: https://mimir-staging.internal
+    prefix: /alertmanager
+    tenant_header: X-Scope-OrgID
+    tenant: tenant-a
+    capabilities:
+      config_api: true
+      tenant_admin: true
+      ring: false
+    auth:
+      type: basic
+      basic:
+        username: a10r-bot
+        password: ${A10R_STAGING_PASS}
+    poll_interval: 10s
+    read_only: true
+
+  - name: gateway-headers
+    url: https://am-via-gateway.example
+    auth:
+      type: header
+      header:
+        name: X-Gateway-Token
+        value: ${A10R_GW_TOKEN}
