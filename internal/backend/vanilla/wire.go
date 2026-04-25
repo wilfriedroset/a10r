@@ -93,3 +93,20 @@ type wireVersionInfo struct {
 type wireConfigBlock struct {
 	Original string `json:"original"`
 }
+
+// wirePostableSilence is the POST /api/v2/silences body. The id
+// field is omitted for creates and set for updates — Alertmanager
+// distinguishes by its presence per audit §1.2.
+type wirePostableSilence struct {
+	ID        string        `json:"id,omitempty"`
+	Matchers  []wireMatcher `json:"matchers"`
+	StartsAt  time.Time     `json:"startsAt"`
+	EndsAt    time.Time     `json:"endsAt"`
+	CreatedBy string        `json:"createdBy"`
+	Comment   string        `json:"comment"`
+}
+
+// wirePostSilenceResponse is the success body of POST /api/v2/silences.
+type wirePostSilenceResponse struct {
+	SilenceID string `json:"silenceID"`
+}

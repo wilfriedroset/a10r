@@ -14,6 +14,7 @@
 package vanilla
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,15 +22,21 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
 
-// Compile-time assertion that the partial implementation in v0.1
-// satisfies backend.Reader. The full backend.Client (including
-// Writer) is asserted in #13 once the silence write paths land.
-var _ backend.Reader = (*Client)(nil)
+// Compile-time assertions: *Client implements every facet of the
+// public backend interface set. Reader and Writer are asserted
+// individually so a future split or rename trips the build at the
+// narrowest call site.
+var (
+	_ backend.Reader = (*Client)(nil)
+	_ backend.Writer = (*Client)(nil)
+	_ backend.Client = (*Client)(nil)
+)
 
 // Default request timeout when ClientConfig.Timeout is zero. Picked
 // large enough for a slow backend with thousands of alerts but
@@ -146,8 +153,68 @@ func (c *Client) doGet(ctx context.Context, fullURL string, dst any) error {
 	return nil
 }
 
+// doPost executes a POST with a JSON body and (optionally) decodes
+// the JSON response. Mirrors doGet's error contract.
+func (c *Client) doPost(ctx context.Context, fullURL string, body, dst any) error {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(encoded))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := classifyStatus(resp); err != nil {
+		return err
+	}
+
+	if dst == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}
+
+// doDelete executes a DELETE and discards any response body. Same
+// error contract as doGet.
+func (c *Client) doDelete(ctx context.Context, fullURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := classifyStatus(resp); err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
 // classifyStatus maps an HTTP status code to a backend sentinel or a
-// transient error. Returns nil for 2xx.
+// transient error. Returns nil for 2xx. For 4xx codes that aren't
+// 401/403/429 the body is read so the user sees the server's
+// message (Alertmanager surfaces validation failures as plain-text
+// 400 bodies). Reading consumes resp.Body — only safe to call on
+// errors, where downstream JSON decoding would not run anyway.
 func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -158,5 +225,10 @@ func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return &transientError{status: resp.StatusCode}
 	}
-	return fmt.Errorf("unexpected HTTP %d", resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	msg := strings.TrimSpace(string(body))
+	if msg == "" {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
 }

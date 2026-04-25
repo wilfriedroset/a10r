@@ -83,6 +83,31 @@ func toReceiver(w wireReceiver) backend.Receiver {
 	return backend.Receiver{Name: w.Name}
 }
 
+// toWireMatcher is the outbound conversion (domain → wire) used by
+// CreateSilence/UpdateSilence. IsEqual is always emitted explicitly
+// (pointer-to-bool, never nil) so the server sees the user's intent
+// rather than relying on a server-side default.
+func toWireMatcher(m backend.Matcher) wireMatcher {
+	isEqual := m.IsEqual
+	return wireMatcher{
+		Name:    m.Name,
+		Value:   m.Value,
+		IsRegex: m.IsRegex,
+		IsEqual: &isEqual,
+	}
+}
+
+func toWireMatchers(in []backend.Matcher) []wireMatcher {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]wireMatcher, 0, len(in))
+	for _, m := range in {
+		out = append(out, toWireMatcher(m))
+	}
+	return out
+}
+
 // toStatus converts /api/v2/status. Uptime is computed at decode
 // time as `time.Since(wire.uptime)` — the wire format is the start
 // timestamp, but the backend.Status type carries a duration so the
