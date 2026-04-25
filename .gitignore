@@ -1,0 +1,20 @@
+# Build artifacts
+/a10r
+/dist/
+coverage.out
+*.test
+*.prof
+
+# Go workspace files (not used in this single-module repo)
+go.work
+go.work.sum
+
+# Editor / IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

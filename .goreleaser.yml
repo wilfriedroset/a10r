@@ -15,50 +15,50 @@ env:
 
 builds:
   - id: linux
-    main: ./cmd/a10r
     binary: a10r
     goos: [linux]
     goarch: [amd64, arm64, arm]
     goarm: ["7"]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
+      - -s -w
+      - -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
+      - -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
+      - -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
 
   - id: freebsd
-    main: ./cmd/a10r
     binary: a10r
     goos: [freebsd]
     goarch: [amd64, arm64]
     goarm: ["7"]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
+      - -s -w
+      - -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
+      - -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
+      - -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
 
   - id: osx
-    main: ./cmd/a10r
     binary: a10r
     goos: [darwin]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
+      - -s -w
+      - -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
+      - -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
+      - -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
 
   - id: windows
-    main: ./cmd/a10r
     binary: a10r
     goos: [windows]
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags:
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
-      - -s -w -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
+      - -s -w
+      - -X github.com/wilfriedroset/a10r/cmd.version=v{{.Version}}
+      - -X github.com/wilfriedroset/a10r/cmd.commit={{.Commit}}
+      - -X github.com/wilfriedroset/a10r/cmd.date={{.Date}}
 
 universal_binaries:
   - id: osx
