@@ -36,16 +36,28 @@ func (m PromptMode) prefixRune() rune {
 }
 
 // PromptSubmittedMsg is emitted when the user presses Enter on an
-// open prompt. The app shell (#22) routes this to whatever consumer
-// owns the active mode (alias resolver for command, page filter
-// state for filter).
+// open prompt. The app shell (#22) routes command-mode submissions
+// through the cmdbar resolver and forwards filter-mode submissions
+// to the top page so the page can apply the filter.
 type PromptSubmittedMsg struct {
 	Mode  PromptMode
 	Value string
 }
 
-// PromptCancelledMsg is emitted on Esc with no submission. Callers
-// typically restore the previous filter state on this signal.
+// PromptOpenedMsg is forwarded to the top page when a filter
+// prompt opens. Pages that want "snapshot filter on /-press,
+// restore on Esc" semantics use this hook to capture their pre-
+// filter state. Command mode does NOT emit this — the resolver
+// owns command-mode submissions end-to-end and the page is not
+// involved.
+type PromptOpenedMsg struct {
+	Mode PromptMode
+}
+
+// PromptCancelledMsg is emitted on Esc with no submission. Filter-
+// mode cancellations flow through to the top page, which is
+// expected to restore the snapshot it took on PromptOpenedMsg.
+// Command-mode cancellations terminate at the App.
 type PromptCancelledMsg struct {
 	Mode PromptMode
 }

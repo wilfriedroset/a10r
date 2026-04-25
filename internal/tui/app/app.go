@@ -10,12 +10,14 @@
 package app
 
 import (
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
@@ -37,6 +39,12 @@ type Options struct {
 	// Dispatcher routes key events through the precedence stack. The
 	// app shell pre-populates the global layer in NewApp.
 	Dispatcher *keys.Dispatcher
+	// CmdBar resolves `:` command-bar aliases to tea.Cmds. Optional —
+	// nil falls back to a freshly-constructed empty resolver, in
+	// which case every `:command` flashes "unknown command". Pages
+	// and the wiring layer (cmd/tui.go) populate the resolver before
+	// the program runs.
+	CmdBar *cmdbar.Resolver
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -48,6 +56,7 @@ type App struct {
 	styles     theme.Styles
 	registry   *action.Registry
 	dispatcher *keys.Dispatcher
+	cmdbar     *cmdbar.Resolver
 
 	crumbs footer.Crumbs
 	prompt footer.Prompt
@@ -75,10 +84,15 @@ type App struct {
 // Page-specific layers and the table-context layer remain unbound
 // until #23 / #27 wire them in.
 func NewApp(opts Options) *App {
+	resolver := opts.CmdBar
+	if resolver == nil {
+		resolver = cmdbar.New()
+	}
 	a := &App{
 		styles:     opts.Styles,
 		registry:   opts.Registry,
 		dispatcher: opts.Dispatcher,
+		cmdbar:     resolver,
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(),
 		flash:      footer.NewFlash(),
@@ -88,9 +102,8 @@ func NewApp(opts Options) *App {
 }
 
 // registerGlobalBindings wires the keybindings.md §Global entries
-// the app shell owns directly. Other globals (`:`, `/`, `Ctrl+T`,
-// numeric tenant quick-switch) ship with their respective subsystems
-// so each can be unit-tested in isolation.
+// the app shell owns directly. Tenant quick-switch (#35) ships
+// with its own subsystem so it can be unit-tested in isolation.
 func (a *App) registerGlobalBindings() {
 	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+C", func() tea.Cmd { return tea.Quit })
 	a.dispatcher.Set(keys.LayerGlobal, "q", func() tea.Cmd { return tea.Quit })
@@ -98,11 +111,51 @@ func (a *App) registerGlobalBindings() {
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
 	a.dispatcher.Set(keys.LayerGlobal, "Esc", PopPage)
+	// `:` opens the command bar; `/` opens the filter prompt. The
+	// dispatcher only fires the open; the resulting PromptSubmitted
+	// / PromptCancelled messages are handled by handleInput later.
+	a.dispatcher.Set(keys.LayerGlobal, ":", a.openPromptCmd(footer.PromptCommand))
+	a.dispatcher.Set(keys.LayerGlobal, "/", a.openPromptCmd(footer.PromptFilter))
 	// `?` reaches the help overlay in #37; today it's a placeholder
 	// that flashes a friendly message so users discover the binding.
 	a.dispatcher.Set(keys.LayerGlobal, "?", func() tea.Cmd {
 		return showFlash(footer.FlashInfo, "help overlay arrives in #37")
 	})
+}
+
+// openPromptCmd returns a Handler that opens the bottom-strip
+// prompt in the given mode. State mutation runs synchronously when
+// the dispatcher fires; for filter mode, an Opened message
+// reaches the top page so it can snapshot pre-filter state per
+// PromptOpenedMsg's contract.
+func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
+	return func() tea.Cmd {
+		a.prompt = a.prompt.Open(mode)
+		if mode == footer.PromptFilter {
+			return func() tea.Msg { return footer.PromptOpenedMsg{Mode: mode} }
+		}
+		return nil
+	}
+}
+
+// handlePromptSubmitted routes a prompt's submission. Command
+// values go through cmdbar.Resolve; unknown / ambiguous errors
+// surface as Warn flashes; empty input is silent so the user can
+// back out of an open `:` prompt by pressing Enter without typing.
+// Filter values flow through to the top page, which decides what a
+// filter string means in its own context.
+func (a *App) handlePromptSubmitted(m footer.PromptSubmittedMsg) tea.Cmd {
+	if m.Mode == footer.PromptFilter {
+		return a.forwardToTop(m)
+	}
+	cmd, err := a.cmdbar.Resolve(m.Value)
+	if err == nil {
+		return cmd
+	}
+	if errors.Is(err, cmdbar.ErrEmpty) {
+		return nil
+	}
+	return showFlash(footer.FlashWarn, err.Error())
 }
 
 // Init implements tea.Model.
@@ -165,10 +218,16 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 // (cmd, true) when handled.
 func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
-	case footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		// Routing of the resolved value is wired in #26. For now we
-		// only acknowledge so the prompt's Cmd doesn't bubble up to
-		// bubbletea's default handler (which would log a warning).
+	case footer.PromptSubmittedMsg:
+		return a.handlePromptSubmitted(m), true
+	case footer.PromptCancelledMsg:
+		// Filter cancellations flow through to the top page so a
+		// page that snapshotted its filter state on prompt-open can
+		// roll back. Command cancellations terminate at the App;
+		// no observable state change.
+		if m.Mode == footer.PromptFilter {
+			return a.forwardToTop(m), true
+		}
 		return nil, true
 	case tea.PasteMsg:
 		if a.prompt.IsOpen() {

@@ -4,6 +4,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -79,9 +80,11 @@ func (p *fakePage) Bindings() []action.Action { return p.hints }
 // popPageMsg) and chained Init / Close cmds inside a test without
 // booting tea.NewProgram.
 //
-// Time-sensitive Cmds (tea.Tick et al.) are not supported — they
-// would block the test on a wall-clock wait. The page stack tests
-// only use immediate Cmds, which makes the worklist a finite walk.
+// Time-sensitive Cmds (tea.Tick from flash auto-clear, poll
+// scheduling) are skipped — drive runs each cmd in a goroutine
+// with a small wall-clock budget; cmds that don't return in time
+// are abandoned. Test setups that want to observe a tick must
+// inject the resulting message directly.
 func drive(t *testing.T, a *App, cmd tea.Cmd) {
 	t.Helper()
 	queue := []tea.Cmd{cmd}
@@ -90,13 +93,34 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 		if cmd == nil {
 			continue
 		}
-		msg := cmd()
-		if msg == nil {
+		msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+		if !ok || msg == nil {
 			continue
 		}
 		updated, next := a.Update(msg)
 		require.Same(t, a, updated, "Update must return the same App pointer")
 		queue = append(queue, next)
+	}
+}
+
+// runWithBudget runs cmd in a goroutine and returns its message if
+// it resolves within d; otherwise reports !ok and abandons the
+// goroutine to finish on its own.
+//
+// The abandoned goroutine eventually completes (tea.Tick fires its
+// timer, sends to the buffered channel, and exits) so the leak is
+// bounded by the longest TTL × test count, not unbounded. With the
+// flash TTL at 4s and ~20 cmdbar tests this peaks at ~80 parked
+// goroutines for ~4s — well under the runtime's limits and
+// invisible to -race within a normal test run.
+func runWithBudget(cmd tea.Cmd, d time.Duration) (tea.Msg, bool) {
+	ch := make(chan tea.Msg, 1) // buffered: abandoned goroutines never block
+	go func() { ch <- cmd() }()
+	select {
+	case msg := <-ch:
+		return msg, true
+	case <-time.After(d):
+		return nil, false
 	}
 }
 
