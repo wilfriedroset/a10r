@@ -1,0 +1,17 @@
+---
+# Minimal Alertmanager config for the local smoke environment.
+# Mounted read-only into the prom/alertmanager:v0.28.1 container by
+# `make am-up`. The single null receiver is enough to satisfy AM's
+# config validator without sending real notifications.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'null'
+  group_wait: 0s
+  group_interval: 1m
+  repeat_interval: 1h
+
+receivers:
+  - name: 'null'
