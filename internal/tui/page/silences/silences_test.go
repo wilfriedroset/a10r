@@ -81,6 +81,29 @@ func TestPage_DataMsgPopulatesAndSortsByEndsAtAscending(t *testing.T) {
 	require.Equal(t, "late", p.view[2].ID)
 }
 
+func TestPage_SortShortcutTogglesDirection(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	require.Equal(t, SortByEndsAt, p.sort)
+	require.True(t, p.sortAsc)
+
+	// Same column shortcut flips direction.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	require.Equal(t, SortByEndsAt, p.sort)
+	require.False(t, p.sortAsc)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
+	require.True(t, p.sortAsc)
+
+	// Different column resets to default direction.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
+	require.Equal(t, SortByCreatedBy, p.sort)
+	require.True(t, p.sortAsc)
+	// And then toggles on repeat.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
+	require.False(t, p.sortAsc)
+}
+
 func TestPage_SortByCreatedBy(t *testing.T) {
 	t.Parallel()
 

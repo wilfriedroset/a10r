@@ -181,22 +181,42 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	return true
 }
 
+// handleSort processes sort-column shortcuts. Same column twice
+// flips ASC↔DESC; switching to a new column resets direction to
+// that column's default — matching the spreadsheet-style UX.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	switch m.String() {
 	case "shift+e", "E":
-		p.sort = SortByEndsAt
+		p.applySort(SortByEndsAt)
 	case "shift+s", "S":
-		p.sort = SortByStartsAt
+		p.applySort(SortByStartsAt)
 	case "shift+c", "C":
-		p.sort = SortByCreatedBy
+		p.applySort(SortByCreatedBy)
 	case "shift+t", "T":
-		p.sort = SortByState
+		p.applySort(SortByState)
 	default:
 		return false
 	}
-	p.recompute()
 	return true
 }
+
+// applySort updates sort key and direction. Same key twice flips
+// ASC↔DESC; new key resets to that column's default direction.
+func (p *Page) applySort(k SortKey) {
+	if p.sort == k {
+		p.sortAsc = !p.sortAsc
+	} else {
+		p.sort = k
+		p.sortAsc = defaultAsc(k)
+	}
+	p.recompute()
+}
+
+// defaultAsc returns the direction the column reads naturally
+// when first activated. EndsAt is ASC so soonest-expiring shows
+// first (the operator-priority "what's about to come back");
+// everything else is also ASC for consistency.
+func defaultAsc(_ SortKey) bool { return true }
 
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {

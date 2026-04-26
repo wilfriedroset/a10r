@@ -260,30 +260,55 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 // handleSort processes sort-column shortcuts (h/l walk plus
 // Shift+letter direct shortcuts). Returns true when the key was
 // a sort change.
+//
+// Direction semantics: pressing the active column's shortcut
+// again flips ASC/DESC; pressing a different column's shortcut
+// resets to that column's default direction. h/l walk also
+// resets to default for the new column. This matches the spreadsheet-
+// style "click again to invert" UX users expect.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	switch m.String() {
 	case "h", "left":
-		p.sort = prevSort(p.sort)
+		p.applySort(prevSort(p.sort))
 	case "l", "right":
-		p.sort = nextSort(p.sort)
+		p.applySort(nextSort(p.sort))
 	case "shift+s", "S":
-		p.sort = SortBySeverity
+		p.applySort(SortBySeverity)
 	case "shift+n", "N":
-		p.sort = SortByName
+		p.applySort(SortByName)
 	case "shift+t", "T":
-		p.sort = SortByState
+		p.applySort(SortByState)
 	case "shift+a", "A":
 		// `Shift+A` sorts by age. keybindings.md uses Shift+R for
 		// receivers (a column we don't ship in v0.1) — the Age
 		// column gets Shift+A as the unambiguous shortcut so the
 		// alphabet stays mnemonic.
-		p.sort = SortByAge
+		p.applySort(SortByAge)
 	default:
 		return false
 	}
-	p.recompute()
 	return true
 }
+
+// applySort updates the sort key and direction. Same key twice
+// flips ASC↔DESC; switching to a new key resets direction to
+// that column's default. Calls recompute so the view reflects
+// the change immediately.
+func (p *Page) applySort(k SortKey) {
+	if p.sort == k {
+		p.sortAsc = !p.sortAsc
+	} else {
+		p.sort = k
+		p.sortAsc = defaultAsc(k)
+	}
+	p.recompute()
+}
+
+// defaultAsc returns the direction the column reads naturally as
+// when first activated. Severity defaults to descending so
+// critical (the highest rank) shows first; everything else is
+// ascending (alphabetical / oldest-first).
+func defaultAsc(k SortKey) bool { return k != SortBySeverity }
 
 // handleAction processes the page's per-view action keys
 // (Enter drill, Space mark, state-filter cycle, silence).

@@ -516,6 +516,56 @@ func TestPage_DirectSortShortcuts(t *testing.T) {
 	require.Equal(t, SortBySeverity, p.sort)
 }
 
+func TestPage_SortShortcutTogglesDirection(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	// Severity starts active, descending (critical first).
+	require.Equal(t, SortBySeverity, p.sort)
+	require.False(t, p.sortAsc)
+
+	// Pressing the active column's shortcut flips the direction.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.Equal(t, SortBySeverity, p.sort)
+	require.True(t, p.sortAsc, "second Shift+S must flip to ascending")
+
+	// A third press flips back to descending.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.False(t, p.sortAsc, "third Shift+S must flip back to descending")
+
+	// Switching to a different column resets to that column's
+	// default direction (ascending for non-severity columns).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
+	require.Equal(t, SortByName, p.sort)
+	require.True(t, p.sortAsc, "switching column resets to default direction")
+
+	// Pressing the new column's shortcut flips it.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
+	require.False(t, p.sortAsc, "second Shift+N must flip alertname to descending")
+}
+
+func TestPage_HLWalkResetsDirection(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	// Flip severity to ascending first.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.True(t, p.sortAsc)
+
+	// l walks to the next column (Name) — must reset direction
+	// to the new column's default (ascending), regardless of
+	// what the previous column's direction was.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByName, p.sort)
+	require.True(t, p.sortAsc)
+
+	// h walks back. Severity's default is descending.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.Equal(t, SortBySeverity, p.sort)
+	require.False(t, p.sortAsc,
+		"walking back to severity must reset to its default (descending)")
+}
+
 func TestPage_CrumbAndHeader(t *testing.T) {
 	t.Parallel()
 
