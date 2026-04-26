@@ -198,47 +198,73 @@ func newResolver(styles theme.Styles, scope string) *cmdbar.Resolver {
 	return r
 }
 
-// startBackendPoller spawns one Poller per configured backend.
-// Each poller emits a DataMsg tagged with its own Tenant so the
-// alerts page can union the snapshots and surface a TENANT
-// column when more than one backend is active. Returns a stop
-// func the caller defers to halt every goroutine on program
-// exit. A backend whose factory.Build fails logs a warning and
-// is skipped — the rest still poll.
+// startBackendPoller spawns the per-(backend, resource) poller
+// matrix per audit §5.1. Each configured backend gets one poller
+// per resource (alerts, silences, receivers, alert-groups), and
+// every emitted DataMsg carries the backend's tenant tag so list
+// pages can union snapshots into a `byTenant` map and reason
+// about scope at render time. A backend whose factory.Build
+// fails logs a warning and is skipped — the rest still poll.
+//
+// The four resources share a single interval per backend: poll
+// pressure is dominated by the alerts feed, and the others are
+// cheap reads that piggy-back. Configurable per-resource intervals
+// are deferred — overkill for v0.1 and not in the audit.
 func startBackendPoller(ctx context.Context, cfg *config.Config, prog *tea.Program) func() {
 	if len(cfg.Backends) == 0 {
 		return func() {}
 	}
-	pollers := make([]*poll.Poller, 0, len(cfg.Backends))
+	pollers := make([]*poll.Poller, 0, len(cfg.Backends)*4)
 	for _, be := range cfg.Backends {
 		client, err := factory.Build(be)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "backend %q: build failed: %v\n", be.Name, err)
 			continue
 		}
-		interval := be.PollInterval
-		if interval == 0 {
-			interval = cfg.Defaults.PollInterval
-		}
-		if interval == 0 {
-			interval = time.Minute
-		}
+		interval := backendInterval(be, cfg)
 		c := client // capture for the closure (Go 1.22+ per-iter scope; explicit for clarity)
 		name := be.Name
-		p := poll.New(poll.Options{
-			Tenant:   name,
-			Interval: interval,
-			Fetch: func(ctx context.Context) (any, error) {
-				return c.ListAlerts(ctx, backend.AlertFilter{})
-			},
-			Send: prog.Send,
-		})
-		p.Start(ctx)
-		pollers = append(pollers, p)
+		fetchers := backendFetchers(c)
+		for _, f := range fetchers {
+			p := poll.New(poll.Options{
+				Tenant:   name,
+				Interval: interval,
+				Fetch:    f,
+				Send:     prog.Send,
+			})
+			p.Start(ctx)
+			pollers = append(pollers, p)
+		}
 	}
 	return func() {
 		for _, p := range pollers {
 			p.Stop()
 		}
+	}
+}
+
+// backendInterval picks the active poll interval for a backend.
+// Per-backend `poll_interval` wins; falls back to the global
+// default; ultimate fallback is 1 minute (audit §5.1, I3).
+func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
+	if be.PollInterval > 0 {
+		return be.PollInterval
+	}
+	if cfg.Defaults.PollInterval > 0 {
+		return cfg.Defaults.PollInterval
+	}
+	return time.Minute
+}
+
+// backendFetchers returns the four poller fetch funcs for one
+// backend client — alerts, silences, receivers, alert-groups.
+// Each returns the resource as `any` so poll.Options.Fetch can
+// be a single shape across resource types.
+func backendFetchers(c backend.Client) []func(ctx context.Context) (any, error) {
+	return []func(ctx context.Context) (any, error){
+		func(ctx context.Context) (any, error) { return c.ListAlerts(ctx, backend.AlertFilter{}) },
+		func(ctx context.Context) (any, error) { return c.ListSilences(ctx, backend.SilenceFilter{}) },
+		func(ctx context.Context) (any, error) { return c.ListReceivers(ctx) },
+		func(ctx context.Context) (any, error) { return c.ListAlertGroups(ctx, backend.AlertFilter{}) },
 	}
 }

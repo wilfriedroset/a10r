@@ -141,7 +141,7 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	// Filter by "data" → only the data group is visible.
 	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
 	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "data"})
-	require.Equal(t, "groups[1/2]", p.Title())
+	require.Equal(t, "groups(all)[1/2]", p.Title())
 	visible := p.visibleGroups()
 	require.Len(t, visible, 1)
 	require.Equal(t, "data", visible[0].Labels["team"])
@@ -149,5 +149,5 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	// Cancel reverts.
 	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
 	require.Empty(t, p.filter)
-	require.Equal(t, "groups[2]", p.Title())
+	require.Equal(t, "groups(all)[2]", p.Title())
 }

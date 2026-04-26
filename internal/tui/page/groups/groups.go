@@ -37,12 +37,25 @@ type DrillSilenceMsg struct {
 	CommonLabels map[string]string
 }
 
+// groupEntry pairs an alert group with the tenant tag it was
+// polled under so the renderer can show which backend each group
+// belongs to when the active scope spans more than one tenant.
+type groupEntry struct {
+	g      backend.AlertGroup
+	tenant string
+}
+
 // Page is the groups view.
 type Page struct {
 	styles theme.Styles
 
-	all      []backend.AlertGroup
-	expanded []bool // per-group flag, indexed against p.all
+	// byTenant holds the most recent snapshot per backend.
+	byTenant map[string][]backend.AlertGroup
+	// flattened cache of in-scope groups, rebuilt on every
+	// recompute. Indices into this slice are what `expanded` and
+	// `cursor` reference.
+	flat     []groupEntry
+	expanded []bool // per-group flag, indexed against p.flat
 	cursor   int    // index into the visible row list
 	topRow   int    // first visible row; reconciled in renderRows
 
@@ -55,11 +68,21 @@ type Page struct {
 	// shows every alert it carries, unfiltered.
 	filter    string
 	preFilter *string
+
+	// scope mirrors the active tenant scope.
+	scope string
 }
+
+// scopeAll is the canonical "every configured tenant" label.
+const scopeAll = "all"
 
 // New constructs an empty groups page.
 func New(styles theme.Styles) *Page {
-	return &Page{styles: styles}
+	return &Page{
+		styles:   styles,
+		byTenant: map[string][]backend.AlertGroup{},
+		scope:    scopeAll,
+	}
 }
 
 // Init implements app.Page.
@@ -71,15 +94,46 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "groups" }
 
-// Title implements app.Page. Filtered/total shape mirrors the
-// alerts page: `groups[N]` when no filter is active,
-// `groups[F/T]` while one is.
+// Title implements app.Page. Mirrors the alerts shape:
+// `groups(<scope>)[<count>]` or `groups(<scope>)[F/T]` while a
+// filter is active.
 func (p *Page) Title() string {
-	visible := p.visibleGroups()
-	if p.filter != "" {
-		return fmt.Sprintf("groups[%d/%d]", len(visible), len(p.all))
+	scope := p.scope
+	if scope == "" {
+		scope = scopeAll
 	}
-	return fmt.Sprintf("groups[%d]", len(visible))
+	total := p.totalGroups()
+	visible := len(p.visibleGroups())
+	if p.filter != "" {
+		return fmt.Sprintf("groups(%s)[%d/%d]", scope, visible, total)
+	}
+	return fmt.Sprintf("groups(%s)[%d]", scope, visible)
+}
+
+// totalGroups is the in-scope count regardless of filter.
+func (p *Page) totalGroups() int {
+	n := 0
+	for tenant, gs := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		n += len(gs)
+	}
+	return n
+}
+
+// scopeIncludes reports whether tenant should appear in the view.
+func (p *Page) scopeIncludes(tenant string) bool {
+	scope := strings.TrimSpace(p.scope)
+	if scope == "" || scope == scopeAll {
+		return true
+	}
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == tenant {
+			return true
+		}
+	}
+	return false
 }
 
 // HeaderContent implements app.Page. Surfaces the active filter
@@ -108,9 +162,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		p.all = groups
-		p.expanded = make([]bool, len(groups))
-		p.clampCursor()
+		p.byTenant[m.Tenant] = groups
+		p.recompute()
+		return p, nil
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
+		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
@@ -123,6 +180,40 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// recompute rebuilds p.flat from byTenant + scope, preserving any
+// in-place expanded flags by group identity (label-set + tenant)
+// across refresh ticks. New groups land collapsed; vanished
+// groups simply drop out.
+func (p *Page) recompute() {
+	prev := make(map[string]bool, len(p.flat))
+	for i, e := range p.flat {
+		prev[groupKey(e)] = i < len(p.expanded) && p.expanded[i]
+	}
+	p.flat = p.flat[:0]
+	for tenant, gs := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		for _, g := range gs {
+			p.flat = append(p.flat, groupEntry{g: g, tenant: tenant})
+		}
+	}
+	p.expanded = make([]bool, len(p.flat))
+	for i, e := range p.flat {
+		if prev[groupKey(e)] {
+			p.expanded[i] = true
+		}
+	}
+	p.clampCursor()
+}
+
+// groupKey uniquely identifies a group across refreshes: tenant +
+// sorted label-set. Used to preserve expanded state when the
+// underlying slice ordering changes between polls.
+func groupKey(e groupEntry) string {
+	return e.tenant + "\x00" + labelSummary(e.g.Labels)
 }
 
 // handleFilterPrompt mirrors the alerts page's lifecycle handler.
@@ -176,7 +267,7 @@ type row struct {
 	alertIdx int
 }
 
-// rows builds the visible row list from p.all + p.expanded,
+// rows builds the visible row list from p.flat + p.expanded,
 // skipping any group whose label-set doesn't match p.filter (when
 // set). Leaves of an expanded matched group always appear — once
 // the user expands a matched group, every alert in it shows up
@@ -184,14 +275,14 @@ type row struct {
 // in isolation.
 func (p *Page) rows() []row {
 	q := strings.ToLower(p.filter)
-	out := make([]row, 0, len(p.all))
-	for gi, g := range p.all {
-		if q != "" && !strings.Contains(strings.ToLower(labelSummary(g.Labels)), q) {
+	out := make([]row, 0, len(p.flat))
+	for gi, e := range p.flat {
+		if q != "" && !strings.Contains(strings.ToLower(labelSummary(e.g.Labels)), q) {
 			continue
 		}
 		out = append(out, row{groupIdx: gi, alertIdx: -1})
 		if gi < len(p.expanded) && p.expanded[gi] {
-			for ai := range g.Alerts {
+			for ai := range e.g.Alerts {
 				out = append(out, row{groupIdx: gi, alertIdx: ai})
 			}
 		}
@@ -199,17 +290,22 @@ func (p *Page) rows() []row {
 	return out
 }
 
-// visibleGroups returns the slice of groups whose label-set
-// matches p.filter — same predicate rows() uses for headers.
+// visibleGroups returns the slice of in-scope groups whose
+// label-set matches p.filter — same predicate rows() uses for
+// headers.
 func (p *Page) visibleGroups() []backend.AlertGroup {
 	if p.filter == "" {
-		return p.all
+		out := make([]backend.AlertGroup, len(p.flat))
+		for i, e := range p.flat {
+			out[i] = e.g
+		}
+		return out
 	}
 	q := strings.ToLower(p.filter)
-	out := make([]backend.AlertGroup, 0, len(p.all))
-	for _, g := range p.all {
-		if strings.Contains(strings.ToLower(labelSummary(g.Labels)), q) {
-			out = append(out, g)
+	out := make([]backend.AlertGroup, 0, len(p.flat))
+	for _, e := range p.flat {
+		if strings.Contains(strings.ToLower(labelSummary(e.g.Labels)), q) {
+			out = append(out, e.g)
 		}
 	}
 	return out
@@ -267,7 +363,7 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 		p.expanded[r.groupIdx] = !p.expanded[r.groupIdx]
 		return p, nil
 	}
-	alert := p.all[r.groupIdx].Alerts[r.alertIdx]
+	alert := p.flat[r.groupIdx].g.Alerts[r.alertIdx]
 	return p, func() tea.Msg { return DrillAlertMsg{Alert: alert} }
 }
 
@@ -279,10 +375,10 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 		return p, nil
 	}
 	r := rows[p.cursor]
-	if r.groupIdx >= len(p.all) {
+	if r.groupIdx >= len(p.flat) {
 		return p, nil
 	}
-	common := commonLabels(p.all[r.groupIdx].Alerts)
+	common := commonLabels(p.flat[r.groupIdx].g.Alerts)
 	return p, func() tea.Msg { return DrillSilenceMsg{CommonLabels: common} }
 }
 
@@ -328,7 +424,7 @@ func (p *Page) View(width, height int) string {
 }
 
 func (p *Page) renderRow(r row, focused bool, width int) string {
-	g := p.all[r.groupIdx]
+	g := p.flat[r.groupIdx].g
 	prefix := "  "
 	if focused {
 		prefix = "▸ "

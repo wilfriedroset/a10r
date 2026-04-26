@@ -32,13 +32,22 @@ type DrillRequestMsg struct {
 }
 
 // Page is the receivers list view.
+//
+// Receivers are flat strings on the AM side; the only multi-
+// backend shaping the page does is union snapshots so the user
+// can quickly see which receivers exist across the active scope.
+// The drill-down keeps the behaviour the user expects (Enter on
+// a row → DrillRequestMsg with the receiver name) since the
+// receiver name is unique per backend in practice.
 type Page struct {
 	styles theme.Styles
 
-	all    []string
-	view   []string // filtered subset; equals all when filter is empty
-	cursor int
-	topRow int // first visible row; reconciled against cursor on every render
+	// byTenant holds the most recent snapshot per backend, keyed
+	// by the poll.DataMsg.Tenant tag.
+	byTenant map[string][]string
+	view     []string // filtered + scoped + de-duplicated subset
+	cursor   int
+	topRow   int // first visible row; reconciled against cursor on every render
 
 	// filter is the active substring filter; preFilter is the
 	// snapshot the page restores on PromptCancelledMsg per the
@@ -46,11 +55,22 @@ type Page struct {
 	// lifecycle doc).
 	filter    string
 	preFilter *string
+
+	// scope mirrors the active tenant scope ("all" / single name
+	// / comma-joined subset). Updated by app.ScopeChangedMsg.
+	scope string
 }
+
+// scopeAll is the canonical "every configured tenant" label.
+const scopeAll = "all"
 
 // New constructs an empty receivers page.
 func New(styles theme.Styles) *Page {
-	return &Page{styles: styles}
+	return &Page{
+		styles:   styles,
+		byTenant: map[string][]string{},
+		scope:    scopeAll,
+	}
 }
 
 // Init implements app.Page.
@@ -62,14 +82,54 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "receivers" }
 
-// Title implements app.Page. Filtered/total shape mirrors alerts:
-// `receivers[N]` when no filter is active, `receivers[F/T]`
-// while one is.
+// Title implements app.Page. Mirrors the alerts shape:
+// `receivers(<scope>)[<count>]` or `receivers(<scope>)[F/T]`
+// while a filter is active.
 func (p *Page) Title() string {
-	if p.filter != "" {
-		return fmt.Sprintf("receivers[%d/%d]", len(p.view), len(p.all))
+	scope := p.scope
+	if scope == "" {
+		scope = scopeAll
 	}
-	return fmt.Sprintf("receivers[%d]", len(p.view))
+	total := len(p.unionScoped())
+	if p.filter != "" {
+		return fmt.Sprintf("receivers(%s)[%d/%d]", scope, len(p.view), total)
+	}
+	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
+}
+
+// scopeIncludes reports whether tenant should appear in the view.
+func (p *Page) scopeIncludes(tenant string) bool {
+	scope := strings.TrimSpace(p.scope)
+	if scope == "" || scope == scopeAll {
+		return true
+	}
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+// unionScoped returns the de-duplicated set of receiver names
+// across every in-scope tenant, sorted alphabetically. Used by
+// Title and recompute.
+func (p *Page) unionScoped() []string {
+	seen := map[string]struct{}{}
+	for tenant, names := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		for _, n := range names {
+			seen[n] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // HeaderContent implements app.Page. Surfaces the active filter
@@ -97,11 +157,16 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		p.all = make([]string, len(recs))
+		names := make([]string, len(recs))
 		for i, r := range recs {
-			p.all[i] = r.Name
+			names[i] = r.Name
 		}
-		sort.Strings(p.all)
+		sort.Strings(names)
+		p.byTenant[m.Tenant] = names
+		p.recompute()
+		return p, nil
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
 		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
@@ -154,16 +219,16 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 	}
 }
 
-// recompute rebuilds the filtered view from p.all + p.filter, and
-// clamps the cursor to the new range.
+// recompute rebuilds the filtered view from byTenant + p.scope +
+// p.filter and clamps the cursor to the new range.
 func (p *Page) recompute() {
+	scoped := p.unionScoped()
 	if p.filter == "" {
-		p.view = make([]string, len(p.all))
-		copy(p.view, p.all)
+		p.view = scoped
 	} else {
 		q := strings.ToLower(p.filter)
 		p.view = p.view[:0]
-		for _, name := range p.all {
+		for _, name := range scoped {
 			if strings.Contains(strings.ToLower(name), q) {
 				p.view = append(p.view, name)
 			}
@@ -235,7 +300,7 @@ func (p *Page) View(width, height int) string {
 	}
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
-		if len(p.all) > 0 && p.filter != "" {
+		if len(p.unionScoped()) > 0 && p.filter != "" {
 			msg = "no receivers match the active filter"
 		}
 		return p.styles.Body.Default.Width(width).Height(height).Render(msg)

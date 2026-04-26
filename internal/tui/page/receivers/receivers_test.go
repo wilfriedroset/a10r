@@ -28,7 +28,10 @@ func TestPage_DataMsgSortsReceivers(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
-	require.Equal(t, []string{"default", "ops", "web"}, p.all)
+	require.Equal(t, []string{"default", "ops", "web"}, p.view,
+		"the view is the de-duplicated, scope-filtered union of "+
+			"every backend's snapshot — single-backend case lands "+
+			"the names sorted alphabetically")
 }
 
 func TestPage_EnterEmitsDrillRequest(t *testing.T) {
@@ -64,7 +67,7 @@ func TestPage_TitleCarriesCount(t *testing.T) {
 	t.Parallel()
 	p := New(loadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}}})
-	require.Equal(t, "receivers[2]", p.Title(),
+	require.Equal(t, "receivers(all)[2]", p.Title(),
 		"count lives in the title's [N] suffix; HeaderContent stays "+
 			"empty so the subtitle line doesn't duplicate it")
 	require.Empty(t, p.HeaderContent())
@@ -91,7 +94,7 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "ef"})
 	require.Equal(t, []string{"default"}, p.view,
 		"live filter must trim the view as the user types")
-	require.Equal(t, "receivers[1/3]", p.Title())
+	require.Equal(t, "receivers(all)[1/3]", p.Title())
 
 	// Cancel reverts to the pre-prompt state.
 	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})

@@ -76,9 +76,9 @@ func TestPage_DataMsgPopulatesAndSortsByEndsAtAscending(t *testing.T) {
 		sil("mid", "carol", backend.SilenceStateActive, 6*time.Hour),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	require.Equal(t, "soon", p.view[0].ID)
-	require.Equal(t, "mid", p.view[1].ID)
-	require.Equal(t, "late", p.view[2].ID)
+	require.Equal(t, "soon", p.view[0].s.ID)
+	require.Equal(t, "mid", p.view[1].s.ID)
+	require.Equal(t, "late", p.view[2].s.ID)
 }
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
@@ -115,7 +115,7 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, "alice", p.view[0].CreatedBy)
+	require.Equal(t, "alice", p.view[0].s.CreatedBy)
 }
 
 func TestPage_VimMotions(t *testing.T) {
@@ -205,7 +205,7 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "beta", p.view[p.cursor].ID)
+	require.Equal(t, "beta", p.view[p.cursor].s.ID)
 
 	// "beta" now has a later ends-at; reordering pushes it to the
 	// bottom. Cursor must follow.
@@ -215,7 +215,7 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 		sil("beta", "x", backend.SilenceStateActive, 4*time.Hour),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
-	require.Equal(t, "beta", p.view[p.cursor].ID,
+	require.Equal(t, "beta", p.view[p.cursor].s.ID,
 		"cursor must follow the focused silence by ID across refreshes")
 }
 
@@ -256,10 +256,10 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
 	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "alice"})
 	require.Len(t, p.view, 1)
-	require.Equal(t, "alice@example", p.view[0].CreatedBy)
+	require.Equal(t, "alice@example", p.view[0].s.CreatedBy)
 
 	// Title carries the F/T count while a filter is on.
-	require.Equal(t, "silences[1/3]", p.Title())
+	require.Equal(t, "silences(all)[1/3]", p.Title())
 	require.Equal(t, "filter:alice", p.HeaderContent())
 
 	// Esc rolls back to the pre-prompt state (no filter).

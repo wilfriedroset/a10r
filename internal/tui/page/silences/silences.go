@@ -58,14 +58,26 @@ func (s SortKey) String() string {
 	return "?"
 }
 
+// silenceEntry pairs a silence with the tenant tag the poller
+// emitted it under so the renderer can surface a TENANT column
+// when more than one backend's data is in scope.
+type silenceEntry struct {
+	s      backend.Silence
+	tenant string
+}
+
 // Page is the silences list view.
 type Page struct {
 	styles theme.Styles
 	now    func() time.Time
 
-	all    []backend.Silence
-	view   []backend.Silence
-	cursor int
+	// byTenant holds the most recent snapshot for each backend
+	// keyed by the poll.DataMsg.Tenant tag. Pages built in single-
+	// backend setups end up with one entry; multi-backend ones
+	// accumulate every snapshot they've received.
+	byTenant map[string][]backend.Silence
+	view     []silenceEntry
+	cursor   int
 
 	// topRow keeps the cursor inside the visible window — see
 	// reconcileScroll. Lazily updated by the renderer because the
@@ -83,6 +95,11 @@ type Page struct {
 	// no filter prompt is open. Same shape as the alerts page.
 	filter    string
 	preFilter *string
+
+	// scope is the active tenant scope ("all", a single backend
+	// name, or comma-joined names). Mirrors what the alerts page
+	// tracks and is updated by app.ScopeChangedMsg.
+	scope string
 }
 
 // New constructs an empty silences page.
@@ -91,12 +108,19 @@ func New(styles theme.Styles, now func() time.Time) *Page {
 		now = time.Now
 	}
 	return &Page{
-		styles:  styles,
-		now:     now,
-		sort:    SortByEndsAt,
-		sortAsc: true, // soonest-expiring first
+		styles:   styles,
+		now:      now,
+		byTenant: map[string][]backend.Silence{},
+		sort:     SortByEndsAt,
+		sortAsc:  true, // soonest-expiring first
+		scope:    scopeAll,
 	}
 }
+
+// scopeAll is the canonical "every configured tenant" label.
+// Pinned as a constant so the title, scopeIncludes, and the
+// global numeric quick-switch agree on the spelling.
+const scopeAll = "all"
 
 // Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
@@ -107,14 +131,64 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "silences" }
 
-// Title implements app.Page. Filtered/total shape matches alerts:
-// `silences[N]` when no filter is active, `silences[F/T]` while
-// one is.
+// Title implements app.Page. Mirrors the alerts page's shape:
+// `silences(<scope>)[<count>]` or `silences(<scope>)[F/T]` while
+// a filter is active.
 func (p *Page) Title() string {
-	if p.filter != "" {
-		return fmt.Sprintf("silences[%d/%d]", len(p.view), len(p.all))
+	scope := p.scope
+	if scope == "" {
+		scope = scopeAll
 	}
-	return fmt.Sprintf("silences[%d]", len(p.view))
+	total := p.totalSilences()
+	if p.filter != "" {
+		return fmt.Sprintf("silences(%s)[%d/%d]", scope, len(p.view), total)
+	}
+	return fmt.Sprintf("silences(%s)[%d]", scope, total)
+}
+
+// totalSilences is the unfiltered silence count within the active
+// scope — same role as the alerts page's totalAlerts.
+func (p *Page) totalSilences() int {
+	n := 0
+	for tenant, sils := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		n += len(sils)
+	}
+	return n
+}
+
+// scopeIncludes reports whether tenant should appear in the view.
+// Empty / "all" includes everyone; otherwise the scope is matched
+// against the comma-joined list (so a Ctrl+T multi-select like
+// "prod,staging" lights up both backends).
+func (p *Page) scopeIncludes(tenant string) bool {
+	scope := strings.TrimSpace(p.scope)
+	if scope == "" || scope == scopeAll {
+		return true
+	}
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == tenant {
+			return true
+		}
+	}
+	return false
+}
+
+// showTenantColumn reports whether the view spans more than one
+// in-scope tenant — TENANT column is rendered iff so.
+func (p *Page) showTenantColumn() bool {
+	if p.scope != scopeAll {
+		return false
+	}
+	in := 0
+	for tenant := range p.byTenant {
+		if p.scopeIncludes(tenant) {
+			in++
+		}
+	}
+	return in > 1
 }
 
 // HeaderContent implements app.Page. Sort indicator lives on the
@@ -149,7 +223,11 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		p.all = s
+		p.byTenant[m.Tenant] = s
+		p.recompute()
+		return p, nil
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
 		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
@@ -310,19 +388,24 @@ func (p *Page) View(width, height int) string {
 }
 
 func (p *Page) emptyState() string {
-	if len(p.all) == 0 {
-		return "no silences (yet) — `n` creates one once #30 lands"
+	if p.totalSilences() == 0 {
+		return "no silences (yet)"
 	}
 	return "no silences in view"
 }
 
 // renderHeader returns the styled, uppercased column-title row
 // with a sort marker on the active column. theme.Table.Header
-// applies the k9s-style yellow header colour.
+// applies the k9s-style yellow header colour. When the active
+// scope spans more than one tenant, a leading TENANT column is
+// inserted so the user knows which backend each row came from.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortByEndsAt, SortByStartsAt, SortByCreatedBy, SortByState}
-	parts := make([]string, len(titles))
-	for i, k := range titles {
+	parts := make([]string, 0, len(titles)+1)
+	if p.showTenantColumn() {
+		parts = append(parts, "TENANT")
+	}
+	for _, k := range titles {
 		label := strings.ToUpper(k.String())
 		if k == p.sort {
 			arrow := "↓"
@@ -331,7 +414,7 @@ func (p *Page) renderHeader(width int) string {
 			}
 			label = label + " " + arrow
 		}
-		parts[i] = label
+		parts = append(parts, label)
 	}
 	// Foreground-only render so the header row keeps the body
 	// background — flush with the data rows underneath rather
@@ -349,13 +432,17 @@ func (p *Page) renderRows(width, maxRows int) string {
 	end := min(p.topRow+maxRows, len(p.view))
 	var b strings.Builder
 	for i := p.topRow; i < end; i++ {
-		s := p.view[i]
-		row := []string{
-			header.FormatAge(p.now(), s.EndsAt),
-			header.FormatAge(p.now(), s.StartsAt),
-			s.CreatedBy,
-			string(s.State),
+		e := p.view[i]
+		row := make([]string, 0, 5)
+		if p.showTenantColumn() {
+			row = append(row, e.tenant)
 		}
+		row = append(row,
+			header.FormatAge(p.now(), e.s.EndsAt),
+			header.FormatAge(p.now(), e.s.StartsAt),
+			e.s.CreatedBy,
+			string(e.s.State),
+		)
 		prefix := "  "
 		if i == p.cursor {
 			prefix = "▸ "
@@ -393,9 +480,25 @@ func (p *Page) reconcileScroll(maxRows int) {
 	}
 }
 
+// padColumns lays out a row across fixed-width columns. The
+// optional leading TENANT column shrinks the flex CreatedBy
+// column so the totals still fit the available width.
 func (p *Page) padColumns(parts []string, width int) string {
-	cols := []int{14, 14, 0, 12} // ends, starts, by (flex), state
-	cols[2] = max(width-cols[0]-cols[1]-cols[3]-2, 10)
+	const (
+		tenantW = 16
+		endsW   = 14
+		startsW = 14
+		stateW  = 12
+		minBy   = 10
+	)
+	used := endsW + startsW + stateW + 2
+	cols := make([]int, 0, 5)
+	if p.showTenantColumn() {
+		cols = append(cols, tenantW)
+		used += tenantW
+	}
+	flex := max(width-used, minBy)
+	cols = append(cols, endsW, startsW, flex, stateW)
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {
@@ -436,12 +539,24 @@ func truncate(s string, w int) string {
 	return b.String()
 }
 
+// recompute rebuilds p.view by walking byTenant, applying the
+// scope and substring filters, then sorting. Cursor is preserved
+// across rebuilds by silence ID when possible.
 func (p *Page) recompute() {
-	p.view = filterSilences(p.all, p.filter)
+	flat := make([]silenceEntry, 0)
+	for tenant, sils := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		for _, s := range sils {
+			flat = append(flat, silenceEntry{s: s, tenant: tenant})
+		}
+	}
+	p.view = filterSilences(flat, p.filter)
 	sortSilences(p.view, p.sort, p.sortAsc)
 	if p.focusID != "" {
-		for i, s := range p.view {
-			if s.ID == p.focusID {
+		for i, e := range p.view {
+			if e.s.ID == p.focusID {
 				p.cursor = i
 				return
 			}
@@ -453,23 +568,18 @@ func (p *Page) recompute() {
 	p.snapshotFocus()
 }
 
-// filterSilences returns a fresh slice containing the rows whose
+// filterSilences returns a fresh slice with the entries whose
 // rendered text contains the lowercased query as a substring.
-// Empty filter returns a copy of the input unchanged. Matching is
-// done over the same fields the renderer surfaces (creator,
-// comment, every matcher's name+value) so the user filters on
-// what they see.
-func filterSilences(in []backend.Silence, query string) []backend.Silence {
+// Empty filter returns the input unchanged.
+func filterSilences(in []silenceEntry, query string) []silenceEntry {
 	if query == "" {
-		out := make([]backend.Silence, len(in))
-		copy(out, in)
-		return out
+		return in
 	}
 	q := strings.ToLower(query)
-	out := make([]backend.Silence, 0, len(in))
-	for _, s := range in {
-		if silenceMatches(s, q) {
-			out = append(out, s)
+	out := make([]silenceEntry, 0, len(in))
+	for _, e := range in {
+		if silenceMatches(e.s, q) {
+			out = append(out, e)
 		}
 	}
 	return out
@@ -494,19 +604,19 @@ func silenceMatches(s backend.Silence, q string) bool {
 
 func (p *Page) snapshotFocus() {
 	if p.cursor < len(p.view) {
-		p.focusID = p.view[p.cursor].ID
+		p.focusID = p.view[p.cursor].s.ID
 		return
 	}
 	p.focusID = ""
 }
 
-func sortSilences(out []backend.Silence, key SortKey, asc bool) {
+func sortSilences(out []silenceEntry, key SortKey, asc bool) {
 	less := lessFor(key)
 	sort.SliceStable(out, func(i, j int) bool {
 		if asc {
-			return less(out[i], out[j])
+			return less(out[i].s, out[j].s)
 		}
-		return less(out[j], out[i])
+		return less(out[j].s, out[i].s)
 	})
 }
 
