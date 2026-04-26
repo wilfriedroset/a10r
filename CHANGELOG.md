@@ -100,6 +100,13 @@ shell.
   instead of a generic `modal` placeholder.
 - `<?> help` is no longer advertised on per-page hint strips;
   `?` is global only.
+- Command (`:`) and filter (`/`) prompts moved from a bottom-of-
+  screen footer strip to a bordered panel directly above the
+  body — same chrome shape as k9s. Mode prefixes use the k9s
+  emojis: 🐶 for command mode, 🐩 for filter mode. The body
+  title carries a live `</value>` segment while the filter
+  prompt is open so the active filter is visible without
+  leaving the body in your peripheral vision.
 
 ### Documentation
 

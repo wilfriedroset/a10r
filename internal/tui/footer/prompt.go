@@ -24,15 +24,17 @@ const (
 	PromptFilter
 )
 
-// prefixRune returns the visible rune for the mode.
-func (m PromptMode) prefixRune() rune {
+// prefixGlyph returns the visible glyph for the mode. K9s uses an
+// emoji + `>` chevron — same shape here so the visual cue carries
+// over for users coming from k9s.
+func (m PromptMode) prefixGlyph() string {
 	switch m {
 	case PromptCommand:
-		return ':'
+		return "🐶> "
 	case PromptFilter:
-		return '/'
+		return "🐩> "
 	}
-	return '?'
+	return "> "
 }
 
 // PromptSubmittedMsg is emitted when the user presses Enter on an
@@ -166,12 +168,14 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 }
 
 // Render produces the styled prompt line. Returns "" when closed.
+// The line is just the body — the App wraps it in a bordered panel
+// at render time (see panel.RenderFrame) so the prompt sits above
+// the body in the same frame style as the body panel.
 func (p Prompt) Render(styles theme.Styles) string {
 	if !p.open {
 		return ""
 	}
-	prefix := string(p.mode.prefixRune())
-	return styles.Prompt.Default.Render(prefix + p.value + cursorMark)
+	return styles.Prompt.Default.Render(" " + p.mode.prefixGlyph() + p.value + cursorMark)
 }
 
 // cursorMark is the visible cursor character. Underscore reads as a

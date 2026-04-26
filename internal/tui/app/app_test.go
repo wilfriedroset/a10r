@@ -196,6 +196,52 @@ func TestApp_FlashShowAndClear(t *testing.T) {
 	require.Contains(t, visible, "oops")
 }
 
+func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a = updated.(*App)
+	// Push a page so the body title is page-driven and the live
+	// filter appendage has a real `<resource>(<scope>)[<count>]`
+	// to attach to.
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// Closed prompt — no extra bordered box appears between the
+	// top panel and the body.
+	out := stripStyle(a.View().Content)
+	closedFrames := strings.Count(out, "┌")
+	require.Equal(t, 1, closedFrames,
+		"closed prompt: only the body's bordered frame is visible")
+
+	// Filter prompt open + a typed value. The frame count grows by
+	// one (the prompt panel), and the body title carries the live
+	// `</value>` segment so the user sees the active filter.
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+
+	out = stripStyle(a.View().Content)
+	require.Equal(t, 2, strings.Count(out, "┌"),
+		"open prompt adds its own bordered panel above the body")
+	require.Contains(t, out, "🐩>",
+		"filter mode renders the poodle emoji prefix per the k9s mirror")
+	require.Contains(t, out, "hi")
+	require.Contains(t, out, "</hi>",
+		"the body title carries the live filter value while typed")
+
+	// Command mode uses the dog emoji and does NOT touch the title.
+	a.prompt = a.prompt.Open(footer.PromptCommand)
+	for _, r := range "sil" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out = stripStyle(a.View().Content)
+	require.Contains(t, out, "🐶>",
+		"command mode renders the dog emoji prefix")
+	require.NotContains(t, out, "</sil>",
+		"command-mode prompt must not bleed into the body title")
+}
+
 func TestApp_PasteRoutesToOpenPrompt(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

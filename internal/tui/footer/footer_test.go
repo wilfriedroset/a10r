@@ -254,12 +254,14 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 
 	out := stripStyle(p.Render(styles))
-	require.Contains(t, out, ":", "command mode renders the : prefix")
+	require.Contains(t, out, "🐶>",
+		"command mode renders the dog emoji + chevron, mirroring k9s")
 	require.Contains(t, out, "s")
 
 	p2 := NewPrompt().Open(PromptFilter)
 	out2 := stripStyle(p2.Render(styles))
-	require.Contains(t, out2, "/", "filter mode renders the / prefix")
+	require.Contains(t, out2, "🐩>",
+		"filter mode renders the poodle emoji + chevron, mirroring k9s")
 }
 
 func TestPrompt_RenderClosedIsEmpty(t *testing.T) {

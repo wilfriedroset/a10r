@@ -301,6 +301,34 @@ func RenderBody(width, height int, body, title string, styles theme.Styles) stri
 	return frame
 }
 
+// RenderFrame wraps a single-line `body` in a 3-line bordered box
+// matching the body panel's frame:
+//
+//	┌──────────────┐
+//	│ body         │
+//	└──────────────┘
+//
+// Used by the App for the `:` / `/` prompt panel. The body is
+// truncated when it exceeds the inner width; a hard upper bound
+// since the prompt is keyboard-driven and the user can only enter
+// what they see.
+func RenderFrame(width int, body string, _ theme.Styles) string {
+	if width < 4 {
+		return body
+	}
+	innerWidth := width - 2
+	w := lipgloss.Width(body)
+	switch {
+	case w > innerWidth:
+		body = truncate(body, innerWidth)
+	case w < innerWidth:
+		body += strings.Repeat(" ", innerWidth-w)
+	}
+	top := "┌" + strings.Repeat("─", innerWidth) + "┐"
+	bottom := "└" + strings.Repeat("─", innerWidth) + "┘"
+	return top + "\n│" + body + "│\n" + bottom
+}
+
 // buildTitleBorder draws "┌── title ──┐" with the title centred.
 // Falls back to a plain border when the title is too long for
 // the inner width (rare on terminals ≥ 80 cols).

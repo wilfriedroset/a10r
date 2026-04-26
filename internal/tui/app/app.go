@@ -485,15 +485,39 @@ func (a *App) View() tea.View {
 	}
 
 	topPanel := panel.RenderTop(a.panelState(), a.styles)
+	promptPanel := a.renderPromptPanel()
 	footerLines := a.renderFooter()
 
-	bodyHeight := max(a.height-linesIn(topPanel)-linesIn(footerLines), 0)
+	bodyHeight := max(
+		a.height-linesIn(topPanel)-linesIn(promptPanel)-linesIn(footerLines),
+		0,
+	)
 	body := a.renderBody(bodyHeight)
 
-	out := lipgloss.JoinVertical(lipgloss.Left, topPanel, body, footerLines)
+	parts := []string{topPanel}
+	if promptPanel != "" {
+		parts = append(parts, promptPanel)
+	}
+	parts = append(parts, body)
+	if footerLines != "" {
+		parts = append(parts, footerLines)
+	}
+	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	v := tea.NewView(out)
 	v.AltScreen = true
 	return v
+}
+
+// renderPromptPanel returns the bordered prompt panel that sits
+// directly above the body when `:` or `/` is open. Empty otherwise
+// so the body fills the freed rows. K9s mirror — the prompt is
+// part of the chrome above the resource view, not a footer strip.
+func (a *App) renderPromptPanel() string {
+	if !a.prompt.IsOpen() {
+		return ""
+	}
+	body := a.prompt.Render(a.styles)
+	return panel.RenderFrame(a.width, body, a.styles)
 }
 
 // panelState builds the top-panel state from the app shell's
@@ -558,6 +582,14 @@ func (a *App) renderBody(height int) string {
 		if title == "" {
 			title = p.Crumb()
 		}
+		// When the filter prompt is open, surface the live-typed
+		// value in the title's `</value>` segment so the user can
+		// see the active filter without leaving the body in their
+		// peripheral vision. Mirrors the k9s "/-prompt visible"
+		// affordance. Closed prompt OR command mode → no append.
+		if a.prompt.IsOpen() && a.prompt.Mode() == footer.PromptFilter {
+			title += " </" + a.prompt.Value() + ">"
+		}
 		subtitle := p.HeaderContent()
 		if subtitle != "" {
 			inner = subtitle + "\n" + p.View(innerWidth, max(innerHeight-1, 0))
@@ -571,15 +603,13 @@ func (a *App) renderBody(height int) string {
 	return panel.RenderBody(a.width, height, inner, title, a.styles)
 }
 
-// renderFooter stacks the crumbs / prompt / flash strips. Each can
-// be empty; the join collapses empty rows so the body fills the
-// freed space.
+// renderFooter stacks the crumbs / flash strips. The prompt has
+// moved up above the body (renderPromptPanel) — when open it is
+// part of the chrome, not a footer line. Each strip can be empty;
+// the join collapses empty rows so the body fills the freed space.
 func (a *App) renderFooter() string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 2)
 	if s := a.crumbs.Render(a.styles); s != "" {
-		parts = append(parts, s)
-	}
-	if s := a.prompt.Render(a.styles); s != "" {
 		parts = append(parts, s)
 	}
 	if s := a.flash.Render(a.styles); s != "" {

@@ -99,6 +99,29 @@ func TestRenderBody_PadsAndTruncatesLines(t *testing.T) {
 	}
 }
 
+func TestRenderFrame_WrapsBodyInBorderedBox(t *testing.T) {
+	t.Parallel()
+	out := RenderFrame(20, "🐩> typed", loadStyles(t))
+	lines := strings.Split(out, "\n")
+	require.Len(t, lines, 3,
+		"the prompt frame is exactly 3 lines: top border, body, bottom border")
+	require.True(t, strings.HasPrefix(lines[0], "┌"))
+	require.True(t, strings.HasSuffix(lines[0], "┐"))
+	require.True(t, strings.HasPrefix(lines[1], "│"))
+	require.True(t, strings.HasSuffix(lines[1], "│"))
+	require.Contains(t, lines[1], "🐩> typed")
+	require.True(t, strings.HasPrefix(lines[2], "└"))
+	require.True(t, strings.HasSuffix(lines[2], "┘"))
+}
+
+func TestRenderFrame_TooNarrowFallsBackToBody(t *testing.T) {
+	t.Parallel()
+	// Narrower than the border can carry — return the body verbatim
+	// rather than draw a degenerate frame the user would have to
+	// stare at.
+	require.Equal(t, "x", RenderFrame(2, "x", loadStyles(t)))
+}
+
 func TestTitle_ScopeAndCount(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "alerts[5]", Title("alerts", "", 5))
