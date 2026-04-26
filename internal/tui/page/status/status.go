@@ -44,12 +44,16 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "status" }
 
-// Title implements app.Page.
+// Title implements app.Page. Mirrors the rest of the list pages —
+// `status(<scope>)`. Empty scope folds to "all" rather than dropping
+// the parenthesised label entirely so the title stays the same shape
+// regardless of how many backends are configured.
 func (p *Page) Title() string {
-	if p.tenant == "" {
-		return "status"
+	scope := p.tenant
+	if scope == "" {
+		scope = "all"
 	}
-	return "status(" + p.tenant + ")"
+	return "status(" + scope + ")"
 }
 
 // HeaderContent implements app.Page.
@@ -79,6 +83,16 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		}
 		p.st = s
 		p.have = true
+		return p, nil
+	case app.ScopeChangedMsg:
+		// The status page polls a single backend today (multi-
+		// backend status is post-v0.1), so a global scope switch
+		// only updates the title's `(<scope>)` label — the body
+		// keeps showing whatever the last poll returned. When the
+		// poll plumbing fans out per-backend the existing label
+		// will correctly attribute the body to the new backend
+		// without further changes here.
+		p.tenant = m.Scope
 		return p, nil
 	case app.GoToFirstRowMsg:
 		// `gg` scrolls back to the top of the status document.

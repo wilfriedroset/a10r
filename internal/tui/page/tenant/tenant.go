@@ -45,12 +45,21 @@ type Page struct {
 	cursor int
 	topRow int                 // first visible row; reconciled in View
 	marks  map[string]struct{} // selected tenant names
+
+	// scope tracks the active tenant scope as observed from
+	// app.ScopeChangedMsg — "all" includes every row; a single
+	// name flags exactly that row as in-scope; comma-joined names
+	// flag each one. The page does NOT mutate the scope itself
+	// (the global numeric quick-switch owns that); it only mirrors
+	// what the App announced so the user can see at a glance which
+	// row is currently fanned-out.
+	scope string
 }
 
 // New constructs an empty tenant page. The wiring layer feeds rows
 // via SetRows on every redraw.
 func New(styles theme.Styles) *Page {
-	return &Page{styles: styles, marks: map[string]struct{}{}}
+	return &Page{styles: styles, marks: map[string]struct{}{}, scope: "all"}
 }
 
 // SetRows replaces the rendered rows. Used by the wiring layer
@@ -73,8 +82,17 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "tenant" }
 
-// Title implements app.Page.
-func (p *Page) Title() string { return fmt.Sprintf("tenants[%d]", len(p.rows)) }
+// Title implements app.Page. Mirrors the rest of the list pages:
+// `tenants(<scope>)[<count>]`. Scope is the active selection so
+// the title carries the same scope label the user sees in the top
+// panel.
+func (p *Page) Title() string {
+	scope := p.scope
+	if scope == "" {
+		scope = "all"
+	}
+	return fmt.Sprintf("tenants(%s)[%d]", scope, len(p.rows))
+}
 
 // HeaderContent implements app.Page. The backend count is in
 // Title's `[N]` suffix; only the live mark count is interesting
@@ -99,8 +117,16 @@ func (*Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	if _, ok := msg.(app.GoToFirstRowMsg); ok {
+	switch m := msg.(type) {
+	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		return p, nil
+	case app.ScopeChangedMsg:
+		// The App's LayerGlobal numeric quick-switch (`<0>` all,
+		// `<1>`-`<9>` per backend) emits this. Mirroring it here
+		// lets the table show the user which row is fanned-out
+		// without forcing them to glance at the top panel.
+		p.scope = m.Scope
 		return p, nil
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -194,7 +220,16 @@ func (p *Page) View(width, height int) string {
 		if _, ok := p.marks[row.Name]; ok {
 			mark = "[x]"
 		}
-		body := fmt.Sprintf("%s %s %s  alerts:%d  silences:%d", mark, row.Conn.String(), row.Name, row.Alerts, row.Silence)
+		// Glyph indicates whether the row is part of the active
+		// global scope (the numeric quick-switch state). `●`
+		// reads at a glance against the row body and stays legible
+		// alongside the [ ]/[x] mark column.
+		scopeGlyph := " "
+		if p.scopeIncludes(row.Name) {
+			scopeGlyph = "●"
+		}
+		body := fmt.Sprintf("%s %s %s %s  alerts:%d  silences:%d",
+			mark, scopeGlyph, row.Conn.String(), row.Name, row.Alerts, row.Silence)
 		prefix := "  "
 		if i == p.cursor {
 			prefix = "▸ "
@@ -202,12 +237,38 @@ func (p *Page) View(width, height int) string {
 		// Pad to width before applying the cursor style so the
 		// background extends across the whole row k9s-style.
 		line := padRight(prefix+body, width)
-		if i == p.cursor {
+		switch {
+		case i == p.cursor:
 			line = p.styles.Table.Cursor.Render(line)
+		case p.scopeIncludes(row.Name):
+			// In-scope rows tint foreground only — same affordance
+			// as marked rows on the alerts page so the two list-
+			// page conventions agree.
+			line = lipgloss.NewStyle().
+				Foreground(p.styles.Table.Marked.GetForeground()).
+				Render(line)
 		}
 		out = append(out, line)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+}
+
+// scopeIncludes reports whether the named tenant is part of the
+// active global scope. "all" / empty includes everyone; otherwise
+// the scope is matched against the comma-joined name list (so the
+// future Ctrl+T multi-select path "prod,staging" lights up both
+// rows).
+func (p *Page) scopeIncludes(name string) bool {
+	scope := strings.TrimSpace(p.scope)
+	if scope == "" || scope == "all" {
+		return true
+	}
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).

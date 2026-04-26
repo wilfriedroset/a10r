@@ -186,8 +186,13 @@ func TestPicker_ViewIncludesItems(t *testing.T) {
 	t.Parallel()
 
 	p := NewPicker("tenants", []string{"prod", "staging"}, PickerSingle)
+	require.Equal(t, "tenants", p.Title(),
+		"the title is owned by Modal.Title and rendered by the App's "+
+			"outer panel border — not the picker body")
 	out := stripStyle(p.View(40, 20))
-	require.Contains(t, out, "tenants")
+	require.NotContains(t, out, "tenants",
+		"the body must NOT print the title or it would duplicate "+
+			"the panel border label")
 	require.Contains(t, out, "prod")
 	require.Contains(t, out, "staging")
 }

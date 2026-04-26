@@ -113,3 +113,19 @@ func TestPage_ConfigPreservesNewlines(t *testing.T) {
 	out := strings.Join(p.lines(), "\n")
 	require.Contains(t, out, "route:\n  receiver: web")
 }
+
+func TestPage_TitleFollowsScopeChange(t *testing.T) {
+	t.Parallel()
+	// Empty constructor scope reads as "all" — same convention as
+	// the alerts page so the title shape is uniform across views.
+	p := New(loadStyles(t), "")
+	require.Equal(t, "status(all)", p.Title())
+
+	// A global numeric quick-switch (ScopeChangedMsg) updates the
+	// title's `(<scope>)` segment immediately.
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "prod"})
+	require.Equal(t, "status(prod)", p.Title())
+
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "all"})
+	require.Equal(t, "status(all)", p.Title())
+}

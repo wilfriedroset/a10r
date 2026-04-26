@@ -241,13 +241,14 @@ func (p *Picker) View(width, height int) string {
 		return ""
 	}
 
+	// Title is rendered by the App's outer panel border via
+	// Modal.Title(); the body just opens with the query line so we
+	// don't double-print the label.
 	var b strings.Builder
-	b.WriteString(p.title)
-	b.WriteString("\n")
 	b.WriteString("> " + p.query + "_")
 	b.WriteString("\n\n")
 
-	maxRows := height - 4
+	maxRows := height - 3
 	for i, idx := range p.matches {
 		if i >= maxRows {
 			break
