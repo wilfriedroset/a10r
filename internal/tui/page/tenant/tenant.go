@@ -43,6 +43,7 @@ type Page struct {
 
 	rows   []Row
 	cursor int
+	topRow int                 // first visible row; reconciled in View
 	marks  map[string]struct{} // selected tenant names
 }
 
@@ -89,6 +90,10 @@ func (*Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if _, ok := msg.(app.GoToFirstRowMsg); ok {
+		p.cursor = 0
+		return p, nil
+	}
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return p, nil
@@ -197,23 +202,59 @@ func (p *Page) View(width, height int) string {
 		return p.styles.Body.Default.Width(width).Height(height).Render("no backends configured")
 	}
 	maxRows := min(height, len(p.rows))
-	out := make([]string, 0, maxRows)
+	p.reconcileScroll(maxRows)
+	end := min(p.topRow+maxRows, len(p.rows))
+	out := make([]string, 0, end-p.topRow)
 	rows := p.rowsSorted()
-	for i := range maxRows {
+	for i := p.topRow; i < end; i++ {
 		row := rows[i]
 		mark := "[ ]"
 		if _, ok := p.marks[row.Name]; ok {
 			mark = "[x]"
 		}
-		line := fmt.Sprintf("%s %s %s  alerts:%d  silences:%d", mark, row.Conn.String(), row.Name, row.Alerts, row.Silence)
+		body := fmt.Sprintf("%s %s %s  alerts:%d  silences:%d", mark, row.Conn.String(), row.Name, row.Alerts, row.Silence)
+		prefix := "  "
 		if i == p.cursor {
-			line = "▸ " + line
-		} else {
-			line = "  " + line
+			prefix = "▸ "
+		}
+		// Pad to width before applying the cursor style so the
+		// background extends across the whole row k9s-style.
+		line := padRight(prefix+body, width)
+		if i == p.cursor {
+			line = p.styles.Table.Cursor.Render(line)
 		}
 		out = append(out, line)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+}
+
+// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
+func (p *Page) reconcileScroll(maxRows int) {
+	if p.cursor < p.topRow {
+		p.topRow = p.cursor
+	}
+	if p.cursor >= p.topRow+maxRows {
+		p.topRow = p.cursor - maxRows + 1
+	}
+	maxTop := max(len(p.rows)-maxRows, 0)
+	if p.topRow > maxTop {
+		p.topRow = maxTop
+	}
+	if p.topRow < 0 {
+		p.topRow = 0
+	}
+}
+
+// padRight pads s with trailing spaces to w columns so the
+// cursor's background extends across the whole row.
+func padRight(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
 
 // rowsSorted returns the rows alphabetically by Name so the

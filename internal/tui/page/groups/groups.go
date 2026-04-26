@@ -43,6 +43,7 @@ type Page struct {
 	all      []backend.AlertGroup
 	expanded []bool // per-group flag
 	cursor   int    // index into the visible row list
+	topRow   int    // first visible row; reconciled in renderRows
 }
 
 // New constructs an empty groups page.
@@ -87,6 +88,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if p.cursor >= len(p.rows()) {
 			p.cursor = max(len(p.rows())-1, 0)
 		}
+		return p, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -216,29 +220,70 @@ func (p *Page) View(width, height int) string {
 		return p.styles.Body.Default.Width(width).Height(height).Render("no groups (yet)")
 	}
 	maxRows := min(height, len(rows))
-	out := make([]string, 0, maxRows)
-	for i := range maxRows {
+	p.reconcileScroll(maxRows, len(rows))
+	end := min(p.topRow+maxRows, len(rows))
+	out := make([]string, 0, end-p.topRow)
+	for i := p.topRow; i < end; i++ {
 		r := rows[i]
-		out = append(out, p.renderRow(r, i == p.cursor))
+		out = append(out, p.renderRow(r, i == p.cursor, width))
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
 }
 
-func (p *Page) renderRow(r row, focused bool) string {
+func (p *Page) renderRow(r row, focused bool, width int) string {
 	g := p.all[r.groupIdx]
 	prefix := "  "
 	if focused {
 		prefix = "▸ "
 	}
+	var body string
 	if r.alertIdx == -1 {
 		marker := "▸"
 		if p.expanded[r.groupIdx] {
 			marker = "▾"
 		}
-		return prefix + marker + " " + labelSummary(g.Labels) + fmt.Sprintf(" (%d alerts)", len(g.Alerts))
+		body = prefix + marker + " " + labelSummary(g.Labels) + fmt.Sprintf(" (%d alerts)", len(g.Alerts))
+	} else {
+		a := g.Alerts[r.alertIdx]
+		body = prefix + "    " + a.Labels["alertname"] + " — " + string(a.State)
 	}
-	a := g.Alerts[r.alertIdx]
-	return prefix + "    " + a.Labels["alertname"] + " — " + string(a.State)
+	body = padRight(body, width)
+	if focused {
+		return p.styles.Table.Cursor.Render(body)
+	}
+	return body
+}
+
+// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
+// totalRows is the live row-count (groups can expand and shrink as
+// the user toggles), so it's threaded through rather than read off
+// the page.
+func (p *Page) reconcileScroll(maxRows, totalRows int) {
+	if p.cursor < p.topRow {
+		p.topRow = p.cursor
+	}
+	if p.cursor >= p.topRow+maxRows {
+		p.topRow = p.cursor - maxRows + 1
+	}
+	maxTop := max(totalRows-maxRows, 0)
+	if p.topRow > maxTop {
+		p.topRow = maxTop
+	}
+	if p.topRow < 0 {
+		p.topRow = 0
+	}
+}
+
+// padRight pads s with trailing spaces to w columns so the
+// cursor's background extends across the whole row.
+func padRight(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
 
 // labelSummary renders a "k=v, k=v" preview of a label-set so the

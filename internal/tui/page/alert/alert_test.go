@@ -226,6 +226,113 @@ func TestPage_BindingsHaveCopyOpenSilence(t *testing.T) {
 	require.True(t, keys["o"])
 }
 
+func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
+	t.Parallel()
+
+	// Regression: a 500-char value with NO internal whitespace
+	// previously sent wrapHanging into an infinite loop because
+	// every iteration's cut landed inside the hanging indent.
+	// The render must complete in well under a second.
+	a := sample()
+	long := strings.Repeat("X", 500)
+	a.Annotations = map[string]string{"description": long}
+	p := New(Options{Alert: a, Styles: loadStyles(t)})
+
+	done := make(chan string, 1)
+	go func() { done <- p.View(80, 30) }()
+	select {
+	case out := <-done:
+		require.NotEmpty(t, out)
+	case <-time.After(2 * time.Second):
+		t.Fatal("View blocked — wrapHanging likely looped on a no-whitespace value")
+	}
+}
+
+func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.Annotations = map[string]string{
+		// Promql-templated annotation — the description value
+		// contains a literal newline between the two facts.
+		"description": "VALUE = 0\nLABELS = map[__name__:up cluster:EU]",
+	}
+	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	out := stripStyle(p.View(120, 50))
+	lines := strings.Split(out, "\n")
+
+	// Find the description line and the next line after.
+	var startIdx int
+	for i, l := range lines {
+		if strings.HasPrefix(l, "  description: ") {
+			startIdx = i
+			break
+		}
+	}
+	require.Positive(t, startIdx)
+	require.Greater(t, len(lines), startIdx+1)
+
+	// "  description: " is 15 cols. The continuation segment
+	// (the part after the embedded \n) must hang-indent by the
+	// same column count so it visually nests under the value.
+	cont := lines[startIdx+1]
+	require.True(t, strings.HasPrefix(cont, strings.Repeat(" ", 15)),
+		"line after the embedded newline must hang-indent by 15 cols, got %q", cont)
+	require.Contains(t, cont, "LABELS = ",
+		"the second segment of the multi-line value must appear")
+}
+
+func TestPage_WrapsLongAnnotationWithHangingIndent(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.Annotations = map[string]string{
+		"description": "This is an alert meant to ensure that the entire alerting pipeline is functional. This alert is always firing.",
+	}
+	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	out := stripStyle(p.View(80, 50))
+	lines := strings.Split(out, "\n")
+
+	// Find the line that begins the description annotation.
+	var startIdx int
+	for i, l := range lines {
+		if strings.HasPrefix(l, "  description: ") {
+			startIdx = i
+			break
+		}
+	}
+	require.Positive(t, startIdx, "description line must appear in the render")
+	// Continuation lines must be indented to align under the value
+	// column ("  description: " is 15 characters of prefix).
+	require.Greater(t, len(lines), startIdx+1)
+	cont := lines[startIdx+1]
+	require.True(t, strings.HasPrefix(cont, strings.Repeat(" ", 15)),
+		"continuation line must hang-indent to %d cols, got %q", 15, cont)
+}
+
+func TestPage_ScrollsViewport(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	// Pad annotations with many short keys so the body exceeds a
+	// short height and j must scroll the viewport.
+	a.Annotations = map[string]string{}
+	for i := range 20 {
+		a.Annotations["k"+string(rune('a'+i))] = "v" + string(rune('a'+i))
+	}
+	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	// Render at a tiny height that won't show the full body.
+	out := stripStyle(p.View(80, 10))
+	require.NotContains(t, out, "kt: vt",
+		"with a small viewport the bottom annotations must NOT appear yet")
+
+	// G jumps to the bottom; the last keys must come into view.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	out = stripStyle(p.View(80, 10))
+	require.Contains(t, out, "kt: vt",
+		"after G the bottom of the body must be visible")
+}
+
 func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
 

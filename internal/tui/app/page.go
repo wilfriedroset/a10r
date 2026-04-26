@@ -60,6 +60,14 @@ type Page interface {
 	Bindings() []action.Action
 }
 
+// GoToFirstRowMsg is the table-context "first row" signal —
+// fired by the dispatcher when the user types the `gg` chord
+// (registered at LayerTable in the wiring layer). List pages
+// consume it in their Update to scroll the cursor home; pages
+// that don't bind it ignore it. Defined here, not in keys/, so
+// pages don't have to import keys just for the message type.
+type GoToFirstRowMsg struct{}
+
 // pushPageMsg requests a push of the page produced by Factory.
 // The factory shape (instead of a Page value) lets the page's
 // Init run inside the App's Update — required by bubbletea

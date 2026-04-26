@@ -34,6 +34,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -79,6 +80,14 @@ type Page struct {
 	view   []backend.Alert // filtered + sorted view (recomputed on change)
 	cursor int             // index into view
 
+	// topRow is the index of the first visible row in p.view. The
+	// renderer reconciles topRow with cursor on every frame so the
+	// cursor stays inside the visible window — scrolls down when
+	// the cursor walks past the bottom, up when it walks past the
+	// top. Set lazily because the renderer is the only consumer
+	// that knows how many rows fit in the body height.
+	topRow int
+
 	filter string // active substring filter
 	// preFilter is the pre-prompt snapshot the page restores on
 	// PromptCancelledMsg{Mode: PromptFilter}. Nil iff no filter
@@ -93,6 +102,13 @@ type Page struct {
 	// sort changes, and filter changes. Empty when no alert is
 	// focused (cold start, empty view).
 	focusFingerprint string
+
+	// marks is the set of fingerprints the user has Space-toggled
+	// for bulk operations (Ctrl+S bulk silence in #30). Tracking
+	// by Fingerprint, like the cursor focus, so the marks survive
+	// re-sorts and re-filters without sliding onto unrelated
+	// alerts.
+	marks map[string]struct{}
 
 	sort        SortKey
 	sortAsc     bool
@@ -111,6 +127,7 @@ func New(styles theme.Styles, now func() time.Time) *Page {
 		now:     now,
 		sort:    SortBySeverity,
 		sortAsc: false,
+		marks:   map[string]struct{}{},
 	}
 }
 
@@ -124,7 +141,8 @@ func (*Page) Close() tea.Cmd { return nil }
 func (*Page) Crumb() string { return "alerts" }
 
 // HeaderContent implements app.Page. Surfaces the filter + sort
-// state so the user always knows what shaping is active.
+// state and the count of Space-marked rows so the user can see
+// at a glance what's queued for a bulk operation.
 func (p *Page) HeaderContent() string {
 	var parts []string
 	if p.filter != "" {
@@ -132,6 +150,9 @@ func (p *Page) HeaderContent() string {
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state:"+p.stateFilter)
+	}
+	if n := len(p.marks); n > 0 {
+		parts = append(parts, fmt.Sprintf("marked:%d", n))
 	}
 	dir := "↓"
 	if p.sortAsc {
@@ -145,6 +166,8 @@ func (p *Page) HeaderContent() string {
 // surfaced in the header's right-zone hint strip.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
+		{Key: "Enter", Description: "detail", View: "alerts"},
+		{Key: "Space", Description: "mark", View: "alerts"},
 		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		{Key: "/", Description: "filter", View: "alerts"},
 		{Key: "?", Description: "help", View: ""},
@@ -181,6 +204,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.preFilter = nil
 			p.recompute()
 		}
+		return p, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
+		p.snapshotFocus()
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -259,11 +286,17 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 }
 
 // handleAction processes the page's per-view action keys
-// (state-filter cycle, silence). Returns the page plus optional
-// Cmd. Unrecognised keys are no-ops at this layer; the App's
-// dispatcher had its turn earlier.
+// (Enter drill, Space mark, state-filter cycle, silence).
+// Returns the page plus optional Cmd. Unrecognised keys are
+// no-ops at this layer; the App's dispatcher had its turn
+// earlier.
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
+	case "enter":
+		cmd := p.drillToDetail()
+		return p, cmd
+	case "space":
+		p.toggleMarkAtCursor()
 	case "t":
 		p.cycleStateFilter()
 		p.recompute()
@@ -275,6 +308,46 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		}
 	}
 	return p, nil
+}
+
+// toggleMarkAtCursor flips the mark on the row under the cursor.
+// No-op on an empty view. Empty fingerprints (alerts without a
+// stable identifier) are silently skipped — there's no key to
+// associate the mark with.
+func (p *Page) toggleMarkAtCursor() {
+	if p.cursor >= len(p.view) {
+		return
+	}
+	fp := p.view[p.cursor].Fingerprint
+	if fp == "" {
+		return
+	}
+	if _, ok := p.marks[fp]; ok {
+		delete(p.marks, fp)
+		return
+	}
+	p.marks[fp] = struct{}{}
+}
+
+// drillToDetail returns a Cmd that pushes the alert-detail page
+// for the row under the cursor. Empty view falls through to a
+// soft Info flash so the user sees a reason for the no-op.
+func (p *Page) drillToDetail() tea.Cmd {
+	if p.cursor >= len(p.view) {
+		return func() tea.Msg {
+			return footer.FlashShowMsg{Level: footer.FlashInfo, Text: "no alert under the cursor"}
+		}
+	}
+	selected := p.view[p.cursor]
+	styles := p.styles
+	now := p.now
+	return app.PushPage(func() app.Page {
+		return alert.New(alert.Options{
+			Alert:  selected,
+			Styles: styles,
+			Now:    now,
+		})
+	})
 }
 
 // nextSort returns the next sort key in cycle order. Wraps from
@@ -324,7 +397,8 @@ func (p *Page) emptyState() string {
 }
 
 // renderHeader returns the column-title row with a sort marker on
-// the active column.
+// the active column. Prefixed with rowPrefixCols spaces so the
+// titles line up with the data columns underneath.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortBySeverity, SortByName, SortByState, SortByAge}
 	parts := make([]string, len(titles))
@@ -339,23 +413,36 @@ func (p *Page) renderHeader(width int) string {
 		}
 		parts[i] = label
 	}
-	return p.padColumns(parts, width)
+	return strings.Repeat(" ", rowPrefixCols) + p.padColumns(parts, width)
 }
 
-// renderRows returns the data rows, capped at maxRows visible.
-// The cursor row is highlighted via the table.Cursor style.
+// renderRows returns the visible window of data rows. The window
+// is reconciled against the cursor on every frame so the cursor
+// stays inside it: scrolling down when the cursor walks past the
+// bottom, up when it walks past the top.
+//
+// The cursor row is wrapped in the theme's Table.Cursor style so
+// it stands out k9s-style — the background fills the full width
+// of the body, not just the visible characters, by padding the
+// rendered string to width before the style wraps it.
 func (p *Page) renderRows(width, maxRows int) string {
-	if maxRows <= 0 {
+	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
+	p.reconcileScroll(maxRows)
+	end := min(p.topRow+maxRows, len(p.view))
+
 	var b strings.Builder
-	for i, a := range p.view {
-		if i >= maxRows {
-			break
-		}
+	for i := p.topRow; i < end; i++ {
+		a := p.view[i]
 		ageLabel := header.FormatAge(p.now(), a.StartsAt)
 		if ageLabel == "" {
 			ageLabel = "—"
+		}
+		_, marked := p.marks[a.Fingerprint]
+		mark := " "
+		if marked {
+			mark = "✓"
 		}
 		row := []string{
 			severityOf(a),
@@ -363,25 +450,66 @@ func (p *Page) renderRows(width, maxRows int) string {
 			string(a.State),
 			ageLabel,
 		}
-		line := p.padColumns(row, width)
+		prefix := "  "
 		if i == p.cursor {
-			line = "▸ " + line
-		} else {
-			line = "  " + line
+			prefix = "▸ "
+		}
+		// Pad to the full width before styling. Cursor wraps the
+		// whole row in fg+bg (the salient "you are here" signal);
+		// Marked changes only the foreground colour so the row
+		// keeps the default background — k9s-style "tinted text"
+		// rather than a second highlighted stripe. Cursor wins
+		// over Marked when both apply.
+		line := padRight(prefix+mark+" "+p.padColumns(row, width), width)
+		switch {
+		case i == p.cursor:
+			line = p.styles.Table.Cursor.Render(line)
+		case marked:
+			line = lipgloss.NewStyle().
+				Foreground(p.styles.Table.Marked.GetForeground()).
+				Render(line)
 		}
 		b.WriteString(line)
-		b.WriteString("\n")
+		if i < end-1 {
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
+}
+
+// reconcileScroll slides topRow so the cursor lands inside the
+// [topRow, topRow+maxRows) window. Called from the renderer
+// because maxRows is body-height-dependent and only known here.
+func (p *Page) reconcileScroll(maxRows int) {
+	if p.cursor < p.topRow {
+		p.topRow = p.cursor
+	}
+	if p.cursor >= p.topRow+maxRows {
+		p.topRow = p.cursor - maxRows + 1
+	}
+	// Clamp: never scroll past the last possible window.
+	maxTop := max(len(p.view)-maxRows, 0)
+	if p.topRow > maxTop {
+		p.topRow = maxTop
+	}
+	if p.topRow < 0 {
+		p.topRow = 0
+	}
 }
 
 // padColumns lays out the four columns at fixed proportions of
 // the available width. Crude but adequate for v0.1 — a future
 // commit can swap in lipgloss/table.Table if column ergonomics
 // become a complaint.
+// rowPrefixCols is the space the rendered row reserves for its
+// leading "[cursor] [mark] " prefix (▸ or space + mark glyph or
+// space + separator). renderHeader prepends the same number of
+// spaces so the column titles line up with the data columns.
+const rowPrefixCols = 4
+
 func (p *Page) padColumns(parts []string, width int) string {
 	cols := []int{12, 0, 14, 12} // severity, name (flex), state, age
-	cols[1] = max(width-cols[0]-cols[2]-cols[3]-2, 10)
+	cols[1] = max(width-cols[0]-cols[2]-cols[3]-rowPrefixCols, 10)
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {

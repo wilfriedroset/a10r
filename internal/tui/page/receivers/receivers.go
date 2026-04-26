@@ -36,6 +36,7 @@ type Page struct {
 
 	all    []string
 	cursor int
+	topRow int // first visible row; reconciled against cursor on every render
 }
 
 // New constructs an empty receivers page.
@@ -82,6 +83,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.cursor = max(len(p.all)-1, 0)
 		}
 		return p, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
+		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
@@ -111,6 +115,37 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
+// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
+func (p *Page) reconcileScroll(maxRows int) {
+	if p.cursor < p.topRow {
+		p.topRow = p.cursor
+	}
+	if p.cursor >= p.topRow+maxRows {
+		p.topRow = p.cursor - maxRows + 1
+	}
+	maxTop := max(len(p.all)-maxRows, 0)
+	if p.topRow > maxTop {
+		p.topRow = maxTop
+	}
+	if p.topRow < 0 {
+		p.topRow = 0
+	}
+}
+
+// padRight pads s with trailing spaces so it occupies exactly w
+// columns. Truncates when s already exceeds w. Used to size the
+// cursor row to the full body width before the style wraps it,
+// so the cursor's background extends across the row.
+func padRight(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-lipgloss.Width(s))
+}
+
 // View implements app.Page.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
@@ -120,13 +155,20 @@ func (p *Page) View(width, height int) string {
 		return p.styles.Body.Default.Width(width).Height(height).Render("no receivers (yet)")
 	}
 	maxRows := min(height, len(p.all))
-	rows := make([]string, 0, maxRows)
-	for i := range maxRows {
-		row := p.all[i]
+	p.reconcileScroll(maxRows)
+	end := min(p.topRow+maxRows, len(p.all))
+	rows := make([]string, 0, end-p.topRow)
+	for i := p.topRow; i < end; i++ {
+		text := p.all[i]
+		prefix := "  "
 		if i == p.cursor {
-			row = "▸ " + row
-		} else {
-			row = "  " + row
+			prefix = "▸ "
+		}
+		// Pad to width before applying the cursor style so the
+		// background extends across the whole row k9s-style.
+		row := padRight(prefix+text, width)
+		if i == p.cursor {
+			row = p.styles.Table.Cursor.Render(row)
 		}
 		rows = append(rows, row)
 	}

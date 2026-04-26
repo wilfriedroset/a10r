@@ -3,6 +3,7 @@
 package alerts
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -51,7 +53,7 @@ func loadStyles(t *testing.T) theme.Styles {
 // alert builds a synthetic Alert for tests. Age is fixed at one
 // minute so age-column rendering is consistent across the suite;
 // the formatAge helper has its own dedicated test for age math.
-func alert(name, severity string, state backend.AlertState) backend.Alert {
+func mkAlert(name, severity string, state backend.AlertState) backend.Alert {
 	return backend.Alert{
 		Labels: map[string]string{
 			"alertname": name,
@@ -72,7 +74,7 @@ func TestPage_DataMsgPopulatesView(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("HighCPU", "critical", backend.AlertStateActive),
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts, Tenant: "prod"})
 
@@ -94,9 +96,9 @@ func TestPage_SortBySeverityPutsCriticalFirst(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("WarnFoo", "warning", backend.AlertStateActive),
-		alert("CritBar", "critical", backend.AlertStateActive),
-		alert("InfoBaz", "info", backend.AlertStateActive),
+		mkAlert("WarnFoo", "warning", backend.AlertStateActive),
+		mkAlert("CritBar", "critical", backend.AlertStateActive),
+		mkAlert("InfoBaz", "info", backend.AlertStateActive),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
@@ -110,8 +112,8 @@ func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("HighCPU", "critical", backend.AlertStateActive),
-		alert("DiskSpace", "warning", backend.AlertStateActive),
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		mkAlert("DiskSpace", "warning", backend.AlertStateActive),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
@@ -126,8 +128,8 @@ func TestPage_FilterCancelRestoresPreFilter(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("HighCPU", "critical", backend.AlertStateActive),
-		alert("DiskSpace", "warning", backend.AlertStateActive),
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		mkAlert("DiskSpace", "warning", backend.AlertStateActive),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "disk"})
@@ -146,9 +148,9 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("A", "critical", backend.AlertStateActive),
-		alert("B", "warning", backend.AlertStateActive),
-		alert("C", "info", backend.AlertStateActive),
+		mkAlert("A", "critical", backend.AlertStateActive),
+		mkAlert("B", "warning", backend.AlertStateActive),
+		mkAlert("C", "info", backend.AlertStateActive),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
@@ -176,9 +178,9 @@ func TestPage_StateFilterCycle(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		alert("A", "critical", backend.AlertStateActive),
-		alert("B", "warning", backend.AlertStateSuppressed),
-		alert("C", "info", backend.AlertStateUnprocessed),
+		mkAlert("A", "critical", backend.AlertStateActive),
+		mkAlert("B", "warning", backend.AlertStateSuppressed),
+		mkAlert("C", "info", backend.AlertStateUnprocessed),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	require.Len(t, p.view, 3)
@@ -232,15 +234,15 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	// reorders alerts must not slide the cursor onto a different
 	// alert.
 	p := newPage(t)
-	mkAlert := func(name, fp string) backend.Alert {
-		a := alert(name, "warning", backend.AlertStateActive)
+	withFP := func(name, fp string) backend.Alert {
+		a := mkAlert(name, "warning", backend.AlertStateActive)
 		a.Fingerprint = fp
 		return a
 	}
 	first := []backend.Alert{
-		mkAlert("A", "fp-a"),
-		mkAlert("B", "fp-b"),
-		mkAlert("C", "fp-c"),
+		withFP("A", "fp-a"),
+		withFP("B", "fp-b"),
+		withFP("C", "fp-c"),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -249,10 +251,10 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	// New tick: B has shifted to the bottom (new alerts inserted
 	// above it). Cursor must follow B.
 	second := []backend.Alert{
-		mkAlert("X", "fp-x"),
-		mkAlert("Y", "fp-y"),
-		mkAlert("A", "fp-a"),
-		mkAlert("B", "fp-b"),
+		withFP("X", "fp-x"),
+		withFP("Y", "fp-y"),
+		withFP("A", "fp-a"),
+		withFP("B", "fp-b"),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
 	require.Equal(t, "fp-b", p.view[p.cursor].Fingerprint,
@@ -263,23 +265,242 @@ func TestPage_CursorClampsWhenFocusedAlertGone(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	mkAlert := func(name, fp string) backend.Alert {
-		a := alert(name, "warning", backend.AlertStateActive)
+	withFP := func(name, fp string) backend.Alert {
+		a := mkAlert(name, "warning", backend.AlertStateActive)
 		a.Fingerprint = fp
 		return a
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("A", "fp-a"),
-		mkAlert("B", "fp-b"),
+		withFP("A", "fp-a"),
+		withFP("B", "fp-b"),
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	require.Equal(t, "fp-b", p.view[p.cursor].Fingerprint)
 
 	// B is gone; cursor must clamp to the last remaining row.
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("A", "fp-a"),
+		withFP("A", "fp-a"),
 	}})
 	require.Equal(t, 0, p.cursor)
+}
+
+func TestPage_EnterDrillsToDetail(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	a.Fingerprint = "fp-cpu"
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd, "Enter on a populated row must produce a push Cmd")
+	// Running the Cmd yields the pushPageMsg the App's Update consumes.
+	// We can't assert against the (unexported) pushPageMsg type from this
+	// package; the contract is covered by app.PushPage's own tests, so
+	// here we just lock that a Cmd was returned and that it doesn't
+	// produce a flash.
+	msg := cmd()
+	if _, isFlash := msg.(footer.FlashShowMsg); isFlash {
+		t.Fatalf("Enter on a populated row must NOT flash; got %#v", msg)
+	}
+}
+
+func TestPage_EnterOnEmptyViewFlashesHint(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "no alert")
+}
+
+func TestPage_SpaceTogglesMarkAndHeaderShowsCount(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	mk := func(name, fp string) backend.Alert {
+		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a.Fingerprint = fp
+		return a
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mk("A", "fp-a"),
+		mk("B", "fp-b"),
+	}})
+
+	require.Empty(t, p.marks)
+	require.NotContains(t, p.HeaderContent(), "marked:")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Contains(t, p.marks, "fp-a")
+	require.Contains(t, p.HeaderContent(), "marked:1")
+
+	// Space again on the same row clears the mark.
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.NotContains(t, p.marks, "fp-a")
+}
+
+func TestPage_MarkedRowCarriesMarkedStyle(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	mk := func(name, fp string) backend.Alert {
+		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a.Fingerprint = fp
+		return a
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mk("First", "fp-1"),
+		mk("Second", "fp-2"),
+	}})
+
+	// Move cursor off row 0, then mark row 0. Row 0 must wear
+	// the Marked style; the cursor row (now row 1) wears Cursor.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	// Render and locate the row 0 line. Marked rows wear ANSI
+	// styling (foreground-only — the background stays the default
+	// so the row doesn't compete visually with the cursor stripe)
+	// and the marker column shows the check glyph.
+	out := p.View(120, 20)
+	rowLines := strings.Split(out, "\n")
+	require.GreaterOrEqual(t, len(rowLines), 3)
+	row0 := rowLines[1] // header at [0], rows start at [1]
+	require.Contains(t, row0, "\x1b[",
+		"a marked non-cursor row must carry ANSI styling")
+	require.NotContains(t, row0, "\x1b[48;",
+		"marked rows must NOT change the background — only the foreground")
+	require.Contains(t, stripStyle(row0), "✓",
+		"the marker column must show the check glyph on marked rows")
+}
+
+func TestPage_MarksRenderedNextToCursor(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	mk := func(name, fp string) backend.Alert {
+		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a.Fingerprint = fp
+		return a
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mk("First", "fp-1"),
+		mk("Second", "fp-2"),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+
+	out := stripStyle(p.View(120, 20))
+	require.Contains(t, out, "✓",
+		"marked rows must show a check glyph in the marker column")
+}
+
+func TestPage_GoToFirstRowResetsCursorAndScroll(t *testing.T) {
+	t.Parallel()
+
+	alerts := make([]backend.Alert, 30)
+	for i := range alerts {
+		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
+	}
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+
+	// Walk the cursor far down, then send the chord-resolved msg.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	require.Positive(t, p.cursor)
+
+	_, _ = p.Update(app.GoToFirstRowMsg{})
+	require.Equal(t, 0, p.cursor,
+		"GoToFirstRowMsg must move the cursor to the top")
+
+	// Force a render so reconcileScroll runs and topRow is reset.
+	_ = p.View(80, 10)
+	require.Equal(t, 0, p.topRow,
+		"top of the table must be in view after GoToFirstRow + render")
+}
+
+func TestPage_ViewportFollowsCursor(t *testing.T) {
+	t.Parallel()
+
+	// 30 alerts, body just tall enough for ~5 rows. After walking
+	// the cursor down past the visible window the view must scroll
+	// so the cursor row is rendered.
+	alerts := make([]backend.Alert, 30)
+	for i := range alerts {
+		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
+	}
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+
+	// Walk the cursor 20 rows down (past any reasonable viewport).
+	for range 20 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+
+	// Render at width=80, height=10 (≈7-8 rows visible after the
+	// header and footer). The cursor row's alertname must appear.
+	out := stripStyle(p.View(80, 10))
+	require.Contains(t, out, p.view[p.cursor].Labels["alertname"],
+		"viewport must scroll so the cursor row stays visible")
+
+	// G jumps to the last row; the bottom of the list must be in
+	// view (the page scrolled all the way down).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	out = stripStyle(p.View(80, 10))
+	require.Contains(t, out, "Alert29",
+		"G must scroll the viewport to the last row")
+
+	// gg-equivalent: cursor back to 0 → top-of-list visible again.
+	for range 30 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	}
+	out = stripStyle(p.View(80, 10))
+	require.Contains(t, out, "Alert00",
+		"walking back up must scroll the viewport to the top")
+}
+
+func TestPage_CursorRowIsHighlighted(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("First", "critical", backend.AlertStateActive),
+		mkAlert("Second", "warning", backend.AlertStateActive),
+	}})
+
+	out := p.View(120, 20)
+	// The cursor row gets wrapped in the Table.Cursor style. The
+	// catppuccin-mocha skin maps that to a lavender-on-base ANSI
+	// sequence; tests don't pin the colour values (the skin can
+	// change), but the cursor row MUST carry an ANSI escape.
+	lines := strings.Split(stripStyle(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 2)
+	cursorLine := strings.SplitN(out, "\n", 4)[1] // header → row 0 (cursor) → ...
+	otherLine := strings.SplitN(out, "\n", 4)[2]
+	require.Contains(t, cursorLine, "\x1b[",
+		"the cursor row must carry ANSI styling")
+	require.NotContains(t, otherLine, "\x1b[",
+		"non-cursor rows in v0.1 stay unstyled — only Cursor wraps the row")
+}
+
+func TestPage_BindingsIncludeEnterDrill(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	var sawEnter bool
+	for _, b := range p.Bindings() {
+		if b.Key == "Enter" {
+			sawEnter = true
+			require.False(t, b.Dangerous, "drill must NOT be Dangerous")
+		}
+	}
+	require.True(t, sawEnter, "alerts page must surface Enter→detail in its hints")
 }
 
 func TestPage_DirectSortShortcuts(t *testing.T) {

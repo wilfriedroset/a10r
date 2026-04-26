@@ -51,6 +51,15 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	dispatcher := keys.New(nil)
 	resolver := newResolver(*styles)
 
+	// `gg` is a chord — the dispatcher buffers the first `g` and
+	// fires the registered handler on the second within 500 ms.
+	// Registering at LayerTable means every table-bodied page
+	// (alerts, silences, receivers, groups, tenant) honours it
+	// without per-page chord plumbing.
+	dispatcher.Set(keys.LayerTable, "gg", func() tea.Cmd {
+		return func() tea.Msg { return app.GoToFirstRowMsg{} }
+	})
+
 	a := app.NewApp(app.Options{
 		Styles:     *styles,
 		Registry:   registry,

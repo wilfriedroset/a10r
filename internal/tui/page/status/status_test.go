@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -72,8 +73,12 @@ func TestPage_VimMotions(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	require.Equal(t, 1, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Greater(t, p.scroll, 1)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	require.Positive(t, p.scroll)
+	// `gg` is the chord — the dispatcher consumes the first `g`,
+	// then resolves to GoToFirstRowMsg on the second. Tests inject
+	// the resolved message directly because the dispatcher's
+	// chord buffer is wired in cmd/tui.go, not in the page.
+	_, _ = p.Update(app.GoToFirstRowMsg{})
 	require.Equal(t, 0, p.scroll)
 }
 

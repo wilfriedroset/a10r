@@ -67,6 +67,12 @@ type Page struct {
 	view   []backend.Silence
 	cursor int
 
+	// topRow keeps the cursor inside the visible window — see
+	// reconcileScroll. Lazily updated by the renderer because the
+	// body height (and therefore the row budget) is only known at
+	// render time.
+	topRow int
+
 	sort    SortKey
 	sortAsc bool
 	focusID string
@@ -127,6 +133,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		}
 		p.all = s
 		p.recompute()
+		return p, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
+		p.snapshotFocus()
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -244,30 +254,55 @@ func (p *Page) renderHeader(width int) string {
 }
 
 func (p *Page) renderRows(width, maxRows int) string {
-	if maxRows <= 0 {
+	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
+	p.reconcileScroll(maxRows)
+	end := min(p.topRow+maxRows, len(p.view))
 	var b strings.Builder
-	for i, s := range p.view {
-		if i >= maxRows {
-			break
-		}
+	for i := p.topRow; i < end; i++ {
+		s := p.view[i]
 		row := []string{
 			header.FormatAge(p.now(), s.EndsAt),
 			header.FormatAge(p.now(), s.StartsAt),
 			s.CreatedBy,
 			string(s.State),
 		}
-		line := p.padColumns(row, width)
+		prefix := "  "
 		if i == p.cursor {
-			line = "▸ " + line
-		} else {
-			line = "  " + line
+			prefix = "▸ "
+		}
+		// Pad to the full width before styling so the Cursor row's
+		// background extends across the whole line k9s-style.
+		line := padRight(prefix+p.padColumns(row, width), width)
+		if i == p.cursor {
+			line = p.styles.Table.Cursor.Render(line)
 		}
 		b.WriteString(line)
-		b.WriteString("\n")
+		if i < end-1 {
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
+}
+
+// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
+// Same shape as the alerts page; replicated rather than shared so
+// each page stays self-contained until a tablekit emerges.
+func (p *Page) reconcileScroll(maxRows int) {
+	if p.cursor < p.topRow {
+		p.topRow = p.cursor
+	}
+	if p.cursor >= p.topRow+maxRows {
+		p.topRow = p.cursor - maxRows + 1
+	}
+	maxTop := max(len(p.view)-maxRows, 0)
+	if p.topRow > maxTop {
+		p.topRow = maxTop
+	}
+	if p.topRow < 0 {
+		p.topRow = 0
+	}
 }
 
 func (p *Page) padColumns(parts []string, width int) string {

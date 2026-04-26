@@ -65,6 +65,11 @@ type Page struct {
 	clip    Clipboard
 	browser Browser
 	now     func() time.Time
+
+	// scroll is the index of the first visible body line. j/k/G/gg
+	// walk it; the renderer reconciles against the body height
+	// every frame so the user can never scroll past the bottom.
+	scroll int
 }
 
 // New constructs an alert-detail page.
@@ -117,6 +122,10 @@ func (*Page) Bindings() []action.Action {
 // here — the App's global LayerGlobal Esc binding pops the stack
 // (#23), which is exactly the right behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if _, ok := msg.(app.GoToFirstRowMsg); ok {
+		p.scroll = 0
+		return p, nil
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
@@ -128,6 +137,20 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case "o":
 		cmd := p.openGeneratorURL()
 		return p, cmd
+	case "j", "down":
+		p.scroll++
+	case "k", "up":
+		if p.scroll > 0 {
+			p.scroll--
+		}
+	case "ctrl+d":
+		p.scroll += 10
+	case "ctrl+u":
+		p.scroll = max(p.scroll-10, 0)
+	case "G":
+		// Pin the last line; the renderer clamps against the
+		// actual body length on the next frame.
+		p.scroll = 1 << 30
 	case "s":
 		// Silence form lands in #30. Until then the binding flashes
 		// the same placeholder the alerts list uses so the affordance
@@ -173,26 +196,60 @@ func (p *Page) openGeneratorURL() tea.Cmd {
 	return flashFn(footer.FlashSuccess, "opened in browser")
 }
 
-// View implements app.Page.
+// View implements app.Page. Builds a flat line list, hanging-
+// indent-wraps any line that overflows width, then slices the
+// visible window starting at p.scroll.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	sections := []string{
-		p.renderSummary(),
-		"",
-		"Labels:",
-		renderKV(p.a.Labels),
-		"",
-		"Annotations:",
-		renderKV(p.a.Annotations),
+	lines := p.bodyLines(width)
+	p.reconcileScroll(len(lines), height)
+	end := min(p.scroll+height, len(lines))
+	if p.scroll > end {
+		p.scroll = end
 	}
-	if p.a.GeneratorURL != "" {
-		sections = append(sections, "", "Generator URL: "+p.a.GeneratorURL)
-	}
-	body := strings.Join(sections, "\n")
-	return lipgloss.NewStyle().Width(width).Render(body)
+	visible := lines[p.scroll:end]
+	return strings.Join(visible, "\n")
 }
+
+// bodyLines builds the full list of rendered lines (one display
+// row each) so View can slice and the scroll machinery can clamp
+// against an exact length. Long values are wrapped with a
+// hanging indent so continuation lines align under the value
+// instead of bleeding to column 0.
+func (p *Page) bodyLines(width int) []string {
+	out := make([]string, 0, 32)
+	out = append(out, splitLines(p.renderSummary())...)
+	out = append(out, "", "Labels:")
+	out = append(out, kvLines(p.a.Labels, width)...)
+	out = append(out, "", "Annotations:")
+	out = append(out, kvLines(p.a.Annotations, width)...)
+	if p.a.GeneratorURL != "" {
+		out = append(out, "")
+		out = append(out, wrapHanging("Generator URL: "+p.a.GeneratorURL, width, len("Generator URL: "))...)
+	}
+	return out
+}
+
+// reconcileScroll clamps p.scroll so the visible window stays
+// within [0, totalLines). Mirrors the list pages' viewport
+// reconciliation but operates on flat-line indices instead of
+// row indices.
+func (p *Page) reconcileScroll(totalLines, height int) {
+	if p.scroll < 0 {
+		p.scroll = 0
+		return
+	}
+	maxScroll := max(totalLines-height, 0)
+	if p.scroll > maxScroll {
+		p.scroll = maxScroll
+	}
+}
+
+// splitLines splits s on \n. Used so renderSummary's multi-line
+// output joins naturally with the section headers in bodyLines.
+func splitLines(s string) []string { return strings.Split(s, "\n") }
 
 // renderSummary is the top block: alertname, state, severity,
 // fingerprint, age. Each on its own line for readability.
@@ -216,29 +273,120 @@ func (p *Page) renderSummary() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderKV renders a map as sorted "  key: value" lines so the
-// output is reproducible across runs (Go map iteration is
-// randomised). Empty maps render as "  (none)".
-func renderKV(m map[string]string) string {
+// kvLines renders a map as sorted "  key: value" lines. Embedded
+// "\n" characters in a value (common in Prometheus-style
+// annotations like "VALUE = 0\nLABELS = …") are honoured —
+// each line of the value is rendered as its own row with the
+// same hanging indent as wrap continuations, so multi-line
+// values read as one visually-aligned block under the value
+// column. Empty maps render as a single "  (none)" line.
+func kvLines(m map[string]string, width int) []string {
 	if len(m) == 0 {
-		return "  (none)"
+		return []string{"  (none)"}
 	}
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	var b strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteString("\n")
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		prefix := "  " + k + ": "
+		hangCols := lipgloss.Width(prefix)
+		hang := strings.Repeat(" ", hangCols)
+		for vi, segment := range strings.Split(m[k], "\n") {
+			leading := hang
+			if vi == 0 {
+				leading = prefix
+			}
+			out = append(out, wrapHanging(leading+segment, width, hangCols)...)
 		}
-		b.WriteString("  ")
-		b.WriteString(k)
-		b.WriteString(": ")
-		b.WriteString(m[k])
 	}
-	return b.String()
+	return out
+}
+
+// wrapHanging breaks s into lines that fit width columns, with
+// continuation lines indented by hangingCols spaces so wrapped
+// values stay visually aligned with the first line. Word-wraps
+// at whitespace where possible; falls back to a hard cut when a
+// single word exceeds the available column budget — or, crucially,
+// when the only whitespace in rest sits inside the hanging indent
+// (a long no-internal-whitespace value would otherwise loop
+// forever cutting only the indent and never the content).
+func wrapHanging(s string, width, hangingCols int) []string {
+	if width <= 0 {
+		return []string{s}
+	}
+	if lipgloss.Width(s) <= width {
+		return []string{s}
+	}
+	hang := strings.Repeat(" ", hangingCols)
+
+	var out []string
+	rest := s
+	limit := width
+	for lipgloss.Width(rest) > limit {
+		cut := bestBreakIndex(rest, limit)
+		// Forward-progress guard: a cut at or before the leading
+		// indent yields a no-content line and never shrinks rest.
+		// Force a hard cut at the limit in that case so the loop
+		// always makes progress.
+		if cut <= hangingCols {
+			cut = hardCutAt(rest, limit)
+		}
+		if cut <= 0 {
+			break // pathological input; emit what we have
+		}
+		out = append(out, rest[:cut])
+		rest = hang + strings.TrimLeft(rest[cut:], " ")
+	}
+	out = append(out, rest)
+	return out
+}
+
+// hardCutAt returns the byte index in s at which the leading
+// slice fits within limit columns. Used as the forward-progress
+// fallback when bestBreakIndex's whitespace-aware result would
+// stall the wrap loop.
+func hardCutAt(s string, limit int) int {
+	width := 0
+	for i, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > limit {
+			return i
+		}
+		width += rw
+	}
+	return len(s)
+}
+
+// bestBreakIndex returns the byte index in s at which to split
+// so the leading slice fits within limit columns. Prefers the
+// last whitespace boundary at-or-before the limit; falls back to
+// a hard cut at the limit when a single word overflows it.
+func bestBreakIndex(s string, limit int) int {
+	if lipgloss.Width(s) <= limit {
+		return len(s)
+	}
+	// Walk forward tracking width; remember the last whitespace
+	// position. When width passes limit, break at that whitespace
+	// or, failing that, at the current position.
+	width := 0
+	lastWS := -1
+	for i, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > limit {
+			if lastWS > 0 {
+				return lastWS
+			}
+			return i
+		}
+		if r == ' ' {
+			lastWS = i
+		}
+		width += rw
+	}
+	return len(s)
 }
 
 // flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so
