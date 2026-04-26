@@ -38,13 +38,23 @@ type Client interface {
 
 // SubmittedMsg is emitted on a successful submit. ID carries the
 // silence ID returned by the backend so the caller (typically
-// the silences list page) can hint, navigate, etc.
+// the silences list page) can hint, navigate, etc. Implements
+// app.AutoPopMsg so the App pops the form off the stack on
+// receipt and routes the message to the parent.
 type SubmittedMsg struct {
 	ID string
 }
 
-// CancelledMsg is emitted on Esc with no submission.
+// IsAutoPop satisfies app.AutoPopMsg.
+func (SubmittedMsg) IsAutoPop() {}
+
+// CancelledMsg is emitted on Esc with no submission. Implements
+// app.AutoPopMsg so the form auto-closes the same way as on
+// submit; the parent page can flash a hint if it wants.
 type CancelledMsg struct{}
+
+// IsAutoPop satisfies app.AutoPopMsg.
+func (CancelledMsg) IsAutoPop() {}
 
 // fieldIndex enumerates the form's input slots so Tab navigation
 // can walk them in display order.

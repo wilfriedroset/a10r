@@ -305,6 +305,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.forwardToTop(msg)
 		return a, cmd
 	}
+	if _, ok := msg.(AutoPopMsg); ok {
+		// Forms emit submitted / cancelled messages tagged with
+		// AutoPopMsg. The App pops the form off the stack first so
+		// the parent page is on top, then forwards the message so
+		// the parent can react (success flash, list refresh, …).
+		// Symmetrical with the modal-result path above.
+		closeCmd := a.popPage()
+		fwdCmd := a.forwardToTop(msg)
+		return a, tea.Batch(closeCmd, fwdCmd)
+	}
 	if a.flash.Owns(msg) {
 		var cmd tea.Cmd
 		a.flash, cmd = a.flash.Update(msg)

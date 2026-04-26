@@ -3,6 +3,7 @@
 package silences
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -45,7 +47,10 @@ func stripStyle(s string) string {
 
 func newPage(t *testing.T) *Page {
 	t.Helper()
-	return New(loadStyles(t), func() time.Time { return fixedNow })
+	return New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
 }
 
 func sil(id, by string, state backend.SilenceState, endsIn time.Duration) backend.Silence { //nolint:unparam // state kept for future tests covering pending / expired silences
@@ -169,7 +174,6 @@ func TestPage_ActionKeysFlashPlaceholders(t *testing.T) {
 		key  rune
 		want string
 	}{
-		{key: 'n', want: "silence form"},
 		{key: 'e', want: "silence edit"},
 		{key: 'x', want: "silence expire"},
 	}
@@ -266,4 +270,40 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
 	require.Empty(t, p.filter)
 	require.Len(t, p.view, 3)
+}
+
+// fakeSilenceClient records CreateSilence calls so tests can
+// assert without a live backend.
+type fakeSilenceClient struct{ created backend.SilenceSpec }
+
+func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
+	f.created = spec
+	return "fake-silence-id", nil
+}
+
+func TestPage_NewKeyWithoutClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := newPage(t) // no clients configured
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend",
+		"`n` with no clients must explain rather than push a broken form")
+}
+
+func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	require.NotNil(t, cmd, "n must produce a Cmd that pushes the form")
+	// The Cmd carries a pushPageMsg internal to the app package; we
+	// can only assert it isn't a flash (no Text field) and that the
+	// type is the page-stack op.
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "n with clients must push the form, not flash")
 }

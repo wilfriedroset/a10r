@@ -127,3 +127,17 @@ func PopPage() tea.Cmd {
 func ReplacePage(factory func() Page) tea.Cmd {
 	return func() tea.Msg { return replacePageMsg{Factory: factory} }
 }
+
+// AutoPopMsg marks every message that should trigger the App to
+// pop the top page after delivering the message to the parent.
+// Forms (silence creation, future Mimir config edit, …) emit
+// submitted / cancelled messages tagged with this interface so
+// the App pops the form off the stack and forwards the result to
+// the parent — analogous to how modal.ResultMsg drives modal
+// auto-close.
+//
+// IsAutoPop is the marker method. Empty body forces explicit
+// satisfaction so an unrelated tea.Msg can't accidentally match.
+type AutoPopMsg interface {
+	IsAutoPop()
+}

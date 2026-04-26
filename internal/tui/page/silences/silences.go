@@ -23,6 +23,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -100,16 +101,41 @@ type Page struct {
 	// name, or comma-joined names). Mirrors what the alerts page
 	// tracks and is updated by app.ScopeChangedMsg.
 	scope string
+
+	// clients are the per-tenant write surfaces the page hands to
+	// the silence form when the user presses `n`. Empty in tests
+	// or read-only runs — write actions flash a hint instead.
+	clients map[string]silenceform.Client
+	// creator seeds the form's CreatedBy field; usually $USER.
+	creator string
+}
+
+// Options bundles the page's constructor inputs. Clients is the
+// per-tenant write surface; the silences page picks the right one
+// when the user presses `n` based on the cursor row's tenant or
+// (on an empty list) the first in-scope backend. Empty Clients
+// flashes a hint instead of pushing the form so a no-config or
+// read-only run doesn't crash.
+type Options struct {
+	Styles  theme.Styles
+	Now     func() time.Time
+	Clients map[string]silenceform.Client
+	// Creator is the default value the silence form opens with —
+	// usually $USER. Empty falls back to "a10r".
+	Creator string
 }
 
 // New constructs an empty silences page.
-func New(styles theme.Styles, now func() time.Time) *Page {
+func New(opts Options) *Page {
+	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Page{
-		styles:   styles,
+		styles:   opts.Styles,
 		now:      now,
+		clients:  opts.Clients,
+		creator:  opts.Creator,
 		byTenant: map[string][]backend.Silence{},
 		sort:     SortByEndsAt,
 		sortAsc:  true, // soonest-expiring first
@@ -233,6 +259,15 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
 		p.snapshotFocus()
+		return p, nil
+	case silenceform.SubmittedMsg:
+		// Form auto-popped already; flash the new silence ID so
+		// the user has visual confirmation. The next poll tick
+		// will surface the silence in the list.
+		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+	case silenceform.CancelledMsg:
+		// Auto-pop already happened. No flash — form Esc is a
+		// non-event from the user's perspective.
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
@@ -360,7 +395,8 @@ func defaultAsc(_ SortKey) bool { return true }
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
 	case "n":
-		return p, flashFn(footer.FlashWarn, "silence form arrives in #30")
+		cmd := p.openNewSilenceForm()
+		return p, cmd
 	case "e":
 		return p, flashFn(footer.FlashWarn, "silence edit arrives in #30")
 	case "x":
@@ -371,6 +407,60 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, flashFn(footer.FlashWarn, "bulk expire arrives in #30")
 	}
 	return p, nil
+}
+
+// openNewSilenceForm pushes an empty silence form targeting the
+// best-fit backend. Selection rule: the cursor row's tenant
+// (when a row is focused), else the first in-scope tenant from
+// p.clients in alphabetical order. Empty p.clients (no backends
+// configured, or read-only run) flashes a hint instead.
+func (p *Page) openNewSilenceForm() tea.Cmd {
+	tenant, client, ok := p.pickWriteTarget()
+	if !ok {
+		return flashFn(footer.FlashWarn, "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`")
+	}
+	creator := p.creator
+	if creator == "" {
+		creator = "a10r"
+	}
+	now := p.now
+	styles := p.styles
+	_ = tenant // captured by client; reserved for a future title
+	return app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:  client,
+			Styles:  styles,
+			Now:     now,
+			Creator: creator,
+		})
+	})
+}
+
+// pickWriteTarget returns the tenant + client to send a write to.
+// Cursor row's tenant wins when a row is focused; otherwise falls
+// back to the first in-scope tenant (alphabetical for stability).
+// Returns (_, _, false) when nothing usable is configured.
+func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
+	if len(p.clients) == 0 {
+		return "", nil, false
+	}
+	if p.cursor < len(p.view) {
+		t := p.view[p.cursor].tenant
+		if c, ok := p.clients[t]; ok {
+			return t, c, true
+		}
+	}
+	names := make([]string, 0, len(p.clients))
+	for t := range p.clients {
+		names = append(names, t)
+	}
+	sort.Strings(names)
+	for _, t := range names {
+		if p.scopeIncludes(t) {
+			return t, p.clients[t], true
+		}
+	}
+	return "", nil, false
 }
 
 // View implements app.Page.
@@ -637,7 +727,7 @@ func lessFor(key SortKey) func(a, b backend.Silence) bool {
 // actions on this page all use Warn (the affordances are wired
 // but the actual write isn't yet) so the helper hard-codes the
 // level — no caller wants anything else today.
-func flashFn(level footer.FlashLevel, text string) tea.Cmd { //nolint:unparam // level kept for the eventual non-Warn callers in #30/#31
+func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
 	}

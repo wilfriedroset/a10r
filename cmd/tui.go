@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/page/groups"
@@ -53,7 +54,8 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	registry := action.New()
 	dispatcher := keys.New(nil)
 	scope := scopeFor(cfg)
-	resolver := newResolver(*styles, scope)
+	clients := buildClients(cfg)
+	resolver := newResolver(*styles, scope, clients)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -74,8 +76,8 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))
 
-	// Spawn the poller for the first configured backend, if any.
-	stopPoller := startBackendPoller(cmd.Context(), cfg, prog)
+	// Spawn the poller for every configured backend.
+	stopPoller := startBackendPoller(cmd.Context(), cfg, clients, prog)
 	defer stopPoller()
 
 	// Push the alerts home page once the program is running. The
@@ -94,6 +96,35 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 
 	_, err = prog.Run()
 	return err
+}
+
+// silenceClientsFrom narrows the backend.Client map to the small
+// silenceform.Client interface — keeps the form package free of
+// the wider Client surface and makes tests trivial to fake.
+func silenceClientsFrom(in map[string]backend.Client) map[string]silenceform.Client {
+	out := make(map[string]silenceform.Client, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// buildClients constructs one backend.Client per configured backend
+// keyed by tenant name. A backend whose factory.Build fails logs a
+// warning and is skipped — the rest still get a client. The
+// resulting map is shared between the poller fan-out (read paths)
+// and the page factories (write paths) so the two stay in sync.
+func buildClients(cfg *config.Config) map[string]backend.Client {
+	out := make(map[string]backend.Client, len(cfg.Backends))
+	for _, be := range cfg.Backends {
+		c, err := factory.Build(be)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "backend %q: build failed: %v\n", be.Name, err)
+			continue
+		}
+		out[be.Name] = c
+	}
+	return out
 }
 
 // loadConfigForTUI loads the user config; missing config returns
@@ -161,18 +192,29 @@ func loadStylesFor(name string) (*theme.Styles, error) {
 }
 
 // newResolver builds the cmdbar resolver with the v0.1 alias
-// catalogue. Page factories close over the styles + scope so
-// each `:alerts` push lands a page wired to the active tenant
-// label.
-func newResolver(styles theme.Styles, scope string) *cmdbar.Resolver {
+// catalogue. Page factories close over the styles + scope + the
+// per-tenant client map so each `:alerts` / `:silences` push
+// lands a page wired to the active tenant label and (for write-
+// surface pages) the right backend.Client when the user invokes
+// a write action.
+func newResolver(styles theme.Styles, scope string, clients map[string]backend.Client) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return alerts.New(alerts.Options{Styles: styles, Now: time.Now, Scope: scope})
 		})
 	})
+	silenceClients := silenceClientsFrom(clients)
+	creator := os.Getenv("USER")
 	silencesFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return silences.New(styles, time.Now) })
+		return app.PushPage(func() app.Page {
+			return silences.New(silences.Options{
+				Styles:  styles,
+				Now:     time.Now,
+				Clients: silenceClients,
+				Creator: creator,
+			})
+		})
 	}
 	r.Register("silences", silencesFactory)
 	r.Register("sil", silencesFactory)
@@ -199,30 +241,27 @@ func newResolver(styles theme.Styles, scope string) *cmdbar.Resolver {
 }
 
 // startBackendPoller spawns the per-(backend, resource) poller
-// matrix per audit §5.1. Each configured backend gets one poller
+// matrix per audit §5.1. Each entry in clients gets one poller
 // per resource (alerts, silences, receivers, alert-groups), and
 // every emitted DataMsg carries the backend's tenant tag so list
 // pages can union snapshots into a `byTenant` map and reason
-// about scope at render time. A backend whose factory.Build
-// fails logs a warning and is skipped — the rest still poll.
+// about scope at render time.
 //
 // The four resources share a single interval per backend: poll
 // pressure is dominated by the alerts feed, and the others are
 // cheap reads that piggy-back. Configurable per-resource intervals
 // are deferred — overkill for v0.1 and not in the audit.
-func startBackendPoller(ctx context.Context, cfg *config.Config, prog *tea.Program) func() {
-	if len(cfg.Backends) == 0 {
+func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[string]backend.Client, prog *tea.Program) func() {
+	if len(clients) == 0 {
 		return func() {}
 	}
-	pollers := make([]*poll.Poller, 0, len(cfg.Backends)*4)
+	pollers := make([]*poll.Poller, 0, len(clients)*4)
 	for _, be := range cfg.Backends {
-		client, err := factory.Build(be)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "backend %q: build failed: %v\n", be.Name, err)
-			continue
+		c, ok := clients[be.Name]
+		if !ok {
+			continue // factory.Build failed in buildClients; warning already emitted
 		}
 		interval := backendInterval(be, cfg)
-		c := client // capture for the closure (Go 1.22+ per-iter scope; explicit for clarity)
 		name := be.Name
 		fetchers := backendFetchers(c)
 		for _, f := range fetchers {
