@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -129,4 +130,24 @@ func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 func TestCommonLabels_EmptyInput(t *testing.T) {
 	t.Parallel()
 	require.Empty(t, commonLabels(nil))
+}
+
+func TestPage_FilterPromptIsLive(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+
+	// sampleGroups has two entries: team=platform and team=data.
+	// Filter by "data" → only the data group is visible.
+	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "data"})
+	require.Equal(t, "groups[1/2]", p.Title())
+	visible := p.visibleGroups()
+	require.Len(t, visible, 1)
+	require.Equal(t, "data", visible[0].Labels["team"])
+
+	// Cancel reverts.
+	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
+	require.Empty(t, p.filter)
+	require.Equal(t, "groups[2]", p.Title())
 }

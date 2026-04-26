@@ -76,6 +76,13 @@ type Page struct {
 	sort    SortKey
 	sortAsc bool
 	focusID string
+
+	// filter is the active substring filter (creator / matcher
+	// fields / comment). preFilter is the snapshot the page
+	// restores on PromptCancelledMsg{Mode: PromptFilter}; nil iff
+	// no filter prompt is open. Same shape as the alerts page.
+	filter    string
+	preFilter *string
 }
 
 // New constructs an empty silences page.
@@ -100,14 +107,26 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "silences" }
 
-// Title implements app.Page.
-func (p *Page) Title() string { return fmt.Sprintf("silences[%d]", len(p.view)) }
+// Title implements app.Page. Filtered/total shape matches alerts:
+// `silences[N]` when no filter is active, `silences[F/T]` while
+// one is.
+func (p *Page) Title() string {
+	if p.filter != "" {
+		return fmt.Sprintf("silences[%d/%d]", len(p.view), len(p.all))
+	}
+	return fmt.Sprintf("silences[%d]", len(p.view))
+}
 
-// HeaderContent implements app.Page. The sort indicator lives
-// on the column header arrow; the count lives in Title. Nothing
-// else is interesting at this layer yet, so HeaderContent is
-// empty (the App skips the subtitle when empty).
-func (*Page) HeaderContent() string { return "" }
+// HeaderContent implements app.Page. Sort indicator lives on the
+// column header arrow; count lives in Title. Surface the active
+// filter when one is set so the user can spot what's been
+// applied without re-opening the prompt.
+func (p *Page) HeaderContent() string {
+	if p.filter != "" {
+		return "filter:" + p.filter
+	}
+	return ""
+}
 
 // Bindings implements app.Page. Every write action carries
 // Dangerous so read-only mode (C4) hides them via the action
@@ -137,10 +156,53 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.cursor = 0
 		p.snapshotFocus()
 		return p, nil
+	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
+		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
+		p.handleFilterPrompt(m)
+		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// handleFilterPrompt mirrors the alerts page's handler — see
+// internal/tui/page/alerts/alerts.go for the full doc. Briefly:
+// open snapshots and clears, change applies live, submit commits,
+// cancel restores. Only filter-mode messages affect state.
+func (p *Page) handleFilterPrompt(msg tea.Msg) {
+	switch m := msg.(type) {
+	case footer.PromptOpenedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		snap := p.filter
+		p.preFilter = &snap
+		if p.filter != "" {
+			p.filter = ""
+			p.recompute()
+		}
+	case footer.PromptChangedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.recompute()
+	case footer.PromptSubmittedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.preFilter = nil
+		p.recompute()
+	case footer.PromptCancelledMsg:
+		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+			return
+		}
+		p.filter = *p.preFilter
+		p.preFilter = nil
+		p.recompute()
+	}
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
@@ -375,8 +437,7 @@ func truncate(s string, w int) string {
 }
 
 func (p *Page) recompute() {
-	p.view = make([]backend.Silence, len(p.all))
-	copy(p.view, p.all)
+	p.view = filterSilences(p.all, p.filter)
 	sortSilences(p.view, p.sort, p.sortAsc)
 	if p.focusID != "" {
 		for i, s := range p.view {
@@ -390,6 +451,45 @@ func (p *Page) recompute() {
 		p.cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
+}
+
+// filterSilences returns a fresh slice containing the rows whose
+// rendered text contains the lowercased query as a substring.
+// Empty filter returns a copy of the input unchanged. Matching is
+// done over the same fields the renderer surfaces (creator,
+// comment, every matcher's name+value) so the user filters on
+// what they see.
+func filterSilences(in []backend.Silence, query string) []backend.Silence {
+	if query == "" {
+		out := make([]backend.Silence, len(in))
+		copy(out, in)
+		return out
+	}
+	q := strings.ToLower(query)
+	out := make([]backend.Silence, 0, len(in))
+	for _, s := range in {
+		if silenceMatches(s, q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// silenceMatches walks the user-visible text fields. The query
+// caller must already be lowercased.
+func silenceMatches(s backend.Silence, q string) bool {
+	if strings.Contains(strings.ToLower(s.CreatedBy), q) ||
+		strings.Contains(strings.ToLower(s.Comment), q) ||
+		strings.Contains(strings.ToLower(string(s.State)), q) {
+		return true
+	}
+	for _, m := range s.Matchers {
+		if strings.Contains(strings.ToLower(m.Name), q) ||
+			strings.Contains(strings.ToLower(m.Value), q) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Page) snapshotFocus() {

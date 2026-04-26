@@ -239,3 +239,31 @@ func TestPage_RenderShowsCreatorAndState(t *testing.T) {
 	require.Contains(t, out, "alice@example")
 	require.Contains(t, out, "active")
 }
+
+func TestPage_FilterPromptIsLive(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := []backend.Silence{
+		sil("a", "alice@example", backend.SilenceStateActive, time.Hour),
+		sil("b", "bob@example", backend.SilenceStateActive, 2*time.Hour),
+		sil("c", "carol@example", backend.SilenceStateActive, 3*time.Hour),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	require.Len(t, p.view, 3)
+
+	// Live filter applies on each keystroke without Enter.
+	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "alice"})
+	require.Len(t, p.view, 1)
+	require.Equal(t, "alice@example", p.view[0].CreatedBy)
+
+	// Title carries the F/T count while a filter is on.
+	require.Equal(t, "silences[1/3]", p.Title())
+	require.Equal(t, "filter:alice", p.HeaderContent())
+
+	// Esc rolls back to the pre-prompt state (no filter).
+	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
+	require.Empty(t, p.filter)
+	require.Len(t, p.view, 3)
+}

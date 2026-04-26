@@ -138,6 +138,48 @@ func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 		"unbound keys must NOT raise a flash — pages may bind them later")
 }
 
+func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
+	t.Parallel()
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Tenants:    []string{"prod", "staging", "dev"},
+	})
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a = updated.(*App)
+
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	a = updated.(*App)
+	require.NotNil(t, cmd, "Ctrl+T must produce a Cmd that opens the picker")
+	drive(t, a, cmd)
+	require.NotNil(t, a.modal, "Ctrl+T must open a modal")
+	require.Equal(t, "tenants", a.modal.Title())
+}
+
+func TestPickerSelectionsToScope(t *testing.T) {
+	t.Parallel()
+	tenants := []string{"prod", "staging", "dev"}
+	tests := []struct {
+		name string
+		in   []string
+		want string
+	}{
+		{"empty falls back to all", nil, "all"},
+		{"every tenant folds to all", []string{"prod", "staging", "dev"}, "all"},
+		{"single name passes through", []string{"staging"}, "staging"},
+		{"subset joined in tenant order", []string{"dev", "prod"}, "prod,dev"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, pickerSelectionsToScope(tc.in, tenants))
+		})
+	}
+}
+
 func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -76,4 +77,24 @@ func TestPage_RenderShowsRows(t *testing.T) {
 	out := p.View(40, 10)
 	require.Contains(t, out, "ops")
 	require.Contains(t, out, "web")
+}
+
+func TestPage_FilterPromptIsLive(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+		{Name: "web"}, {Name: "ops"}, {Name: "default"},
+	}})
+	require.Len(t, p.view, 3)
+
+	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "ef"})
+	require.Equal(t, []string{"default"}, p.view,
+		"live filter must trim the view as the user types")
+	require.Equal(t, "receivers[1/3]", p.Title())
+
+	// Cancel reverts to the pre-prompt state.
+	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
+	require.Empty(t, p.filter)
+	require.Len(t, p.view, 3)
 }

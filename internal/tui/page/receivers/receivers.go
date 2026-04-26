@@ -17,6 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -35,8 +36,16 @@ type Page struct {
 	styles theme.Styles
 
 	all    []string
+	view   []string // filtered subset; equals all when filter is empty
 	cursor int
 	topRow int // first visible row; reconciled against cursor on every render
+
+	// filter is the active substring filter; preFilter is the
+	// snapshot the page restores on PromptCancelledMsg per the
+	// shared `/`-prompt contract (see alerts page for the full
+	// lifecycle doc).
+	filter    string
+	preFilter *string
 }
 
 // New constructs an empty receivers page.
@@ -53,12 +62,25 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "receivers" }
 
-// Title implements app.Page.
-func (p *Page) Title() string { return fmt.Sprintf("receivers[%d]", len(p.all)) }
+// Title implements app.Page. Filtered/total shape mirrors alerts:
+// `receivers[N]` when no filter is active, `receivers[F/T]`
+// while one is.
+func (p *Page) Title() string {
+	if p.filter != "" {
+		return fmt.Sprintf("receivers[%d/%d]", len(p.view), len(p.all))
+	}
+	return fmt.Sprintf("receivers[%d]", len(p.view))
+}
 
-// HeaderContent implements app.Page. The count already lives in
-// Title's `[N]` suffix; repeating it here would just be noise.
-func (*Page) HeaderContent() string { return "" }
+// HeaderContent implements app.Page. Surfaces the active filter
+// (when any) so the user can see what's been applied without
+// re-opening the prompt. Empty otherwise — count lives in Title.
+func (p *Page) HeaderContent() string {
+	if p.filter != "" {
+		return "filter:" + p.filter
+	}
+	return ""
+}
 
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
@@ -80,12 +102,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.all[i] = r.Name
 		}
 		sort.Strings(p.all)
-		if p.cursor >= len(p.all) {
-			p.cursor = max(len(p.all)-1, 0)
-		}
+		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		return p, nil
+	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
+		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
+		p.handleFilterPrompt(m)
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -93,10 +117,67 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
+// handleFilterPrompt mirrors the alerts page's lifecycle handler.
+// See internal/tui/page/alerts/alerts.go for the full doc.
+func (p *Page) handleFilterPrompt(msg tea.Msg) {
+	switch m := msg.(type) {
+	case footer.PromptOpenedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		snap := p.filter
+		p.preFilter = &snap
+		if p.filter != "" {
+			p.filter = ""
+			p.recompute()
+		}
+	case footer.PromptChangedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.recompute()
+	case footer.PromptSubmittedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.preFilter = nil
+		p.recompute()
+	case footer.PromptCancelledMsg:
+		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+			return
+		}
+		p.filter = *p.preFilter
+		p.preFilter = nil
+		p.recompute()
+	}
+}
+
+// recompute rebuilds the filtered view from p.all + p.filter, and
+// clamps the cursor to the new range.
+func (p *Page) recompute() {
+	if p.filter == "" {
+		p.view = make([]string, len(p.all))
+		copy(p.view, p.all)
+	} else {
+		q := strings.ToLower(p.filter)
+		p.view = p.view[:0]
+		for _, name := range p.all {
+			if strings.Contains(strings.ToLower(name), q) {
+				p.view = append(p.view, name)
+			}
+		}
+	}
+	if p.cursor >= len(p.view) {
+		p.cursor = max(len(p.view)-1, 0)
+	}
+}
+
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
 	case "j", "down":
-		if p.cursor < len(p.all)-1 {
+		if p.cursor < len(p.view)-1 {
 			p.cursor++
 		}
 	case "k", "up":
@@ -104,12 +185,12 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 			p.cursor--
 		}
 	case "G":
-		p.cursor = max(len(p.all)-1, 0)
+		p.cursor = max(len(p.view)-1, 0)
 	case "g":
 		p.cursor = 0
 	case "enter":
-		if p.cursor < len(p.all) {
-			rec := p.all[p.cursor]
+		if p.cursor < len(p.view) {
+			rec := p.view[p.cursor]
 			return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 		}
 	}
@@ -124,7 +205,7 @@ func (p *Page) reconcileScroll(maxRows int) {
 	if p.cursor >= p.topRow+maxRows {
 		p.topRow = p.cursor - maxRows + 1
 	}
-	maxTop := max(len(p.all)-maxRows, 0)
+	maxTop := max(len(p.view)-maxRows, 0)
 	if p.topRow > maxTop {
 		p.topRow = maxTop
 	}
@@ -152,15 +233,19 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	if len(p.all) == 0 {
-		return p.styles.Body.Default.Width(width).Height(height).Render("no receivers (yet)")
+	if len(p.view) == 0 {
+		msg := "no receivers (yet)"
+		if len(p.all) > 0 && p.filter != "" {
+			msg = "no receivers match the active filter"
+		}
+		return p.styles.Body.Default.Width(width).Height(height).Render(msg)
 	}
-	maxRows := min(height, len(p.all))
+	maxRows := min(height, len(p.view))
 	p.reconcileScroll(maxRows)
-	end := min(p.topRow+maxRows, len(p.all))
+	end := min(p.topRow+maxRows, len(p.view))
 	rows := make([]string, 0, end-p.topRow)
 	for i := p.topRow; i < end; i++ {
-		text := p.all[i]
+		text := p.view[i]
 		prefix := "  "
 		if i == p.cursor {
 			prefix = "▸ "

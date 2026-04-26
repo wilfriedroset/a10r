@@ -9,8 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 func TestModal_OpenSetsField(t *testing.T) {
@@ -59,9 +62,21 @@ func TestModal_EscDismissesModal(t *testing.T) {
 	require.Nil(t, a.modal, "Esc inside modal must close the modal")
 }
 
-func TestModal_SubmitClosesAndForwardsToPage(t *testing.T) {
+func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	t.Parallel()
-	a := newTestApp(t)
+	// The tenant picker is the only picker wired in v0.1. Its
+	// submission translates to a ScopeChangedMsg so every list
+	// page reacts the same way as for the `<0>` / `<1>`-`<9>`
+	// numeric quick-switch — pages never see the raw picker
+	// result.
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Tenants:    []string{"prod", "staging"},
+	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
 
@@ -70,18 +85,18 @@ func TestModal_SubmitClosesAndForwardsToPage(t *testing.T) {
 	picker := modal.NewPicker("tenants", []string{"prod", "staging"}, modal.PickerSingle)
 	drive(t, a, OpenModal(func() modal.Modal { return picker }))
 
-	// Hit Enter — picker emits PickerSubmittedMsg; App must close
-	// the modal AND forward the result to the page that opened it.
+	// Cursor on row 0 ("prod"); Enter submits.
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	a = updated.(*App)
 	drive(t, a, cmd)
 
 	require.Nil(t, a.modal, "submit must close the modal")
-	// Last message routed to the page should be PickerSubmittedMsg.
 	require.NotEmpty(t, *page.updateLog)
 	last := (*page.updateLog)[len(*page.updateLog)-1]
-	require.IsType(t, modal.PickerSubmittedMsg{}, last,
-		"page must see the picker result so it can act on it")
+	scope, ok := last.(ScopeChangedMsg)
+	require.Truef(t, ok,
+		"page must see ScopeChangedMsg, not the raw picker result; got %T", last)
+	require.Equal(t, "prod", scope.Scope)
 }
 
 func TestModal_ConfirmSubmitFlowsThrough(t *testing.T) {

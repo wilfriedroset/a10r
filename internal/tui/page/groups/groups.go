@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -41,9 +42,19 @@ type Page struct {
 	styles theme.Styles
 
 	all      []backend.AlertGroup
-	expanded []bool // per-group flag
+	expanded []bool // per-group flag, indexed against p.all
 	cursor   int    // index into the visible row list
 	topRow   int    // first visible row; reconciled in renderRows
+
+	// filter is the active substring filter applied to a group's
+	// label-set (k=v pairs joined). preFilter is the snapshot the
+	// page restores on PromptCancelledMsg per the shared
+	// `/`-prompt contract (see alerts page for the lifecycle doc).
+	// Filtering operates at group granularity: a group either is
+	// or isn't in the rendered list; expanding a matched group
+	// shows every alert it carries, unfiltered.
+	filter    string
+	preFilter *string
 }
 
 // New constructs an empty groups page.
@@ -60,12 +71,25 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "groups" }
 
-// Title implements app.Page.
-func (p *Page) Title() string { return fmt.Sprintf("groups[%d]", len(p.all)) }
+// Title implements app.Page. Filtered/total shape mirrors the
+// alerts page: `groups[N]` when no filter is active,
+// `groups[F/T]` while one is.
+func (p *Page) Title() string {
+	visible := p.visibleGroups()
+	if p.filter != "" {
+		return fmt.Sprintf("groups[%d/%d]", len(visible), len(p.all))
+	}
+	return fmt.Sprintf("groups[%d]", len(visible))
+}
 
-// HeaderContent implements app.Page. The count already lives in
-// Title's `[N]` suffix; repeating it here would just be noise.
-func (*Page) HeaderContent() string { return "" }
+// HeaderContent implements app.Page. Surfaces the active filter
+// when one is set so the user can see what's been applied.
+func (p *Page) HeaderContent() string {
+	if p.filter != "" {
+		return "filter:" + p.filter
+	}
+	return ""
+}
 
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
@@ -86,17 +110,63 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		}
 		p.all = groups
 		p.expanded = make([]bool, len(groups))
-		if p.cursor >= len(p.rows()) {
-			p.cursor = max(len(p.rows())-1, 0)
-		}
+		p.clampCursor()
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		return p, nil
+	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
+		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
+		p.handleFilterPrompt(m)
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// handleFilterPrompt mirrors the alerts page's lifecycle handler.
+// See internal/tui/page/alerts/alerts.go for the full doc.
+func (p *Page) handleFilterPrompt(msg tea.Msg) {
+	switch m := msg.(type) {
+	case footer.PromptOpenedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		snap := p.filter
+		p.preFilter = &snap
+		if p.filter != "" {
+			p.filter = ""
+			p.clampCursor()
+		}
+	case footer.PromptChangedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.clampCursor()
+	case footer.PromptSubmittedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.preFilter = nil
+		p.clampCursor()
+	case footer.PromptCancelledMsg:
+		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+			return
+		}
+		p.filter = *p.preFilter
+		p.preFilter = nil
+		p.clampCursor()
+	}
+}
+
+// clampCursor bounds p.cursor against the post-filter row count.
+func (p *Page) clampCursor() {
+	if p.cursor >= len(p.rows()) {
+		p.cursor = max(len(p.rows())-1, 0)
+	}
 }
 
 // row is one rendered line. groupIdx points at the parent group;
@@ -106,14 +176,40 @@ type row struct {
 	alertIdx int
 }
 
+// rows builds the visible row list from p.all + p.expanded,
+// skipping any group whose label-set doesn't match p.filter (when
+// set). Leaves of an expanded matched group always appear — once
+// the user expands a matched group, every alert in it shows up
+// regardless of whether the alert's labels would match the filter
+// in isolation.
 func (p *Page) rows() []row {
+	q := strings.ToLower(p.filter)
 	out := make([]row, 0, len(p.all))
 	for gi, g := range p.all {
+		if q != "" && !strings.Contains(strings.ToLower(labelSummary(g.Labels)), q) {
+			continue
+		}
 		out = append(out, row{groupIdx: gi, alertIdx: -1})
 		if gi < len(p.expanded) && p.expanded[gi] {
 			for ai := range g.Alerts {
 				out = append(out, row{groupIdx: gi, alertIdx: ai})
 			}
+		}
+	}
+	return out
+}
+
+// visibleGroups returns the slice of groups whose label-set
+// matches p.filter — same predicate rows() uses for headers.
+func (p *Page) visibleGroups() []backend.AlertGroup {
+	if p.filter == "" {
+		return p.all
+	}
+	q := strings.ToLower(p.filter)
+	out := make([]backend.AlertGroup, 0, len(p.all))
+	for _, g := range p.all {
+		if strings.Contains(strings.ToLower(labelSummary(g.Labels)), q) {
+			out = append(out, g)
 		}
 	}
 	return out

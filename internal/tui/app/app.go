@@ -144,6 +144,16 @@ func (a *App) registerGlobalBindings() {
 	// / PromptCancelled messages are handled by handleInput later.
 	a.dispatcher.Set(keys.LayerGlobal, ":", a.openPromptCmd(footer.PromptCommand))
 	a.dispatcher.Set(keys.LayerGlobal, "/", a.openPromptCmd(footer.PromptFilter))
+	// `Ctrl+T` opens the tenant picker per C3 — fuzzy search over
+	// the configured backends with multi-select. Resulting
+	// PickerSubmittedMsg is translated into a ScopeChangedMsg in
+	// handleLifecycle so every list page reacts the same way as
+	// for the numeric quick-switch.
+	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+T", func() tea.Cmd {
+		return OpenModal(func() modal.Modal {
+			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti)
+		})
+	})
 	// `?` opens the k9s-style help overlay. The bindings are
 	// composed at open-time so the RESOURCE column always reflects
 	// whichever page is on top of the stack. Globals and table
@@ -161,6 +171,31 @@ func (a *App) registerGlobalBindings() {
 			})
 		})
 	})
+}
+
+// pickerSelectionsToScope folds the tenant picker's submitted
+// selections into the scope string the rest of the app uses.
+// Empty input or a selection covering every configured tenant
+// both resolve to "all" so the title stays uniform across the
+// numeric quick-switch and the picker submit paths. A subset is
+// rendered as a stable comma-joined list in `tenants` order so
+// `<1>` / `<2>` per-row glyphs on the tenant page render
+// predictably.
+func pickerSelectionsToScope(selections, tenants []string) string {
+	if len(selections) == 0 || len(selections) == len(tenants) {
+		return "all"
+	}
+	picked := make(map[string]struct{}, len(selections))
+	for _, s := range selections {
+		picked[s] = struct{}{}
+	}
+	out := make([]string, 0, len(picked))
+	for _, t := range tenants {
+		if _, ok := picked[t]; ok {
+			out = append(out, t)
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 // globalsCatalog is the GENERAL-column list rendered in the help
@@ -257,6 +292,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if isModalResult(msg) {
 		a.closeModal()
+		// Tenant picker submissions translate into a global
+		// ScopeChangedMsg so every page reacts the same way as for
+		// the `<0>` / `<1>`-`<9>` quick-switch. Empty selection
+		// (no marks → falls through to the cursor row, which we
+		// treat as "all") and the literal "all" selection both
+		// resolve to scope=="all".
+		if pm, ok := msg.(modal.PickerSubmittedMsg); ok {
+			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
+			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
+		}
 		cmd := a.forwardToTop(msg)
 		return a, cmd
 	}

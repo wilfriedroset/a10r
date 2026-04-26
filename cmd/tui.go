@@ -21,8 +21,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
+	"github.com/wilfriedroset/a10r/internal/tui/page/groups"
+	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
 	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
+	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -168,15 +171,29 @@ func newResolver(styles theme.Styles, scope string) *cmdbar.Resolver {
 			return alerts.New(alerts.Options{Styles: styles, Now: time.Now, Scope: scope})
 		})
 	})
-	r.Register("silences", func(_ []string) tea.Cmd {
+	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return silences.New(styles, time.Now) })
-	})
-	r.Register("sil", func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return silences.New(styles, time.Now) })
-	})
+	}
+	r.Register("silences", silencesFactory)
+	r.Register("sil", silencesFactory)
 	r.Register("status", func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return status.New(styles, "") })
+		return app.PushPage(func() app.Page { return status.New(styles, scope) })
 	})
+	receiversFactory := func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return receivers.New(styles) })
+	}
+	r.Register("receivers", receiversFactory)
+	r.Register("rec", receiversFactory)
+	groupsFactory := func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return groups.New(styles) })
+	}
+	r.Register("groups", groupsFactory)
+	r.Register("gr", groupsFactory)
+	tenantFactory := func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return tenant.New(styles) })
+	}
+	r.Register("tenant", tenantFactory)
+	r.Register("tenants", tenantFactory)
 	r.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
 	return r
 }
