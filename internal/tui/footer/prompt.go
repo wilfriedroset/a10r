@@ -64,6 +64,20 @@ type PromptCancelledMsg struct {
 	Mode PromptMode
 }
 
+// PromptChangedMsg is forwarded to the top page on every prompt
+// keystroke (and paste) while open. Pages that filter incrementally
+// (k9s-style live filter on `/`) consume it and apply Value
+// without committing — a subsequent PromptSubmittedMsg promotes
+// the current value to the page's persistent filter, while
+// PromptCancelledMsg restores the snapshot the page took on
+// PromptOpenedMsg. Command-mode keystrokes also emit this so
+// future per-page command suggestions can react if needed; pages
+// that don't care just ignore it.
+type PromptChangedMsg struct {
+	Mode  PromptMode
+	Value string
+}
+
 // Prompt is the bottom-strip input line. v0.1 ships a minimal
 // keystroke handler (Backspace / Ctrl+U clear / Enter submit / Esc
 // cancel / regular runes append) — adequate for `:command` /
@@ -113,17 +127,19 @@ func (p Prompt) Mode() PromptMode { return p.mode }
 func (p Prompt) Value() string { return p.value }
 
 // Update is the keystroke handler. Returns a derivative Prompt and
-// an optional tea.Cmd that emits PromptSubmittedMsg / Cancelled.
-// Concrete-typed return so callers don't pay for an interface
-// assertion. The Prompt does not close itself on Submit — the app
-// shell does that after consuming the resulting message.
+// an optional tea.Cmd that emits PromptSubmittedMsg / Cancelled, or
+// PromptChangedMsg whenever the buffer mutates so live-filter
+// pages can react per-keystroke. Concrete-typed return so callers
+// don't pay for an interface assertion. The Prompt does not close
+// itself on Submit — the app shell does that after consuming the
+// resulting message.
 func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if !p.open {
 		return p, nil
 	}
 	if paste, ok := msg.(tea.PasteMsg); ok {
 		p.value += paste.Content
-		return p, nil
+		return p, p.changedCmd()
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -146,11 +162,15 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		if p.value != "" {
 			r := []rune(p.value)
 			p.value = string(r[:len(r)-1])
+			return p, p.changedCmd()
 		}
 		return p, nil
 	case "ctrl+u":
+		if p.value == "" {
+			return p, nil
+		}
 		p.value = ""
-		return p, nil
+		return p, p.changedCmd()
 	}
 	// Append the printable character. Prefer Text (the actual entered
 	// rune as the terminal reports it, post-IME / shift / dead key);
@@ -158,13 +178,25 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	// rune. Function keys, arrows, modifier-only events, and ctrl
 	// combos all leave Text empty AND Code outside the printable
 	// range, so they naturally drop.
+	prev := p.value
 	k := keyMsg.Key()
 	if k.Text != "" {
 		p.value += k.Text
 	} else if k.Mod == 0 && unicode.IsPrint(k.Code) {
 		p.value += string(k.Code)
 	}
-	return p, nil
+	if p.value == prev {
+		return p, nil
+	}
+	return p, p.changedCmd()
+}
+
+// changedCmd builds the per-keystroke broadcast Cmd. Captures the
+// mode + value at call time so the Cmd is safe to fire later even
+// if the prompt closes / mutates in the interim.
+func (p Prompt) changedCmd() tea.Cmd {
+	mode, value := p.mode, p.value
+	return func() tea.Msg { return PromptChangedMsg{Mode: mode, Value: value} }
 }
 
 // Render produces the styled prompt line. Returns "" when closed.

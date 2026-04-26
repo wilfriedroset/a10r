@@ -279,25 +279,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.byTenant[m.Tenant] = alerts
 		p.recompute()
 		return p, nil
-	case footer.PromptOpenedMsg:
-		if m.Mode == footer.PromptFilter {
-			snap := p.filter
-			p.preFilter = &snap
-		}
-		return p, nil
-	case footer.PromptSubmittedMsg:
-		if m.Mode == footer.PromptFilter {
-			p.filter = m.Value
-			p.preFilter = nil
-			p.recompute()
-		}
-		return p, nil
-	case footer.PromptCancelledMsg:
-		if m.Mode == footer.PromptFilter && p.preFilter != nil {
-			p.filter = *p.preFilter
-			p.preFilter = nil
-			p.recompute()
-		}
+	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
+		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
+		p.handleFilterPrompt(m)
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
@@ -311,6 +295,55 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// handleFilterPrompt centralises the four filter-prompt lifecycle
+// messages so Update stays under the cyclop budget. Each branch:
+//
+//   - Opened: snapshot the active filter and clear it so the user
+//     types against the unfiltered list (live filter rebuilds it
+//     keystroke-by-keystroke).
+//   - Changed: apply the in-flight value live; preFilter stays so
+//     Esc can still roll back regardless of what's been typed.
+//   - Submitted: commit the typed value (possibly empty, meaning
+//     "clear the filter"); drop the pre-prompt snapshot.
+//   - Cancelled: restore the snapshot.
+//
+// Command-mode prompt messages slip through unchanged — the alerts
+// page only owns filter mode.
+func (p *Page) handleFilterPrompt(msg tea.Msg) {
+	switch m := msg.(type) {
+	case footer.PromptOpenedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		snap := p.filter
+		p.preFilter = &snap
+		if p.filter != "" {
+			p.filter = ""
+			p.recompute()
+		}
+	case footer.PromptChangedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.recompute()
+	case footer.PromptSubmittedMsg:
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		p.filter = m.Value
+		p.preFilter = nil
+		p.recompute()
+	case footer.PromptCancelledMsg:
+		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+			return
+		}
+		p.filter = *p.preFilter
+		p.preFilter = nil
+		p.recompute()
+	}
 }
 
 // handleKey processes vim-motion and per-view keys. Returns the

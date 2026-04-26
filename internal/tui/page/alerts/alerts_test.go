@@ -126,6 +126,49 @@ func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
 	require.Equal(t, "DiskSpace", p.view[0].a.Labels["alertname"])
 }
 
+func TestPage_FilterPromptIsLiveAndClearsOnOpen(t *testing.T) {
+	t.Parallel()
+
+	// Two alerts; an existing filter is active.
+	p := newPage(t)
+	alerts := []backend.Alert{
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		mkAlert("DiskSpace", "warning", backend.AlertStateActive),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "disk"})
+	require.Len(t, p.view, 1)
+
+	// Pressing `/` clears the active filter so the user types
+	// against the unfiltered list. The pre-prompt value is
+	// snapshotted so Esc can still roll back.
+	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
+	require.Len(t, p.view, 2,
+		"opening the filter prompt clears the active filter so live "+
+			"typing rebuilds it from scratch")
+
+	// Each keystroke trims the view live — no Enter required.
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "h"})
+	require.Len(t, p.view, 1)
+	require.Equal(t, "HighCPU", p.view[0].a.Labels["alertname"])
+
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "hi"})
+	require.Len(t, p.view, 1)
+
+	// Backspacing in the prompt fires Changed too — view widens
+	// back as characters are removed.
+	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: ""})
+	require.Len(t, p.view, 2,
+		"emptying the prompt live must widen the view to all rows")
+
+	// Submit empty → filter cleared; pre-filter snapshot dropped.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: ""})
+	require.Empty(t, p.filter)
+	require.Len(t, p.view, 2)
+	require.Nil(t, p.preFilter,
+		"empty submit commits the cleared filter and drops the snapshot")
+}
+
 func TestPage_FilterCancelRestoresPreFilter(t *testing.T) {
 	t.Parallel()
 

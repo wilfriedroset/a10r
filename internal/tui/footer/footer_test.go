@@ -172,8 +172,12 @@ func TestPrompt_PasteAppendsContent(t *testing.T) {
 	// chunk so users can paste a UID / labelset into the command bar.
 	p := NewPrompt().Open(PromptCommand)
 	p, cmd := p.Update(tea.PasteMsg{Content: "alertname=High_CPU"})
-	require.Nil(t, cmd)
 	require.Equal(t, "alertname=High_CPU", p.Value())
+	require.NotNil(t, cmd, "paste mutates the buffer; live-filter pages need a Changed broadcast")
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptCommand, Value: "alertname=High_CPU"},
+		cmd(),
+		"paste must emit a PromptChangedMsg with the post-paste value")
 }
 
 func TestPrompt_CodeFallbackForEmptyText(t *testing.T) {
@@ -244,6 +248,64 @@ func TestPrompt_ClosedIgnoresKeys(t *testing.T) {
 	require.Nil(t, cmd)
 	require.Empty(t, p.Value(),
 		"a closed prompt must not accept keystrokes")
+}
+
+func TestPrompt_BackspaceEmitsChanged(t *testing.T) {
+	t.Parallel()
+
+	p := NewPrompt().Open(PromptFilter)
+	for _, r := range "hi" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	require.NotNil(t, cmd, "backspace mutates the buffer; live-filter pages need a Changed broadcast")
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptFilter, Value: "h"},
+		cmd(),
+		"backspace must emit PromptChangedMsg with the post-edit buffer")
+	require.Equal(t, "h", p.Value())
+}
+
+func TestPrompt_BackspaceOnEmptyDoesNotEmitChanged(t *testing.T) {
+	t.Parallel()
+
+	// No-op edits don't emit Changed — pages would otherwise see
+	// spurious recomputes for keystrokes that didn't move the
+	// buffer.
+	p := NewPrompt().Open(PromptFilter)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	require.Nil(t, cmd, "no-op backspace must not broadcast Changed")
+}
+
+func TestPrompt_CtrlUEmitsChangedOnce(t *testing.T) {
+	t.Parallel()
+
+	p := NewPrompt().Open(PromptFilter)
+	for _, r := range "junk" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	p, cmd := p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd, "Ctrl+U clears the buffer; live-filter pages need a Changed broadcast")
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptFilter, Value: ""},
+		cmd(),
+		"Ctrl+U must emit PromptChangedMsg with an empty value")
+	require.Empty(t, p.Value())
+
+	// Ctrl+U on an already-empty buffer is a no-op — no Changed.
+	_, cmd = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Nil(t, cmd, "Ctrl+U on empty must not broadcast Changed")
+}
+
+func TestPrompt_PrintableKeyEmitsChanged(t *testing.T) {
+	t.Parallel()
+
+	p := NewPrompt().Open(PromptFilter)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptFilter, Value: "a"},
+		cmd())
 }
 
 func TestPrompt_RenderIncludesPrefix(t *testing.T) {

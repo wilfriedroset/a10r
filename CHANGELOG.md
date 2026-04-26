@@ -107,6 +107,12 @@ shell.
   title carries a live `</value>` segment while the filter
   prompt is open so the active filter is visible without
   leaving the body in your peripheral vision.
+- Filter prompt is now live: every keystroke (and paste, and
+  backspace, and Ctrl+U) refilters the alerts list as you type.
+  Pressing `/` while a filter is active clears the filter so
+  typing rebuilds it from scratch — the pre-prompt value is
+  snapshotted, so Esc still rolls back. Enter on an empty
+  prompt clears the filter; Enter on a typed value commits it.
 
 ### Documentation
 

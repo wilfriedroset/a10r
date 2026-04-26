@@ -276,12 +276,18 @@ func TestApp_OpenPromptSwallowsKeysExceptEsc(t *testing.T) {
 	a.prompt = a.prompt.Open(footer.PromptCommand)
 
 	// `q` would normally quit. With the prompt open it must go to the
-	// prompt buffer instead.
+	// prompt buffer instead. The prompt now also emits a
+	// PromptChangedMsg per keystroke so live-filter pages can react;
+	// the Cmd must NOT carry tea.QuitMsg.
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	a = updated.(*App)
-	require.Nil(t, cmd, "key into open prompt must not produce Quit")
 	require.Equal(t, "q", a.prompt.Value())
 	require.True(t, a.prompt.IsOpen())
+	require.NotNil(t, cmd, "buffer mutation must broadcast PromptChangedMsg")
+	_, isQuit := cmd().(tea.QuitMsg)
+	require.False(t, isQuit, "key into open prompt must not produce Quit")
+	_, isChanged := cmd().(footer.PromptChangedMsg)
+	require.True(t, isChanged, "prompt keystroke must produce PromptChangedMsg, not Quit")
 
 	// Esc must still reach the prompt's cancel handler so the user
 	// can dismiss the prompt with Esc even though it's "open".
