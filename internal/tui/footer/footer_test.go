@@ -57,8 +57,8 @@ func TestCrumbs_PushPopRender(t *testing.T) {
 	require.Equal(t, "detail", c.Top())
 
 	out := stripStyle(c.Render(styles))
-	require.Contains(t, out, "alerts")
-	require.Contains(t, out, "detail")
+	require.Contains(t, out, "<alerts>")
+	require.Contains(t, out, "<detail>")
 	require.Contains(t, out, crumbSeparator)
 
 	c = c.Pop()
@@ -66,8 +66,8 @@ func TestCrumbs_PushPopRender(t *testing.T) {
 	require.Equal(t, "alerts", c.Top())
 
 	out = stripStyle(c.Render(styles))
-	require.Contains(t, out, "alerts")
-	require.NotContains(t, out, "detail")
+	require.Contains(t, out, "<alerts>")
+	require.NotContains(t, out, "<detail>")
 	require.NotContains(t, out, crumbSeparator,
 		"single-entry crumb has no separator")
 }

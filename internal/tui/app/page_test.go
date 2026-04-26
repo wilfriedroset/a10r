@@ -71,6 +71,7 @@ func (p *fakePage) Update(msg tea.Msg) (Page, tea.Cmd) {
 
 func (p *fakePage) View(_, _ int) string      { return p.bodyText }
 func (p *fakePage) Crumb() string             { return p.name }
+func (p *fakePage) Title() string             { return p.name }
 func (p *fakePage) HeaderContent() string     { return p.headerLabel }
 func (p *fakePage) Bindings() []action.Action { return p.hints }
 
@@ -236,9 +237,9 @@ func TestStack_HeaderContentFromTopPage(t *testing.T) {
 
 	visible := stripStyle(a.View().Content)
 	require.Contains(t, visible, "filter: severity=critical",
-		"top-of-stack page's HeaderContent must reach the header middle zone")
-	require.Contains(t, visible, "[s]",
-		"top-of-stack page's bindings must populate the hint strip")
+		"top-of-stack page's HeaderContent must surface as a body subtitle")
+	require.Contains(t, visible, "<s>",
+		"top-of-stack page's bindings must populate the panel hint column")
 }
 
 func TestStack_CrumbsTrackStack(t *testing.T) {

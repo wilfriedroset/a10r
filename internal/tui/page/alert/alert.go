@@ -97,6 +97,16 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "detail" }
 
+// Title implements app.Page — "Describe(<scope>/<alertname>)"
+// mirrors the k9s pod-detail header.
+func (p *Page) Title() string {
+	scope := p.tenant
+	if scope == "" {
+		scope = "—"
+	}
+	return "Describe(" + scope + "/" + p.a.Labels["alertname"] + ")"
+}
+
 // HeaderContent implements app.Page. Shows alertname + state +
 // source backend so the header strip identifies the active alert
 // at a glance.

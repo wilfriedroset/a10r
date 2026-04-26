@@ -53,6 +53,9 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "receivers" }
 
+// Title implements app.Page.
+func (p *Page) Title() string { return fmt.Sprintf("receivers[%d]", len(p.all)) }
+
 // HeaderContent implements app.Page.
 func (p *Page) HeaderContent() string {
 	return fmt.Sprintf("%d receivers", len(p.all))

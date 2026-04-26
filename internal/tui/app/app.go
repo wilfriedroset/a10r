@@ -11,6 +11,7 @@ package app
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,10 +20,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/panel"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -46,6 +47,10 @@ type Options struct {
 	// and the wiring layer (cmd/tui.go) populate the resolver before
 	// the program runs.
 	CmdBar *cmdbar.Resolver
+	// Tenants is the list of configured backend names. Used by
+	// the top panel to render the `<0> all <1> name <2> name …`
+	// tenant shortcut column k9s-style.
+	Tenants []string
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -58,6 +63,7 @@ type App struct {
 	registry   *action.Registry
 	dispatcher *keys.Dispatcher
 	cmdbar     *cmdbar.Resolver
+	tenants    []string
 
 	crumbs footer.Crumbs
 	prompt footer.Prompt
@@ -94,6 +100,7 @@ func NewApp(opts Options) *App {
 		registry:   opts.Registry,
 		dispatcher: opts.Dispatcher,
 		cmdbar:     resolver,
+		tenants:    opts.Tenants,
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(),
 		flash:      footer.NewFlash(),
@@ -393,62 +400,102 @@ func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-// View implements tea.Model. Composes header (top), body (the top
-// page's view, or a placeholder when the stack is empty), and
-// footer (bottom) into a full-screen alt-screen view. Subcomponents
-// render through theme.Styles so a theme swap re-paints without
-// touching this code.
+// View implements tea.Model. Composes the k9s-style top panel,
+// a bordered body containing either the open modal or the top
+// page's view, and the footer (crumbs + prompt + flash) into a
+// full-screen alt-screen view.
 func (a *App) View() tea.View {
 	if a.width == 0 || a.height == 0 {
-		// Pre-resize: bubbletea's first WindowSizeMsg arrives in the
-		// next loop iteration. Render an empty alt-screen view so we
-		// don't crash with a zero-width Render.
+		// Pre-resize: bubbletea's first WindowSizeMsg arrives in
+		// the next loop iteration. Render an empty alt-screen
+		// view so we don't crash with a zero-width Render.
 		v := tea.NewView("")
 		v.AltScreen = true
 		return v
 	}
 
-	headerLine := header.Render(a.headerState(), a.styles)
+	topPanel := panel.RenderTop(a.panelState(), a.styles)
 	footerLines := a.renderFooter()
 
-	bodyHeight := max(a.height-1-linesIn(footerLines), 0)
+	bodyHeight := max(a.height-linesIn(topPanel)-linesIn(footerLines), 0)
 	body := a.renderBody(bodyHeight)
 
-	out := lipgloss.JoinVertical(lipgloss.Left, headerLine, body, footerLines)
+	out := lipgloss.JoinVertical(lipgloss.Left, topPanel, body, footerLines)
 	v := tea.NewView(out)
 	v.AltScreen = true
 	return v
 }
 
-// headerState builds the header.State from the app shell's view of
-// the world plus the top page's per-view contributions. Connection
-// state, count, age, and tenant label remain placeholder until the
-// polling lifecycle (#24) and tenant management (#35) populate them.
-func (a *App) headerState() header.State {
-	state := header.State{Width: a.width}
+// panelState builds the top-panel state from the app shell's
+// view of the world plus the active page's metadata. Info column
+// shows tenant + version; tenants column shows the numeric
+// shortcuts; hints column comes from the top page's Bindings;
+// logo is the package-level constant.
+func (a *App) panelState() panel.State {
+	state := panel.State{
+		Width:   a.width,
+		Logo:    panel.Logo,
+		Tenants: tenantBindings(a.tenants),
+		Info: []panel.InfoLine{
+			{Label: "tenants", Value: "—"},
+			{Label: "alerts", Value: "—"},
+			{Label: "version", Value: "v0.1.0"},
+		},
+	}
 	if p := a.topPage(); p != nil {
-		state.Content = p.HeaderContent()
 		state.Hints = p.Bindings()
 	}
 	return state
 }
 
-// renderBody asks the open modal (if any), the top page (if any),
-// or a styled blank pane (no page yet) to fill the body slot.
-// Modals replace the page body so the user can't accidentally act
-// on a row underneath while a confirm dialog is up — same rule
-// k9s applies to its overlays.
+// tenantBindings produces the numeric shortcut catalogue for the
+// panel: <0> all + <1>..<9> for the first nine configured
+// tenants. Empty input still emits <0> all so the column is
+// present-but-trivial in zero-backend / wizard runs.
+func tenantBindings(tenants []string) []panel.TenantBinding {
+	out := make([]panel.TenantBinding, 0, len(tenants)+1)
+	out = append(out, panel.TenantBinding{Key: "0", Name: "all"})
+	for i, t := range tenants {
+		if i >= 9 {
+			break // numeric quick-switch tops out at 1-9 per C3
+		}
+		out = append(out, panel.TenantBinding{Key: strconv.Itoa(i + 1), Name: t})
+	}
+	return out
+}
+
+// renderBody fills the bordered-body slot. Modal wins when one
+// is open; the top page draws its View otherwise; an empty stack
+// renders a styled blank pane. When the active page has a non-
+// empty HeaderContent (filter / sort / mark indicators), it
+// renders as a subtitle line directly below the title border so
+// the user can spot the active shaping at a glance.
 func (a *App) renderBody(height int) string {
-	if a.modal != nil {
-		return a.modal.View(a.width, height)
+	innerHeight := max(height-2, 0) // -2 for top + bottom borders
+	innerWidth := max(a.width-2, 0)
+
+	var inner, title string
+	switch {
+	case a.modal != nil:
+		title = "modal"
+		inner = a.modal.View(innerWidth, innerHeight)
+	case a.topPage() != nil:
+		p := a.topPage()
+		title = p.Title()
+		if title == "" {
+			title = p.Crumb()
+		}
+		subtitle := p.HeaderContent()
+		if subtitle != "" {
+			inner = subtitle + "\n" + p.View(innerWidth, max(innerHeight-1, 0))
+		} else {
+			inner = p.View(innerWidth, innerHeight)
+		}
+	default:
+		title = "a10r"
+		inner = ""
 	}
-	if p := a.topPage(); p != nil {
-		return p.View(a.width, height)
-	}
-	return a.styles.Body.Default.
-		Width(a.width).
-		Height(height).
-		Render("")
+	return panel.RenderBody(a.width, height, inner, title, a.styles)
 }
 
 // renderFooter stacks the crumbs / prompt / flash strips. Each can

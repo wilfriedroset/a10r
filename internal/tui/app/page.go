@@ -49,6 +49,11 @@ type Page interface {
 	// the active highlight.
 	Crumb() string
 
+	// Title is the page title rendered in the bordered body's top
+	// edge — k9s-style "<resource>(<scope>)[<count>]" e.g.
+	// "alerts(prod)[531]". Empty falls back to Crumb.
+	Title() string
+
 	// HeaderContent is the per-view middle-zone slot string per the
 	// J1 header spec. Empty omits the slot.
 	HeaderContent() string

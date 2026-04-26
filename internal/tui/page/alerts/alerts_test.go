@@ -66,7 +66,10 @@ func mkAlert(name, severity string, state backend.AlertState) backend.Alert {
 
 func newPage(t *testing.T) *Page {
 	t.Helper()
-	return New(loadStyles(t), func() time.Time { return fixedNow })
+	return New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
 }
 
 func TestPage_DataMsgPopulatesView(t *testing.T) {
@@ -88,7 +91,7 @@ func TestPage_DataMsgWrongTypeIsNoOp(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: "not alerts"})
-	require.Empty(t, p.all)
+	require.Empty(t, p.byTenant[""])
 }
 
 func TestPage_SortBySeverityPutsCriticalFirst(t *testing.T) {
@@ -102,9 +105,9 @@ func TestPage_SortBySeverityPutsCriticalFirst(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
-	require.Equal(t, "CritBar", p.view[0].Labels["alertname"])
-	require.Equal(t, "WarnFoo", p.view[1].Labels["alertname"])
-	require.Equal(t, "InfoBaz", p.view[2].Labels["alertname"])
+	require.Equal(t, "CritBar", p.view[0].a.Labels["alertname"])
+	require.Equal(t, "WarnFoo", p.view[1].a.Labels["alertname"])
+	require.Equal(t, "InfoBaz", p.view[2].a.Labels["alertname"])
 }
 
 func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
@@ -120,7 +123,7 @@ func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
 	// Filter via the prompt-submitted contract.
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "disk"})
 	require.Len(t, p.view, 1)
-	require.Equal(t, "DiskSpace", p.view[0].Labels["alertname"])
+	require.Equal(t, "DiskSpace", p.view[0].a.Labels["alertname"])
 }
 
 func TestPage_FilterCancelRestoresPreFilter(t *testing.T) {
@@ -188,7 +191,7 @@ func TestPage_StateFilterCycle(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	require.Equal(t, string(backend.AlertStateActive), p.stateFilter)
 	require.Len(t, p.view, 1)
-	require.Equal(t, "A", p.view[0].Labels["alertname"])
+	require.Equal(t, "A", p.view[0].a.Labels["alertname"])
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	require.Equal(t, string(backend.AlertStateSuppressed), p.stateFilter)
@@ -246,7 +249,7 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "fp-b", p.view[p.cursor].Fingerprint)
+	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint)
 
 	// New tick: B has shifted to the bottom (new alerts inserted
 	// above it). Cursor must follow B.
@@ -257,7 +260,7 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 		withFP("B", "fp-b"),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
-	require.Equal(t, "fp-b", p.view[p.cursor].Fingerprint,
+	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
 		"cursor must follow the focused alert across poll refreshes")
 }
 
@@ -275,7 +278,7 @@ func TestPage_CursorClampsWhenFocusedAlertGone(t *testing.T) {
 		withFP("B", "fp-b"),
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "fp-b", p.view[p.cursor].Fingerprint)
+	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint)
 
 	// B is gone; cursor must clamp to the last remaining row.
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
@@ -446,7 +449,7 @@ func TestPage_ViewportFollowsCursor(t *testing.T) {
 	// Render at width=80, height=10 (≈7-8 rows visible after the
 	// header and footer). The cursor row's alertname must appear.
 	out := stripStyle(p.View(80, 10))
-	require.Contains(t, out, p.view[p.cursor].Labels["alertname"],
+	require.Contains(t, out, p.view[p.cursor].a.Labels["alertname"],
 		"viewport must scroll so the cursor row stays visible")
 
 	// G jumps to the last row; the bottom of the list must be in
@@ -566,12 +569,82 @@ func TestPage_HLWalkResetsDirection(t *testing.T) {
 		"walking back to severity must reset to its default (descending)")
 }
 
+func TestPage_TenantColumnAppearsForAllScope(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+		Scope:  "all",
+	})
+
+	// Two backends emit DataMsgs — TENANT column kicks in.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("B", "warning", backend.AlertStateActive)},
+		Tenant:   "staging",
+	})
+
+	out := stripStyle(p.View(140, 20))
+	require.Contains(t, out, "TENANT")
+	require.Contains(t, out, "prod")
+	require.Contains(t, out, "staging")
+}
+
+func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+		Scope:  "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+
+	out := stripStyle(p.View(140, 20))
+	require.NotContains(t, out, "TENANT",
+		"single-backend setups must NOT show the tenant column")
+}
+
+func TestPage_TitleIncludesScope(t *testing.T) {
+	t.Parallel()
+
+	// Default scope (empty) reads as "all" — k9s convention.
+	p := newPage(t)
+	require.Equal(t, "alerts(all)[0]", p.Title())
+
+	// Explicit scope from Options threads into the title.
+	p2 := New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+		Scope:  "prod",
+	})
+	require.Equal(t, "alerts(prod)[0]", p2.Title())
+
+	// SetScope updates the active label live.
+	p2.SetScope("prod,staging")
+	require.Equal(t, "alerts(prod,staging)[0]", p2.Title())
+}
+
 func TestPage_CrumbAndHeader(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
 	require.Equal(t, "alerts", p.Crumb())
-	require.Contains(t, p.HeaderContent(), "sort:severity")
+	// HeaderContent is empty when no filter / state filter / marks
+	// are active — the column header arrow already shows the sort
+	// state, repeating it as a subtitle is noise.
+	require.Empty(t, p.HeaderContent())
+
+	// Once a filter kicks in, the subtitle re-appears.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "high"})
+	require.Contains(t, p.HeaderContent(), "filter:high")
 }
 
 func TestPage_BindingsContainSilenceAsDangerous(t *testing.T) {

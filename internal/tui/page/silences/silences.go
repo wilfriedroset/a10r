@@ -100,14 +100,14 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "silences" }
 
-// HeaderContent implements app.Page.
-func (p *Page) HeaderContent() string {
-	dir := "↓"
-	if p.sortAsc {
-		dir = "↑"
-	}
-	return fmt.Sprintf("sort:%s %s · %d silences", p.sort, dir, len(p.view))
-}
+// Title implements app.Page.
+func (p *Page) Title() string { return fmt.Sprintf("silences[%d]", len(p.view)) }
+
+// HeaderContent implements app.Page. The sort indicator lives
+// on the column header arrow; the count lives in Title. Nothing
+// else is interesting at this layer yet, so HeaderContent is
+// empty (the App skips the subtitle when empty).
+func (*Page) HeaderContent() string { return "" }
 
 // Bindings implements app.Page. Every write action carries
 // Dangerous so read-only mode (C4) hides them via the action
@@ -243,9 +243,8 @@ func (p *Page) View(width, height int) string {
 		return p.styles.Body.Default.Width(width).Height(height).Render(p.emptyState())
 	}
 	headerLine := p.renderHeader(width)
-	rows := p.renderRows(width, height-2)
-	footerLine := fmt.Sprintf("  %d silences", len(p.view))
-	body := strings.Join([]string{headerLine, rows, footerLine}, "\n")
+	rows := p.renderRows(width, height-1)
+	body := headerLine + "\n" + rows
 	return lipgloss.NewStyle().Width(width).Render(body)
 }
 
@@ -256,11 +255,14 @@ func (p *Page) emptyState() string {
 	return "no silences in view"
 }
 
+// renderHeader returns the styled, uppercased column-title row
+// with a sort marker on the active column. theme.Table.Header
+// applies the k9s-style yellow header colour.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortByEndsAt, SortByStartsAt, SortByCreatedBy, SortByState}
 	parts := make([]string, len(titles))
 	for i, k := range titles {
-		label := k.String()
+		label := strings.ToUpper(k.String())
 		if k == p.sort {
 			arrow := "↓"
 			if p.sortAsc {
@@ -270,7 +272,12 @@ func (p *Page) renderHeader(width int) string {
 		}
 		parts[i] = label
 	}
-	return p.padColumns(parts, width)
+	// Foreground-only render so the header row keeps the body
+	// background — flush with the data rows underneath rather
+	// than a coloured stripe.
+	return lipgloss.NewStyle().
+		Foreground(p.styles.Table.Header.GetForeground()).
+		Render(p.padColumns(parts, width))
 }
 
 func (p *Page) renderRows(width, maxRows int) string {

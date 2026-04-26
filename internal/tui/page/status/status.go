@@ -44,6 +44,14 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "status" }
 
+// Title implements app.Page.
+func (p *Page) Title() string {
+	if p.tenant == "" {
+		return "status"
+	}
+	return "status(" + p.tenant + ")"
+}
+
 // HeaderContent implements app.Page.
 func (p *Page) HeaderContent() string {
 	if !p.have {

@@ -60,6 +60,9 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "groups" }
 
+// Title implements app.Page.
+func (p *Page) Title() string { return fmt.Sprintf("groups[%d]", len(p.all)) }
+
 // HeaderContent implements app.Page.
 func (p *Page) HeaderContent() string {
 	return fmt.Sprintf("%d groups", len(p.all))

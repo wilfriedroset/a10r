@@ -30,10 +30,11 @@ type Crumbs struct {
 // NewCrumbs constructs an empty Crumbs.
 func NewCrumbs() Crumbs { return Crumbs{} }
 
-// Render produces the styled crumb strip given the theme. The last
-// entry (top-of-stack) gets the active highlight; everything else
-// uses the default foreground. Empty crumbs render as the empty
-// string so the app shell can omit the strip entirely.
+// Render produces the styled crumb strip given the theme. Each
+// entry is wrapped in `<…>` and rendered bold; the top-of-stack
+// entry takes the active colour, everything else the default.
+// Empty crumbs render as the empty string so the app shell can
+// omit the strip entirely.
 func (c Crumbs) Render(styles theme.Styles) string {
 	if len(c.entries) == 0 {
 		return ""
@@ -41,11 +42,11 @@ func (c Crumbs) Render(styles theme.Styles) string {
 	parts := make([]string, len(c.entries))
 	last := len(c.entries) - 1
 	for i, e := range c.entries {
+		base := styles.Crumbs.Default
 		if i == last {
-			parts[i] = styles.Crumbs.Active.Render(e)
-		} else {
-			parts[i] = styles.Crumbs.Default.Render(e)
+			base = styles.Crumbs.Active
 		}
+		parts[i] = base.Bold(true).Render("<" + e + ">")
 	}
 	sep := styles.Crumbs.Default.Render(crumbSeparator)
 	return strings.Join(parts, sep)

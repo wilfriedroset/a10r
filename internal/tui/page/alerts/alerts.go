@@ -71,14 +71,41 @@ func (s SortKey) String() string {
 	return "?"
 }
 
+// Options bundles the per-page constructor inputs.
+type Options struct {
+	Styles theme.Styles
+	// Now injects the wall clock for the age column. nil falls
+	// back to time.Now.
+	Now func() time.Time
+	// Scope labels the active tenant set in the body title — one
+	// tenant name when a single backend is selected, "all" when
+	// every configured tenant is selected, or comma-joined names
+	// when a subset is selected. Empty hides the parenthesised
+	// scope from the title.
+	Scope string
+}
+
+// alertEntry pairs an alert with the tenant tag the poller
+// emitted it under so the table can surface a TENANT column when
+// the active scope spans multiple backends.
+type alertEntry struct {
+	a      backend.Alert
+	tenant string
+}
+
 // Page is the alerts list view. Implements app.Page.
 type Page struct {
 	styles theme.Styles
 	now    func() time.Time
+	scope  string
 
-	all    []backend.Alert // most recent snapshot from the poller
-	view   []backend.Alert // filtered + sorted view (recomputed on change)
-	cursor int             // index into view
+	// byTenant stores the most recent snapshot per tenant. Each
+	// poller emits a DataMsg keyed to its own Tenant; recompute
+	// unions the snapshots before sorting / filtering.
+	byTenant map[string][]backend.Alert
+
+	view   []alertEntry // filtered + sorted view (recomputed on change)
+	cursor int          // index into view
 
 	// topRow is the index of the first visible row in p.view. The
 	// renderer reconciles topRow with cursor on every frame so the
@@ -115,21 +142,28 @@ type Page struct {
 	stateFilter string // "" = all, otherwise an AlertState value
 }
 
-// New constructs a Page with the given styles and an optional
-// clock injector (nil falls back to time.Now). Initial state is
-// no alerts, no filter, sorted by severity descending.
-func New(styles theme.Styles, now func() time.Time) *Page {
+// New constructs a Page from the supplied Options. Initial
+// state is no alerts, no filter, sorted by severity descending.
+func New(opts Options) *Page {
+	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
 	return &Page{
-		styles:  styles,
-		now:     now,
-		sort:    SortBySeverity,
-		sortAsc: false,
-		marks:   map[string]struct{}{},
+		styles:   opts.Styles,
+		now:      now,
+		scope:    opts.Scope,
+		byTenant: map[string][]backend.Alert{},
+		sort:     SortBySeverity,
+		sortAsc:  false,
+		marks:    map[string]struct{}{},
 	}
 }
+
+// SetScope updates the body-title scope label. Used by the
+// wiring layer when the active tenant set changes (Ctrl+T
+// picker, numeric quick-switch).
+func (p *Page) SetScope(s string) { p.scope = s }
 
 // Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
@@ -140,9 +174,48 @@ func (*Page) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "alerts" }
 
-// HeaderContent implements app.Page. Surfaces the filter + sort
-// state and the count of Space-marked rows so the user can see
-// at a glance what's queued for a bulk operation.
+// Title implements app.Page — k9s-style
+// "alerts(<scope>)[<count>]" with the scope being the active
+// tenant set ("all" / "prod" / "prod,staging" / etc.) and the
+// count being the filtered/total view size.
+func (p *Page) Title() string {
+	scope := p.scope
+	if scope == "" {
+		scope = "all"
+	}
+	total := p.totalAlerts()
+	if p.filter != "" || p.stateFilter != "" {
+		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.view), total)
+	}
+	return fmt.Sprintf("alerts(%s)[%d]", scope, total)
+}
+
+// totalAlerts is the unfiltered alert count across every tracked
+// tenant. Used by Title (for the [N] suffix) and by the empty-
+// state hint (which differentiates "no alerts polled yet" from
+// "no alerts match the active filter").
+func (p *Page) totalAlerts() int {
+	n := 0
+	for _, alerts := range p.byTenant {
+		n += len(alerts)
+	}
+	return n
+}
+
+// showTenantColumn reports whether the page should render a
+// leading TENANT column. True when the active scope spans more
+// than one backend's data — which is what k9s does in its
+// namespace=all view.
+func (p *Page) showTenantColumn() bool {
+	return p.scope == "all" && len(p.byTenant) > 1
+}
+
+// HeaderContent implements app.Page. Surfaces filter / state-
+// filter / mark count when active so the user can see at a glance
+// what's been applied or queued. Sort state is intentionally
+// absent — the column header carries the ↑/↓ indicator and
+// repeating it here is noise. Returns empty when nothing is
+// active so the App skips the subtitle line entirely.
 func (p *Page) HeaderContent() string {
 	var parts []string
 	if p.filter != "" {
@@ -154,11 +227,6 @@ func (p *Page) HeaderContent() string {
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
 	}
-	dir := "↓"
-	if p.sortAsc {
-		dir = "↑"
-	}
-	parts = append(parts, fmt.Sprintf("sort:%s %s", p.sort, dir))
 	return strings.Join(parts, " · ")
 }
 
@@ -182,7 +250,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		p.all = alerts
+		p.byTenant[m.Tenant] = alerts
 		p.recompute()
 		return p, nil
 	case footer.PromptOpenedMsg:
@@ -343,7 +411,7 @@ func (p *Page) toggleMarkAtCursor() {
 	if p.cursor >= len(p.view) {
 		return
 	}
-	fp := p.view[p.cursor].Fingerprint
+	fp := p.view[p.cursor].a.Fingerprint
 	if fp == "" {
 		return
 	}
@@ -363,12 +431,13 @@ func (p *Page) drillToDetail() tea.Cmd {
 			return footer.FlashShowMsg{Level: footer.FlashInfo, Text: "no alert under the cursor"}
 		}
 	}
-	selected := p.view[p.cursor]
+	entry := p.view[p.cursor]
 	styles := p.styles
 	now := p.now
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:  selected,
+			Alert:  entry.a,
+			Tenant: entry.tenant,
 			Styles: styles,
 			Now:    now,
 		})
@@ -402,9 +471,8 @@ func (p *Page) View(width, height int) string {
 		return p.styles.Body.Default.Width(width).Height(height).Render(p.emptyState())
 	}
 	headerLine := p.renderHeader(width)
-	rows := p.renderRows(width, height-2)
-	footerLine := fmt.Sprintf("  %d/%d alerts", len(p.view), len(p.all))
-	body := strings.Join([]string{headerLine, rows, footerLine}, "\n")
+	rows := p.renderRows(width, height-1)
+	body := headerLine + "\n" + rows
 	return lipgloss.NewStyle().Width(width).Render(body)
 }
 
@@ -415,20 +483,25 @@ func (p *Page) emptyState() string {
 	if p.filter != "" || p.stateFilter != "" {
 		return "no alerts match the active filter — Esc clears the prompt, `t` cycles state filters"
 	}
-	if len(p.all) == 0 {
+	if p.totalAlerts() == 0 {
 		return "no alerts (yet) — the poller will refresh on the next tick"
 	}
 	return "no alerts in view"
 }
 
-// renderHeader returns the column-title row with a sort marker on
-// the active column. Prefixed with rowPrefixCols spaces so the
-// titles line up with the data columns underneath.
+// renderHeader returns the column-title row with a sort marker
+// on the active column. Titles are upper-cased and styled via
+// theme.Table.Header (k9s-style yellow on base in catppuccin) so
+// they stand apart from the data rows. A leading TENANT column
+// appears when the active scope spans multiple backends.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortBySeverity, SortByName, SortByState, SortByAge}
-	parts := make([]string, len(titles))
-	for i, k := range titles {
-		label := k.String()
+	parts := make([]string, 0, len(titles)+1)
+	if p.showTenantColumn() {
+		parts = append(parts, "TENANT")
+	}
+	for _, k := range titles {
+		label := strings.ToUpper(k.String())
 		if k == p.sort {
 			arrow := "↓"
 			if p.sortAsc {
@@ -436,9 +509,15 @@ func (p *Page) renderHeader(width int) string {
 			}
 			label = label + " " + arrow
 		}
-		parts[i] = label
+		parts = append(parts, label)
 	}
-	return strings.Repeat(" ", rowPrefixCols) + p.padColumns(parts, width)
+	line := strings.Repeat(" ", rowPrefixCols) + p.padColumns(parts, width)
+	// Foreground-only render so the header row keeps the body
+	// background — the user wants it visually flush with the data
+	// rows underneath, not a coloured stripe.
+	return lipgloss.NewStyle().
+		Foreground(p.styles.Table.Header.GetForeground()).
+		Render(line)
 }
 
 // renderRows returns the visible window of data rows. The window
@@ -457,9 +536,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 	p.reconcileScroll(maxRows)
 	end := min(p.topRow+maxRows, len(p.view))
 
+	showTenant := p.showTenantColumn()
 	var b strings.Builder
 	for i := p.topRow; i < end; i++ {
-		a := p.view[i]
+		entry := p.view[i]
+		a := entry.a
 		ageLabel := header.FormatAge(p.now(), a.StartsAt)
 		if ageLabel == "" {
 			ageLabel = "—"
@@ -469,12 +550,16 @@ func (p *Page) renderRows(width, maxRows int) string {
 		if marked {
 			mark = "✓"
 		}
-		row := []string{
+		row := make([]string, 0, 5)
+		if showTenant {
+			row = append(row, entry.tenant)
+		}
+		row = append(row,
 			severityOf(a),
 			a.Labels["alertname"],
 			string(a.State),
 			ageLabel,
-		}
+		)
 		prefix := "  "
 		if i == p.cursor {
 			prefix = "▸ "
@@ -522,19 +607,34 @@ func (p *Page) reconcileScroll(maxRows int) {
 	}
 }
 
-// padColumns lays out the four columns at fixed proportions of
-// the available width. Crude but adequate for v0.1 — a future
-// commit can swap in lipgloss/table.Table if column ergonomics
-// become a complaint.
 // rowPrefixCols is the space the rendered row reserves for its
 // leading "[cursor] [mark] " prefix (▸ or space + mark glyph or
 // space + separator). renderHeader prepends the same number of
 // spaces so the column titles line up with the data columns.
 const rowPrefixCols = 4
 
+// padColumns lays out the row's columns at fixed widths with one
+// flex column for the alertname. The leading TENANT column is
+// optional — added when scope spans multiple backends and parts
+// has 5 entries instead of 4. Crude but adequate for v0.1; a
+// future commit can swap in lipgloss/table.Table if ergonomics
+// become a complaint.
 func (p *Page) padColumns(parts []string, width int) string {
-	cols := []int{12, 0, 14, 12} // severity, name (flex), state, age
-	cols[1] = max(width-cols[0]-cols[2]-cols[3]-rowPrefixCols, 10)
+	// severity 12 / name flex / state 14 / age 12, plus optional
+	// leading tenant 16. The flex column absorbs the remainder.
+	tenantCol := 0
+	if p.showTenantColumn() {
+		tenantCol = 16
+	}
+	const sevCol, stateCol, ageCol = 12, 14, 12
+	flex := max(width-tenantCol-sevCol-stateCol-ageCol-rowPrefixCols, 10)
+
+	cols := []int{}
+	if tenantCol > 0 {
+		cols = append(cols, tenantCol)
+	}
+	cols = append(cols, sevCol, flex, stateCol, ageCol)
+
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {
@@ -577,21 +677,28 @@ func truncate(s string, w int) string {
 	return b.String()
 }
 
-// recompute rebuilds p.view from p.all by applying the active
-// filters and sort, then re-resolves the cursor by fingerprint so
-// the focused alert stays under the cursor across poll refreshes,
-// sort changes, and filter changes. When the focused alert is
-// gone (filtered out, expired) the cursor clamps to the last row;
-// the new focus fingerprint is captured before returning so the
-// next recompute keeps tracking what the user is looking at.
+// recompute rebuilds p.view by unioning every per-tenant
+// snapshot, applying the active filters, sorting, then re-
+// resolving the cursor by fingerprint so the focused alert
+// stays under the cursor across poll refreshes / sort changes /
+// filter changes. When the focused alert is gone (filtered out,
+// expired) the cursor clamps to the last row; the new focus
+// fingerprint is captured before returning so the next
+// recompute keeps tracking what the user is looking at.
 func (p *Page) recompute() {
-	p.view = filterAlerts(p.all, p.filter, p.stateFilter)
-	sortAlerts(p.view, p.sort, p.sortAsc)
+	flat := make([]alertEntry, 0)
+	for tenant, alerts := range p.byTenant {
+		for _, a := range alerts {
+			flat = append(flat, alertEntry{a: a, tenant: tenant})
+		}
+	}
+	p.view = filterEntries(flat, p.filter, p.stateFilter)
+	sortEntries(p.view, p.sort, p.sortAsc)
 
 	// Resolve cursor by fingerprint when we have one to follow.
 	if p.focusFingerprint != "" {
-		for i, a := range p.view {
-			if a.Fingerprint == p.focusFingerprint {
+		for i, e := range p.view {
+			if e.a.Fingerprint == p.focusFingerprint {
 				p.cursor = i
 				return
 			}
@@ -608,7 +715,7 @@ func (p *Page) recompute() {
 // Empty view leaves focus empty.
 func (p *Page) snapshotFocus() {
 	if p.cursor < len(p.view) {
-		p.focusFingerprint = p.view[p.cursor].Fingerprint
+		p.focusFingerprint = p.view[p.cursor].a.Fingerprint
 		return
 	}
 	p.focusFingerprint = ""
@@ -627,25 +734,26 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// filterAlerts returns a new slice containing only alerts that
-// match both the substring and state filters. Substring is matched
-// case-insensitively against alertname + every label value.
-func filterAlerts(in []backend.Alert, substr, state string) []backend.Alert {
+// filterEntries returns a new slice containing only entries
+// whose Alert matches both the substring and state filters.
+// Substring is matched case-insensitively against label and
+// annotation values.
+func filterEntries(in []alertEntry, substr, state string) []alertEntry {
 	if substr == "" && state == "" {
-		out := make([]backend.Alert, len(in))
+		out := make([]alertEntry, len(in))
 		copy(out, in)
 		return out
 	}
 	needle := strings.ToLower(substr)
-	out := make([]backend.Alert, 0, len(in))
-	for _, a := range in {
-		if state != "" && string(a.State) != state {
+	out := make([]alertEntry, 0, len(in))
+	for _, e := range in {
+		if state != "" && string(e.a.State) != state {
 			continue
 		}
-		if substr != "" && !alertMatchesSubstr(a, needle) {
+		if substr != "" && !alertMatchesSubstr(e.a, needle) {
 			continue
 		}
-		out = append(out, a)
+		out = append(out, e)
 	}
 	return out
 }
@@ -669,8 +777,8 @@ func alertMatchesSubstr(a backend.Alert, needle string) bool {
 	return false
 }
 
-// sortAlerts sorts in place by the given key.
-func sortAlerts(out []backend.Alert, key SortKey, asc bool) {
+// sortEntries sorts in place by the given key.
+func sortEntries(out []alertEntry, key SortKey, asc bool) {
 	less := lessFor(key)
 	sort.SliceStable(out, func(i, j int) bool {
 		if asc {
@@ -681,17 +789,17 @@ func sortAlerts(out []backend.Alert, key SortKey, asc bool) {
 }
 
 // lessFor returns the ascending less-than for the given sort key.
-func lessFor(key SortKey) func(a, b backend.Alert) bool {
+func lessFor(key SortKey) func(a, b alertEntry) bool {
 	switch key {
 	case SortByName:
-		return func(a, b backend.Alert) bool { return a.Labels["alertname"] < b.Labels["alertname"] }
+		return func(a, b alertEntry) bool { return a.a.Labels["alertname"] < b.a.Labels["alertname"] }
 	case SortByState:
-		return func(a, b backend.Alert) bool { return a.State < b.State }
+		return func(a, b alertEntry) bool { return a.a.State < b.a.State }
 	case SortByAge:
-		return func(a, b backend.Alert) bool { return a.StartsAt.Before(b.StartsAt) }
+		return func(a, b alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) }
 	default: // SortBySeverity
-		return func(a, b backend.Alert) bool {
-			return severityRank(a) < severityRank(b)
+		return func(a, b alertEntry) bool {
+			return severityRank(a.a) < severityRank(b.a)
 		}
 	}
 }

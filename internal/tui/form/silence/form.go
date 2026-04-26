@@ -113,6 +113,9 @@ func (*Form) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Form) Crumb() string { return "silence" }
 
+// Title implements app.Page.
+func (*Form) Title() string { return "new silence" }
+
 // HeaderContent implements app.Page.
 func (*Form) HeaderContent() string { return "new silence" }
 
