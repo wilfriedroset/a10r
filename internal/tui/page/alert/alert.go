@@ -238,6 +238,47 @@ func (p *Page) bodyLines(width int) []string {
 		out = append(out, "")
 		out = append(out, wrapHanging("Generator URL: "+p.a.GeneratorURL, width, len("Generator URL: "))...)
 	}
+	if p.a.State == backend.AlertStateSuppressed {
+		out = append(out, "", "Suppression:")
+		out = append(out, suppressionLines(p.a, width)...)
+	}
+	return out
+}
+
+// suppressionLines renders the silenced-by / inhibited-by /
+// muted-by lists for a suppressed alert. v0-strict: raw IDs and
+// fingerprints, no resolution against the silence list or the
+// alert snapshot. The order is fixed (silenced → inhibited →
+// muted) so the same suppressed alert renders identically across
+// refreshes.
+//
+// Defensive empty-state: a suppressed alert with all three lists
+// empty shouldn't happen against vanilla Alertmanager, but a
+// non-conforming proxy or upstream bug could surface it. Render
+// `(no reason reported by Alertmanager)` so the section header
+// has at least one line under it instead of looking like a
+// render glitch.
+func suppressionLines(a backend.Alert, width int) []string {
+	rows := [...]struct {
+		label string
+		ids   []string
+	}{
+		{"silenced by:  ", a.SilencedBy},
+		{"inhibited by: ", a.InhibitedBy},
+		{"muted by:     ", a.MutedBy},
+	}
+	out := make([]string, 0, 3)
+	for _, r := range rows {
+		if len(r.ids) == 0 {
+			continue
+		}
+		prefix := "  " + r.label
+		hangCols := lipgloss.Width(prefix)
+		out = append(out, wrapHanging(prefix+strings.Join(r.ids, ", "), width, hangCols)...)
+	}
+	if len(out) == 0 {
+		return []string{"  (no reason reported by Alertmanager)"}
+	}
 	return out
 }
 

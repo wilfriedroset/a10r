@@ -346,3 +346,114 @@ func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 	require.Contains(t, out, "(none)",
 		"empty annotations must render as (none) so the section is not blank")
 }
+
+// suppressedSample builds the canonical suppressed Alert used by
+// the Suppression-block tests. Optional buckets default to nil so
+// callers can construct any subset of the three reason categories.
+func suppressedSample(silencedBy, inhibitedBy, mutedBy []string) backend.Alert {
+	a := sample()
+	a.State = backend.AlertStateSuppressed
+	a.SilencedBy = silencedBy
+	a.InhibitedBy = inhibitedBy
+	a.MutedBy = mutedBy
+	return a
+}
+
+func renderSuppressed(t *testing.T, a backend.Alert, width int) string {
+	t.Helper()
+	p := New(Options{Alert: a, Styles: loadStyles(t), Now: func() time.Time { return fixedNow }})
+	return stripStyle(p.View(width, 30))
+}
+
+func TestPage_SuppressionBlockOnlyForSuppressed(t *testing.T) {
+	t.Parallel()
+	// Active alert: no Suppression header, regardless of whether
+	// SilencedBy/InhibitedBy/MutedBy happen to be populated.
+	a := sample()
+	a.SilencedBy = []string{"never-rendered"}
+	out := renderSuppressed(t, a, 100)
+	require.NotContains(t, out, "Suppression:",
+		"non-suppressed state must NOT render the Suppression block")
+}
+
+func TestPage_SuppressionBlockSilencedByOnly(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample([]string{"s1", "s2"}, nil, nil), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "silenced by:  s1, s2")
+	require.NotContains(t, out, "inhibited by:")
+	require.NotContains(t, out, "muted by:")
+}
+
+func TestPage_SuppressionBlockInhibitedByOnly(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(nil, []string{"fp1"}, nil), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "inhibited by: fp1")
+	require.NotContains(t, out, "silenced by:")
+	require.NotContains(t, out, "muted by:")
+}
+
+func TestPage_SuppressionBlockMutedByOnly(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(nil, nil, []string{"out-of-hours"}), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "muted by:     out-of-hours")
+	require.NotContains(t, out, "silenced by:")
+	require.NotContains(t, out, "inhibited by:")
+}
+
+func TestPage_SuppressionBlockAllThreeInStableOrder(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(
+		[]string{"s1"},
+		[]string{"fp1"},
+		[]string{"out-of-hours"},
+	), 120)
+	silencedAt := strings.Index(out, "silenced by:")
+	inhibitedAt := strings.Index(out, "inhibited by:")
+	mutedAt := strings.Index(out, "muted by:")
+	require.Positive(t, silencedAt)
+	require.Greater(t, inhibitedAt, silencedAt,
+		"inhibited-by must follow silenced-by")
+	require.Greater(t, mutedAt, inhibitedAt,
+		"muted-by must follow inhibited-by")
+}
+
+func TestPage_SuppressionBlockEmptyFallback(t *testing.T) {
+	t.Parallel()
+	// State == suppressed but every bucket empty — defensive
+	// fallback so the user sees an explanation rather than a
+	// dangling header.
+	a := sample()
+	a.State = backend.AlertStateSuppressed
+	out := renderSuppressed(t, a, 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "(no reason reported by Alertmanager)")
+}
+
+func TestPage_SuppressionBlockWrapsLongList(t *testing.T) {
+	t.Parallel()
+	// A wide-enough comma list at narrow width should wrap with
+	// hanging indent — second line starts with the same column
+	// width as the prefix (`  silenced by:  ` = 16 columns).
+	long := []string{
+		"silence-id-aaaaaaaaaaaaaaaaaaa",
+		"silence-id-bbbbbbbbbbbbbbbbbbb",
+	}
+	out := renderSuppressed(t, suppressedSample(long, nil, nil), 40)
+	// Find the silenced-by line and the line directly after it;
+	// the continuation must start with the hanging indent.
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		if strings.Contains(l, "silenced by:") && i+1 < len(lines) {
+			next := lines[i+1]
+			require.True(t, strings.HasPrefix(next, "                "),
+				"continuation line must start with the 16-col hanging "+
+					"indent so wrapped IDs align under the value column "+
+					"(got %q)", next)
+			return
+		}
+	}
+	t.Fatal("did not find a silenced-by line followed by a continuation")
+}
