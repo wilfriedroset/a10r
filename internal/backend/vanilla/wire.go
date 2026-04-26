@@ -30,6 +30,7 @@ type wireAlertStatus struct {
 	State       string   `json:"state"`
 	SilencedBy  []string `json:"silencedBy,omitempty"`
 	InhibitedBy []string `json:"inhibitedBy,omitempty"`
+	MutedBy     []string `json:"mutedBy,omitempty"`
 }
 
 type wireReceiver struct {

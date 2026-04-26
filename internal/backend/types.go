@@ -46,7 +46,15 @@ type Alert struct {
 	State        AlertState
 	SilencedBy   []string
 	InhibitedBy  []string
-	Receivers    []string
+	// MutedBy lists the names of mute_time_intervals the route
+	// matched for this alert. Populated alongside SilencedBy /
+	// InhibitedBy on /api/v2/alerts when status.state ==
+	// "suppressed". The Alertmanager v2 OpenAPI schema marks the
+	// field required, but a non-conforming proxy could omit it —
+	// callers should treat empty as "no time-window mute" rather
+	// than "field absent".
+	MutedBy   []string
+	Receivers []string
 }
 
 // AlertGroup is one node in /api/v2/alerts/groups output: a label

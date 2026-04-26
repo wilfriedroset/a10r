@@ -89,11 +89,19 @@ func TestClient_ListAlerts(t *testing.T) {
 	require.Equal(t, backend.AlertStateActive, got[0].State)
 	require.Equal(t, []string{"team-ops", "pager"}, got[0].Receivers)
 	require.Empty(t, got[0].SilencedBy)
+	require.Empty(t, got[0].InhibitedBy)
+	require.Empty(t, got[0].MutedBy)
 
-	// Second alert exercises UTF-8 labels and missing endsAt (zero time).
+	// Second alert exercises UTF-8 labels, missing endsAt (zero time)
+	// and the three suppression-reason buckets — silencedBy /
+	// inhibitedBy / mutedBy — populated on a `suppressed` row.
 	require.Equal(t, "eu-west", got[1].Labels["régión"], "UTF-8 label values must round-trip")
 	require.True(t, got[1].EndsAt.IsZero(), "missing endsAt must decode as zero time")
 	require.Equal(t, []string{"sil-789"}, got[1].SilencedBy)
+	require.Equal(t, []string{"0006251c575c1dd0"}, got[1].InhibitedBy,
+		"inhibitedBy must round-trip through wire → domain")
+	require.Equal(t, []string{"out-of-hours", "weekends"}, got[1].MutedBy,
+		"mutedBy must round-trip through wire → domain")
 }
 
 func TestClient_ListAlerts_FilterParamsReachServer(t *testing.T) {

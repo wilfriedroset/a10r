@@ -23,6 +23,7 @@ func toAlert(w wireAlert) backend.Alert {
 		State:        backend.AlertState(w.Status.State),
 		SilencedBy:   w.Status.SilencedBy,
 		InhibitedBy:  w.Status.InhibitedBy,
+		MutedBy:      w.Status.MutedBy,
 	}
 	if len(w.Receivers) > 0 {
 		a.Receivers = make([]string, 0, len(w.Receivers))

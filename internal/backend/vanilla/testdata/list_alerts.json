@@ -45,7 +45,13 @@
       "silencedBy": [
         "sil-789"
       ],
-      "inhibitedBy": []
+      "inhibitedBy": [
+        "0006251c575c1dd0"
+      ],
+      "mutedBy": [
+        "out-of-hours",
+        "weekends"
+      ]
     },
     "receivers": [
       {
