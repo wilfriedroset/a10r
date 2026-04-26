@@ -3,19 +3,33 @@ name: catppuccin-mocha
 description: Catppuccin Mocha (dark) — the v0.1 default skin
 author: Catppuccin authors
 
+# Full catppuccin-mocha palette (per https://catppuccin.com/palette).
+# Role mappings below align with the k9s catppuccin-mocha skin
+# wherever a clean equivalent exists; cursor is the deliberate
+# exception — k9s uses surface1 for a subtle stripe but the user
+# preference here is the brighter lavender for "you are here".
 palette:
-  base:     "#1e1e2e"
-  surface:  "#313244"
-  text:     "#cdd6f4"
-  subtext:  "#a6adc8"
-  overlay:  "#6c7086"
-  red:      "#f38ba8"
-  peach:    "#fab387"
-  yellow:   "#f9e2af"
-  green:    "#a6e3a1"
-  sky:      "#89dceb"
-  blue:     "#89b4fa"
-  lavender: "#b4befe"
+  rosewater: "#f5e0dc"
+  flamingo:  "#f2cdcd"
+  pink:      "#f5c2e7"
+  mauve:     "#cba6f7"
+  red:       "#f38ba8"
+  maroon:    "#eba0ac"
+  peach:     "#fab387"
+  yellow:    "#f9e2af"
+  green:     "#a6e3a1"
+  teal:      "#94e2d5"
+  sky:       "#89dceb"
+  sapphire:  "#74c7ec"
+  blue:      "#89b4fa"
+  lavender:  "#b4befe"
+  text:      "#cdd6f4"
+  subtext:   "#a6adc8"
+  overlay:   "#6c7086"
+  surface:   "#313244"
+  base:      "#1e1e2e"
+  mantle:    "#181825"
+  crust:     "#11111b"
 
 roles:
   body:
@@ -31,12 +45,12 @@ roles:
     error: red
 
   table:
-    header:        { fg: subtext, bg: base }
-    header_active: { fg: base, bg: blue }
-    row:           { fg: text, bg: base }
-    row_alt:       { fg: text, bg: surface }
-    cursor:        { fg: base, bg: lavender }
-    marked:        { fg: base, bg: peach }
+    header:        { fg: yellow, bg: base }    # k9s table.header
+    header_active: { fg: sky,    bg: base }    # k9s sorterColor
+    row:           { fg: text,   bg: base }
+    row_alt:       { fg: text,   bg: surface }
+    cursor:        { fg: base,   bg: lavender }
+    marked:        { fg: rosewater, bg: base } # fg-only at the page layer
     dimmed:        { fg: overlay, bg: base }
 
   severity:
@@ -52,8 +66,8 @@ roles:
 
   prompt:
     fg: text
-    bg: base
-    suggestion: overlay
+    bg: mantle             # k9s prompt.bg
+    suggestion: blue       # k9s suggestColor
 
   flash:
     success: green
@@ -62,22 +76,22 @@ roles:
     error:   red
 
   crumbs:
-    fg: subtext
-    bg: base
-    active: peach
+    fg: base               # k9s frame.crumbs.fg/bg/active
+    bg: maroon
+    active: flamingo
 
   hint:
     fg: subtext
     bg: base
-    key: peach
+    key: blue              # k9s frame.menu.keyColor
     help_key: green
 
   modal:
     fg: text
     bg: base
-    border: overlay
+    border: mauve          # k9s frame.border (logoColor)
 
   yaml:
     key:   blue
     value: text
-    punct: overlay
+    punct: subtext

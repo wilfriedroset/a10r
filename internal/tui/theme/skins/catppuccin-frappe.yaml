@@ -1,30 +1,30 @@
 ---
-name: catppuccin-latte
-description: Catppuccin Latte (light) — for terminals on light backgrounds
+name: catppuccin-frappe
+description: Catppuccin Frappé (warm dark) — softer than mocha, less stark
 author: Catppuccin authors
 
 palette:
-  rosewater: "#dc8a78"
-  flamingo:  "#dd7878"
-  pink:      "#ea76cb"
-  mauve:     "#8839ef"
-  red:       "#d20f39"
-  maroon:    "#e64553"
-  peach:     "#fe640b"
-  yellow:    "#df8e1d"
-  green:     "#40a02b"
-  teal:      "#179299"
-  sky:       "#04a5e5"
-  sapphire:  "#209fb5"
-  blue:      "#1e66f5"
-  lavender:  "#7287fd"
-  text:      "#4c4f69"
-  subtext:   "#6c6f85"
-  overlay:   "#9ca0b0"
-  surface:   "#ccd0da"
-  base:      "#eff1f5"
-  mantle:    "#e6e9ef"
-  crust:     "#dce0e8"
+  rosewater: "#f2d5cf"
+  flamingo:  "#eebebe"
+  pink:      "#f4b8e4"
+  mauve:     "#ca9ee6"
+  red:       "#e78284"
+  maroon:    "#ea999c"
+  peach:     "#ef9f76"
+  yellow:    "#e5c890"
+  green:     "#a6d189"
+  teal:      "#81c8be"
+  sky:       "#99d1db"
+  sapphire:  "#85c1dc"
+  blue:      "#8caaee"
+  lavender:  "#babbf1"
+  text:      "#c6d0f5"
+  subtext:   "#a5adce"
+  overlay:   "#737994"
+  surface:   "#414559"
+  base:      "#303446"
+  mantle:    "#292c3c"
+  crust:     "#232634"
 
 roles:
   body:

@@ -12,24 +12,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBundledNames_ReturnsThreeSkins(t *testing.T) {
+func TestBundledNames_ReturnsAllSkins(t *testing.T) {
 	t.Parallel()
 
-	// Pin the M1 contract: catppuccin-mocha, catppuccin-latte, gruvbox-
-	// dark. A future refactor that drops or moves a file fails this
-	// test rather than silently shipping a binary with fewer skins.
+	// Pin the bundled skin set: the four catppuccin variants
+	// (mocha / latte / frappe / macchiato) plus gruvbox-dark as a
+	// non-catppuccin alternative. A refactor that drops or moves a
+	// file fails this test rather than silently shipping a binary
+	// with fewer skins.
 	names, err := BundledNames()
 	require.NoError(t, err)
-	require.Len(t, names, 3, "M1 ships exactly three bundled skins")
-	require.Contains(t, names, "catppuccin-mocha")
-	require.Contains(t, names, "catppuccin-latte")
-	require.Contains(t, names, "gruvbox-dark")
+	require.Len(t, names, 5)
+	for _, want := range []string{
+		"catppuccin-mocha", "catppuccin-latte",
+		"catppuccin-frappe", "catppuccin-macchiato",
+		"gruvbox-dark",
+	} {
+		require.Contains(t, names, want)
+	}
 }
 
 func TestLoad_EachBundledSkinCompiles(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"catppuccin-mocha", "catppuccin-latte", "gruvbox-dark"} {
+	for _, name := range []string{
+		"catppuccin-mocha", "catppuccin-latte",
+		"catppuccin-frappe", "catppuccin-macchiato",
+		"gruvbox-dark",
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
