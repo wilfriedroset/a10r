@@ -144,17 +144,67 @@ func (a *App) registerGlobalBindings() {
 	// / PromptCancelled messages are handled by handleInput later.
 	a.dispatcher.Set(keys.LayerGlobal, ":", a.openPromptCmd(footer.PromptCommand))
 	a.dispatcher.Set(keys.LayerGlobal, "/", a.openPromptCmd(footer.PromptFilter))
-	// `?` opens the help overlay. The overlay reads the active page's
-	// crumb to label its per-view section, and respects read-only
-	// mode by hiding Dangerous bindings.
+	// `?` opens the k9s-style help overlay. The bindings are
+	// composed at open-time so the RESOURCE column always reflects
+	// whichever page is on top of the stack. Globals and table
+	// motions are curated lists kept here (rather than re-derived
+	// from the dispatcher, which stores handlers, not descriptions).
 	a.dispatcher.Set(keys.LayerGlobal, "?", func() tea.Cmd {
 		return OpenModal(func() modal.Modal {
 			return help.New(help.Options{
-				Registry: a.registry,
-				View:     a.activeViewLabel(),
+				PageName:     a.activeViewLabel(),
+				PageBindings: a.activePageBindings(),
+				Globals:      globalsCatalog(),
+				TableMotions: tableMotionsCatalog(),
+				Tenants:      a.tenants,
+				Styles:       a.styles,
 			})
 		})
 	})
+}
+
+// globalsCatalog is the GENERAL-column list rendered in the help
+// overlay. Source-of-truth pairs with `keybindings.md §Global` so
+// any binding the dispatcher gains a registration for above shows
+// up here too.
+func globalsCatalog() []action.Action {
+	return []action.Action{
+		{Key: ":", Description: "command"},
+		{Key: "/", Description: "filter"},
+		{Key: "?", Description: "help"},
+		{Key: "r", Description: "refresh"},
+		{Key: "Esc", Description: "back"},
+		{Key: "q", Description: "quit"},
+		{Key: "Ctrl+C", Description: "force quit"},
+		{Key: "Ctrl+T", Description: "tenant picker"},
+	}
+}
+
+// tableMotionsCatalog is the NAVIGATION-column list. Mirrors the
+// table-context block from `keybindings.md` so the help overlay
+// reads the same affordances the dispatcher serves.
+func tableMotionsCatalog() []action.Action {
+	return []action.Action{
+		{Key: "j", Description: "down"},
+		{Key: "k", Description: "up"},
+		{Key: "h", Description: "prev column"},
+		{Key: "l", Description: "next column"},
+		{Key: "gg", Description: "top"},
+		{Key: "G", Description: "bottom"},
+		{Key: "Ctrl+D", Description: "page down"},
+		{Key: "Ctrl+U", Description: "page up"},
+		{Key: "Enter", Description: "drill"},
+		{Key: "Space", Description: "mark"},
+	}
+}
+
+// activePageBindings returns the top-of-stack page's Bindings(),
+// or nil when no page is pushed (the empty-app placeholder body).
+func (a *App) activePageBindings() []action.Action {
+	if p := a.topPage(); p != nil {
+		return p.Bindings()
+	}
+	return nil
 }
 
 // openPromptCmd returns a Handler that opens the bottom-strip
@@ -497,7 +547,10 @@ func (a *App) renderBody(height int) string {
 	var inner, title string
 	switch {
 	case a.modal != nil:
-		title = "modal"
+		title = a.modal.Title()
+		if title == "" {
+			title = "modal"
+		}
 		inner = a.modal.View(innerWidth, innerHeight)
 	case a.topPage() != nil:
 		p := a.topPage()

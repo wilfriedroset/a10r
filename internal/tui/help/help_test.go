@@ -3,6 +3,7 @@
 package help
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,46 +12,135 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-func newRegistry(t *testing.T) *action.Registry {
+func loadStyles(t *testing.T) theme.Styles {
 	t.Helper()
-	r := action.New()
-	r.Register(action.Action{Key: "q", Description: "quit", View: ""})
-	r.Register(action.Action{Key: "?", Description: "help", View: ""})
-	r.Register(action.Action{Key: "s", Description: "silence", View: "alerts", Dangerous: true})
-	r.Register(action.Action{Key: "/", Description: "filter", View: "alerts"})
-	r.Register(action.Action{Key: "j", Description: "down", View: "table"})
-	return r
+	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	return *s
 }
 
-func TestHelp_BucketsByLayer(t *testing.T) {
+// stripStyle drops ANSI SGR sequences for substring assertions.
+func stripStyle(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			inEsc = true
+		case inEsc && r == 'm':
+			inEsc = false
+		case inEsc:
+			// drop
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func sampleOpts(t *testing.T) Options {
+	t.Helper()
+	return Options{
+		PageName: "alerts",
+		PageBindings: []action.Action{
+			{Key: "Enter", Description: "detail"},
+			{Key: "Space", Description: "mark"},
+			{Key: "s", Description: "silence", Dangerous: true},
+			{Key: "/", Description: "filter"},
+			{Key: "Shift+S", Description: "sort severity"},
+			{Key: "Shift+N", Description: "sort name"},
+		},
+		Globals: []action.Action{
+			{Key: ":", Description: "command"},
+			{Key: "/", Description: "filter"},
+			{Key: "?", Description: "help"},
+			{Key: "Esc", Description: "back"},
+			{Key: "q", Description: "quit"},
+		},
+		TableMotions: []action.Action{
+			{Key: "j", Description: "down"},
+			{Key: "k", Description: "up"},
+			{Key: "gg", Description: "top"},
+			{Key: "G", Description: "bottom"},
+		},
+		Tenants: []string{"primary", "secondary"},
+		Styles:  loadStyles(t),
+	}
+}
+
+func TestHelp_TitleIsHelp(t *testing.T) {
 	t.Parallel()
-	h := New(Options{Registry: newRegistry(t), View: "alerts"})
-	out := h.View(80, 30)
-	require.Contains(t, out, "Global")
-	require.Contains(t, out, "[q]")
-	require.Contains(t, out, "[?]")
-	require.Contains(t, out, "View — alerts")
-	require.Contains(t, out, "[s]")
-	require.Contains(t, out, "[/]")
-	require.Contains(t, out, "Table")
-	require.Contains(t, out, "[j]")
+	h := New(sampleOpts(t))
+	require.Equal(t, "Help", h.Title(),
+		"the App's outer panel reads Title() to label the border")
+}
+
+func TestHelp_ColumnsRender(t *testing.T) {
+	t.Parallel()
+	h := New(sampleOpts(t))
+	out := stripStyle(h.View(160, 30))
+	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "HOTKEYS"} {
+		require.Containsf(t, out, col, "column heading %q must appear", col)
+	}
+}
+
+func TestHelp_ResourceColumnListsTenantsAndPageVerbs(t *testing.T) {
+	t.Parallel()
+	h := New(sampleOpts(t))
+	out := stripStyle(h.View(160, 30))
+
+	// Numeric quick-switch comes from the global App layer; the
+	// help renders it inside RESOURCE because it changes the
+	// active scope of the resource the user is looking at.
+	require.Contains(t, out, "<0>")
+	require.Contains(t, out, "all")
+	require.Contains(t, out, "<1>")
+	require.Contains(t, out, "primary")
+	require.Contains(t, out, "<2>")
+	require.Contains(t, out, "secondary")
+
+	// Page-specific verbs follow.
+	require.Contains(t, out, "<Enter>")
+	require.Contains(t, out, "detail")
+	require.Contains(t, out, "<Space>")
+	require.Contains(t, out, "mark")
 }
 
 func TestHelp_ReadOnlyHidesDangerous(t *testing.T) {
 	t.Parallel()
-	h := New(Options{Registry: newRegistry(t), View: "alerts", ReadOnly: true})
-	out := h.View(80, 30)
-	require.NotContains(t, out, "[s]",
-		"Dangerous bindings must be hidden under read-only mode")
-	require.Contains(t, out, "[/]",
-		"non-Dangerous bindings stay visible under read-only mode")
+	opts := sampleOpts(t)
+	opts.ReadOnly = true
+	h := New(opts)
+	out := stripStyle(h.View(160, 30))
+
+	require.NotContains(t, out, "silence",
+		"`s silence` is Dangerous and must be hidden in read-only mode")
+	require.Contains(t, out, "filter",
+		"non-Dangerous bindings stay visible")
+}
+
+func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
+	t.Parallel()
+	h := New(sampleOpts(t))
+	out := stripStyle(h.View(160, 30))
+
+	for _, want := range []string{"<:>", "command", "<?>", "help", "<Esc>", "back"} {
+		require.Containsf(t, out, want, "GENERAL column must surface %q", want)
+	}
+	for _, want := range []string{"<j>", "down", "<gg>", "top", "<G>", "bottom"} {
+		require.Containsf(t, out, want, "NAVIGATION column must surface %q", want)
+	}
+	for _, want := range []string{"<Shift+S>", "sort severity"} {
+		require.Containsf(t, out, want, "HOTKEYS column must surface %q", want)
+	}
 }
 
 func TestHelp_AnyKeyEmitsClosed(t *testing.T) {
 	t.Parallel()
-	h := New(Options{Registry: newRegistry(t), View: "alerts"})
+	h := New(sampleOpts(t))
 	_, cmd := h.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	require.NotNil(t, cmd)
 	msg := cmd()
@@ -60,17 +150,10 @@ func TestHelp_AnyKeyEmitsClosed(t *testing.T) {
 
 func TestHelp_NonKeyMessageIsIgnored(t *testing.T) {
 	t.Parallel()
-	h := New(Options{Registry: newRegistry(t)})
+	h := New(sampleOpts(t))
 	type custom struct{}
 	_, cmd := h.Update(custom{})
 	require.Nil(t, cmd)
-}
-
-func TestHelp_NilRegistry(t *testing.T) {
-	t.Parallel()
-	h := New(Options{})
-	out := h.View(80, 5)
-	require.Contains(t, out, "registry not configured")
 }
 
 func TestHelp_HelpClosedMsgImplementsResultMsg(t *testing.T) {
@@ -78,9 +161,32 @@ func TestHelp_HelpClosedMsgImplementsResultMsg(t *testing.T) {
 	var _ modal.ResultMsg = modal.HelpClosedMsg{}
 }
 
-func TestHelp_EmptyViewLabelFallsBack(t *testing.T) {
+func TestHelp_NumericListClampsAtNine(t *testing.T) {
 	t.Parallel()
-	h := New(Options{Registry: newRegistry(t)})
-	out := h.View(80, 30)
-	require.Contains(t, out, "View — (none)")
+	opts := sampleOpts(t)
+	// Twelve configured backends — the catalog only goes to 9
+	// (the digit budget of the keyboard's number row).
+	opts.Tenants = []string{
+		"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+	}
+	h := New(opts)
+	out := stripStyle(h.View(200, 40))
+
+	require.Contains(t, out, "<9>")
+	require.NotContains(t, out, "<10>",
+		"numeric quick-switch tops out at <9>; extras are reachable via Ctrl+T")
+}
+
+func TestHelp_NoTenantsDropsNumericBlock(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = nil
+	h := New(opts)
+	out := stripStyle(h.View(160, 30))
+
+	require.NotContains(t, out, "<0>",
+		"empty tenant list drops the numeric block entirely — "+
+			"otherwise `<0> all` reads as a no-op key")
+	require.Contains(t, out, "RESOURCE",
+		"the column heading still renders so the page verbs have a banner")
 }

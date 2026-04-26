@@ -77,6 +77,10 @@ func NewPicker(title string, items []string, mode PickerMode) *Picker {
 // Init implements Modal. The picker has no startup work.
 func (*Picker) Init() tea.Cmd { return nil }
 
+// Title implements Modal — the App renders this in the outer panel
+// border so the user sees what the picker is for at a glance.
+func (p *Picker) Title() string { return p.title }
+
 // Update implements Modal. Returns the same Modal pointer (no
 // derivative type) and an optional Cmd that emits the resolution
 // message on submit or cancel.

@@ -47,6 +47,11 @@ func NewConfirm(question string, def ConfirmDefault) *Confirm {
 // Init implements Modal.
 func (*Confirm) Init() tea.Cmd { return nil }
 
+// Title implements Modal — the App renders this in the outer panel
+// border. The fixed label keeps the chrome predictable across every
+// confirm-flavoured prompt.
+func (*Confirm) Title() string { return "confirm" }
+
 // Update implements Modal. Recognises y/Y, n/N, Enter (resolves
 // the default), Esc (cancel). Other keys are silently ignored so
 // a stray keystroke can't accidentally pick a destructive option.

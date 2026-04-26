@@ -37,6 +37,12 @@ type Modal interface {
 	Init() tea.Cmd
 	Update(msg tea.Msg) (Modal, tea.Cmd)
 	View(width, height int) string
+
+	// Title is the label rendered in the App's outer panel border
+	// when the modal is open. Implementations return short, lower-
+	// case labels: "Help", "tenant", "confirm". Empty falls back
+	// to a generic placeholder in the App shell.
+	Title() string
 }
 
 // ResultMsg marks every modal-resolution message. The App-shell's
