@@ -45,9 +45,12 @@ func runValidate(out io.Writer, flags *GlobalFlags, args []string) error {
 	return nil
 }
 
-// loadOptsFromArgs builds the LoadOpts from the optional positional
-// arg (a single config file path, split into Dir+File) or, when
-// absent, the --config-dir flag value.
+// loadOptsFromArgs builds the LoadOpts. Precedence:
+//
+//  1. Positional arg (a single config file path).
+//  2. --config / -c flag, --config-dir flag — delegated to
+//     loadOptsFromFlags so all three subcommands agree on the
+//     resolution rules.
 func loadOptsFromArgs(flags *GlobalFlags, args []string) config.LoadOpts {
 	if len(args) == 1 {
 		return config.LoadOpts{
@@ -55,5 +58,5 @@ func loadOptsFromArgs(flags *GlobalFlags, args []string) config.LoadOpts {
 			File: filepath.Base(args[0]),
 		}
 	}
-	return config.LoadOpts{Dir: flags.ConfigDir}
+	return loadOptsFromFlags(flags)
 }

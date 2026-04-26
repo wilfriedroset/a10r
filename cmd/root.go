@@ -46,6 +46,8 @@ Run with no subcommand to launch the TUI.`,
 	}
 
 	f := rootCmd.PersistentFlags()
+	f.StringVarP(&flags.ConfigPath, "config", "c", "",
+		"path to an explicit config file (overrides --config-dir)")
 	f.StringVar(&flags.ConfigDir, "config-dir", "",
 		"config directory (default: XDG-resolved per-OS)")
 	f.StringVar(&flags.LogPath, "log", "",

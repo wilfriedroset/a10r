@@ -48,7 +48,7 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		logPath = resolved
 	}
 
-	cfg, loadErr := config.Load(config.LoadOpts{Dir: flags.ConfigDir})
+	cfg, loadErr := config.Load(loadOptsFromFlags(flags))
 	if loadErr != nil && !errors.Is(loadErr, config.ErrNotFound) {
 		return fmt.Errorf("load config: %w", loadErr)
 	}

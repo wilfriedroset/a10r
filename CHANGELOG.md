@@ -45,9 +45,9 @@ shell.
   (URL, optional Mimir prefix, optional tenant header, auth
   type) and writes `a10r.yaml` under the resolved config dir.
 - Cobra subcommands: `version`, `info`, `validate`, `completion`.
-  Persistent flags: `--config-dir`, `--log`, `--log-format`,
-  `--debug`, `--quiet`, `--read-only`, `--tenant`,
-  `--poll-interval`, `--theme`.
+  Persistent flags: `--config` / `-c` (file path), `--config-dir`
+  (directory), `--log`, `--log-format`, `--debug`, `--quiet`,
+  `--read-only`, `--tenant`, `--poll-interval`, `--theme`.
 - Backend client: vanilla Alertmanager v2 (floor v0.28.1) read
   + write paths (alerts, silences, receivers, groups, status);
   Grafana Mimir wrapper composing prefix + tenant header on
@@ -92,8 +92,8 @@ make build
 make am-up                    # docker run prom/alertmanager:v0.28.1
 
 # Walk the TUI
-./a10r -c testdata/sample.yaml
-#  → alerts list renders
+./a10r --config-dir testdata
+#  → loader picks up testdata/a10r.yaml; alerts list renders
 #  → / "high" filters
 #  → s on a row flashes the silence-form placeholder
 #  → :silences pushes the silences page
@@ -102,7 +102,7 @@ make am-up                    # docker run prom/alertmanager:v0.28.1
 #  → :q quits cleanly
 
 # Validate read-only mode hides Dangerous bindings
-./a10r --read-only -c testdata/sample.yaml
+./a10r --read-only --config-dir testdata
 #  → ? overlay must NOT list `[s]` silence
 
 # Snapshot release artefacts

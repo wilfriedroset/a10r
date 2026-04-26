@@ -32,6 +32,12 @@ var ErrInvalidReadOnlyEnv = errors.New("invalid A10R_READ_ONLY value")
 //
 // Field set mirrors open-question K1 in docs/design/open-questions.md.
 type CLIFlags struct {
+	// ConfigPath is an explicit path to a config file. When set
+	// it overrides ConfigDir resolution — the loader reads this
+	// file directly. Used by `-c examples/demo.yaml`-style
+	// invocations that don't fit the XDG-resolved-directory
+	// convention.
+	ConfigPath   string
 	ConfigDir    string
 	LogPath      string
 	LogFormat    string

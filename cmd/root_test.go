@@ -45,6 +45,16 @@ func TestNewRootCmd_FlagBinding(t *testing.T) {
 			want: GlobalFlags{ConfigDir: "/tmp/cfg", LogFormat: defaultLogFormat},
 		},
 		{
+			name: "config long form",
+			args: []string{"--config", "examples/demo.yaml"},
+			want: GlobalFlags{ConfigPath: "examples/demo.yaml", LogFormat: defaultLogFormat},
+		},
+		{
+			name: "config short form",
+			args: []string{"-c", "examples/demo.yaml"},
+			want: GlobalFlags{ConfigPath: "examples/demo.yaml", LogFormat: defaultLogFormat},
+		},
+		{
 			name: "log path and json format",
 			args: []string{"--log", "/tmp/a.log", "--log-format", "json"},
 			want: GlobalFlags{LogPath: "/tmp/a.log", LogFormat: "json"},

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,7 +80,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 // a zero Config so the program still starts (the wizard wires
 // from there in a future commit).
 func loadConfigForTUI(flags *GlobalFlags) (*config.Config, error) {
-	cfg, err := config.Load(config.LoadOpts{Dir: flags.ConfigDir})
+	cfg, err := config.Load(loadOptsFromFlags(flags))
 	if err != nil {
 		if errors.Is(err, config.ErrNotFound) {
 			fmt.Fprintln(os.Stderr, "no config found — starting with empty backend list (run `a10r validate` after editing your config)")
@@ -88,6 +89,20 @@ func loadConfigForTUI(flags *GlobalFlags) (*config.Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// loadOptsFromFlags translates persistent flags into config.LoadOpts.
+// --config (a file path) splits into Dir + File so the loader reads
+// the requested file directly; --config-dir falls back to the XDG
+// resolution path with the canonical "a10r.yaml" basename.
+func loadOptsFromFlags(flags *GlobalFlags) config.LoadOpts {
+	if flags.ConfigPath != "" {
+		return config.LoadOpts{
+			Dir:  filepath.Dir(flags.ConfigPath),
+			File: filepath.Base(flags.ConfigPath),
+		}
+	}
+	return config.LoadOpts{Dir: flags.ConfigDir}
 }
 
 // loadStylesFor compiles the requested theme. Empty falls back to

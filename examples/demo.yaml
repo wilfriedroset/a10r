@@ -1,0 +1,26 @@
+---
+# Demo a10r.yaml pointing at the Prometheus project's public
+# Alertmanager. No auth required — the endpoint is open.
+#
+# This is a *public* shared instance: anyone reading the silences
+# list sees what you create. Treat it as read-only for anything
+# you wouldn't paste into a public chat. The defaults below force
+# read-only at the config layer; remove `read_only: true` if you
+# specifically want to exercise the write paths against the demo.
+#
+# Run with:
+#   a10r -c examples/demo.yaml
+# or:
+#   a10r --read-only -c examples/demo.yaml   # belt-and-braces
+
+defaults:
+  poll_interval: 30s
+  read_only: true
+  log_format: logfmt
+
+theme:
+  name: catppuccin-mocha
+
+backends:
+  - name: prometheus-demo
+    url: https://alertmanager.demo.prometheus.io/api/v2
