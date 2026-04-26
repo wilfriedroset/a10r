@@ -58,13 +58,57 @@ shell.
 - Structured logging via `log/slog` (json or logfmt) with
   lumberjack rotation.
 
+### Polish (post-scaffold UX iterations)
+
+- k9s-style top panel: four columns laid out as info / tenant
+  numeric quick-switch / per-page hints / ASCII A10r logo, with
+  per-row gap-elision so narrow terminals degrade cleanly.
+- Bordered body panel with the title `<resource>(<scope>)[<count>]`
+  on the top edge, mirroring k9s. Subtitle line surfaces filter
+  / sort / mark state when active and stays empty otherwise.
+- Cursor row keeps the body background and brightens the
+  foreground; marked rows tint foreground only with a different
+  hue so the two affordances are visually distinct.
+- Column header row is foreground-only (no header stripe) with
+  uppercase labels and a sort arrow `↑`/`↓` on the active column.
+  Sort shortcuts toggle ASC↔DESC on repeat press; switching
+  columns resets to that column's natural default.
+- Numeric tenant quick-switch (`<0>` all, `<1>`-`<9>` per backend
+  in `backends:` order) wired at LayerGlobal so it works from
+  every page. Alerts page rescopes its `byTenant` snapshots, the
+  TENANT column appears iff scope=="all" and ≥2 backends carry
+  data, and the title's `[N]` count reflects the active scope.
+- Tenant page mirrors the global scope visually: `●` glyph on
+  in-scope rows plus a foreground tint, so the user can spot
+  the active fan-out without leaving the page.
+- Status page rescopes its title on `app.ScopeChangedMsg` (per-
+  backend status fan-out is a v0.2 concern; the body still
+  reflects the latest poll).
+- Help overlay rebuilt as a k9s-style four-column layout
+  (RESOURCE / GENERAL / NAVIGATION / HOTKEYS) inside the App's
+  outer panel border. RESOURCE auto-merges the tenant numeric
+  list with the active page's verbs; HOTKEYS auto-collects
+  page-bound `Shift+*` sort shortcuts. Read-only mode filters
+  Dangerous out of both halves.
+- Per-page polling fan-out: every entry in `cfg.Backends` gets
+  its own poller emitting `poll.DataMsg` tagged with its tenant
+  name. List pages can union the snapshots into a `byTenant`
+  map (alerts uses this today; the silences/receivers/groups
+  fan-out lands in v0.2 alongside their own pollers).
+- Modal interface gains a `Title()` method so the App's outer
+  panel labels the border (`Help`, `tenant`, `confirm`, …)
+  instead of a generic `modal` placeholder.
+- `<?> help` is no longer advertised on per-page hint strips;
+  `?` is global only.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.
 - CONTRIBUTING with DCO, prek, TDD, commit conventions, the
   per-commit subagent review process.
-- End-user docs under `docs/end-users/`: quickstart,
-  configuration schema, troubleshooting recipes.
+- End-user docs under `docs/end-users/`: quickstart, per-view
+  keybindings cheat-sheet, configuration schema, troubleshooting
+  recipes.
 - Design docs under `docs/design/`: open-questions resolutions
   (sections A–P), keybindings catalogue, theming spec,
   backend API audit, k9s look-and-feel notes.
