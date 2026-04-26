@@ -378,7 +378,7 @@ func (p *Page) View(width, height int) string {
 	}
 	headerLine := p.renderHeader(width)
 	rows := p.renderRows(width, height-2)
-	footerLine := fmt.Sprintf("  %d/%d alerts · cursor=%d", len(p.view), len(p.all), p.cursor+1)
+	footerLine := fmt.Sprintf("  %d/%d alerts", len(p.view), len(p.all))
 	body := strings.Join([]string{headerLine, rows, footerLine}, "\n")
 	return lipgloss.NewStyle().Width(width).Render(body)
 }
