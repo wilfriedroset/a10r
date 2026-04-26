@@ -632,6 +632,51 @@ func TestPage_TitleIncludesScope(t *testing.T) {
 	require.Equal(t, "alerts(prod,staging)[0]", p2.Title())
 }
 
+func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
+	t.Parallel()
+
+	// Two backends each report one alert. Scope starts as "all".
+	p := New(Options{
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+		Scope:  "all",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("B", "warning", backend.AlertStateActive)},
+		Tenant:   "staging",
+	})
+
+	require.Equal(t, "alerts(all)[2]", p.Title())
+	out := stripStyle(p.View(140, 20))
+	require.Contains(t, out, "A", "all-scope view shows both alerts")
+	require.Contains(t, out, "B")
+	require.Contains(t, out, "TENANT",
+		"two tenants in scope keeps the TENANT column visible")
+
+	// `<1>` quick-switch arrives via the bubbletea bus.
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "prod"})
+	require.Equal(t, "alerts(prod)[1]", p.Title(),
+		"scope change must rescope the [N] count, not just the label")
+	out = stripStyle(p.View(140, 20))
+	require.Contains(t, out, "A",
+		"prod's alert stays visible after the scope switch")
+	require.NotContains(t, out, "B",
+		"alerts from out-of-scope tenants must drop out of the view")
+	require.NotContains(t, out, "TENANT",
+		"single-tenant scope hides the TENANT column even when "+
+			"other tenants are still in byTenant")
+
+	// `<0>` returns to all-tenants — count and column reappear.
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "all"})
+	require.Equal(t, "alerts(all)[2]", p.Title())
+	out = stripStyle(p.View(140, 20))
+	require.Contains(t, out, "TENANT")
+}
+
 func TestPage_CrumbAndHeader(t *testing.T) {
 	t.Parallel()
 

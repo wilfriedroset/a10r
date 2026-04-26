@@ -124,7 +124,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
 		{Key: "y", Description: "copy fp", View: "alert"},
 		{Key: "o", Description: "open URL", View: "alert"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 

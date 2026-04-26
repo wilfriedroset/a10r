@@ -138,6 +138,39 @@ func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 		"unbound keys must NOT raise a flash — pages may bind them later")
 }
 
+func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
+	t.Parallel()
+
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Tenants:    []string{"prod", "staging"},
+	})
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	// `0` selects all tenants.
+	_, cmd := a.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
+	require.NotNil(t, cmd, "0 must produce a Cmd")
+	require.Equal(t, ScopeChangedMsg{Scope: "all"}, cmd())
+
+	// `1` and `2` map to the configured tenant names in order.
+	_, cmd = a.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+	require.NotNil(t, cmd)
+	require.Equal(t, ScopeChangedMsg{Scope: "prod"}, cmd())
+
+	_, cmd = a.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	require.NotNil(t, cmd)
+	require.Equal(t, ScopeChangedMsg{Scope: "staging"}, cmd())
+
+	// `3` is unbound (only two tenants) — silent no-op.
+	_, cmd = a.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
+	require.Nil(t, cmd, "extra digits beyond configured tenants stay unbound")
+}
+
 func TestApp_QuitMsgMarksQuitting(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

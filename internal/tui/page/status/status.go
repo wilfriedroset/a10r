@@ -66,7 +66,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "c", Description: "cluster", View: "status"},
 		{Key: "v", Description: "version", View: "status"},
 		{Key: "p", Description: "config", View: "status"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 

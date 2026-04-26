@@ -76,9 +76,16 @@ func (*Page) Crumb() string { return "tenant" }
 // Title implements app.Page.
 func (p *Page) Title() string { return fmt.Sprintf("tenants[%d]", len(p.rows)) }
 
-// HeaderContent implements app.Page.
+// HeaderContent implements app.Page. The backend count is in
+// Title's `[N]` suffix; only the live mark count is interesting
+// here, and only when at least one row is marked. Empty marks
+// fold into the cursor-row submit, so an empty subtitle reads as
+// "nothing pending."
 func (p *Page) HeaderContent() string {
-	return fmt.Sprintf("%d backends · %d selected", len(p.rows), len(p.marks))
+	if len(p.marks) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d selected", len(p.marks))
 }
 
 // Bindings implements app.Page.
@@ -87,7 +94,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Enter", Description: "select", View: "tenant"},
 		{Key: "Space", Description: "toggle", View: "tenant"},
 		{Key: "a", Description: "all", View: "tenant"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 
@@ -118,34 +124,16 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.toggleAtCursor()
 	case "a":
 		p.selectAll()
-	case "0":
-		// 0 selects every configured tenant — equivalent to `a` then
-		// Enter, modulo the explicit "I want all" UX.
-		cmd := p.submitAll()
-		return p, cmd
 	case "enter":
 		cmd := p.submit()
 		return p, cmd
 	}
-	if d, ok := digitOneToNine(keyMsg.String()); ok && d <= len(p.rows) {
-		// Numeric quick-switch: replace selections with the Nth
-		// configured backend and submit immediately.
-		single := []string{p.rows[d-1].Name}
-		return p, func() tea.Msg { return SelectedMsg{Selections: single} }
-	}
+	// Numeric quick-switch (`0`, `1`-`9`) is owned by the App's
+	// LayerGlobal binding (see app.registerTenantBindings) — it
+	// emits ScopeChangedMsg so every page reacts the same way.
+	// The tenant page therefore does NOT bind the digits locally;
+	// the dispatcher consumes them before forwardToTop runs.
 	return p, nil
-}
-
-// digitOneToNine reports whether s is a single digit 1-9.
-func digitOneToNine(s string) (int, bool) {
-	if len(s) != 1 {
-		return 0, false
-	}
-	c := s[0]
-	if c >= '1' && c <= '9' {
-		return int(c - '0'), true
-	}
-	return 0, false
 }
 
 func (p *Page) toggleAtCursor() {
@@ -185,15 +173,6 @@ func (p *Page) submit() tea.Cmd {
 		return func() tea.Msg { return SelectedMsg{Selections: single} }
 	}
 	return nil
-}
-
-// submitAll is the C3 "0 = all tenants" quick-switch.
-func (p *Page) submitAll() tea.Cmd {
-	all := make([]string, len(p.rows))
-	for i, r := range p.rows {
-		all[i] = r.Name
-	}
-	return func() tea.Msg { return SelectedMsg{Selections: all} }
 }
 
 // View implements app.Page.

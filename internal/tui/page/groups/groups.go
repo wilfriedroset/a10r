@@ -63,10 +63,9 @@ func (*Page) Crumb() string { return "groups" }
 // Title implements app.Page.
 func (p *Page) Title() string { return fmt.Sprintf("groups[%d]", len(p.all)) }
 
-// HeaderContent implements app.Page.
-func (p *Page) HeaderContent() string {
-	return fmt.Sprintf("%d groups", len(p.all))
-}
+// HeaderContent implements app.Page. The count already lives in
+// Title's `[N]` suffix; repeating it here would just be noise.
+func (*Page) HeaderContent() string { return "" }
 
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
@@ -74,7 +73,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Enter", Description: "expand / drill", View: "groups"},
 		{Key: "s", Description: "silence group", View: "groups", Dangerous: true},
 		{Key: "Tab", Description: "expand all", View: "groups"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 

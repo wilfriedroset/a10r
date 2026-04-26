@@ -106,7 +106,27 @@ func NewApp(opts Options) *App {
 		flash:      footer.NewFlash(),
 	}
 	a.registerGlobalBindings()
+	a.registerTenantBindings()
 	return a
+}
+
+// registerTenantBindings wires the numeric quick-switch keys
+// (`0` for all-tenants, `1`-`9` for the Nth configured backend)
+// at LayerGlobal. Pressing one emits a ScopeChangedMsg the top
+// page consumes to filter its view and update its title.
+func (a *App) registerTenantBindings() {
+	a.dispatcher.Set(keys.LayerGlobal, "0", func() tea.Cmd {
+		return func() tea.Msg { return ScopeChangedMsg{Scope: "all"} }
+	})
+	for i, name := range a.tenants {
+		if i >= 9 {
+			break // numeric quick-switch tops out at 1-9 per C3
+		}
+		captured := name
+		a.dispatcher.Set(keys.LayerGlobal, strconv.Itoa(i+1), func() tea.Cmd {
+			return func() tea.Msg { return ScopeChangedMsg{Scope: captured} }
+		})
+	}
 }
 
 // registerGlobalBindings wires the keybindings.md §Global entries

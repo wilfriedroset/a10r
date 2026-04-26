@@ -76,33 +76,19 @@ func TestPage_EnterWithoutMarksFallsBackToCursor(t *testing.T) {
 		"Enter with no marks falls back to the single cursor row")
 }
 
-func TestPage_ZeroSubmitsAll(t *testing.T) {
+func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 	t.Parallel()
+	// `0`, `1`-`9` are owned by the App's LayerGlobal binding so
+	// every page reacts the same way (ScopeChangedMsg). The
+	// dispatcher consumes them before forwardToTop runs, so the
+	// tenant page must NOT bind them locally — otherwise we'd be
+	// chasing two competing handlers per digit.
 	p := New(loadStyles(t))
 	p.SetRows(sampleRows())
-	_, cmd := p.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
-	msg := cmd().(SelectedMsg)
-	require.ElementsMatch(t, []string{"prod", "staging", "dev"}, msg.Selections)
-}
-
-func TestPage_NumericQuickSwitch(t *testing.T) {
-	t.Parallel()
-	p := New(loadStyles(t))
-	p.SetRows(sampleRows()) // unsorted: prod, staging, dev
-
-	_, cmd := p.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
-	msg := cmd().(SelectedMsg)
-	require.Equal(t, []string{"staging"}, msg.Selections,
-		"`2` selects the 2nd configured backend in original order")
-}
-
-func TestPage_NumericBeyondCountIsNoOp(t *testing.T) {
-	t.Parallel()
-	p := New(loadStyles(t))
-	p.SetRows(sampleRows()[:1]) // only one backend
-
-	_, cmd := p.Update(tea.KeyPressMsg{Code: '5', Text: "5"})
-	require.Nil(t, cmd, "`5` with one backend must be a no-op, not a panic")
+	for _, code := range []rune{'0', '1', '2', '5', '9'} {
+		_, cmd := p.Update(tea.KeyPressMsg{Code: code, Text: string(code)})
+		require.Nilf(t, cmd, "digit %q must NOT be locally handled", string(code))
+	}
 }
 
 func TestPage_RenderShowsEveryRow(t *testing.T) {
@@ -119,7 +105,8 @@ func TestPage_HeaderShowsSelectionCount(t *testing.T) {
 	t.Parallel()
 	p := New(loadStyles(t))
 	p.SetRows(sampleRows())
-	require.Contains(t, p.HeaderContent(), "0 selected")
+	require.Empty(t, p.HeaderContent(),
+		"with no marks the header is silent — count lives in the title")
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	require.Contains(t, p.HeaderContent(), "1 selected")
 }

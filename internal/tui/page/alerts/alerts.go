@@ -56,6 +56,12 @@ const (
 	SortByAge
 )
 
+// scopeAll is the canonical label for the "every configured
+// tenant" scope. Used by Title, scopeIncludes, and the
+// `<0>` quick-switch payload — pinning it as a constant keeps
+// the wiring layer and the page in lockstep.
+const scopeAll = "all"
+
 // String returns the column-header label for a sort key.
 func (s SortKey) String() string {
 	switch s {
@@ -160,10 +166,15 @@ func New(opts Options) *Page {
 	}
 }
 
-// SetScope updates the body-title scope label. Used by the
-// wiring layer when the active tenant set changes (Ctrl+T
-// picker, numeric quick-switch).
-func (p *Page) SetScope(s string) { p.scope = s }
+// SetScope updates the active tenant scope and rebuilds the
+// view so the title's `[N]` count and the rendered rows both
+// reflect the new selection. Mirror of the app.ScopeChangedMsg
+// handler — exists for direct callers (the cmd-bar wiring,
+// tests) that don't go through bubbletea's message bus.
+func (p *Page) SetScope(s string) {
+	p.scope = s
+	p.recompute()
+}
 
 // Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
@@ -181,7 +192,7 @@ func (*Page) Crumb() string { return "alerts" }
 func (p *Page) Title() string {
 	scope := p.scope
 	if scope == "" {
-		scope = "all"
+		scope = scopeAll
 	}
 	total := p.totalAlerts()
 	if p.filter != "" || p.stateFilter != "" {
@@ -190,13 +201,18 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("alerts(%s)[%d]", scope, total)
 }
 
-// totalAlerts is the unfiltered alert count across every tracked
-// tenant. Used by Title (for the [N] suffix) and by the empty-
+// totalAlerts is the unfiltered alert count within the current
+// scope. Used by Title (for the [N] suffix) and by the empty-
 // state hint (which differentiates "no alerts polled yet" from
-// "no alerts match the active filter").
+// "no alerts match the active filter"). Honours scope so a
+// `<1>` quick-switch updates the title's [N] to that tenant's
+// alert count rather than the cross-tenant total.
 func (p *Page) totalAlerts() int {
 	n := 0
-	for _, alerts := range p.byTenant {
+	for tenant, alerts := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
 		n += len(alerts)
 	}
 	return n
@@ -207,7 +223,18 @@ func (p *Page) totalAlerts() int {
 // than one backend's data — which is what k9s does in its
 // namespace=all view.
 func (p *Page) showTenantColumn() bool {
-	return p.scope == "all" && len(p.byTenant) > 1
+	return p.scope == scopeAll && len(p.byTenant) > 1
+}
+
+// scopeIncludes reports whether tenant should appear in the
+// view given p.scope. "all" / empty includes everyone; anything
+// else does an exact-match on the tenant tag (the poller
+// emitted DataMsg with the configured backend Name).
+func (p *Page) scopeIncludes(tenant string) bool {
+	if p.scope == "" || p.scope == scopeAll {
+		return true
+	}
+	return tenant == p.scope
 }
 
 // HeaderContent implements app.Page. Surfaces filter / state-
@@ -238,7 +265,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Space", Description: "mark", View: "alerts"},
 		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		{Key: "/", Description: "filter", View: "alerts"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 
@@ -276,6 +302,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
 		p.snapshotFocus()
+		return p, nil
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
+		p.recompute()
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -688,6 +718,9 @@ func truncate(s string, w int) string {
 func (p *Page) recompute() {
 	flat := make([]alertEntry, 0)
 	for tenant, alerts := range p.byTenant {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
 		for _, a := range alerts {
 			flat = append(flat, alertEntry{a: a, tenant: tenant})
 		}

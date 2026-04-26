@@ -125,7 +125,6 @@ func (*Form) Bindings() []action.Action {
 		{Key: "Tab", Description: "next field", View: "silence-form"},
 		{Key: "Shift+Tab", Description: "prev field", View: "silence-form"},
 		{Key: "Ctrl+S", Description: "submit", View: "silence-form"},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 

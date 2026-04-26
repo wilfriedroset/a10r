@@ -119,7 +119,6 @@ func (*Page) Bindings() []action.Action {
 		{Key: "x", Description: "expire", View: "silences", Dangerous: true},
 		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
 		{Key: "Ctrl+X", Description: "bulk expire", View: "silences", Dangerous: true, Bulk: true},
-		{Key: "?", Description: "help", View: ""},
 	}
 }
 

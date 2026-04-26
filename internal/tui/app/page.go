@@ -65,6 +65,20 @@ type Page interface {
 	Bindings() []action.Action
 }
 
+// ScopeChangedMsg announces that the user picked a new tenant
+// scope via the numeric quick-switch (`<0>` all / `<1>`..`<9>`
+// configured tenants) or, in the future, via the tenant picker
+// modal. List pages observe it to filter their per-tenant
+// snapshots and to update their Title's `(<scope>)` segment.
+// Pages that don't care ignore the message.
+type ScopeChangedMsg struct {
+	// Scope is "all" when every tenant is selected; otherwise
+	// it's the configured backend name. Multi-tenant subsets
+	// arrive as a comma-joined string ("prod,staging") so the
+	// title and per-page filter logic don't need a new shape.
+	Scope string
+}
+
 // GoToFirstRowMsg is the table-context "first row" signal —
 // fired by the dispatcher when the user types the `gg` chord
 // (registered at LayerTable in the wiring layer). List pages
