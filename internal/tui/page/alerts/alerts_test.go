@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stretchr/testify/require"
 
@@ -763,4 +764,81 @@ func TestPage_EmptyStateMessages(t *testing.T) {
 	out = stripStyle(p.View(80, 5))
 	require.Contains(t, out, "no alerts match",
 		"with a non-matching filter the empty state hints at clearing it")
+}
+
+// stylePrefix returns the SGR prefix the renderer emits for the
+// supplied style. Used by the row-style assertions below to detect
+// which branch fired without coupling to a specific colour value
+// (skin updates change the colour but not the structural shape).
+func stylePrefix(t *testing.T, rendered string) string {
+	t.Helper()
+	idx := strings.Index(rendered, "x")
+	require.GreaterOrEqual(t, idx, 0,
+		"render probe must contain the literal probe character")
+	return rendered[:idx]
+}
+
+// TestPage_SuppressedRowsRenderDimmed exercises the third arm of
+// the row-style switch (cursor > marked > dimmed). The existing
+// stripStyle path erases SGR sequences, so the assertion compares
+// against a freshly-rendered probe through the same Dimmed style:
+// if the row contains the probe's SGR prefix, the dimmed branch
+// fired.
+func TestPage_SuppressedRowsRenderDimmed(t *testing.T) {
+	t.Parallel()
+	// One active row at row 0 (holds the cursor) and one suppressed
+	// row at row 1 — the latter is the row whose dimmed style we're
+	// asserting on.
+	p := newPage(t)
+	active := mkAlert("Firing", "critical", backend.AlertStateActive)
+	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
+
+	out := p.View(120, 10)
+	require.Contains(t, stripStyle(out), "Silenced",
+		"sanity: the suppressed row still renders its label")
+
+	require.Contains(t, out, stylePrefix(t, p.styles.Table.Dimmed.Render("x")),
+		"suppressed-only row must wear the Table.Dimmed foreground style")
+}
+
+func TestPage_MarkedSuppressedRowKeepsMarkedStyle(t *testing.T) {
+	t.Parallel()
+	// Marked beats dimmed: an explicit user action wins over the
+	// ambient suppression-state hint. Need a second row so the
+	// cursor can leave the marked row (otherwise cursor wins over
+	// both marked and dimmed).
+	p := newPage(t)
+	active := mkAlert("Firing", "critical", backend.AlertStateActive)
+	active.Fingerprint = "fp-active"
+	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	suppressed.Fingerprint = "fp-supp"
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
+	// SortBySeverity desc: critical at row 0, warning at row 1.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → row 1
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "}) // mark suppressed
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"}) // cursor → row 0
+
+	// The renderer extracts only the foreground from
+	// theme.Table.Marked (so the row keeps the body bg). Build the
+	// probe the same way so the SGR prefix matches.
+	out := p.View(120, 10)
+	probeMarked := lipgloss.NewStyle().
+		Foreground(p.styles.Table.Marked.GetForeground()).
+		Render("x")
+	require.Contains(t, out, stylePrefix(t, probeMarked),
+		"marked + suppressed must render in the marked style, not dimmed")
+}
+
+func TestPage_CursorOnSuppressedRowKeepsCursorStyle(t *testing.T) {
+	t.Parallel()
+	// Cursor beats both marked and dimmed.
+	p := newPage(t)
+	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{suppressed}})
+	// Cursor is on row 0 by default.
+
+	out := p.View(120, 10)
+	require.Contains(t, out, stylePrefix(t, p.styles.Table.Cursor.Render("x")),
+		"cursor on a suppressed row must render in the cursor style")
 }
