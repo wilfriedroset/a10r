@@ -6,13 +6,17 @@ Check the resolved backend list and try a manual GET:
 
 ```sh
 a10r info
-curl -sv https://alertmanager.example/api/v2/status
+curl -sv https://alertmanager.example/api/v2/status   # client adds /api/v2 itself
 ```
 
 Common causes:
 
-- The URL points at the AM web UI, not its v2 API. Append
-  `/api/v2` to the base URL (or `/api/prom` for Mimir).
+- The URL is wrong. The `url:` field in the config is the
+  Alertmanager *root* — a10r appends `/api/v2` itself. So a
+  config that says `url: https://am.example/api/v2` actually
+  hits `/api/v2/api/v2/alerts` and 404s. For Mimir, set the
+  Alertmanager prefix via the `prefix:` field (e.g.
+  `prefix: /alertmanager`) so the URL is still the root.
 - TLS verification fails. `--debug` surfaces the underlying
   error. v0.1 doesn't expose an `insecure_skip_verify` knob —
   install the CA in the system trust store instead.

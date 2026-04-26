@@ -16,7 +16,7 @@ theme:
 
 backends:
   - name: primary
-    url: https://alertmanager.example/api/v2
+    url: https://alertmanager.example
     auth:
       type: basic
       basic:
@@ -24,7 +24,7 @@ backends:
         password: ${A10R_PRIMARY_PASSWORD}
 
   - name: secondary
-    url: https://alertmanager.example/api/v2
+    url: https://alertmanager.example
     auth:
       type: basic
       basic:

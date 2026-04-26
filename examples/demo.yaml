@@ -23,4 +23,5 @@ theme:
 
 backends:
   - name: prometheus-demo
-    url: https://alertmanager.demo.prometheus.io/api/v2
+    # Bare AM root — the client appends /api/v2 itself.
+    url: https://alertmanager.demo.prometheus.io

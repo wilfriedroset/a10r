@@ -20,7 +20,7 @@ The file inside the resolved directory is `a10r.yaml`.
 ```yaml
 backends:
   - name: prod                     # required, identifier
-    url: https://alertmanager.example/api/v2   # required, base URL
+    url: https://alertmanager.example   # required, base URL
     prefix: /api/prom              # optional, prepended to every path (Mimir)
     tenant_header: X-Scope-OrgID   # optional, header name (Mimir)
     tenant: tenant-1               # optional, tenant value sent under the header
@@ -83,11 +83,11 @@ preserves the slot.
 ```yaml
 backends:
   - name: prod
-    url: https://am-prod.example/api/v2
+    url: https://am-prod.example
   - name: staging
-    url: https://am-staging.example/api/v2
+    url: https://am-staging.example
   - name: dev
-    url: https://am-dev.example/api/v2
+    url: https://am-dev.example
 ```
 
 `Ctrl+T` opens the tenant picker; `0` selects every configured

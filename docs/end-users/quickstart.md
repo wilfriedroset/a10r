@@ -24,7 +24,7 @@ A minimal vanilla Alertmanager config:
 ```yaml
 backends:
   - name: prod
-    url: https://alertmanager.example/api/v2
+    url: https://alertmanager.example
 ```
 
 If no config exists, the first run prompts you through a wizard

@@ -57,7 +57,7 @@ mkdir -p ~/.config/a10r
 cat > ~/.config/a10r/a10r.yaml <<EOF
 backends:
   - name: prod
-    url: https://alertmanager.example/api/v2
+    url: https://alertmanager.example
 EOF
 a10r
 ```
@@ -103,7 +103,7 @@ A minimal vanilla Alertmanager config:
 ```yaml
 backends:
   - name: prod
-    url: https://alertmanager.example/api/v2
+    url: https://alertmanager.example
 ```
 
 A Mimir config with one tenant:
