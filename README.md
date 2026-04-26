@@ -85,14 +85,17 @@ backend list with capability flags.
 | `j`/`k` or `Down`/`Up` | Cursor walk |
 | `gg` / `G` | First / last row |
 | `Ctrl+D` / `Ctrl+U` | Half page down / up |
+| `Space` | Mark / unmark a row (multi-select) |
 | `s` | Silence (alerts page; Dangerous, hidden in read-only) |
 | `t` | Cycle state filter (alerts page) |
 | `Tab` | Expand / collapse all (groups page) |
 | `Ctrl+T` | Tenant picker (multi-tenant deployments) |
+| `0` | Scope: every configured tenant |
+| `1` … `9` | Scope: nth tenant in `backends:` order |
 | `Esc` | Dismiss modal / prompt; pop the page stack |
 | `q` / `Ctrl+C` | Quit |
 
-The full keybinding catalogue lives in [`docs/design/keybindings.md`](docs/design/keybindings.md).
+End-user cheat-sheet (per view) in [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md). Full catalogue with the precedence stack and reserved keys in [`docs/design/keybindings.md`](docs/design/keybindings.md).
 
 ## Configuration
 
@@ -127,6 +130,7 @@ Environment variables in any string field are expanded via
 ## Documentation
 
 - [`docs/end-users/quickstart.md`](docs/end-users/quickstart.md) — the 60-second tour.
+- [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
 - [`docs/end-users/troubleshooting.md`](docs/end-users/troubleshooting.md) — common problems, diagnostic flags.
 - [`docs/design/`](docs/design/) — the design documents that drove the implementation. Useful for contributors.

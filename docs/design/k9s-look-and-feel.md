@@ -365,6 +365,22 @@ Direct analogs we expect to build:
 7. **`Program.Send(msg)` from poller goroutines** instead of UI mutation. Bubbletea's update loop serializes messages; no `QueueUpdateDraw` analog needed.
 8. **Per-view `context.CancelFunc`** to stop background work on ESC.
 
+### v0.1 polish — UX rules learned by testing
+
+These rules emerged after the first wave of user testing against the Prometheus public demo and a 2-tenant production config. They're listed here (and in `keybindings.md` for the parts that touch input) so the next contributor doesn't relearn them by stumbling on the same regressions:
+
+- **Top panel is k9s 4-column.** Left: `tenants:`/`alerts:`/`version:` info block. Middle-left: tenant numeric quick-switch listing. Middle-right: page-specific verbs (Bindings()). Right: ASCII A10r logo. Each row has its own gap-elision logic so a narrow terminal degrades gracefully rather than overlapping columns.
+- **ASCII logo is figlet "standard" for `A10r`** (mixed case, not lowercase). Multi-line; pad each line to the longest line's width before composition so per-row right-alignment doesn't stagger.
+- **Body sits inside a bordered panel.** `┌── <Title> ──┐ … └────┘`. The title carries `<resource>(<scope>)[<count>]`. Subtitle (if any) sits one line below the title before the body proper.
+- **Breadcrumbs are bold and wrapped: `<crumb>`.** Top-of-stack is bolded the same as the rest; what differentiates the active crumb is its position, not extra emphasis.
+- **Cursor highlight uses a *bright* background (lavender per default mocha skin), not a subtle grey.** k9s's default surface1 felt invisible against our body bg. Cursor row gets full fg+bg; marked rows get fg-only tint (rosewater on body bg).
+- **Column header row is foreground-only.** Theme.Table.Header foreground over the body's background — no header stripe. Uppercase labels. Sort arrow `↑`/`↓` on the active column is the source of truth — do not also display `sort:column ↑` as a subtitle.
+- **Numeric tenant quick-switch is a global LayerGlobal binding.** Per-page handlers for digits would be dead code (the dispatcher consumes them before forwardToTop). Pages observe `app.ScopeChangedMsg` if they need to rescope (alerts page does; the others ignore it for now).
+- **`<?> help` is a global, not per-page.** The right-hand hint column is for view-specific verbs only.
+- **One poller per backend.** `cmd/tui.go:startBackendPoller` fans over every `cfg.Backends`. Each poller emits `poll.DataMsg{Tenant: be.Name}`. List pages keep a `byTenant map[string][]T` and union it through `scopeIncludes` so the `[N]` count, the visible rows, and the optional `TENANT` column all derive from one place.
+- **TENANT column appears iff scope=="all" AND len(byTenant) > 1.** Single-tenant scope hides it even when other tenants are still in the byTenant cache.
+- **Wrap long annotation values with hanging-indent + forward-progress guard.** `wrapHanging` must hard-cut when the next break point lies *before* the indent column, otherwise the loop hangs on values with no internal whitespace.
+
 ### Things to reconsider (do better than k9s)
 
 - **Vim motions.** k9s only wires arrows/PgUp/PgDn. Adding `j`/`k`/`gg`/`G`/`Ctrl-D`/`Ctrl-U` is cheap and our target audience expects it.

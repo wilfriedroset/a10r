@@ -22,6 +22,21 @@ When these conflict with the catalog below, the catalog wins and the open-questi
 
 ---
 
+## UX rules locked in v0.1 polish
+
+These rules came out of post-implementation testing against the Prometheus public demo and a 2-tenant production config. They live here so the next contributor doesn't reopen them in a follow-up:
+
+- **Page Title shape: `<resource>(<scope>)[<count>]`.** `scope` is the active tenant set: `all`, a single backend name, or a comma-joined subset. `count` is the filtered count when a filter is active, otherwise the total. `(<scope>)` is omitted only on pages where scope has no meaning (silence form, alert detail; the latter prefixes with `Describe(<scope>/<alertname>)` to mirror k9s pod-detail).
+- **HeaderContent (the subtitle line) must not duplicate Title's `[N]`.** It surfaces filter state, sort mode, mark count — anything that's *changing* and not already in the title. If nothing is interesting, return empty and the panel skips the subtitle row.
+- **Numeric tenant quick-switch is owned globally, not per-page.** `<0>` selects all tenants; `<1>`-`<9>` map to backends in `backends:` config order. The App registers them at `LayerGlobal` and emits `app.ScopeChangedMsg` so every page reacts uniformly. Per-page numeric handlers would be dead code.
+- **Help is global-only.** `?` always opens the overlay. No page should advertise `<?> help` in its right-hand hint strip — that column is for view-specific verbs.
+- **Cursor row keeps the body background, only the foreground style changes.** Marked rows (after `Space`) tint foreground only — never both. The two affordances must be visually distinguishable (cursor is the brighter / focused one; mark is a status colour).
+- **Column header row is foreground-only too.** Uppercase labels, theme.Table.Header foreground, no background fill — flush with the body so the header looks like a label, not a stripe.
+- **Sort shortcut behaviour:** `Shift+<letter>` on the active sort column flips ASC↔DESC. Switching to a new column resets to that column's default direction (descending for severity, ascending for everything else). The arrow next to the header label is the source of truth — *do not also* repeat it as a `sort:column ↑` subtitle; the user already sees it on the header.
+- **TENANT column on multi-tenant tables.** When `scope == "all"` and at least two backends have data, list pages prefix a `TENANT` column. Single-tenant scope (or single configured backend) hides the column.
+- **One poller per backend.** `cmd/tui.go:startBackendPoller` iterates *every* `cfg.Backends`, not just `[0]`. Each poller emits `poll.DataMsg` tagged with its `Tenant` so list pages union the snapshots in a `byTenant` map and compute `[N]` from the in-scope subset only.
+- **Esc semantics:** dismiss modal/prompt first, then pop the page stack. Modals never push pages.
+
 ## Conventions
 
 - `Key` — bare key.
@@ -172,8 +187,8 @@ Return to the flat alerts list via the command bar (`:al` / `:alerts`) — no si
 | `Enter` | Single-select this tenant (replaces current selection) | |
 | `Space` | Toggle this tenant in current selection | |
 | `a` / `Ctrl+A` | Select all | `Ctrl+A` aliases `a` here so the table-context "mark all visible" muscle memory still works |
-| `0` | Select all (alias of `a`, mirrors global quick-switch) | |
-| `1` … `9` | Quick-switch to nth tenant | Mirrors global |
+
+**Note:** `0` and `1`-`9` are *not* page-local on the tenant view — they are LayerGlobal bindings registered by the App shell (see `internal/tui/app/app.go:registerTenantBindings`). The dispatcher consumes them before forwardToTop reaches the page, so adding a duplicate per-page handler would be dead code. Pages observe the resulting `app.ScopeChangedMsg` if they care about the new scope.
 
 ---
 

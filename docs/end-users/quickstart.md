@@ -50,9 +50,14 @@ The footer hosts breadcrumbs / prompt / flash messages.
 | `/` | Filter prompt — substring match across labels and annotations. |
 | `j` / `k` | Move the cursor down / up. |
 | `Enter` | Drill into the cursor row. |
+| `Space` | Mark the cursor row (multi-select). |
 | `s` | Silence the alert at the cursor (skipped in `--read-only`). |
+| `0` | Scope to every configured tenant. |
+| `1` … `9` | Scope to the nth tenant in `backends:` order. |
 | `Esc` | Dismiss the prompt or pop the page stack. |
 | `Ctrl+C` | Hard quit. |
+
+The full cheat-sheet (per view) lives in [`keybindings.md`](keybindings.md).
 
 ## Read-only mode
 
