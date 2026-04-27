@@ -25,6 +25,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
@@ -138,6 +139,27 @@ type Page struct {
 	// rounds. bulk distinguishes single-row x from Ctrl+X for the
 	// flash wording on the result.
 	pendingExpire pendingExpire
+
+	// editor handles the `Ctrl+E` round-trip via $EDITOR. Empty
+	// (zero-value) Resolver flashes a hint when the user invokes
+	// the binding so the affordance fails loudly rather than
+	// crashing.
+	editor edit.Resolver
+
+	// pendingEdit captures which silence the user is editing in
+	// $EDITOR so the FinishedMsg handler can call UpdateSilence
+	// against the right backend. Empty between rounds.
+	pendingEdit pendingEdit
+}
+
+// pendingEdit is the in-flight state between an opened editor
+// session and its FinishedMsg. id is the silence ID; tenant is
+// the backend the silence belongs to (cached at open time so a
+// poll-tick reordering between open and save still routes the
+// update correctly).
+type pendingEdit struct {
+	id     string
+	tenant string
 }
 
 // pendingExpire is the in-flight state between an opened expire
@@ -173,6 +195,11 @@ type Options struct {
 	// Creator is the default value the silence form opens with —
 	// usually $USER. Empty falls back to "a10r".
 	Creator string
+	// EditorResolver handles the `Ctrl+E` round-trip. Zero value
+	// flashes a "no editor configured" hint when the user invokes
+	// the binding. Production wiring passes edit.SystemResolver();
+	// tests inject a recording resolver.
+	EditorResolver edit.Resolver
 }
 
 // New constructs an empty silences page.
@@ -186,6 +213,7 @@ func New(opts Options) *Page {
 		now:      now,
 		clients:  opts.Clients,
 		creator:  opts.Creator,
+		editor:   opts.EditorResolver,
 		byTenant: map[string][]backend.Silence{},
 		marks:    map[string]struct{}{},
 		sort:     SortByEndsAt,
@@ -339,6 +367,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case modal.ConfirmResultMsg:
 		cmd := p.handleExpireConfirm(m)
 		return p, cmd
+	case edit.FinishedMsg:
+		cmd := p.handleEditorFinished(m)
+		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		p.handleFilterPrompt(m)
@@ -476,7 +507,8 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "space":
 		p.toggleMarkAtCursor()
 	case "ctrl+e":
-		return p, flashFn(footer.FlashWarn, "$EDITOR handoff arrives in #31")
+		cmd := p.openEditorForCursor()
+		return p, cmd
 	case "ctrl+x":
 		cmd := p.openBulkExpireConfirm()
 		return p, cmd
@@ -640,6 +672,78 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		delete(p.marks, target.id)
 	}
 	return p.flashExpireResult(pending.bulk, success, failed)
+}
+
+// openEditorForCursor marshals the cursor silence as YAML and
+// hands it off to $EDITOR via the injected Resolver. Empty view
+// or zero-value Resolver flash a hint instead. Pending state
+// (id + tenant) is captured at open time so a poll-tick that
+// reorders rows between open and save still routes the update
+// to the right backend.
+func (p *Page) openEditorForCursor() tea.Cmd {
+	if p.cursor >= len(p.view) {
+		return flashFn(footer.FlashInfo, "no silence under the cursor")
+	}
+	if len(p.editor.EditorEnv) == 0 && p.editor.DefaultEditor == "" {
+		return flashFn(footer.FlashWarn, "editor handoff requires $EDITOR or $A10R_EDITOR")
+	}
+	entry := p.view[p.cursor]
+	if _, ok := p.clients[entry.tenant]; !ok {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	body, err := silenceToYAML(entry.s)
+	if err != nil {
+		return flashFn(footer.FlashError, "yaml encode: "+err.Error())
+	}
+	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant}
+	return p.editor.Edit(edit.Request{
+		ResourceID: entry.s.ID,
+		Initial:    string(body),
+		Extension:  "yaml",
+	})
+}
+
+// handleEditorFinished consumes a FinishedMsg arriving after an
+// $EDITOR session. Three branches:
+//   - Err set: flash and clear pending state. The silence stays
+//     unchanged.
+//   - Empty / unchanged content: silent no-op (the user :q'd
+//     without writing).
+//   - Otherwise: parse YAML, call UpdateSilence on the pending
+//     tenant's client, flash success / error.
+func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
+	pending := p.pendingEdit
+	p.pendingEdit = pendingEdit{}
+	if m.Err != nil {
+		return flashFn(footer.FlashError, "editor: "+m.Err.Error())
+	}
+	if strings.TrimSpace(m.Content) == "" {
+		return nil
+	}
+	id, spec, err := silenceFromYAML([]byte(m.Content))
+	if err != nil {
+		return flashFn(footer.FlashError, "yaml: "+err.Error())
+	}
+	tenant := pending.tenant
+	if tenant == "" {
+		// Defensive — pending was cleared between open and finish
+		// (concurrent close, etc.). Look up the silence's tenant
+		// from the current view via the parsed ID.
+		for _, e := range p.view {
+			if e.s.ID == id {
+				tenant = e.tenant
+				break
+			}
+		}
+	}
+	client, ok := p.clients[tenant]
+	if !ok {
+		return flashFn(footer.FlashError, "no writeable backend for silence "+id)
+	}
+	if err := client.UpdateSilence(context.Background(), id, spec); err != nil {
+		return flashFn(footer.FlashError, "update: "+err.Error())
+	}
+	return flashFn(footer.FlashSuccess, "silence updated: "+id)
 }
 
 // flashExpireResult formats the success / partial / total-failure

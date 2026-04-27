@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
+	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
@@ -229,13 +230,15 @@ func newResolver(styles theme.Styles, scope string, silenceClients map[string]si
 			})
 		})
 	})
+	editorResolver := edit.SystemResolver()
 	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return silences.New(silences.Options{
-				Styles:  styles,
-				Now:     time.Now,
-				Clients: silenceWriteClients,
-				Creator: creator,
+				Styles:         styles,
+				Now:            time.Now,
+				Clients:        silenceWriteClients,
+				Creator:        creator,
+				EditorResolver: editorResolver,
 			})
 		})
 	}

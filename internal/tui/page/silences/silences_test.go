@@ -5,6 +5,7 @@ package silences
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -169,13 +171,121 @@ func TestPage_BulkExpireBindingIsBulk(t *testing.T) {
 	t.Fatal("Ctrl+X binding missing")
 }
 
-func TestPage_CtrlEFlashesEditorPlaceholder(t *testing.T) {
+func TestPage_CtrlEWithoutEditorFlashesHint(t *testing.T) {
 	t.Parallel()
-
-	p := newPage(t)
+	// pageWithRows has a populated Clients map but no
+	// EditorResolver — the zero-value resolver has no env keys
+	// and no default editor, so Ctrl+E flashes a "configure
+	// $EDITOR" hint instead of execing nothing.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "$EDITOR")
+}
+
+// recordingResolver lets tests seed the editor's reply
+// (content + err) without exec'ing a real binary or touching
+// disk.
+type recordingResolver struct {
+	content string
+	err     error
+}
+
+// editorPage builds a silences page with an editor.Resolver
+// that synthesises a FinishedMsg from rec.content / rec.err so
+// the test can drive the FinishedMsg branch deterministically.
+func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": fake},
+		Creator: "wilfried",
+		EditorResolver: edit.Resolver{
+			DefaultEditor: "true", // satisfies "editor configured" guard
+			ExecRunner: func(_ *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
+				return func() tea.Msg {
+					return edit.FinishedMsg{
+						ResourceID: "sil-a",
+						Content:    rec.content,
+						Err:        rec.err,
+					}
+				}
+			},
+		},
+	})
+	silences := []backend.Silence{
+		{
+			ID:        "sil-a",
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(2 * time.Hour),
+			Comment:   "ack",
+			Matchers:  []backend.Matcher{{Name: "alertname", Value: "HighCPU", IsEqual: true}},
+		},
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	return p
+}
+
+func TestPage_CtrlEEmitsEditCmd(t *testing.T) {
+	t.Parallel()
+	rec := &recordingResolver{}
+	p := editorPage(t, &fakeSilenceClient{}, rec)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd, "Ctrl+E with editor configured must produce a Cmd")
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+		"pendingEdit must capture id + tenant at open time")
+}
+
+func TestPage_FinishedMsgEmptyContentIsNoop(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := editorPage(t, fake, &recordingResolver{})
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: ""})
+	require.Nil(t, cmd, "empty content must be a silent no-op")
+	require.Empty(t, fake.lastUpdateID, "no UpdateSilence call on empty content")
+}
+
+func TestPage_FinishedMsgErrorFlashes(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := editorPage(t, fake, &recordingResolver{})
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Err: errors.New("vim crashed")})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "vim crashed")
+	require.Empty(t, fake.lastUpdateID)
+}
+
+func TestPage_FinishedMsgSuccessCallsUpdateSilence(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := editorPage(t, fake, &recordingResolver{})
+	// Open the editor so pendingEdit is populated, then feed the
+	// FinishedMsg with the round-tripped YAML.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	body, err := silenceToYAML(p.view[0].s)
+	require.NoError(t, err)
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence updated: sil-a")
+	require.Equal(t, "sil-a", fake.lastUpdateID)
+}
+
+func TestPage_FinishedMsgInvalidYAMLFlashes(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := editorPage(t, fake, &recordingResolver{})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: "not: [valid"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "yaml")
+	require.Empty(t, fake.lastUpdateID)
 }
 
 func TestPage_CursorPreservedByID(t *testing.T) {
