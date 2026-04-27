@@ -3,6 +3,7 @@
 package alert
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -204,13 +206,68 @@ func TestPage_OpenURLWithoutBrowserFlashesWarn(t *testing.T) {
 	require.Equal(t, footer.FlashWarn, msg.Level)
 }
 
-func TestPage_SilenceFlashesPlaceholder(t *testing.T) {
+func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: loadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "silence form")
+	require.Contains(t, msg.Text, "no writeable backend",
+		"`s` with no clients must explain rather than push a broken form")
+}
+
+func TestPage_SilencePushesFormWhenClientsAreConfigured(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  loadStyles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "`s` must produce a Cmd that pushes the form")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "`s` with clients must push the form, not flash")
+}
+
+func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+	// User drilled in from a tenant the silenceClients map doesn't
+	// cover (e.g. the tenant config went away mid-session). Flash
+	// rather than crash.
+	p := New(Options{
+		Alert:   sample(),
+		Tenant:  "ghost",
+		Styles:  loadStyles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend")
+}
+
+func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence created: sil-99")
+}
+
+// fakeSilenceClient satisfies silenceform.Client so the `s`
+// push test can construct a non-nil Clients map. The detail
+// page never actually invokes its methods in tests.
+type fakeSilenceClient struct{}
+
+func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+	return "fake-silence-id", nil
+}
+
+func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
+	return nil
 }
 
 func TestPage_BindingsHaveCopyOpenSilence(t *testing.T) {

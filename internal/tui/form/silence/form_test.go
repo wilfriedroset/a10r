@@ -436,6 +436,27 @@ func TestForm_ParseOneMatcherLeftmostWins(t *testing.T) {
 	}
 }
 
+func TestMatchersFromLabels_DropsNameAndSorts(t *testing.T) {
+	t.Parallel()
+	got := MatchersFromLabels(map[string]string{
+		"__name__":  "ALERTS",
+		"alertname": "HighCPU",
+		"severity":  "critical",
+		"instance":  "host-1",
+	})
+	require.Equal(t, []backend.Matcher{
+		{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		{Name: "instance", Value: "host-1", IsEqual: true},
+		{Name: "severity", Value: "critical", IsEqual: true},
+	}, got, "synthetic __name__ must be dropped; output stable-sorted by name")
+}
+
+func TestMatchersFromLabels_EmptyInputReturnsEmpty(t *testing.T) {
+	t.Parallel()
+	got := MatchersFromLabels(map[string]string{})
+	require.Empty(t, got)
+}
+
 func TestForm_TitleSwitchesOnEditID(t *testing.T) {
 	t.Parallel()
 	create := New(Options{

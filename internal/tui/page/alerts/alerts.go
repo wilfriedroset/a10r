@@ -33,6 +33,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -89,6 +90,14 @@ type Options struct {
 	// when a subset is selected. Empty hides the parenthesised
 	// scope from the title.
 	Scope string
+	// Clients is the per-tenant write surface the page hands to
+	// the silence form when the user presses `s`. Empty in tests
+	// or read-only runs — `s` flashes a hint instead. Same shape
+	// as the silences page.
+	Clients map[string]silenceform.Client
+	// Creator seeds the silence form's CreatedBy field; usually
+	// $USER. Empty falls back to "a10r" in the form factory.
+	Creator string
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -104,6 +113,11 @@ type Page struct {
 	styles theme.Styles
 	now    func() time.Time
 	scope  string
+
+	// clients is the per-tenant write surface for `s`; see Options.
+	clients map[string]silenceform.Client
+	// creator seeds the silence form's CreatedBy field.
+	creator string
 
 	// byTenant stores the most recent snapshot per tenant. Each
 	// poller emits a DataMsg keyed to its own Tenant; recompute
@@ -159,6 +173,8 @@ func New(opts Options) *Page {
 		styles:   opts.Styles,
 		now:      now,
 		scope:    opts.Scope,
+		clients:  opts.Clients,
+		creator:  opts.Creator,
 		byTenant: map[string][]backend.Alert{},
 		sort:     SortBySeverity,
 		sortAsc:  false,
@@ -290,6 +306,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.ScopeChangedMsg:
 		p.scope = m.Scope
 		p.recompute()
+		return p, nil
+	case silenceform.SubmittedMsg:
+		// Form auto-popped already; flash the new silence ID so the
+		// user has confirmation. Same shape the silences page uses.
+		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+	case silenceform.CancelledMsg:
+		// Auto-pop already happened. Esc on the form is a non-event.
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -457,13 +480,63 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
-		// Silence form lands in #30. Today the binding flashes a
-		// hint so users discover the affordance.
-		return p, func() tea.Msg {
-			return footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence form arrives in #30"}
-		}
+		cmd := p.openSilenceFormForCursor()
+		return p, cmd
 	}
 	return p, nil
+}
+
+// openSilenceFormForCursor pushes the silence form prefilled with
+// the cursor alert's labels as matchers. Configuration errors win
+// over view-state errors: an empty Clients map flashes the same
+// "no writeable backend" hint even on a cold-start empty view, so
+// a misconfigured user sees the actionable message first. The
+// silenceform.MatchersFromLabels helper drops the synthetic
+// `__name__` label — silencing on it would silence every alert
+// carrying that metric name.
+func (p *Page) openSilenceFormForCursor() tea.Cmd {
+	if len(p.clients) == 0 {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	if p.cursor >= len(p.view) {
+		return flashFn(footer.FlashInfo, "no alert under the cursor")
+	}
+	entry := p.view[p.cursor]
+	client, ok := p.clients[entry.tenant]
+	if !ok {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	matchers := silenceform.MatchersFromLabels(entry.a.Labels)
+	creator := p.creator
+	if creator == "" {
+		creator = "a10r"
+	}
+	styles := p.styles
+	now := p.now
+	return app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:   client,
+			Styles:   styles,
+			Now:      now,
+			Creator:  creator,
+			Matchers: matchers,
+		})
+	})
+}
+
+// hintNoWriteableBackend is the shared "configure a writeable
+// backend" message every page flashes when `s` lands but no
+// silenceform.Client is available. Pulled to a const so a wording
+// change touches one site.
+const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
+
+// flashFn returns a Cmd that emits a flash with the given level
+// and text. Mirrors the silences page's helper so the alerts
+// handlers stay one-liners.
+func flashFn(level footer.FlashLevel, text string) tea.Cmd {
+	return func() tea.Msg {
+		return footer.FlashShowMsg{Level: level, Text: text}
+	}
 }
 
 // toggleMarkAtCursor flips the mark on the row under the cursor.
@@ -488,21 +561,27 @@ func (p *Page) toggleMarkAtCursor() {
 // drillToDetail returns a Cmd that pushes the alert-detail page
 // for the row under the cursor. Empty view falls through to a
 // soft Info flash so the user sees a reason for the no-op.
+//
+// Clients / Creator are threaded so the detail page's `s` push
+// hits the same backend the alerts list `s` would. Same map by
+// reference — pages share the wiring layer's authoritative copy.
 func (p *Page) drillToDetail() tea.Cmd {
 	if p.cursor >= len(p.view) {
-		return func() tea.Msg {
-			return footer.FlashShowMsg{Level: footer.FlashInfo, Text: "no alert under the cursor"}
-		}
+		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
 	entry := p.view[p.cursor]
 	styles := p.styles
 	now := p.now
+	clients := p.clients
+	creator := p.creator
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:  entry.a,
-			Tenant: entry.tenant,
-			Styles: styles,
-			Now:    now,
+			Alert:   entry.a,
+			Tenant:  entry.tenant,
+			Styles:  styles,
+			Now:     now,
+			Clients: clients,
+			Creator: creator,
 		})
 	})
 }

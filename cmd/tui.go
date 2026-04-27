@@ -55,7 +55,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	dispatcher := keys.New(nil)
 	scope := scopeFor(cfg)
 	clients := buildClients(cfg)
-	resolver := newResolver(*styles, scope, clients)
+	silenceClients := silenceClientsFrom(clients)
+	creator := os.Getenv("USER")
+	resolver := newResolver(*styles, scope, silenceClients, creator)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -86,9 +88,11 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	go func() {
 		homeFactory := func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles: *styles,
-				Now:    time.Now,
-				Scope:  scope,
+				Styles:  *styles,
+				Now:     time.Now,
+				Scope:   scope,
+				Clients: silenceClients,
+				Creator: creator,
 			})
 		}
 		prog.Send(app.PushPage(homeFactory)())
@@ -197,15 +201,19 @@ func loadStylesFor(name string) (*theme.Styles, error) {
 // lands a page wired to the active tenant label and (for write-
 // surface pages) the right backend.Client when the user invokes
 // a write action.
-func newResolver(styles theme.Styles, scope string, clients map[string]backend.Client) *cmdbar.Resolver {
+func newResolver(styles theme.Styles, scope string, silenceClients map[string]silenceform.Client, creator string) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
-			return alerts.New(alerts.Options{Styles: styles, Now: time.Now, Scope: scope})
+			return alerts.New(alerts.Options{
+				Styles:  styles,
+				Now:     time.Now,
+				Scope:   scope,
+				Clients: silenceClients,
+				Creator: creator,
+			})
 		})
 	})
-	silenceClients := silenceClientsFrom(clients)
-	creator := os.Getenv("USER")
 	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return silences.New(silences.Options{

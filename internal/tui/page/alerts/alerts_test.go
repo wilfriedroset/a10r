@@ -3,6 +3,7 @@
 package alerts
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -262,16 +264,76 @@ func TestPage_SortColumnWalk(t *testing.T) {
 	require.Equal(t, SortByAge, p.sort, "left walk wraps to the rightmost column")
 }
 
-func TestPage_SilenceKeyFlashesPlaceholder(t *testing.T) {
+func TestPage_SilenceKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := newPage(t)
+	// Clients set so the "no writeable backend" path doesn't win;
+	// no DataMsg → empty view.
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "silence form")
-	require.Equal(t, footer.FlashWarn, msg.Level,
-		"placeholder must Warn so users know the affordance is unfinished, not done")
+	require.Contains(t, msg.Text, "no alert under the cursor")
+}
+
+func TestPage_SilenceKeyWithoutClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t) // no Clients configured
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend",
+		"`s` with no clients must explain rather than push a broken form")
+}
+
+func TestPage_SilenceKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "`s` with clients must push the form")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "`s` with clients must push the form, not flash")
+}
+
+func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence created: sil-99")
+}
+
+// fakeSilenceClient is the smallest silenceform.Client a test
+// needs. The alerts test only asserts `s` produces a non-flash
+// Cmd; CreateSilence is never called from within the page.
+type fakeSilenceClient struct{}
+
+func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+	return "fake-silence-id", nil
+}
+
+func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
+	return nil
 }
 
 func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {

@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -55,6 +56,14 @@ type Options struct {
 	// Now injects the clock used by the age line. nil falls back
 	// to time.Now.
 	Now func() time.Time
+	// Clients is the per-tenant write surface for `s`. Picked up
+	// by tenant tag (this page knows its source backend); empty /
+	// missing tenant flashes a hint instead of pushing a broken
+	// form. Same shape the alerts list / silences page consume.
+	Clients map[string]silenceform.Client
+	// Creator seeds the silence form's CreatedBy field; usually
+	// $USER. Empty falls back to "a10r" in the form factory.
+	Creator string
 }
 
 // Page is the alert-detail view. Implements app.Page.
@@ -65,6 +74,11 @@ type Page struct {
 	clip    Clipboard
 	browser Browser
 	now     func() time.Time
+
+	// clients is the per-tenant write surface for `s`. See Options.
+	clients map[string]silenceform.Client
+	// creator seeds the silence form's CreatedBy field.
+	creator string
 
 	// scroll is the index of the first visible body line. j/k/G/gg
 	// walk it; the renderer reconciles against the body height
@@ -85,6 +99,8 @@ func New(opts Options) *Page {
 		clip:    opts.Clipboard,
 		browser: opts.Browser,
 		now:     now,
+		clients: opts.Clients,
+		creator: opts.Creator,
 	}
 }
 
@@ -131,8 +147,17 @@ func (*Page) Bindings() []action.Action {
 // here — the App's global LayerGlobal Esc binding pops the stack
 // (#23), which is exactly the right behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	if _, ok := msg.(app.GoToFirstRowMsg); ok {
+	switch m := msg.(type) {
+	case app.GoToFirstRowMsg:
 		p.scroll = 0
+		return p, nil
+	case silenceform.SubmittedMsg:
+		// Form auto-popped; flash the new silence ID so the user
+		// sees confirmation. Same shape the alerts list / silences
+		// page use.
+		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+	case silenceform.CancelledMsg:
+		// Auto-pop already happened. No flash — Esc is a non-event.
 		return p, nil
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
@@ -161,15 +186,49 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// actual body length on the next frame.
 		p.scroll = 1 << 30
 	case "s":
-		// Silence form lands in #30. Until then the binding flashes
-		// the same placeholder the alerts list uses so the affordance
-		// is consistent across pages.
-		return p, func() tea.Msg {
-			return footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence form arrives in #30"}
-		}
+		cmd := p.openSilenceForm()
+		return p, cmd
 	}
 	return p, nil
 }
+
+// openSilenceForm pushes the silence form prefilled with this
+// alert's labels via silenceform.MatchersFromLabels (which drops
+// the synthetic `__name__` key). Empty / unknown tenant flashes
+// a hint instead of crashing — matches the alerts list `s` UX
+// so the affordance reads consistently across pages.
+func (p *Page) openSilenceForm() tea.Cmd {
+	if len(p.clients) == 0 || p.tenant == "" {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	client, ok := p.clients[p.tenant]
+	if !ok {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	matchers := silenceform.MatchersFromLabels(p.a.Labels)
+	creator := p.creator
+	if creator == "" {
+		creator = "a10r"
+	}
+	styles := p.styles
+	now := p.now
+	return app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:   client,
+			Styles:   styles,
+			Now:      now,
+			Creator:  creator,
+			Matchers: matchers,
+		})
+	})
+}
+
+// hintNoWriteableBackend mirrors the alerts page's const so a
+// wording tweak there is the only edit required to keep the
+// affordance consistent. Two copies — one per package — beats a
+// shared internal/tui/footer string when the only consumers are
+// these two pages.
+const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
 
 // copyFingerprint returns the Cmd that asks the clipboard
 // integration to copy this alert's fingerprint, surfacing success

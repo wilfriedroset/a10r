@@ -17,6 +17,7 @@ package silence
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -346,6 +347,32 @@ func (f *Form) parseSpec() (backend.SilenceSpec, error) {
 		CreatedBy: strings.TrimSpace(f.creator),
 		Comment:   strings.TrimSpace(f.comment),
 	}, nil
+}
+
+// MatchersFromLabels turns a label-set into equality matchers,
+// dropping the synthetic `__name__` key. Sorted by name so a
+// prefilled form renders deterministically. Shared between the
+// alerts list / alert detail / groups pages so all three build
+// the same matchers from the same labels and a future change
+// (different ignored keys, different operators) lands in one
+// place. Lives here because the silenceform package is the only
+// consumer of the output.
+func MatchersFromLabels(labels map[string]string) []backend.Matcher {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		if k == "__name__" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]backend.Matcher, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, backend.Matcher{
+			Name: k, Value: labels[k], IsEqual: true,
+		})
+	}
+	return out
 }
 
 // formatMatchers renders matchers in the same one-per-line syntax
