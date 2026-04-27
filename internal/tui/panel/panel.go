@@ -191,7 +191,12 @@ func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
 	}
 	out := make([]string, len(lines))
 	labelStyle := hintFgOnly(styles)
-	valueStyle := styles.Body.Default
+	// Values use the body's foreground only — same fg-only
+	// treatment the labels get above. Calling Body.Default would
+	// paint the body's bg behind the value, which renders as a
+	// stripe of mismatched colour against the surrounding empty
+	// cells in the panel zone.
+	valueStyle := lipgloss.NewStyle().Foreground(styles.Body.Default.GetForeground())
 	for i, l := range lines {
 		pad := strings.Repeat(" ", maxLabel-lipgloss.Width(l.Label))
 		out[i] = labelStyle.Render(l.Label+":") + pad + " " + valueStyle.Render(l.Value)
