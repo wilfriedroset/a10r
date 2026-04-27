@@ -114,6 +114,37 @@ shell.
   snapshotted, so Esc still rolls back. Enter on an empty
   prompt clears the filter; Enter on a typed value commits it.
 
+### Silence write surface
+
+- `s` on the alerts list, alert detail, and groups pages now
+  pushes the silence form prefilled with matchers from the
+  source resource — the alert's labels minus the synthetic
+  `__name__` for single-row silences, the group's common-label
+  intersection for the groups view. Tenant follows the cursor
+  row's tag so a multi-backend run hits the right backend
+  without an extra prompt.
+- `e` on the silences list pushes the silence form in edit mode
+  prefilled from the cursor row (matchers / comment / endsAt /
+  EditID); submit calls `UpdateSilence`. The form's
+  `SubmittedMsg.Updated` flag picks the parent flash wording so
+  edits read "silence updated: <id>", not "created".
+- `x` on the silences list opens a confirm dialog with default-No
+  (a stray Enter never destroys data) and calls `ExpireSilence`
+  on Yes. `Ctrl+X` does the same in bulk over `Space`-marked
+  rows; marks survive sort / filter changes by tracking silence
+  ID. Marked rows render a `✓` glyph and a foreground tint so
+  the bulk-confirm question always has a row-level reference.
+  Pending {id, tenant} pairs are captured at modal-open time so
+  a poll-tick reordering between Open and Yes never reroutes
+  the expire to the wrong backend.
+- `Ctrl+E` on the silences list round-trips the cursor silence
+  as YAML through `$EDITOR` (or `$A10R_EDITOR`). Saving applies
+  the edit via `UpdateSilence`; aborting without saving is a
+  silent no-op. Validation matches what the API requires (≥1
+  matcher, ends after starts, non-empty creator + comment) so a
+  malformed edit flashes a precise error instead of round-
+  tripping a 400.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.
