@@ -12,6 +12,8 @@ package footer
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -31,25 +33,45 @@ type Crumbs struct {
 func NewCrumbs() Crumbs { return Crumbs{} }
 
 // Render produces the styled crumb strip given the theme. Each
-// entry is wrapped in `<…>` and rendered bold; the top-of-stack
-// entry takes the active colour, everything else the default.
+// entry is wrapped in `<…>` and rendered bold as a pill
+// (foreground + background). The k9s convention — see the
+// `logs.png` reference in the look-and-feel doc — gives every
+// crumb its own pill, with the top-of-stack crumb wearing the
+// brighter accent colour and the older crumbs wearing a related
+// but distinct colour. We achieve that by:
+//
+//   - using theme.Crumbs.Default's fg+bg for inactive crumbs
+//     (the schema's `crumbs.fg` / `crumbs.bg`);
+//   - swapping the bg to the accent (theme.Crumbs.Active's fg
+//     colour, repurposed as a background) for the top-of-stack
+//     crumb. The crumbs.active palette colour is therefore the
+//     "current page" pill background, with the same fg as the
+//     default pill so the contrast stays consistent.
+//
 // Empty crumbs render as the empty string so the app shell can
 // omit the strip entirely.
 func (c Crumbs) Render(styles theme.Styles) string {
 	if len(c.entries) == 0 {
 		return ""
 	}
+	defaultStyle := styles.Crumbs.Default.Bold(true)
+	activeStyle := lipgloss.NewStyle().
+		Foreground(styles.Crumbs.Default.GetForeground()).
+		Background(styles.Crumbs.Active.GetForeground()).
+		Bold(true)
 	parts := make([]string, len(c.entries))
 	last := len(c.entries) - 1
 	for i, e := range c.entries {
-		base := styles.Crumbs.Default
+		style := defaultStyle
 		if i == last {
-			base = styles.Crumbs.Active
+			style = activeStyle
 		}
-		parts[i] = base.Bold(true).Render("<" + e + ">")
+		parts[i] = style.Render("<" + e + ">")
 	}
-	sep := styles.Crumbs.Default.Render(crumbSeparator)
-	return strings.Join(parts, sep)
+	// Separator stays unstyled (foreground default of the
+	// surrounding text) so it reads as a gap between pills rather
+	// than another pill.
+	return strings.Join(parts, crumbSeparator)
 }
 
 // Set replaces the breadcrumb stack wholesale. The most common
