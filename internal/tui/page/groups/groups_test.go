@@ -3,6 +3,7 @@
 package groups
 
 import (
+	"context"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -42,7 +44,7 @@ func sampleGroups() []backend.AlertGroup {
 
 func TestPage_StartsCollapsed(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	rows := p.rows()
 	require.Len(t, rows, 2, "every group is collapsed → one row per group")
@@ -50,7 +52,7 @@ func TestPage_StartsCollapsed(t *testing.T) {
 
 func TestPage_EnterTogglesExpand(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -64,7 +66,7 @@ func TestPage_EnterTogglesExpand(t *testing.T) {
 
 func TestPage_TabExpandsAll(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -80,7 +82,7 @@ func TestPage_TabExpandsAll(t *testing.T) {
 
 func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // expand group 0
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -90,26 +92,70 @@ func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 	require.Equal(t, "A", msg.Alert.Labels["alertname"])
 }
 
-func TestPage_SilenceEmitsCommonLabels(t *testing.T) {
+func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
-	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	msg := cmd().(DrillSilenceMsg)
-	// team=platform is shared by both alerts in group 0.
-	require.Equal(t, "platform", msg.CommonLabels["team"])
-	// alertname / severity differ between A and B → must NOT be in
-	// the intersection.
-	_, hasName := msg.CommonLabels["alertname"]
-	require.False(t, hasName)
-	_, hasSev := msg.CommonLabels["severity"]
-	require.False(t, hasSev)
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend",
+		"`s` with no clients must explain rather than push a broken form")
+}
+
+func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "`s` with clients must push the form")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "`s` with clients must push the form, not flash")
+}
+
+func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence created: sil-99")
+}
+
+func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
+	t.Parallel()
+	// No DataMsg → empty rows → `s` flashes "no group under cursor".
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no group under the cursor")
+}
+
+// fakeSilenceClient satisfies silenceform.Client; the groups
+// page never calls its methods in tests (the `s` push test
+// asserts only that a non-flash Cmd is produced).
+type fakeSilenceClient struct{}
+
+func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+	return "fake-silence-id", nil
+}
+
+func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
+	return nil
 }
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
@@ -120,7 +166,7 @@ func TestPage_VimMotions(t *testing.T) {
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	out := p.View(80, 10)
 	require.Contains(t, out, "team=platform")
@@ -132,9 +178,33 @@ func TestCommonLabels_EmptyInput(t *testing.T) {
 	require.Empty(t, commonLabels(nil))
 }
 
+func TestCommonLabels_KeepsSharedDropsDivergent(t *testing.T) {
+	t.Parallel()
+	// Two alerts agree on team=platform; alertname and severity
+	// differ. Only the shared key/value belongs in the silence
+	// matchers — divergent labels would over-narrow the silence.
+	alerts := []backend.Alert{
+		{Labels: map[string]string{"alertname": "A", "team": "platform", "severity": "critical"}},
+		{Labels: map[string]string{"alertname": "B", "team": "platform", "severity": "warning"}},
+	}
+	got := commonLabels(alerts)
+	require.Equal(t, map[string]string{"team": "platform"}, got)
+}
+
+func TestCommonLabels_AllSharedSurvives(t *testing.T) {
+	t.Parallel()
+	// Identical label-sets → every key survives.
+	alerts := []backend.Alert{
+		{Labels: map[string]string{"team": "platform", "env": "prod"}},
+		{Labels: map[string]string{"team": "platform", "env": "prod"}},
+	}
+	got := commonLabels(alerts)
+	require.Equal(t, map[string]string{"team": "platform", "env": "prod"}, got)
+}
+
 func TestPage_FilterPromptIsLive(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// sampleGroups has two entries: team=platform and team=data.

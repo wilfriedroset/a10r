@@ -3,8 +3,8 @@
 // Package groups renders the alert-groups view: a two-level tree
 // where each group label-set expands to its member alerts. Enter
 // on a group toggles expand/collapse; Enter on a leaf drills to
-// the alert-detail page (DrillAlertMsg). `s` requests a silence
-// over the group's common-labels intersection (DrillSilenceMsg).
+// the alert-detail page (DrillAlertMsg). `s` pushes the silence
+// form prefilled with the group's common-labels intersection.
 package groups
 
 import (
@@ -12,6 +12,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -20,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -30,13 +32,6 @@ type DrillAlertMsg struct {
 	Alert backend.Alert
 }
 
-// DrillSilenceMsg is emitted on `s` against a group row. CommonLabels
-// is the intersection of every alert's labels in that group — the
-// silence form opens pre-populated with those matchers.
-type DrillSilenceMsg struct {
-	CommonLabels map[string]string
-}
-
 // groupEntry pairs an alert group with the tenant tag it was
 // polled under so the renderer can show which backend each group
 // belongs to when the active scope spans more than one tenant.
@@ -45,9 +40,33 @@ type groupEntry struct {
 	tenant string
 }
 
+// Options bundles the page's constructor inputs. Clients is the
+// per-tenant write surface the page hands to the silence form on
+// `s`; empty in tests / read-only runs flashes a hint instead of
+// pushing a broken form. Same shape the alerts / silences pages
+// consume.
+type Options struct {
+	Styles theme.Styles
+	// Now injects the form's clock. nil falls back to time.Now in
+	// the silenceform constructor.
+	Now func() time.Time
+	// Clients is the per-tenant write surface the page hands to
+	// the silence form. Picked up by the cursor row's tenant
+	// (groupEntry.tenant), set when the poller emits DataMsg.
+	Clients map[string]silenceform.Client
+	// Creator seeds the form's CreatedBy field; usually $USER.
+	Creator string
+}
+
 // Page is the groups view.
 type Page struct {
 	styles theme.Styles
+	now    func() time.Time
+
+	// clients is the per-tenant write surface for `s`; see Options.
+	clients map[string]silenceform.Client
+	// creator seeds the silence form's CreatedBy field.
+	creator string
 
 	// byTenant holds the most recent snapshot per backend.
 	byTenant map[string][]backend.AlertGroup
@@ -77,9 +96,16 @@ type Page struct {
 const scopeAll = "all"
 
 // New constructs an empty groups page.
-func New(styles theme.Styles) *Page {
+func New(opts Options) *Page {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Page{
-		styles:   styles,
+		styles:   opts.Styles,
+		now:      now,
+		clients:  opts.Clients,
+		creator:  opts.Creator,
 		byTenant: map[string][]backend.AlertGroup{},
 		scope:    scopeAll,
 	}
@@ -171,6 +197,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		return p, nil
+	case silenceform.SubmittedMsg:
+		// Form auto-popped already; flash so the user sees
+		// confirmation. Same shape alerts / silences use.
+		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+	case silenceform.CancelledMsg:
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
@@ -367,20 +399,58 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 	return p, func() tea.Msg { return DrillAlertMsg{Alert: alert} }
 }
 
-// onSilence emits a DrillSilenceMsg with the cursor's group's
-// common-labels intersection. Cursor on a leaf still uses the
-// leaf's parent group.
+// onSilence pushes the silence form prefilled with the cursor
+// group's common-labels intersection (`__name__` dropped). The
+// cursor on a leaf row still uses the leaf's parent group — so
+// silencing a single alert requires drilling into it first via
+// Enter, then `s` on the detail page; `s` from the groups view
+// always covers every alert in the group.
 func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	if p.cursor >= len(rows) {
-		return p, nil
+		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}
 	r := rows[p.cursor]
 	if r.groupIdx >= len(p.flat) {
-		return p, nil
+		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}
-	common := commonLabels(p.flat[r.groupIdx].g.Alerts)
-	return p, func() tea.Msg { return DrillSilenceMsg{CommonLabels: common} }
+	entry := p.flat[r.groupIdx]
+	if len(p.clients) == 0 {
+		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	client, ok := p.clients[entry.tenant]
+	if !ok {
+		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	matchers := silenceform.MatchersFromLabels(commonLabels(entry.g.Alerts))
+	creator := p.creator
+	if creator == "" {
+		creator = "a10r"
+	}
+	styles := p.styles
+	now := p.now
+	return p, app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:   client,
+			Styles:   styles,
+			Now:      now,
+			Creator:  creator,
+			Matchers: matchers,
+		})
+	})
 }
+
+// flashFn returns a Cmd emitting a FlashShowMsg. Tiny helper so
+// the action handlers stay one-liners.
+func flashFn(level footer.FlashLevel, text string) tea.Cmd {
+	return func() tea.Msg {
+		return footer.FlashShowMsg{Level: level, Text: text}
+	}
+}
+
+// hintNoWriteableBackend mirrors the alerts / alert page consts
+// so the "configure a writeable backend" hint reads identically
+// across the three pages that push the silence form on `s`.
+const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
 
 // commonLabels returns the labels that appear with the same value
 // in every alert. Used by the group-silence flow so the silence

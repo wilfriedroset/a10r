@@ -235,7 +235,14 @@ func newResolver(styles theme.Styles, scope string, silenceClients map[string]si
 	r.Register("receivers", receiversFactory)
 	r.Register("rec", receiversFactory)
 	groupsFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return groups.New(styles) })
+		return app.PushPage(func() app.Page {
+			return groups.New(groups.Options{
+				Styles:  styles,
+				Now:     time.Now,
+				Clients: silenceClients,
+				Creator: creator,
+			})
+		})
 	}
 	r.Register("groups", groupsFactory)
 	r.Register("gr", groupsFactory)
