@@ -17,8 +17,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// crumbSeparator visually separates breadcrumbs (e.g. `alerts > detail > silence`).
-const crumbSeparator = " › "
+// crumbSeparator is the gap between adjacent crumb pills. k9s
+// uses a single space between `<…>` chips, no chevron — the pill
+// shape is the visual cue, an extra glyph between them is noise.
+const crumbSeparator = " "
 
 // Crumbs renders the page-stack breadcrumb strip per the k9s audit
 // §2 layout. Pages don't push directly here — the app shell (#22)
