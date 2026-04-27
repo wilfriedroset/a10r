@@ -56,8 +56,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	scope := scopeFor(cfg)
 	clients := buildClients(cfg)
 	silenceClients := silenceClientsFrom(clients)
+	silenceWriteClients := silenceWriteClientsFrom(clients)
 	creator := os.Getenv("USER")
-	resolver := newResolver(*styles, scope, silenceClients, creator)
+	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -107,6 +108,20 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 // the wider Client surface and makes tests trivial to fake.
 func silenceClientsFrom(in map[string]backend.Client) map[string]silenceform.Client {
 	out := make(map[string]silenceform.Client, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// silenceWriteClientsFrom narrows the backend.Client map to the
+// silences page's Client interface — that's silenceform.Client
+// plus ExpireSilence, which the silences page needs for `x` /
+// `Ctrl+X`. Separate from silenceClientsFrom because the alerts /
+// alert / groups pages don't expire silences and shouldn't pull
+// the wider surface in.
+func silenceWriteClientsFrom(in map[string]backend.Client) map[string]silences.Client {
+	out := make(map[string]silences.Client, len(in))
 	for k, v := range in {
 		out[k] = v
 	}
@@ -201,7 +216,7 @@ func loadStylesFor(name string) (*theme.Styles, error) {
 // lands a page wired to the active tenant label and (for write-
 // surface pages) the right backend.Client when the user invokes
 // a write action.
-func newResolver(styles theme.Styles, scope string, silenceClients map[string]silenceform.Client, creator string) *cmdbar.Resolver {
+func newResolver(styles theme.Styles, scope string, silenceClients map[string]silenceform.Client, silenceWriteClients map[string]silences.Client, creator string) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
@@ -219,7 +234,7 @@ func newResolver(styles theme.Styles, scope string, silenceClients map[string]si
 			return silences.New(silences.Options{
 				Styles:  styles,
 				Now:     time.Now,
-				Clients: silenceClients,
+				Clients: silenceWriteClients,
 				Creator: creator,
 			})
 		})

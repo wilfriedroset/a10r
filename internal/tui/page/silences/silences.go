@@ -4,13 +4,16 @@
 // surfaces the Silence write actions (new, edit, expire, editor)
 // behind Dangerous bindings so read-only mode hides them all.
 //
-// Silence form (#30), editor handoff (#31), and the actual write
-// API calls land in their own commits; v0.1 of this page wires
-// the bindings to placeholder flashes so the affordances are
-// discoverable in the meantime.
+// Single-row writes (`n`, `e`, `x`) operate on the cursor row;
+// `Ctrl+X` bulk-expires every Space-marked row. Destructive verbs
+// (`x` / `Ctrl+X`) round-trip through a confirm modal with the
+// default-No safe choice so a stray Enter never destroys data.
+// `Ctrl+E` opens the silence in $EDITOR (or $A10R_EDITOR) — that
+// path lands in a follow-up commit.
 package silences
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,6 +28,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -57,6 +61,18 @@ func (s SortKey) String() string {
 		return "state"
 	}
 	return "?"
+}
+
+// Client is the write surface the silences page needs: it pushes
+// the silence form (silenceform.Client) on `n` / `e` and calls
+// ExpireSilence on `x` / `Ctrl+X`. Bundled at the page level
+// rather than added to silenceform.Client because expire isn't
+// part of the form's contract — the form never expires anything.
+// backend.Client satisfies this interface for free; tests inject
+// a small fake.
+type Client interface {
+	silenceform.Client
+	ExpireSilence(ctx context.Context, id string) error
 }
 
 // silenceEntry pairs a silence with the tenant tag the poller
@@ -105,9 +121,43 @@ type Page struct {
 	// clients are the per-tenant write surfaces the page hands to
 	// the silence form when the user presses `n`. Empty in tests
 	// or read-only runs — write actions flash a hint instead.
-	clients map[string]silenceform.Client
+	clients map[string]Client
 	// creator seeds the form's CreatedBy field; usually $USER.
 	creator string
+
+	// marks is the set of silence IDs the user has Space-toggled
+	// for bulk operations (Ctrl+X bulk expire). Tracking by ID,
+	// like the alerts page tracks by Fingerprint, so marks survive
+	// re-sorts and re-filters without sliding onto unrelated
+	// silences.
+	marks map[string]struct{}
+
+	// pendingExpire stores the IDs queued for an open expire
+	// confirm modal so the ConfirmResultMsg handler knows which
+	// silences to expire on Yes. ids is empty between confirm
+	// rounds. bulk distinguishes single-row x from Ctrl+X for the
+	// flash wording on the result.
+	pendingExpire pendingExpire
+}
+
+// pendingExpire is the in-flight state between an opened expire
+// confirm modal and its ConfirmResultMsg. ids is the set of
+// silence IDs to expire on Yes, paired with the tenant the
+// silence lives on (resolved at modal-open time so a poll-tick
+// reordering or filter change between open and Yes never expires
+// a different silence on a different backend). bulk picks the
+// flash wording.
+type pendingExpire struct {
+	ids  []pendingExpireID
+	bulk bool
+}
+
+// pendingExpireID pairs a silence ID with its tenant so the
+// confirm-result handler can route ExpireSilence without
+// re-reading the live view.
+type pendingExpireID struct {
+	id     string
+	tenant string
 }
 
 // Options bundles the page's constructor inputs. Clients is the
@@ -119,7 +169,7 @@ type Page struct {
 type Options struct {
 	Styles  theme.Styles
 	Now     func() time.Time
-	Clients map[string]silenceform.Client
+	Clients map[string]Client
 	// Creator is the default value the silence form opens with —
 	// usually $USER. Empty falls back to "a10r".
 	Creator string
@@ -137,11 +187,18 @@ func New(opts Options) *Page {
 		clients:  opts.Clients,
 		creator:  opts.Creator,
 		byTenant: map[string][]backend.Silence{},
+		marks:    map[string]struct{}{},
 		sort:     SortByEndsAt,
 		sortAsc:  true, // soonest-expiring first
 		scope:    scopeAll,
 	}
 }
+
+// hintNoWriteableBackend is the shared message every write action
+// flashes when no silenceform.Client is reachable. Mirrors the
+// alerts / alert / groups pages so the affordance reads
+// identically across resources.
+const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
 
 // scopeAll is the canonical "every configured tenant" label.
 // Pinned as a constant so the title, scopeIncludes, and the
@@ -219,13 +276,17 @@ func (p *Page) showTenantColumn() bool {
 
 // HeaderContent implements app.Page. Sort indicator lives on the
 // column header arrow; count lives in Title. Surface the active
-// filter when one is set so the user can spot what's been
-// applied without re-opening the prompt.
+// filter and the bulk-mark count so the user can spot what's
+// been applied or queued without re-opening the prompt.
 func (p *Page) HeaderContent() string {
+	var parts []string
 	if p.filter != "" {
-		return "filter:" + p.filter
+		parts = append(parts, "filter:"+p.filter)
 	}
-	return ""
+	if n := len(p.marks); n > 0 {
+		parts = append(parts, fmt.Sprintf("marked:%d", n))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // Bindings implements app.Page. Every write action carries
@@ -236,6 +297,7 @@ func (*Page) Bindings() []action.Action {
 		{Key: "n", Description: "new", View: "silences", Dangerous: true},
 		{Key: "e", Description: "edit", View: "silences", Dangerous: true},
 		{Key: "x", Description: "expire", View: "silences", Dangerous: true},
+		{Key: "Space", Description: "mark", View: "silences"},
 		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
 		{Key: "Ctrl+X", Description: "bulk expire", View: "silences", Dangerous: true, Bulk: true},
 	}
@@ -261,14 +323,22 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.snapshotFocus()
 		return p, nil
 	case silenceform.SubmittedMsg:
-		// Form auto-popped already; flash the new silence ID so
-		// the user has visual confirmation. The next poll tick
-		// will surface the silence in the list.
-		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+		// Form auto-popped already; flash so the user has visual
+		// confirmation. The next poll tick surfaces the change in
+		// the list. Updated picks "updated" vs. "created" so an
+		// edit doesn't read like a duplicate creation.
+		verb := "created"
+		if m.Updated {
+			verb = "updated"
+		}
+		return p, flashFn(footer.FlashSuccess, "silence "+verb+": "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — form Esc is a
 		// non-event from the user's perspective.
 		return p, nil
+	case modal.ConfirmResultMsg:
+		cmd := p.handleExpireConfirm(m)
+		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		p.handleFilterPrompt(m)
@@ -398,15 +468,198 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.openNewSilenceForm()
 		return p, cmd
 	case "e":
-		return p, flashFn(footer.FlashWarn, "silence edit arrives in #30")
+		cmd := p.openEditSilenceForm()
+		return p, cmd
 	case "x":
-		return p, flashFn(footer.FlashWarn, "silence expire arrives in #30 (with confirm)")
+		cmd := p.openExpireConfirm()
+		return p, cmd
+	case "space":
+		p.toggleMarkAtCursor()
 	case "ctrl+e":
 		return p, flashFn(footer.FlashWarn, "$EDITOR handoff arrives in #31")
 	case "ctrl+x":
-		return p, flashFn(footer.FlashWarn, "bulk expire arrives in #30")
+		cmd := p.openBulkExpireConfirm()
+		return p, cmd
 	}
 	return p, nil
+}
+
+// toggleMarkAtCursor flips the mark on the cursor row. No-op on
+// an empty view; silences without an ID are silently skipped
+// (defensive — every backend.Silence the v2 API returns has one).
+func (p *Page) toggleMarkAtCursor() {
+	if p.cursor >= len(p.view) {
+		return
+	}
+	id := p.view[p.cursor].s.ID
+	if id == "" {
+		return
+	}
+	if _, ok := p.marks[id]; ok {
+		delete(p.marks, id)
+		return
+	}
+	p.marks[id] = struct{}{}
+}
+
+// openEditSilenceForm pushes the silence form in edit mode
+// prefilled from the cursor row. Selection rule: the cursor
+// row's tenant — `e` operates on the visible row, never falls
+// back to "first in-scope" the way `n` does because there's no
+// row to edit if no row is focused.
+func (p *Page) openEditSilenceForm() tea.Cmd {
+	if p.cursor >= len(p.view) {
+		return flashFn(footer.FlashInfo, "no silence under the cursor")
+	}
+	if len(p.clients) == 0 {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	entry := p.view[p.cursor]
+	client, ok := p.clients[entry.tenant]
+	if !ok {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	creator := entry.s.CreatedBy
+	if creator == "" {
+		creator = p.creator
+	}
+	if creator == "" {
+		creator = "a10r"
+	}
+	styles := p.styles
+	now := p.now
+	s := entry.s
+	return app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:   client,
+			Styles:   styles,
+			Now:      now,
+			Creator:  creator,
+			Matchers: s.Matchers,
+			Comment:  s.Comment,
+			EndsAt:   s.EndsAt,
+			EditID:   s.ID,
+		})
+	})
+}
+
+// openExpireConfirm queues the cursor silence for expiration and
+// opens the confirm modal. ID + tenant are captured into
+// p.pendingExpire now so a poll tick that reorders rows or
+// changes the active filter between Open and Yes can't expire a
+// different silence than the one the user was looking at.
+func (p *Page) openExpireConfirm() tea.Cmd {
+	if p.cursor >= len(p.view) {
+		return flashFn(footer.FlashInfo, "no silence under the cursor")
+	}
+	if len(p.clients) == 0 {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	entry := p.view[p.cursor]
+	if _, ok := p.clients[entry.tenant]; !ok {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	p.pendingExpire = pendingExpire{
+		ids:  []pendingExpireID{{id: entry.s.ID, tenant: entry.tenant}},
+		bulk: false,
+	}
+	question := "expire silence " + entry.s.ID + "?"
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+	})
+}
+
+// openBulkExpireConfirm queues every marked silence for bulk
+// expiration. Walks p.byTenant (not p.view) so a marked silence
+// hidden by an active filter still gets expired — the user
+// marked it deliberately and a filter change shouldn't silently
+// drop it from the queue. Empty marks → soft Info flash hinting
+// at the Space binding so the user discovers the affordance.
+func (p *Page) openBulkExpireConfirm() tea.Cmd {
+	if len(p.marks) == 0 {
+		return flashFn(footer.FlashInfo, "no rows marked — Space marks one")
+	}
+	if len(p.clients) == 0 {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	ids := make([]pendingExpireID, 0, len(p.marks))
+	for tenant, sils := range p.byTenant {
+		for _, s := range sils {
+			if _, m := p.marks[s.ID]; m {
+				ids = append(ids, pendingExpireID{id: s.ID, tenant: tenant})
+			}
+		}
+	}
+	if len(ids) == 0 {
+		// Marks survived but every silence vanished from byTenant
+		// (every backend re-emitted without them). Defensive:
+		// flash and clear so the user can re-mark.
+		return flashFn(footer.FlashInfo, "no marked silences remain")
+	}
+	// Sort by ID for deterministic confirm-question wording and
+	// stable iteration order across runs / tests.
+	sort.Slice(ids, func(i, j int) bool { return ids[i].id < ids[j].id })
+	p.pendingExpire = pendingExpire{ids: ids, bulk: true}
+	question := fmt.Sprintf("expire %d marked silences?", len(ids))
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+	})
+}
+
+// handleExpireConfirm consumes a ConfirmResultMsg arriving after
+// an expire confirm modal. Yes drives ExpireSilence on every
+// pending {id, tenant} captured at modal-open time. No /
+// Cancelled clears the pending state silently. Tenants are read
+// directly from the captured pair — no live-view lookup — so a
+// poll tick or filter change between Open and Yes never reroutes
+// the expire to the wrong backend or drops it as "unknown".
+func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
+	pending := p.pendingExpire
+	p.pendingExpire = pendingExpire{}
+	if m.Cancelled || !m.Yes || len(pending.ids) == 0 {
+		return nil
+	}
+	success := 0
+	failed := 0
+	for _, target := range pending.ids {
+		client, ok := p.clients[target.tenant]
+		if !ok {
+			failed++
+			continue
+		}
+		if err := client.ExpireSilence(context.Background(), target.id); err != nil {
+			failed++
+			continue
+		}
+		success++
+	}
+	// Clear marks for every queued ID — a failed expire isn't a
+	// signal to keep the silence marked for retry; the user can
+	// re-mark deliberately.
+	for _, target := range pending.ids {
+		delete(p.marks, target.id)
+	}
+	return p.flashExpireResult(pending.bulk, success, failed)
+}
+
+// flashExpireResult formats the success / partial / total-failure
+// flash text for a completed expire round. Called from
+// handleExpireConfirm so single-row x and bulk Ctrl+X share one
+// wording table.
+func (p *Page) flashExpireResult(bulk bool, success, failed int) tea.Cmd {
+	if !bulk {
+		if success == 1 {
+			return flashFn(footer.FlashSuccess, "silence expired")
+		}
+		return flashFn(footer.FlashError, "expire failed")
+	}
+	if failed == 0 {
+		return flashFn(footer.FlashSuccess, fmt.Sprintf("expired %d silences", success))
+	}
+	if success == 0 {
+		return flashFn(footer.FlashError, fmt.Sprintf("expire failed for %d silences", failed))
+	}
+	return flashFn(footer.FlashWarn, fmt.Sprintf("expired %d of %d — %d failed", success, success+failed, failed))
 }
 
 // openNewSilenceForm pushes an empty silence form targeting the
@@ -417,7 +670,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) openNewSilenceForm() tea.Cmd {
 	tenant, client, ok := p.pickWriteTarget()
 	if !ok {
-		return flashFn(footer.FlashWarn, "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`")
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	creator := p.creator
 	if creator == "" {
@@ -440,7 +693,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 // Cursor row's tenant wins when a row is focused; otherwise falls
 // back to the first in-scope tenant (alphabetical for stability).
 // Returns (_, _, false) when nothing usable is configured.
-func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
+func (p *Page) pickWriteTarget() (string, Client, bool) {
 	if len(p.clients) == 0 {
 		return "", nil, false
 	}
@@ -489,6 +742,9 @@ func (p *Page) emptyState() string {
 // applies the k9s-style yellow header colour. When the active
 // scope spans more than one tenant, a leading TENANT column is
 // inserted so the user knows which backend each row came from.
+// When marks are present, a leading "  " (two cols) reserves
+// space so the data columns stay aligned with the row mark
+// glyph below.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortByEndsAt, SortByStartsAt, SortByCreatedBy, SortByState}
 	parts := make([]string, 0, len(titles)+1)
@@ -506,13 +762,25 @@ func (p *Page) renderHeader(width int) string {
 		}
 		parts = append(parts, label)
 	}
+	leading := ""
+	if p.hasMarks() {
+		// Match the per-row mark width ("✓ " / "  ") so columns
+		// stay aligned. Two cols, foreground-only render so the
+		// strip blends with the body background.
+		leading = "  "
+	}
 	// Foreground-only render so the header row keeps the body
 	// background — flush with the data rows underneath rather
 	// than a coloured stripe.
 	return lipgloss.NewStyle().
 		Foreground(p.styles.Table.Header.GetForeground()).
-		Render(p.padColumns(parts, width))
+		Render(leading + p.padColumns(parts, width))
 }
+
+// hasMarks reports whether any silence ID is currently marked.
+// Inlined-style helper so the renderer can branch without
+// poking at p.marks length in two places.
+func (p *Page) hasMarks() bool { return len(p.marks) > 0 }
 
 func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
@@ -520,6 +788,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	}
 	p.reconcileScroll(maxRows)
 	end := min(p.topRow+maxRows, len(p.view))
+	showMark := p.hasMarks()
 	var b strings.Builder
 	for i := p.topRow; i < end; i++ {
 		e := p.view[i]
@@ -537,11 +806,30 @@ func (p *Page) renderRows(width, maxRows int) string {
 		if i == p.cursor {
 			prefix = "▸ "
 		}
+		_, marked := p.marks[e.s.ID]
+		mark := ""
+		if showMark {
+			if marked {
+				mark = "✓ "
+			} else {
+				mark = "  "
+			}
+		}
 		// Pad to the full width before styling so the Cursor row's
 		// background extends across the whole line k9s-style.
-		line := padRight(prefix+p.padColumns(row, width), width)
-		if i == p.cursor {
+		// Precedence: cursor wins over marked (the user's "you are
+		// here" signal beats the queued-for-bulk signal); marked
+		// rows that aren't under the cursor get a fg-only tint via
+		// styles.Table.Marked so they stand out without competing
+		// with the cursor highlight.
+		line := padRight(prefix+mark+p.padColumns(row, width), width)
+		switch {
+		case i == p.cursor:
 			line = p.styles.Table.Cursor.Render(line)
+		case marked:
+			line = lipgloss.NewStyle().
+				Foreground(p.styles.Table.Marked.GetForeground()).
+				Render(line)
 		}
 		b.WriteString(line)
 		if i < end-1 {
@@ -723,10 +1011,10 @@ func lessFor(key SortKey) func(a, b backend.Silence) bool {
 	}
 }
 
-// flashFn returns a Cmd that emits a Warn flash. The placeholder
-// actions on this page all use Warn (the affordances are wired
-// but the actual write isn't yet) so the helper hard-codes the
-// level — no caller wants anything else today.
+// flashFn returns a Cmd that emits a FlashShowMsg with the
+// supplied level and text. Tiny indirection so the page's
+// action handlers stay one-liners and so the level (Info / Warn
+// / Error / Success) reads at the call site.
 func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}

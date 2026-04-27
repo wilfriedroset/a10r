@@ -4,6 +4,7 @@ package silences
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -167,29 +169,6 @@ func TestPage_BulkExpireBindingIsBulk(t *testing.T) {
 	t.Fatal("Ctrl+X binding missing")
 }
 
-func TestPage_ActionKeysFlashPlaceholders(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		key  rune
-		want string
-	}{
-		{key: 'e', want: "silence edit"},
-		{key: 'x', want: "silence expire"},
-	}
-	for _, tc := range cases {
-		t.Run(string(tc.key), func(t *testing.T) {
-			t.Parallel()
-			p := newPage(t)
-			_, cmd := p.Update(tea.KeyPressMsg{Code: tc.key, Text: string(tc.key)})
-			require.NotNil(t, cmd)
-			msg := cmd().(footer.FlashShowMsg)
-			require.Contains(t, msg.Text, tc.want)
-			require.Equal(t, footer.FlashWarn, msg.Level)
-		})
-	}
-}
-
 func TestPage_CtrlEFlashesEditorPlaceholder(t *testing.T) {
 	t.Parallel()
 
@@ -272,12 +251,17 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	require.Len(t, p.view, 3)
 }
 
-// fakeSilenceClient records CreateSilence and UpdateSilence calls
-// so tests can assert without a live backend.
+// fakeSilenceClient records every write call so tests can assert
+// the silences page picked the right verb without a live backend.
+// expireErr lets a test seed a per-call failure for partial-result
+// flash assertions.
 type fakeSilenceClient struct {
-	created      backend.SilenceSpec
-	updated      backend.SilenceSpec
-	lastUpdateID string
+	created       backend.SilenceSpec
+	updated       backend.SilenceSpec
+	lastUpdateID  string
+	expiredIDs    []string
+	expireErr     error
+	expireErrOnce map[string]error
 }
 
 func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
@@ -289,6 +273,14 @@ func (f *fakeSilenceClient) UpdateSilence(_ context.Context, id string, spec bac
 	f.updated = spec
 	f.lastUpdateID = id
 	return nil
+}
+
+func (f *fakeSilenceClient) ExpireSilence(_ context.Context, id string) error {
+	if err, ok := f.expireErrOnce[id]; ok {
+		return err
+	}
+	f.expiredIDs = append(f.expiredIDs, id)
+	return f.expireErr
 }
 
 func TestPage_NewKeyWithoutClientsFlashesHint(t *testing.T) {
@@ -306,7 +298,7 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	p := New(Options{
 		Styles:  loadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
@@ -316,4 +308,230 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	// type is the page-stack op.
 	_, isFlash := cmd().(footer.FlashShowMsg)
 	require.False(t, isFlash, "n with clients must push the form, not flash")
+}
+
+// pageWithRows is a small helper that builds a silences page with
+// a populated Clients map and feeds a poll.DataMsg of `count`
+// silences tagged "prod" so cursor / mark / expire flows have
+// something to operate on.
+func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": fake},
+		Creator: "wilfried",
+	})
+	silences := make([]backend.Silence, 0, count)
+	for i := range count {
+		silences = append(silences, backend.Silence{
+			ID:        "sil-" + string(rune('a'+i)),
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(time.Hour * time.Duration(i+1)),
+			Comment:   "ack",
+			Matchers: []backend.Matcher{
+				{Name: "alertname", Value: "HighCPU", IsEqual: true},
+			},
+		})
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	return p
+}
+
+func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no silence under the cursor")
+}
+
+func TestPage_EditKeyWithoutClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	silences := []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend")
+}
+
+func TestPage_EditKeyPushesEditForm(t *testing.T) {
+	t.Parallel()
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "e with cursor + clients must push the form, not flash")
+}
+
+func TestPage_FormSubmittedUpdatedFlashesUpdated(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-7", Updated: true})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence updated: sil-7",
+		"edit-mode submit must read \"updated\", not \"created\"")
+}
+
+func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no silence under the cursor")
+}
+
+func TestPage_ExpireKeyOpensConfirmModal(t *testing.T) {
+	t.Parallel()
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "x must open a modal, not flash")
+	// The pending-expire state must be loaded with the cursor row.
+	require.Equal(t, []pendingExpireID{{id: "sil-a", tenant: "prod"}}, p.pendingExpire.ids)
+	require.False(t, p.pendingExpire.bulk)
+}
+
+func TestPage_ConfirmYesCallsExpireSilence(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence expired")
+	require.Equal(t, []string{"sil-a"}, fake.expiredIDs)
+	require.Empty(t, p.pendingExpire.ids, "pending state must clear after confirm round")
+}
+
+func TestPage_ConfirmNoIsNoop(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: false})
+	require.Nil(t, cmd)
+	require.Empty(t, fake.expiredIDs)
+}
+
+func TestPage_ConfirmCancelledIsNoop(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Cancelled: true})
+	require.Nil(t, cmd)
+	require.Empty(t, fake.expiredIDs)
+}
+
+func TestPage_ConfirmFailureFlashesError(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{expireErr: errors.New("boom")}
+	p := pageWithRows(t, fake, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "expire failed")
+}
+
+func TestPage_SpaceTogglesMark(t *testing.T) {
+	t.Parallel()
+	p := pageWithRows(t, &fakeSilenceClient{}, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Empty(t, p.marks, "second Space toggles the mark off")
+}
+
+func TestPage_BulkExpireRequiresMarks(t *testing.T) {
+	t.Parallel()
+	p := pageWithRows(t, &fakeSilenceClient{}, 2)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no rows marked")
+}
+
+func TestPage_BulkExpireConfirmsAndIteratesMarks(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 2)
+	// Mark both rows.
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 2)
+	// Ctrl+X opens confirm.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	require.True(t, p.pendingExpire.bulk)
+	require.Len(t, p.pendingExpire.ids, 2)
+	// Yes → expire both, success flash.
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "expired 2 silences")
+	require.ElementsMatch(t, []string{"sil-a", "sil-b"}, fake.expiredIDs)
+	require.Empty(t, p.marks, "marks must clear after the bulk round resolves")
+}
+
+func TestPage_BulkExpireWalksByTenantNotView(t *testing.T) {
+	t.Parallel()
+	// Mark a row, then narrow the filter so the marked silence
+	// drops out of the view. Ctrl+X must still queue and expire
+	// it — marks live by ID across the filter, the user's intent
+	// shouldn't be silently dropped by an unrelated UI state.
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace}) // mark sil-a
+	require.Len(t, p.marks, 1)
+	// Filter to "carol" — neither sample row's createdBy ("alice")
+	// matches, so the view becomes empty while p.marks still
+	// references sil-a.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "carol"})
+	require.Empty(t, p.view)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	require.Len(t, p.pendingExpire.ids, 1, "marks must drive the queue, not the live view")
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.NotNil(t, cmd)
+	require.Equal(t, []string{"sil-a"}, fake.expiredIDs)
+}
+
+func TestPage_RenderShowsMarkGlyphOnMarkedRow(t *testing.T) {
+	t.Parallel()
+	p := pageWithRows(t, &fakeSilenceClient{}, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → row 1
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})   // mark row 1
+	out := stripStyle(p.View(120, 10))
+	require.Contains(t, out, "✓",
+		"marked row must render a visible mark glyph so the bulk-expire confirm has a row-level reference")
+}
+
+func TestPage_BulkExpireSummaryFlashesPartialFailure(t *testing.T) {
+	t.Parallel()
+	// Seed an error for sil-a only — sil-b succeeds.
+	fake := &fakeSilenceClient{expireErrOnce: map[string]error{"sil-a": errors.New("boom")}}
+	p := pageWithRows(t, fake, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Contains(t, msg.Text, "expired 1 of 2 — 1 failed")
 }
