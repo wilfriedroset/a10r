@@ -213,6 +213,85 @@ func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 	require.Nil(t, cmd, "extra digits beyond configured tenants stay unbound")
 }
 
+// TestApp_InputCapturePageBypassesGlobalBindings asserts the
+// fix for a user-reported bug: a form-style page that captures
+// input must receive globally-bound keys (q / : / / / ? /
+// digits) instead of having the dispatcher consume them.
+func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
+	t.Parallel()
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Tenants:    []string{"prod", "staging"},
+	})
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	form := newFakePage("form")
+	form.capturesInput = true
+	drive(t, a, PushPage(func() Page { return form }))
+
+	// `q` would normally fire tea.Quit at LayerGlobal. With a
+	// capturing form on top, the form must receive it raw.
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	a = updated.(*App)
+	require.False(t, a.quitting,
+		"capturing page must shadow the global `q` quit binding")
+	require.Nil(t, cmd, "no Cmd is emitted by the fake page on `q`")
+	require.Len(t, *form.updateLog, 1, "form must receive the keystroke")
+	require.Equal(t, tea.KeyPressMsg{Code: 'q', Text: "q"}, (*form.updateLog)[0])
+
+	// Same for `0` (tenant quick-switch) and `1` and `2`.
+	for _, key := range []rune{'0', '1', '2'} {
+		_, cmd := a.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
+		require.Nil(t, cmd,
+			"capturing page must shadow the global tenant `%c` binding", key)
+	}
+	require.Len(t, *form.updateLog, 4, "every digit must reach the form")
+
+	// And `:` / `/` / `?` (prompt and help). None should open a
+	// prompt or modal; all must reach the form.
+	for _, key := range []rune{':', '/', '?'} {
+		_, _ = a.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
+	}
+	require.False(t, a.prompt.IsOpen(),
+		"capturing page must shadow `:` / `/` so they don't open the prompt")
+	require.Nil(t, a.modal,
+		"capturing page must shadow `?` so it doesn't open the help modal")
+	require.Len(t, *form.updateLog, 7, "every globally-bound key must reach the form")
+}
+
+// TestApp_NonCapturingPageStillHonoursGlobals is the dual of the
+// previous test: a regular page (CapturesInput=false or interface
+// not implemented) must still see globals consumed by the
+// dispatcher.
+func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
+	t.Parallel()
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Tenants:    []string{"prod"},
+	})
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	page := newFakePage("alerts") // capturesInput defaults to false
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// `q` quits. The dispatcher returns the tea.Quit Cmd; drive
+	// runs it so the QuitMsg lands at handleLifecycle.
+	_, cmd := a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	require.NotNil(t, cmd, "dispatcher must emit the tea.Quit Cmd for non-capturing pages")
+	drive(t, a, cmd)
+	require.True(t, a.quitting, "non-capturing page must let `q` reach LayerGlobal")
+}
+
 func TestApp_QuitMsgMarksQuitting(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

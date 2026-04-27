@@ -486,18 +486,25 @@ func (a *App) activeViewLabel() string {
 	return ""
 }
 
+// topPageCapturesInput reports whether the top-of-stack page is
+// in raw-key-capture mode — a form or future text-entry page
+// that wants every keystroke routed past the dispatcher.
+func (a *App) topPageCapturesInput() bool {
+	p, ok := a.topPage().(InputCapturePage)
+	return ok && p.CapturesInput()
+}
+
 // handleKey routes a single key event. Precedence:
 //
-//  1. Open modal — captures every key including Esc, per
-//     keybindings.md. Esc inside the modal closes the modal.
+//  1. Open modal — captures every key including Esc.
 //  2. Open prompt — same rule for the bottom-strip prompt.
-//  3. Dispatcher precedence stack (modal > prompt > view > table
-//     > global). Bindings live at whichever layer makes sense.
-//  4. Top page — a final catch-all so vim motions and custom
-//     shortcuts a page handles locally don't need pre-registration.
+//  3. Top page in input-capture mode (forms) — raw keys so the
+//     user can type globally-bound chars into fields.
+//  4. Dispatcher (modal > prompt > view > table > global).
+//  5. Top page — final catch-all for vim motions and per-page
+//     shortcuts that don't need pre-registration.
 //
-// Unconsumed keys drop silently because most keys (j/k, shifted
-// letters, etc.) are valid no-ops on placeholder pages.
+// Unconsumed keys drop silently.
 func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if a.modal != nil {
 		next, cmd := a.modal.Update(m)
@@ -507,6 +514,12 @@ func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if a.prompt.IsOpen() {
 		var cmd tea.Cmd
 		a.prompt, cmd = a.prompt.Update(m)
+		return a, cmd
+	}
+	if a.topPageCapturesInput() {
+		// Bypass dispatcher entirely so global bindings (q, :, /,
+		// ?, digits) don't shadow text input on the form.
+		cmd := a.forwardToTop(m)
 		return a, cmd
 	}
 

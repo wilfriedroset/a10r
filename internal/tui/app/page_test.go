@@ -32,12 +32,22 @@ type fakePage struct {
 	// shell propagates tear-down work to bubbletea's program loop.
 	closeCmd tea.Cmd
 
+	// capturesInput, when set, makes the page also implement the
+	// InputCapturePage interface — used by tests that exercise
+	// the dispatcher-bypass path for forms.
+	capturesInput bool
+
 	// Recorded state — pointers so derivative copies share the
 	// underlying counters.
 	initCalls  *int
 	closeCalls *int
 	updateLog  *[]tea.Msg
 }
+
+// CapturesInput satisfies the optional InputCapturePage
+// interface; returns the configured flag so a test can opt in
+// per-page.
+func (p *fakePage) CapturesInput() bool { return p.capturesInput }
 
 func newFakePage(name string) *fakePage {
 	var (

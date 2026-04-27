@@ -97,6 +97,30 @@ func TestForm_TabWalksFields(t *testing.T) {
 	require.Equal(t, fieldMatchers, f.focus)
 }
 
+func TestForm_CapturesInput(t *testing.T) {
+	t.Parallel()
+	// The form must opt into raw key capture so the App
+	// bypasses LayerGlobal bindings (q / : / / / ? / 0-9) and
+	// routes those keys into the field instead of quitting,
+	// opening the prompt, or switching tenants.
+	f := newForm(t, &fakeClient{})
+	require.True(t, f.CapturesInput())
+}
+
+func TestForm_TypingGloballyBoundCharsLandsInBuffer(t *testing.T) {
+	t.Parallel()
+	// Direct exercise of the input path: with capture-mode on,
+	// keys like '0', '1', 'q', ':', '/' must land in the focused
+	// buffer. The App's handleKey is what actually bypasses the
+	// dispatcher; this test asserts the form half of the contract
+	// (text comes through without filtering).
+	f := newForm(t, &fakeClient{})
+	type_(f, "q0/:?12abc")
+	require.Equal(t, "q0/:?12abc", f.matchers,
+		"the form must accept every printable rune; the App's "+
+			"InputCapturePage path is what shadows LayerGlobal at runtime")
+}
+
 func TestForm_TypingAppendsToFocusedField(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})

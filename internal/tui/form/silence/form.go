@@ -172,6 +172,12 @@ func (*Form) Init() tea.Cmd { return nil }
 // Close implements app.Page.
 func (*Form) Close() tea.Cmd { return nil }
 
+// CapturesInput implements app.InputCapturePage so the form
+// receives `q`, `:`, `/`, `?`, `0`-`9` as text input rather than
+// having the dispatcher consume them. Esc still cancels via the
+// form's own handler.
+func (*Form) CapturesInput() bool { return true }
+
 // Crumb implements app.Page.
 func (*Form) Crumb() string { return "silence" }
 

@@ -141,3 +141,16 @@ func ReplacePage(factory func() Page) tea.Cmd {
 type AutoPopMsg interface {
 	IsAutoPop()
 }
+
+// InputCapturePage is the optional interface a page implements
+// when it wants every keystroke routed to it directly, bypassing
+// the dispatcher's LayerGlobal bindings (q, :, /, ?, 0-9). Same
+// precedence the modal and prompt slots already get; forms opt
+// in so users can type those characters into their fields.
+// Pages that don't implement it dispatch as before.
+type InputCapturePage interface {
+	Page
+	// CapturesInput returns true when raw-key routing is active.
+	// Called per-keystroke; pages typically return a constant.
+	CapturesInput() bool
+}
