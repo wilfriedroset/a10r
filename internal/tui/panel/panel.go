@@ -160,13 +160,21 @@ func renderTenantLines(tenants []TenantBinding, styles theme.Styles) []string {
 	}
 	out := make([]string, len(tenants))
 	keyStyle := styles.Hint.HelpKey.Bold(true)
-	nameStyle := styles.Hint.Default.Bold(true)
+	nameStyle := hintFgOnly(styles).Bold(true)
 	for i, t := range tenants {
 		key := keyStyle.Render("<" + t.Key + ">")
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
 		out[i] = key + pad + nameStyle.Render(t.Name)
 	}
 	return out
+}
+
+// hintFgOnly returns a fresh style carrying only the Hint
+// foreground colour. Used for the panel's labels, tenant names,
+// and action descriptions so the top panel reads as text on the
+// body background rather than a separate dimmed stripe.
+func hintFgOnly(styles theme.Styles) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(styles.Hint.Default.GetForeground())
 }
 
 // renderInfoLines splits the info column into per-row lines, with
@@ -182,7 +190,7 @@ func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
 		}
 	}
 	out := make([]string, len(lines))
-	labelStyle := styles.Hint.Default
+	labelStyle := hintFgOnly(styles)
 	valueStyle := styles.Body.Default
 	for i, l := range lines {
 		pad := strings.Repeat(" ", maxLabel-lipgloss.Width(l.Label))
@@ -205,6 +213,7 @@ func renderHintLines(hints []action.Action, styles theme.Styles) []string {
 		}
 	}
 	out := make([]string, len(hints))
+	descStyle := hintFgOnly(styles)
 	for i, a := range hints {
 		keyStyle := styles.Hint.Key.Bold(true)
 		if a.Key == "?" {
@@ -212,7 +221,7 @@ func renderHintLines(hints []action.Action, styles theme.Styles) []string {
 		}
 		key := keyStyle.Render("<" + a.Key + ">")
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
-		out[i] = key + pad + styles.Hint.Default.Render(a.Description)
+		out[i] = key + pad + descStyle.Render(a.Description)
 	}
 	return out
 }
