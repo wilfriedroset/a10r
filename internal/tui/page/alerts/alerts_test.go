@@ -798,8 +798,16 @@ func TestPage_SuppressedRowsRenderDimmed(t *testing.T) {
 	require.Contains(t, stripStyle(out), "Silenced",
 		"sanity: the suppressed row still renders its label")
 
-	require.Contains(t, out, stylePrefix(t, p.styles.Table.Dimmed.Render("x")),
-		"suppressed-only row must wear the Table.Dimmed foreground style")
+	// The renderer extracts only the foreground from
+	// theme.Table.Dimmed (so the row keeps the body bg, matching
+	// the Marked branch). Build the probe the same way so the SGR
+	// prefix matches.
+	probeDimmed := lipgloss.NewStyle().
+		Foreground(p.styles.Table.Dimmed.GetForeground()).
+		Render("x")
+	require.Contains(t, out, stylePrefix(t, probeDimmed),
+		"suppressed-only row must wear the Table.Dimmed foreground colour "+
+			"with the body background unchanged (no second highlighted stripe)")
 }
 
 func TestPage_MarkedSuppressedRowKeepsMarkedStyle(t *testing.T) {

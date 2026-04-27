@@ -629,10 +629,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 		}
 		// Pad to the full width before styling. Precedence:
 		// cursor > marked > dimmed. Cursor wraps the whole row in
-		// fg+bg (the salient "you are here" signal); Marked changes
-		// only the foreground so the row keeps the default
-		// background — k9s "tinted text" rather than a second
-		// highlighted stripe. Dimmed fires when the alert is
+		// fg+bg (the salient "you are here" signal); Marked and
+		// Dimmed both change the foreground only so the row keeps
+		// the body's default background — k9s "tinted text"
+		// rather than two competing highlighted stripes stacked on
+		// top of each other. Dimmed fires when the alert is
 		// suppressed (silenced / inhibited / muted by a time
 		// interval) and is neither cursor nor marked — same
 		// treatment k9s gives "Completed" pods. Marked beats
@@ -647,7 +648,9 @@ func (p *Page) renderRows(width, maxRows int) string {
 				Foreground(p.styles.Table.Marked.GetForeground()).
 				Render(line)
 		case a.State == backend.AlertStateSuppressed:
-			line = p.styles.Table.Dimmed.Render(line)
+			line = lipgloss.NewStyle().
+				Foreground(p.styles.Table.Dimmed.GetForeground()).
+				Render(line)
 		}
 		b.WriteString(line)
 		if i < end-1 {
