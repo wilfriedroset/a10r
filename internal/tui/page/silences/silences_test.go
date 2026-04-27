@@ -272,13 +272,23 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	require.Len(t, p.view, 3)
 }
 
-// fakeSilenceClient records CreateSilence calls so tests can
-// assert without a live backend.
-type fakeSilenceClient struct{ created backend.SilenceSpec }
+// fakeSilenceClient records CreateSilence and UpdateSilence calls
+// so tests can assert without a live backend.
+type fakeSilenceClient struct {
+	created      backend.SilenceSpec
+	updated      backend.SilenceSpec
+	lastUpdateID string
+}
 
 func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
 	f.created = spec
 	return "fake-silence-id", nil
+}
+
+func (f *fakeSilenceClient) UpdateSilence(_ context.Context, id string, spec backend.SilenceSpec) error {
+	f.updated = spec
+	f.lastUpdateID = id
+	return nil
 }
 
 func TestPage_NewKeyWithoutClientsFlashesHint(t *testing.T) {

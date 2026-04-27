@@ -31,18 +31,26 @@ import (
 )
 
 // Client is the small write surface the form needs. Allows tests
-// to inject a fake without booting the real backend wiring.
+// to inject a fake without booting the real backend wiring. Both
+// CreateSilence and UpdateSilence are listed because the form can
+// land in either mode (Options.EditID empty / non-empty); a single
+// interface keeps the wiring layer free of two parallel adapters.
 type Client interface {
 	CreateSilence(ctx context.Context, spec backend.SilenceSpec) (string, error)
+	UpdateSilence(ctx context.Context, id string, spec backend.SilenceSpec) error
 }
 
 // SubmittedMsg is emitted on a successful submit. ID carries the
 // silence ID returned by the backend so the caller (typically
-// the silences list page) can hint, navigate, etc. Implements
+// the silences list page) can hint, navigate, etc. Updated is
+// true when the submit hit UpdateSilence (edit mode) rather than
+// CreateSilence — lets parent pages flash "updated" vs.
+// "created" without re-deriving which verb fired. Implements
 // app.AutoPopMsg so the App pops the form off the stack on
 // receipt and routes the message to the parent.
 type SubmittedMsg struct {
-	ID string
+	ID      string
+	Updated bool
 }
 
 // IsAutoPop satisfies app.AutoPopMsg.
@@ -69,7 +77,9 @@ const (
 	numFields
 )
 
-// Form is the silence-creation page. Implements app.Page.
+// Form is the silence-creation / silence-edit page. Implements
+// app.Page. Mode is selected by editID: empty → CreateSilence on
+// submit; non-empty → UpdateSilence(editID, spec) on submit.
 type Form struct {
 	client Client
 	styles theme.Styles
@@ -83,11 +93,23 @@ type Form struct {
 	creator  string
 	comment  string
 
+	// editID is the silence ID to update on submit. Empty means
+	// the form is in create mode; non-empty switches the submit
+	// branch to UpdateSilence and the title to "edit silence <id>".
+	editID string
+
 	focus fieldIndex
 	err   string // last submit error; cleared on next keystroke
 }
 
-// Options captures the dependency surface.
+// Options captures the dependency surface. The prefill fields
+// (Matchers / Comment / EndsAt / EditID) are independently
+// optional — they exist so a caller pushing the form on `s` from
+// an alert / group can pre-populate matchers, and so a caller
+// pushing on `e` against an existing silence can hand the form
+// every field plus the EditID that switches submit to
+// UpdateSilence. None of them are required for the create-from-
+// scratch path.
 type Options struct {
 	Client Client
 	Styles theme.Styles
@@ -97,21 +119,50 @@ type Options struct {
 	// Creator is the default value for the creator field —
 	// typically $USER.
 	Creator string
+	// Matchers, when non-empty, prefill the matchers buffer
+	// formatted one per line in the same syntax the user types
+	// manually (`name=value`, `name=~regex`, …). Round-trips
+	// through parseMatchers so editing via Tab + backspace works
+	// without a special path.
+	Matchers []backend.Matcher
+	// Comment, when non-empty, prefills the comment field.
+	Comment string
+	// EndsAt, when non-zero, prefills the ends field with an
+	// RFC3339 timestamp. The form keeps the existing "2h"
+	// shorthand default when EndsAt is the zero value.
+	EndsAt time.Time
+	// EditID switches submit from CreateSilence to UpdateSilence.
+	// Empty → create mode (default). Non-empty → edit mode; the
+	// form's title and SubmittedMsg both echo the id so callers
+	// can flash "silence updated: <id>".
+	EditID string
 }
 
-// New constructs a Form.
+// New constructs a Form. Prefill fields on opts (Matchers,
+// Comment, EndsAt, EditID) are applied only when set; an empty
+// Options yields the create-from-scratch shape v0.1 first
+// shipped (`n` on the silences list).
 func New(opts Options) *Form {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	return &Form{
+	f := &Form{
 		client:  opts.Client,
 		styles:  opts.Styles,
 		now:     now,
 		creator: opts.Creator,
+		comment: opts.Comment,
+		editID:  opts.EditID,
 		ends:    "2h",
 	}
+	if len(opts.Matchers) > 0 {
+		f.matchers = formatMatchers(opts.Matchers)
+	}
+	if !opts.EndsAt.IsZero() {
+		f.ends = opts.EndsAt.UTC().Format(time.RFC3339)
+	}
+	return f
 }
 
 // Init implements app.Page.
@@ -123,11 +174,18 @@ func (*Form) Close() tea.Cmd { return nil }
 // Crumb implements app.Page.
 func (*Form) Crumb() string { return "silence" }
 
-// Title implements app.Page.
-func (*Form) Title() string { return "new silence" }
+// Title implements app.Page. Reads "new silence" in create mode
+// and "edit silence <id>" in edit mode so the user always knows
+// which verb the submit will fire.
+func (f *Form) Title() string {
+	if f.editID != "" {
+		return "edit silence " + f.editID
+	}
+	return "new silence"
+}
 
-// HeaderContent implements app.Page.
-func (*Form) HeaderContent() string { return "new silence" }
+// HeaderContent implements app.Page. Mirrors Title.
+func (f *Form) HeaderContent() string { return f.Title() }
 
 // Bindings implements app.Page.
 func (*Form) Bindings() []action.Action {
@@ -219,8 +277,10 @@ func (f *Form) backspace() {
 	*f.fieldRef() = string(r[:len(r)-1])
 }
 
-// submit parses the buffers, calls Client.CreateSilence, and
-// emits SubmittedMsg on success / a flash on failure.
+// submit parses the buffers and either creates or updates the
+// silence depending on whether the form is in edit mode. On
+// success emits SubmittedMsg carrying the relevant ID; on failure
+// surfaces the error as a flash and stays on the form.
 func (f *Form) submit() tea.Cmd {
 	if f.client == nil {
 		return f.fail("client not configured")
@@ -228,6 +288,13 @@ func (f *Form) submit() tea.Cmd {
 	spec, err := f.parseSpec()
 	if err != nil {
 		return f.fail(err.Error())
+	}
+	if f.editID != "" {
+		if err := f.client.UpdateSilence(context.Background(), f.editID, spec); err != nil {
+			return f.fail(err.Error())
+		}
+		id := f.editID
+		return func() tea.Msg { return SubmittedMsg{ID: id, Updated: true} }
 	}
 	id, err := f.client.CreateSilence(context.Background(), spec)
 	if err != nil {
@@ -281,6 +348,36 @@ func (f *Form) parseSpec() (backend.SilenceSpec, error) {
 	}, nil
 }
 
+// formatMatchers renders matchers in the same one-per-line syntax
+// the user types manually so a prefilled form can be edited with
+// Tab + backspace without a special path. Inverse of parseMatchers
+// — the symmetry is asserted by TestForm_FormatMatchersRoundTrip.
+func formatMatchers(in []backend.Matcher) string {
+	if len(in) == 0 {
+		return ""
+	}
+	parts := make([]string, len(in))
+	for i, m := range in {
+		parts[i] = m.Name + matcherOp(m) + m.Value
+	}
+	return strings.Join(parts, "\n")
+}
+
+// matcherOp picks the operator symbol for a matcher's IsRegex /
+// IsEqual flags. Mirrors parseOneMatcher's table.
+func matcherOp(m backend.Matcher) string {
+	switch {
+	case m.IsRegex && m.IsEqual:
+		return "=~"
+	case m.IsRegex && !m.IsEqual:
+		return "!~"
+	case !m.IsRegex && m.IsEqual:
+		return "="
+	default:
+		return "!="
+	}
+}
+
 // parseMatchers walks one-matcher-per-line input. Operators per
 // Prometheus convention: `=`, `!=`, `=~`, `!~`. Leading / trailing
 // whitespace is trimmed; blank lines are skipped.
@@ -300,35 +397,55 @@ func parseMatchers(in string) ([]backend.Matcher, error) {
 	return out, nil
 }
 
-// parseOneMatcher splits a single matcher line on the first
-// operator it finds. Order matters — `!~` must be tried before
-// `!=` and `~`, etc.
+// parseOneMatcher splits a single matcher line on its leftmost
+// operator with two-char operators (`!~`, `=~`, `!=`) winning a
+// tie against the single-char `=`. Leftmost-position semantics
+// matter for round-trips: a value that itself contains an
+// operator (e.g. `foo=a!=b` from `{Name:"foo", Value:"a!=b"}`)
+// must split on the first `=`, not on the `!=` later in the
+// line. Two-char operators win ties so `foo=~bar` parses as a
+// regex match (`=~` at index 3) rather than a literal-equal of
+// `~bar` (`=` at the same index). Leading match (`idx == 0`) is
+// rejected so a stray `=oops` line still flags as missing-name.
 func parseOneMatcher(line string) (backend.Matcher, error) {
-	for _, op := range []struct {
+	type opDef struct {
 		s       string
 		isRegex bool
 		isEqual bool
-	}{
+	}
+	// Two-char ops first so a tie at the same index resolves in
+	// their favour (the loop below only updates bestIdx on a
+	// strictly-smaller index, never a tie).
+	ops := []opDef{
 		{s: "!~", isRegex: true, isEqual: false},
 		{s: "=~", isRegex: true, isEqual: true},
 		{s: "!=", isRegex: false, isEqual: false},
 		{s: "=", isRegex: false, isEqual: true},
-	} {
-		idx := strings.Index(line, op.s)
+	}
+	bestIdx := -1
+	var bestOp opDef
+	for _, o := range ops {
+		idx := strings.Index(line, o.s)
 		if idx <= 0 {
 			continue
 		}
-		name := strings.TrimSpace(line[:idx])
-		value := strings.TrimSpace(line[idx+len(op.s):])
-		if name == "" || value == "" {
-			return backend.Matcher{}, errors.New("matcher must be name<op>value")
+		if bestIdx == -1 || idx < bestIdx {
+			bestIdx = idx
+			bestOp = o
 		}
-		return backend.Matcher{
-			Name: name, Value: value,
-			IsRegex: op.isRegex, IsEqual: op.isEqual,
-		}, nil
 	}
-	return backend.Matcher{}, errors.New("missing operator (=, !=, =~, !~)")
+	if bestIdx == -1 {
+		return backend.Matcher{}, errors.New("missing operator (=, !=, =~, !~)")
+	}
+	name := strings.TrimSpace(line[:bestIdx])
+	value := strings.TrimSpace(line[bestIdx+len(bestOp.s):])
+	if name == "" || value == "" {
+		return backend.Matcher{}, errors.New("matcher must be name<op>value")
+	}
+	return backend.Matcher{
+		Name: name, Value: value,
+		IsRegex: bestOp.isRegex, IsEqual: bestOp.isEqual,
+	}, nil
 }
 
 // errLineWrap wraps err with a 1-based line number for matcher

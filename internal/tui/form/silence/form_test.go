@@ -26,19 +26,35 @@ func loadStyles(t *testing.T) theme.Styles {
 	return *s
 }
 
-// fakeClient records every CreateSilence call.
+// fakeClient records every CreateSilence / UpdateSilence call so
+// each test can assert which verb the form picked plus the spec
+// it sent.
 type fakeClient struct {
-	last    backend.SilenceSpec
-	calls   int
-	wantID  string
-	wantErr error
+	last          backend.SilenceSpec
+	createCalls   int
+	updateCalls   int
+	lastUpdateID  string
+	wantID        string
+	wantErr       error
+	wantUpdateErr error
 }
 
 func (f *fakeClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
-	f.calls++
+	f.createCalls++
 	f.last = spec
 	return f.wantID, f.wantErr
 }
+
+func (f *fakeClient) UpdateSilence(_ context.Context, id string, spec backend.SilenceSpec) error {
+	f.updateCalls++
+	f.last = spec
+	f.lastUpdateID = id
+	return f.wantUpdateErr
+}
+
+// calls is the legacy "either verb" accessor used by tests written
+// before the form learned edit mode.
+func (f *fakeClient) calls() int { return f.createCalls + f.updateCalls }
 
 func newForm(t *testing.T, client Client) *Form {
 	t.Helper()
@@ -139,7 +155,8 @@ func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	require.NotNil(t, cmd)
 	msg := cmd().(SubmittedMsg)
 	require.Equal(t, "sil-42", msg.ID)
-	require.Equal(t, 1, client.calls)
+	require.Equal(t, 1, client.createCalls)
+	require.Equal(t, 0, client.updateCalls)
 	require.Equal(t, "alice", client.last.CreatedBy)
 	require.Equal(t, "ack while patching", client.last.Comment)
 	require.Len(t, client.last.Matchers, 2)
@@ -157,7 +174,7 @@ func TestForm_SubmitWithoutMatchersFails(t *testing.T) {
 	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "matcher")
-	require.Equal(t, 0, client.calls, "submit must not reach client on validation failure")
+	require.Equal(t, 0, client.calls(), "submit must not reach client on validation failure")
 }
 
 func TestForm_SubmitWithBadMatcherShowsLine(t *testing.T) {
@@ -264,4 +281,176 @@ func TestForm_EndsBeforeStartsRejects(t *testing.T) {
 	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "ends must be after starts")
+}
+
+func TestForm_PrefillMatchers(t *testing.T) {
+	t.Parallel()
+	in := []backend.Matcher{
+		{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		{Name: "severity", Value: "warning|critical", IsRegex: true, IsEqual: true},
+		{Name: "team", Value: "platform"},                     // !=
+		{Name: "instance", Value: ".*-canary", IsRegex: true}, // !~
+	}
+	f := New(Options{
+		Client:   &fakeClient{},
+		Styles:   loadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		Creator:  "alice",
+		Matchers: in,
+	})
+	want := "alertname=HighCPU\nseverity=~warning|critical\nteam!=platform\ninstance!~.*-canary"
+	require.Equal(t, want, f.matchers)
+}
+
+func TestForm_PrefillComment(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Client:  &fakeClient{},
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		Comment: "ack while patching",
+	})
+	require.Equal(t, "ack while patching", f.comment)
+}
+
+func TestForm_PrefillEndsAt(t *testing.T) {
+	t.Parallel()
+	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
+	f := New(Options{
+		Client:  &fakeClient{},
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		EndsAt:  endsAt,
+	})
+	require.Equal(t, "2026-04-25T14:00:00Z", f.ends)
+}
+
+func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Client:  &fakeClient{},
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	require.Equal(t, "2h", f.ends, "zero EndsAt must keep the duration shorthand default")
+}
+
+func TestForm_EditModeCallsUpdate(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{}
+	f := New(Options{
+		Client:   client,
+		Styles:   loadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		Creator:  "alice",
+		Matchers: []backend.Matcher{{Name: "alertname", Value: "A", IsEqual: true}},
+		Comment:  "still ack",
+		EditID:   "sil-7",
+	})
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(SubmittedMsg)
+	require.True(t, ok)
+	require.Equal(t, "sil-7", msg.ID, "SubmittedMsg in edit mode echoes the EditID")
+	require.True(t, msg.Updated, "Updated must be true so parent page flashes \"updated\" not \"created\"")
+	require.Equal(t, 1, client.updateCalls)
+	require.Equal(t, 0, client.createCalls)
+	require.Equal(t, "sil-7", client.lastUpdateID)
+	require.Equal(t, "still ack", client.last.Comment)
+}
+
+func TestForm_EditModeClientErrorFlashesAndKeepsForm(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{wantUpdateErr: errors.New("update boom")}
+	f := New(Options{
+		Client:   client,
+		Styles:   loadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		Creator:  "alice",
+		Matchers: []backend.Matcher{{Name: "alertname", Value: "A", IsEqual: true}},
+		Comment:  "ack",
+		EditID:   "sil-7",
+	})
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "update boom")
+}
+
+func TestForm_FormatMatchersRoundTrip(t *testing.T) {
+	t.Parallel()
+	// Includes values that themselves contain an operator-like
+	// substring (`a!=b`, `a=b`, `=~regex`) so the leftmost-position
+	// parser is exercised — alerts in the wild can carry such
+	// values in annotations, and a lossy round-trip would silently
+	// rewrite the matcher when the user opens an `e` form.
+	in := []backend.Matcher{
+		{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		{Name: "severity", Value: "warning|critical", IsRegex: true, IsEqual: true},
+		{Name: "team", Value: "platform"},
+		{Name: "instance", Value: ".*-canary", IsRegex: true},
+		{Name: "expr", Value: "a!=b", IsEqual: true},
+		{Name: "expr2", Value: "a=b", IsEqual: true},
+		{Name: "expr3", Value: "x=~y", IsEqual: false},
+	}
+	rendered := formatMatchers(in)
+	parsed, err := parseMatchers(rendered)
+	require.NoError(t, err)
+	require.Equal(t, in, parsed)
+}
+
+func TestForm_ParseOneMatcherLeftmostWins(t *testing.T) {
+	t.Parallel()
+	// Direct exercise of the leftmost-position rule. `foo=a!=b`
+	// must split on the first `=`, not the later `!=`. Tie at
+	// the same index between `=~` and `=` resolves to `=~`.
+	cases := []struct {
+		line string
+		want backend.Matcher
+	}{
+		{
+			line: "foo=a!=b",
+			want: backend.Matcher{Name: "foo", Value: "a!=b", IsEqual: true},
+		},
+		{
+			line: "foo=~bar",
+			want: backend.Matcher{Name: "foo", Value: "bar", IsRegex: true, IsEqual: true},
+		},
+		{
+			line: "foo!~bar=baz",
+			want: backend.Matcher{Name: "foo", Value: "bar=baz", IsRegex: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.line, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseOneMatcher(tc.line)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestForm_TitleSwitchesOnEditID(t *testing.T) {
+	t.Parallel()
+	create := New(Options{
+		Client:  &fakeClient{},
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	edit := New(Options{
+		Client:  &fakeClient{},
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		EditID:  "sil-7",
+	})
+	require.Equal(t, "new silence", create.Title())
+	require.Equal(t, "edit silence sil-7", edit.Title())
 }
