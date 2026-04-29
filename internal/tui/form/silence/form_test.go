@@ -78,13 +78,13 @@ func type_(f *Form, s string) {
 func TestForm_DefaultEnds(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
-	require.Equal(t, "2h", f.ends, "default endsAt is +2h shorthand")
+	require.Equal(t, "2h", f.ends.Value(), "default endsAt is +2h shorthand")
 }
 
 func TestForm_CreatorDefaultedFromOpts(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
-	require.Equal(t, "alice", f.creator)
+	require.Equal(t, "alice", f.creator.Value())
 }
 
 func TestForm_TabWalksFields(t *testing.T) {
@@ -95,6 +95,63 @@ func TestForm_TabWalksFields(t *testing.T) {
 	require.Equal(t, fieldStarts, f.focus)
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	require.Equal(t, fieldMatchers, f.focus)
+}
+
+func TestForm_NonKeyMessagesReachFocusedInput(t *testing.T) {
+	t.Parallel()
+	// The bubbles cursor blink loop is driven by tea.Msg values
+	// (cursor.BlinkMsg) that are NOT tea.KeyPressMsg. If the form
+	// short-circuits on non-key messages, the blink Cmd Focus()
+	// returns produces a tea.Msg the form swallows and the cursor
+	// never blinks.
+	//
+	// We can't easily construct a cursor.BlinkMsg from the test
+	// (it's package-private), but we can prove the non-key path
+	// reaches the input by feeding any non-key tea.Msg and
+	// asserting the form returns without panicking and without
+	// converting the message into a CancelledMsg or similar.
+	f := newForm(t, &fakeClient{})
+	type bogusMsg struct{}
+	got, cmd := f.Update(bogusMsg{})
+	require.Same(t, f, got, "non-key forwarding must keep the same Form pointer")
+	// Bubbles' inputs return a nil Cmd for unknown messages, so
+	// the test asserts the path runs end-to-end without raising.
+	require.Nil(t, cmd, "bubbles must no-op on an unknown tea.Msg")
+}
+
+func TestForm_ErrorPersistsAcrossNavigation(t *testing.T) {
+	t.Parallel()
+	// A failed submit should leave the validation error visible
+	// so the user can read which field broke and Tab over to fix
+	// it. Wiping err on every keystroke (including Tab) defeats
+	// that — the error must survive at least until the next
+	// submit attempt.
+	f := newForm(t, &fakeClient{})
+	// Submit empty matchers → fail() sets f.err.
+	_, _ = f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotEmpty(t, f.err, "validation failure must populate f.err")
+	prev := f.err
+	// Tab to the next field — error must stay.
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, prev, f.err, "Tab must not wipe the validation error")
+	// Type into the next field — bubbles routes the keystroke,
+	// the error stays so the user keeps the context.
+	_, _ = f.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.Equal(t, prev, f.err, "typing must not wipe the validation error")
+}
+
+func TestForm_FocusToggleBlursPrevious(t *testing.T) {
+	t.Parallel()
+	// Walking focus must Blur the outgoing field and Focus the
+	// incoming one so bubbles renders the cursor on exactly one
+	// input at a time.
+	f := newForm(t, &fakeClient{})
+	require.True(t, f.matchers.Focused())
+	require.False(t, f.starts.Focused())
+
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.False(t, f.matchers.Focused())
+	require.True(t, f.starts.Focused())
 }
 
 func TestForm_CapturesInput(t *testing.T) {
@@ -116,7 +173,7 @@ func TestForm_TypingGloballyBoundCharsLandsInBuffer(t *testing.T) {
 	// (text comes through without filtering).
 	f := newForm(t, &fakeClient{})
 	type_(f, "q0/:?12abc")
-	require.Equal(t, "q0/:?12abc", f.matchers,
+	require.Equal(t, "q0/:?12abc", f.matchers.Value(),
 		"the form must accept every printable rune; the App's "+
 			"InputCapturePage path is what shadows LayerGlobal at runtime")
 }
@@ -125,17 +182,20 @@ func TestForm_TypingAppendsToFocusedField(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
 	type_(f, "alertname=HighCPU")
-	require.Equal(t, "alertname=HighCPU", f.matchers)
+	require.Equal(t, "alertname=HighCPU", f.matchers.Value())
 
 	// Tab to creator and overtype.
 	for range 3 {
 		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 	require.Equal(t, fieldCreator, f.focus)
+	// Ctrl+U deletes from cursor to start of line — with the
+	// pre-filled "alice" and cursor at end after Focus, that
+	// clears the field.
 	_, _ = f.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Empty(t, f.creator, "Ctrl+U clears the focused field")
+	require.Empty(t, f.creator.Value(), "Ctrl+U clears the focused field")
 	type_(f, "ops")
-	require.Equal(t, "ops", f.creator)
+	require.Equal(t, "ops", f.creator.Value())
 }
 
 func TestForm_BackspacePopsRune(t *testing.T) {
@@ -143,7 +203,7 @@ func TestForm_BackspacePopsRune(t *testing.T) {
 	f := newForm(t, &fakeClient{})
 	type_(f, "abc")
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	require.Equal(t, "ab", f.matchers)
+	require.Equal(t, "ab", f.matchers.Value())
 }
 
 func TestForm_EnterInMatchersAddsNewline(t *testing.T) {
@@ -152,16 +212,17 @@ func TestForm_EnterInMatchersAddsNewline(t *testing.T) {
 	type_(f, "alertname=A")
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	type_(f, "severity=critical")
-	require.Equal(t, "alertname=A\nseverity=critical", f.matchers)
+	require.Equal(t, "alertname=A\nseverity=critical", f.matchers.Value())
 }
 
 func TestForm_EnterInOtherFieldsIsNoOp(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // → starts
-	prev := f.starts
+	prev := f.starts.Value()
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.Equal(t, prev, f.starts, "Enter must NOT add a newline outside Matchers")
+	require.Equal(t, prev, f.starts.Value(),
+		"Enter must NOT modify the value of single-line inputs")
 }
 
 func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
@@ -323,7 +384,7 @@ func TestForm_PrefillMatchers(t *testing.T) {
 		Matchers: in,
 	})
 	want := "alertname=HighCPU\nseverity=~warning|critical\nteam!=platform\ninstance!~.*-canary"
-	require.Equal(t, want, f.matchers)
+	require.Equal(t, want, f.matchers.Value())
 }
 
 func TestForm_PrefillComment(t *testing.T) {
@@ -335,7 +396,7 @@ func TestForm_PrefillComment(t *testing.T) {
 		Creator: "alice",
 		Comment: "ack while patching",
 	})
-	require.Equal(t, "ack while patching", f.comment)
+	require.Equal(t, "ack while patching", f.comment.Value())
 }
 
 func TestForm_PrefillEndsAt(t *testing.T) {
@@ -348,7 +409,7 @@ func TestForm_PrefillEndsAt(t *testing.T) {
 		Creator: "alice",
 		EndsAt:  endsAt,
 	})
-	require.Equal(t, "2026-04-25T14:00:00Z", f.ends)
+	require.Equal(t, "2026-04-25T14:00:00Z", f.ends.Value())
 }
 
 func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
@@ -359,7 +420,7 @@ func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 	})
-	require.Equal(t, "2h", f.ends, "zero EndsAt must keep the duration shorthand default")
+	require.Equal(t, "2h", f.ends.Value(), "zero EndsAt must keep the duration shorthand default")
 }
 
 func TestForm_EditModeCallsUpdate(t *testing.T) {

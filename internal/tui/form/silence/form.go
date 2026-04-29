@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package silence renders the silence-creation form. v0.1 ships a
-// hand-rolled, keyboard-driven form (no huh dependency) — five
-// scalar fields plus a free-form Matchers field encoded as
-// "name=value" / "name=~regex" lines. Enough to land a silence;
-// the form's affordances are deliberately small so the surface
-// area stays reviewable in one commit.
+// Package silence renders the silence-creation / -edit form. v0.1
+// composes bubbles' textinput / textarea models for the per-field
+// chrome (cursor, placeholder, blur/focus states) and keeps a thin
+// wrapper for cross-field navigation, validation, and the
+// CreateSilence / UpdateSilence verb selection.
 //
-// Submit calls a backend.Writer.CreateSilence via the injected
-// Client interface. Success pops the form (caller responsibility:
-// the SubmittedMsg the form emits drives a popPage). Errors stay
-// in the form (the user fixes and re-submits) and surface as a
-// flash.
+// Submit calls a backend.Writer via the injected Client interface.
+// Success emits SubmittedMsg (auto-pop); failure flashes the error
+// and stays on the form so the user can correct and re-submit.
 package silence
 
 import (
@@ -21,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -86,13 +85,16 @@ type Form struct {
 	styles theme.Styles
 	now    func() time.Time
 
-	// Field buffers. Strings throughout — we parse on submit so
-	// validation errors all surface at once with line-precise hints.
-	matchers string // free-form: one matcher per line, "name=value" / "name=~regex"
-	starts   string // RFC3339 or "" for "now"
-	ends     string // RFC3339 or duration like "2h" / "30m"
-	creator  string
-	comment  string
+	// matchers is the multi-line free-form buffer holding one
+	// matcher per line (`name=value`, `name=~regex`, …). Bubbles'
+	// textarea handles cursor / wrap / paste / Home/End for free.
+	matchers textarea.Model
+	// Single-line scalar fields. Bubbles' textinput supplies
+	// cursor + placeholder + blur/focus styling.
+	starts  textinput.Model
+	ends    textinput.Model
+	creator textinput.Model
+	comment textinput.Model
 
 	// editID is the silence ID to update on submit. Empty means
 	// the form is in create mode; non-empty switches the submit
@@ -139,31 +141,99 @@ type Options struct {
 	EditID string
 }
 
+// matchersHeight is the number of visible rows reserved for the
+// matchers textarea. Six is enough for the typical 2-3-line
+// silence without forcing a scroll.
+const matchersHeight = 6
+
 // New constructs a Form. Prefill fields on opts (Matchers,
 // Comment, EndsAt, EditID) are applied only when set; an empty
-// Options yields the create-from-scratch shape v0.1 first
-// shipped (`n` on the silences list).
+// Options yields the create-from-scratch shape.
 func New(opts Options) *Form {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	f := &Form{
-		client:  opts.Client,
-		styles:  opts.Styles,
-		now:     now,
-		creator: opts.Creator,
-		comment: opts.Comment,
-		editID:  opts.EditID,
-		ends:    "2h",
-	}
+
+	matchers := textarea.New()
+	matchers.Prompt = ""
+	matchers.Placeholder = "alertname=HighCPU\nseverity=critical"
+	matchers.SetHeight(matchersHeight)
+	matchers.ShowLineNumbers = false
+	flattenTextareaBlur(&matchers)
 	if len(opts.Matchers) > 0 {
-		f.matchers = formatMatchers(opts.Matchers)
+		matchers.SetValue(formatMatchers(opts.Matchers))
 	}
+
+	starts := newInput("now")
+	ends := newInput("2h")
 	if !opts.EndsAt.IsZero() {
-		f.ends = opts.EndsAt.UTC().Format(time.RFC3339)
+		ends.SetValue(opts.EndsAt.UTC().Format(time.RFC3339))
+	} else {
+		ends.SetValue("2h")
 	}
+	creator := newInput("$USER")
+	if opts.Creator != "" {
+		creator.SetValue(opts.Creator)
+	}
+	comment := newInput("ack while patching")
+	if opts.Comment != "" {
+		comment.SetValue(opts.Comment)
+	}
+
+	f := &Form{
+		client:   opts.Client,
+		styles:   opts.Styles,
+		now:      now,
+		matchers: matchers,
+		starts:   starts,
+		ends:     ends,
+		creator:  creator,
+		comment:  comment,
+		editID:   opts.EditID,
+	}
+	// Focus the first field so the user lands ready to type.
+	_ = f.activeFocus()
 	return f
+}
+
+// newInput constructs a textinput.Model with the form's shared
+// shape: no built-in prompt (the row label provides one), the
+// supplied placeholder for empty state, no character limit, and
+// flattened text + placeholder styling so every input renders
+// in the body's default foreground regardless of focus or
+// fill state. The form's only focus indicator is the leading
+// `▸` marker plus the row label's accent tint — bubbles' default
+// dim-grey placeholder + dim-grey blurred text would compete
+// with that and make every blurred / unfilled field look stale.
+func newInput(placeholder string) textinput.Model {
+	in := textinput.New()
+	in.Prompt = ""
+	in.Placeholder = placeholder
+	s := in.Styles()
+	s.Blurred.Text = s.Focused.Text
+	s.Focused.Placeholder = s.Focused.Text
+	s.Blurred.Placeholder = s.Focused.Text
+	in.SetStyles(s)
+	return in
+}
+
+// flattenTextareaBlur strips dim and background highlights from
+// the textarea so matchers reads identically — same fg, no bg
+// stripe — whether focused or blurred. Bubbles' defaults paint
+// a CursorLine background and dim blurred text + placeholder;
+// the form's focus marker is the leading `▸` + accent label,
+// not a rectangular highlight that competes with the row chrome.
+func flattenTextareaBlur(m *textarea.Model) {
+	s := m.Styles()
+	bare := lipgloss.NewStyle()
+	s.Focused.Text = bare
+	s.Blurred.Text = bare
+	s.Focused.Placeholder = bare
+	s.Blurred.Placeholder = bare
+	s.Focused.CursorLine = bare
+	s.Blurred.CursorLine = bare
+	m.SetStyles(s)
 }
 
 // Init implements app.Page.
@@ -191,8 +261,11 @@ func (f *Form) Title() string {
 	return "new silence"
 }
 
-// HeaderContent implements app.Page. Mirrors Title.
-func (f *Form) HeaderContent() string { return f.Title() }
+// HeaderContent implements app.Page. Empty so the App's
+// subtitle slot collapses — Title() already labels the panel
+// border with "new silence" / "edit silence <id>", a subtitle
+// echo would just duplicate it.
+func (*Form) HeaderContent() string { return "" }
 
 // Bindings implements app.Page.
 func (*Form) Bindings() []action.Action {
@@ -203,85 +276,101 @@ func (*Form) Bindings() []action.Action {
 	}
 }
 
-// Update implements app.Page.
+// Update implements app.Page. Cross-field navigation and submit
+// land here directly; every other message — printable keys,
+// cursor keys, paste, backspace, Ctrl+U, plus the non-key
+// messages that drive cursor blink (cursor.BlinkMsg) and paste
+// completion — forwards to the focused bubbles input. Without
+// the non-key forward the cursor would never blink because the
+// blink Cmd Focus() returns produces a tea.Msg the form
+// otherwise swallows.
 func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyMsg)
-	if !ok {
-		return f, nil
-	}
-	f.err = ""
-	switch keyMsg.String() {
-	case "tab":
-		f.focus = (f.focus + 1) % numFields
-	case "shift+tab":
-		f.focus = (f.focus + numFields - 1) % numFields
-	case "esc":
-		return f, func() tea.Msg { return CancelledMsg{} }
-	case "ctrl+s":
-		cmd := f.submit()
-		return f, cmd
-	case "backspace":
-		f.backspace()
-	case "ctrl+u":
-		*f.fieldRef() = ""
-	case "enter":
-		// Enter inserts a newline only in the matchers field —
-		// every other field is single-line and ignores it.
-		if f.focus == fieldMatchers {
-			*f.fieldRef() += "\n"
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "tab":
+			cmd := f.cycleFocus(1)
+			return f, cmd
+		case "shift+tab":
+			cmd := f.cycleFocus(-1)
+			return f, cmd
+		case "esc":
+			return f, func() tea.Msg { return CancelledMsg{} }
+		case "ctrl+s":
+			cmd := f.submit()
+			return f, cmd
 		}
-	default:
-		f.appendInput(keyMsg)
 	}
-	return f, nil
+	cmd := f.forwardToFocused(msg)
+	return f, cmd
 }
 
-// fieldRef returns a pointer to the focused buffer.
-func (f *Form) fieldRef() *string {
+// forwardToFocused dispatches the message to whichever bubbles
+// input is currently focused. Each model's Update returns a
+// fresh copy (value receiver), so the slot is reassigned in
+// place. Accepts tea.Msg (not just KeyPressMsg) so cursor blink
+// ticks and paste completions reach the focused field too.
+func (f *Form) forwardToFocused(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
 	switch f.focus {
 	case fieldMatchers:
-		return &f.matchers
+		f.matchers, cmd = f.matchers.Update(msg)
 	case fieldStarts:
-		return &f.starts
+		f.starts, cmd = f.starts.Update(msg)
 	case fieldEnds:
-		return &f.ends
+		f.ends, cmd = f.ends.Update(msg)
 	case fieldCreator:
-		return &f.creator
+		f.creator, cmd = f.creator.Update(msg)
 	case fieldComment:
-		return &f.comment
+		f.comment, cmd = f.comment.Update(msg)
 	case numFields:
-		// Sentinel — never the active focus. Falls through to
-		// the default arm below for safety.
+		// Sentinel — never the active focus.
 	}
-	return &f.comment
+	return cmd
 }
 
-// appendInput appends the keystroke's printable rune to the focused
-// buffer. Falls back to KeyPressMsg.Code when Text is empty (some
-// terminals don't populate Text).
-func (f *Form) appendInput(km tea.KeyMsg) {
-	k := km.Key()
-	if k.Mod != 0 {
-		return
-	}
-	r := k.Text
-	if r == "" && k.Code >= 0x20 && k.Code != 0x7f {
-		r = string(k.Code)
-	}
-	if r == "" {
-		return
-	}
-	*f.fieldRef() += r
+// cycleFocus walks focus by delta (typically ±1), blurring the
+// outgoing field and focusing the incoming one. Returns the
+// Cmd Focus emits (cursor blink schedule) so the program loop
+// drives the new field's blink timer.
+func (f *Form) cycleFocus(delta int) tea.Cmd {
+	f.activeBlur()
+	f.focus = (f.focus + fieldIndex(delta) + numFields) % numFields
+	return f.activeFocus()
 }
 
-// backspace pops one rune from the focused buffer.
-func (f *Form) backspace() {
-	cur := *f.fieldRef()
-	if cur == "" {
-		return
+// activeFocus calls Focus on the field at the current index.
+func (f *Form) activeFocus() tea.Cmd {
+	switch f.focus {
+	case fieldMatchers:
+		return f.matchers.Focus()
+	case fieldStarts:
+		return f.starts.Focus()
+	case fieldEnds:
+		return f.ends.Focus()
+	case fieldCreator:
+		return f.creator.Focus()
+	case fieldComment:
+		return f.comment.Focus()
+	case numFields:
 	}
-	r := []rune(cur)
-	*f.fieldRef() = string(r[:len(r)-1])
+	return nil
+}
+
+// activeBlur calls Blur on the field at the current index.
+func (f *Form) activeBlur() {
+	switch f.focus {
+	case fieldMatchers:
+		f.matchers.Blur()
+	case fieldStarts:
+		f.starts.Blur()
+	case fieldEnds:
+		f.ends.Blur()
+	case fieldCreator:
+		f.creator.Blur()
+	case fieldComment:
+		f.comment.Blur()
+	case numFields:
+	}
 }
 
 // submit parses the buffers and either creates or updates the
@@ -322,36 +411,38 @@ func (f *Form) fail(text string) tea.Cmd {
 // parseSpec converts the field buffers into a backend.SilenceSpec.
 // Returns the first validation error encountered.
 func (f *Form) parseSpec() (backend.SilenceSpec, error) {
-	matchers, err := parseMatchers(f.matchers)
+	matchers, err := parseMatchers(f.matchers.Value())
 	if err != nil {
 		return backend.SilenceSpec{}, err
 	}
 	if len(matchers) == 0 {
 		return backend.SilenceSpec{}, errors.New("at least one matcher is required")
 	}
-	starts, err := parseTimeOrNow(f.starts, f.now())
+	starts, err := parseTimeOrNow(f.starts.Value(), f.now())
 	if err != nil {
 		return backend.SilenceSpec{}, errors.New("starts: " + err.Error())
 	}
-	ends, err := parseEndsAt(f.ends, starts)
+	ends, err := parseEndsAt(f.ends.Value(), starts)
 	if err != nil {
 		return backend.SilenceSpec{}, errors.New("ends: " + err.Error())
 	}
 	if !ends.After(starts) {
 		return backend.SilenceSpec{}, errors.New("ends must be after starts")
 	}
-	if strings.TrimSpace(f.creator) == "" {
+	creator := strings.TrimSpace(f.creator.Value())
+	if creator == "" {
 		return backend.SilenceSpec{}, errors.New("creator is required")
 	}
-	if strings.TrimSpace(f.comment) == "" {
+	comment := strings.TrimSpace(f.comment.Value())
+	if comment == "" {
 		return backend.SilenceSpec{}, errors.New("comment is required")
 	}
 	return backend.SilenceSpec{
 		Matchers:  matchers,
 		StartsAt:  starts,
 		EndsAt:    ends,
-		CreatedBy: strings.TrimSpace(f.creator),
-		Comment:   strings.TrimSpace(f.comment),
+		CreatedBy: creator,
+		Comment:   comment,
 	}, nil
 }
 
@@ -382,9 +473,9 @@ func MatchersFromLabels(labels map[string]string) []backend.Matcher {
 }
 
 // formatMatchers renders matchers in the same one-per-line syntax
-// the user types manually so a prefilled form can be edited with
-// Tab + backspace without a special path. Inverse of parseMatchers
-// — the symmetry is asserted by TestForm_FormatMatchersRoundTrip.
+// the user types manually so a prefilled form can be edited
+// without a special path. Inverse of parseMatchers — the symmetry
+// is asserted by TestForm_FormatMatchersRoundTrip.
 func formatMatchers(in []backend.Matcher) string {
 	if len(in) == 0 {
 		return ""
@@ -525,39 +616,88 @@ func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	return time.Parse(time.RFC3339, in)
 }
 
-// View implements app.Page. Renders one field per row with the
-// focused field marked by a leading "▸". The matchers field shows
-// every line of its buffer.
+// labelWidth is the column width reserved for the field labels
+// (`Matchers:`, `Starts:`, …). Eleven cols fit the longest label
+// plus the colon plus a space.
+const labelWidth = 11
+
+// View implements app.Page. Renders one labeled row per field —
+// label on the left, the bubbles input's View on the right —
+// with the focused row's label tinted via the theme's accent
+// colour and a leading `▸` so the active field is unmissable.
 func (f *Form) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	inputWidth := max(
+		// -2 = leading prefix "▸ " or "  "
+		width-labelWidth-2, 10)
+	f.matchers.SetWidth(inputWidth)
+	f.starts.SetWidth(inputWidth)
+	f.ends.SetWidth(inputWidth)
+	f.creator.SetWidth(inputWidth)
+	f.comment.SetWidth(inputWidth)
+
 	rows := []string{
-		f.fieldRow("Matchers", fieldMatchers, f.matchers),
-		f.fieldRow("Starts", fieldStarts, placeholder(f.starts, "now")),
-		f.fieldRow("Ends", fieldEnds, placeholder(f.ends, "2h")),
-		f.fieldRow("Creator", fieldCreator, f.creator),
-		f.fieldRow("Comment", fieldComment, f.comment),
+		f.fieldRow("Matchers", fieldMatchers, f.matchers.View()),
+		f.fieldRow("Starts", fieldStarts, f.starts.View()),
+		f.fieldRow("Ends", fieldEnds, f.ends.View()),
+		f.fieldRow("Creator", fieldCreator, f.creator.View()),
+		f.fieldRow("Comment", fieldComment, f.comment.View()),
 	}
-	footerLine := "Tab=next  Shift+Tab=prev  Ctrl+S=submit  Esc=cancel"
+	body := strings.Join(rows, "\n")
 	if f.err != "" {
-		footerLine = "ERR: " + f.err + "    " + footerLine
+		// The hint strip in the top panel already advertises
+		// Tab / Shift+Tab / Ctrl+S; the only thing the form
+		// itself needs to surface in the body is a recent
+		// validation error so the user can see what to fix.
+		body += "\n\n" + f.styles.Flash.Error.Render("ERR: "+f.err)
 	}
-	body := strings.Join(rows, "\n") + "\n\n" + footerLine
 	return lipgloss.NewStyle().Width(width).Render(body)
 }
 
-func (f *Form) fieldRow(label string, idx fieldIndex, value string) string {
+// fieldRow assembles one labelled row: leading prefix (▸ for the
+// focused field, two spaces otherwise) + padded label + the
+// bubbles input's already-rendered View. Multi-line input values
+// get the label only on the first row; continuation lines align
+// under the input column so a multi-line matchers buffer reads
+// as one block visually.
+//
+// Labels are rendered foreground-only and bold. Body.Default
+// carries a background colour for the page chrome — painting it
+// behind every label would draw a stripe that doesn't match the
+// inputs alongside, so its foreground is extracted explicitly.
+// Header.Accent is already foreground-only per the theme spec
+// but isn't bold; Bold(true) is a real apply on both branches so
+// labels read as row headers regardless of focus state, while
+// Header.Accent's yellow singles out the active row.
+func (f *Form) fieldRow(label string, idx fieldIndex, rendered string) string {
 	prefix := "  "
+	labelStyle := lipgloss.NewStyle().
+		Foreground(f.styles.Body.Default.GetForeground()).
+		Bold(true)
 	if idx == f.focus {
 		prefix = "▸ "
+		labelStyle = f.styles.Header.Accent.Bold(true)
 	}
-	return prefix + label + ": " + value
+	labelText := labelStyle.Render(padRight(label+":", labelWidth))
+	lines := strings.Split(rendered, "\n")
+	for i, ln := range lines {
+		if i == 0 {
+			lines[i] = prefix + labelText + ln
+		} else {
+			lines[i] = strings.Repeat(" ", 2+labelWidth) + ln
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
-func placeholder(value, ph string) string {
-	if value == "" {
-		return "(" + ph + ")"
+// padRight pads s with spaces to exactly w columns. Used for the
+// label column so every input lines up regardless of label
+// length.
+func padRight(s string, w int) string {
+	if lipgloss.Width(s) >= w {
+		return s
 	}
-	return value
+	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
