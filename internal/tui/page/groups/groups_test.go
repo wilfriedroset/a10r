@@ -4,13 +4,16 @@ package groups
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -138,6 +141,80 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "no group under the cursor")
+}
+
+// stripStyle drops ANSI SGR sequences for substring assertions
+// against rendered output.
+func stripStyle(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			inEsc = true
+		case inEsc && r == 'm':
+			inEsc = false
+		case inEsc:
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func TestPage_TitleColdStartShowsLoading(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	require.Contains(t, stripStyle(p.Title()), "loading groups",
+		"cold-start title must read as loading until the first DataMsg lands")
+}
+
+func TestPage_TitleAfterDataMsgFlipsToCount(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
+	require.Equal(t, "groups(all)[2]", p.Title())
+}
+
+func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
+	require.False(t, p.refreshing)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.True(t, p.refreshing,
+		"`r` must flip the page into refreshing state")
+	require.NotNil(t, cmd)
+
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok)
+	var sawRefresh bool
+	for _, c := range batch {
+		if rr, ok := c().(app.RefreshRequestedMsg); ok {
+			require.Equal(t, "groups", rr.Resource)
+			require.Equal(t, "all", rr.Scope)
+			sawRefresh = true
+		}
+	}
+	require.True(t, sawRefresh)
+}
+
+func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	p := New(Options{Styles: loadStyles(t), Now: func() time.Time { return now }})
+	require.Empty(t, p.Footer())
+
+	_, _ = p.Update(poll.DataMsg{
+		Resource: sampleGroups(),
+		Tenant:   "",
+		NextAt:   now.Add(25 * time.Second),
+	})
+	require.Equal(t, "next refresh 25s", p.Footer())
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.Equal(t, "refreshing…", p.Footer())
 }
 
 // fakeSilenceClient satisfies silenceform.Client; the groups
