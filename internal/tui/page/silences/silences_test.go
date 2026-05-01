@@ -79,6 +79,32 @@ func TestPage_DefaultsToEndsAtAscending(t *testing.T) {
 	require.True(t, p.sortAsc, "soonest-expiring first matches operator priority")
 }
 
+func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Tenant:   "",
+	})
+
+	out := stripStyle(p.View(160, 20))
+	require.Contains(t, out, "1h ago",
+		"relative mode renders StartsAt one hour earlier as `1h ago`")
+	require.Contains(t, out, "1h",
+		"relative mode renders EndsAt one hour later as `1h`")
+
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	out = stripStyle(p.View(180, 20))
+	require.Contains(t, out, "2026-",
+		"absolute mode must surface the ISO local date prefix on both columns")
+	// Per post-batch UX call, time mode is intentionally absent
+	// from HeaderContent — the flash on `t` is the affordance,
+	// and the visible cells make the mode self-evident.
+	require.NotContains(t, p.HeaderContent(), "time:",
+		"time mode must NOT take a HeaderContent slot — saves a body row")
+}
+
 func TestPage_DataMsgPopulatesAndSortsByEndsAtAscending(t *testing.T) {
 	t.Parallel()
 

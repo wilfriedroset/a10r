@@ -109,6 +109,40 @@ type RefreshRequestedMsg struct {
 	Scope    string
 }
 
+// TimeFormat is the rendering mode for any duration / timestamp
+// the list pages surface. Toggled app-globally by the `t` binding
+// per Q7.2 — flipping it on the alerts page also flips silences
+// and the alert-detail summary so the user sees one consistent
+// time treatment across views.
+type TimeFormat int
+
+const (
+	// TimeFormatRelative renders durations as "5m ago" / "2h ago".
+	// Default mode — matches every list page's pre-toggle UX.
+	TimeFormatRelative TimeFormat = iota
+	// TimeFormatAbsolute renders timestamps as ISO local
+	// "2026-05-01 13:45:00". Q7.4 — widened columns absorb the
+	// extra width on the alerts / silences tables.
+	TimeFormatAbsolute
+)
+
+// String returns a short identifier for the format suitable for
+// HeaderContent ("relative" / "absolute") and the flash on toggle.
+func (f TimeFormat) String() string {
+	if f == TimeFormatAbsolute {
+		return "absolute"
+	}
+	return "relative"
+}
+
+// TimeFormatChangedMsg announces a flip of the app-global time-
+// format toggle. Every page that renders durations / timestamps
+// listens for it and re-renders. Defined here so pages don't have
+// to import keys/ or this file's siblings just for the type.
+type TimeFormatChangedMsg struct {
+	Format TimeFormat
+}
+
 // pushPageMsg requests a push of the page produced by Factory.
 // The factory shape (instead of a Page value) lets the page's
 // Init run inside the App's Update — required by bubbletea

@@ -888,6 +888,39 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 		"Batch must contain RefreshRequestedMsg{Resource:alerts}")
 }
 
+func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	// Pin StartsAt to a known absolute time so the absolute label
+	// is deterministic across runs / hosts. fixedNow is in UTC;
+	// header.FormatAbsolute renders in local time, so the test
+	// asserts only the date portion which is timezone-stable
+	// within a few hours of UTC.
+	startsAt := fixedNow.Add(-time.Minute)
+	a := mkAlert("CritOne", "critical", backend.AlertStateActive)
+	a.StartsAt = startsAt
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}, Tenant: ""})
+
+	// Default mode is relative — body shows "1m ago".
+	out := stripStyle(p.View(140, 20))
+	require.Contains(t, out, "1m ago")
+	require.NotContains(t, out, "2026-",
+		"relative mode must not surface the absolute date")
+
+	// Flip to absolute — body shows the ISO local stamp. Per
+	// post-batch UX call (max real-estate), the time mode is NOT
+	// surfaced in HeaderContent; the toggle's flash is the
+	// affordance signal and the cell content speaks for itself.
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	out = stripStyle(p.View(140, 20))
+	require.NotContains(t, out, "1m ago")
+	require.Contains(t, out, "2026-",
+		"absolute mode must surface the ISO local date prefix")
+	require.NotContains(t, p.HeaderContent(), "time:",
+		"time mode must NOT take a HeaderContent slot — saves a body row")
+}
+
 func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
 	t.Parallel()
 

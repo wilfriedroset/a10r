@@ -99,6 +99,11 @@ type Options struct {
 	// Creator seeds the silence form's CreatedBy field; usually
 	// $USER. Empty falls back to "a10r" in the form factory.
 	Creator string
+	// TimeFormat seeds the page's time-format mode at construction
+	// so a page pushed *after* the user toggled `t` doesn't open
+	// in relative while the rest of the app reads absolute. Zero
+	// value (TimeFormatRelative) is the pre-toggle default.
+	TimeFormat app.TimeFormat
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -162,6 +167,11 @@ type Page struct {
 	sortAsc     bool
 	stateFilter string // "" = all, otherwise an AlertState value
 
+	// timeFormat mirrors the app-global toggle. Defaults to
+	// relative; flipped by app.TimeFormatChangedMsg so every list
+	// page agrees on absolute vs. relative timestamps.
+	timeFormat app.TimeFormat
+
 	// polledTenants is the set of tenants that have produced at
 	// least one DataMsg in this page's lifetime. Mirrors the
 	// silences page's pattern so the title's "loading…" affordance
@@ -201,6 +211,7 @@ func New(opts Options) *Page {
 		scope:         opts.Scope,
 		clients:       opts.Clients,
 		creator:       opts.Creator,
+		timeFormat:    opts.TimeFormat,
 		byTenant:      map[string][]backend.Alert{},
 		sort:          SortBySeverity,
 		sortAsc:       false,
@@ -304,10 +315,14 @@ func (p *Page) scopeIncludes(tenant string) bool {
 }
 
 // HeaderContent implements app.Page. Surfaces filter / state-
-// filter / mark count when active so the user can see at a glance
-// what's been applied or queued. Sort state is intentionally
-// absent — the column header carries the ↑/↓ indicator and
-// repeating it here is noise. Returns empty when nothing is
+// filter / mark count when active so the user can see at a
+// glance what's been applied or queued. Sort state is
+// intentionally absent — the column header carries the ↑/↓
+// indicator and repeating it here is noise. Time-format is
+// intentionally absent too: the toggle's flash-on-press is the
+// affordance signal, and the visible cell content (relative vs
+// absolute) is self-evident — adding a subtitle here would steal
+// a body row of real estate. Returns empty when nothing is
 // active so the App skips the subtitle line entirely.
 func (p *Page) HeaderContent() string {
 	var parts []string
@@ -460,6 +475,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.ScopeChangedMsg:
 		p.scope = m.Scope
 		p.recompute()
+		return p, nil
+	case app.TimeFormatChangedMsg:
+		p.timeFormat = m.Format
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash the new silence ID so the
@@ -747,14 +765,16 @@ func (p *Page) drillToDetail() tea.Cmd {
 	now := p.now
 	clients := p.clients
 	creator := p.creator
+	tf := p.timeFormat
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:   entry.a,
-			Tenant:  entry.tenant,
-			Styles:  styles,
-			Now:     now,
-			Clients: clients,
-			Creator: creator,
+			Alert:      entry.a,
+			Tenant:     entry.tenant,
+			Styles:     styles,
+			Now:        now,
+			Clients:    clients,
+			Creator:    creator,
+			TimeFormat: tf,
 		})
 	})
 }
@@ -856,7 +876,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	for i := p.topRow; i < end; i++ {
 		entry := p.view[i]
 		a := entry.a
-		ageLabel := header.FormatAge(p.now(), a.StartsAt)
+		ageLabel := p.formatTime(a.StartsAt)
 		if ageLabel == "" {
 			ageLabel = "—"
 		}
@@ -952,17 +972,19 @@ const rowPrefixCols = 4
 // padColumns lays out the row's columns at fixed widths with one
 // flex column for the alertname. The leading TENANT column is
 // optional — added when scope spans multiple backends and parts
-// has 5 entries instead of 4. Crude but adequate for v0.1; a
-// future commit can swap in lipgloss/table.Table if ergonomics
-// become a complaint.
+// has 5 entries instead of 4. AGE is widened in absolute mode so
+// the ISO local timestamp ("2026-05-01 13:45:00", 19 cols) fits
+// without truncation per Q7.4.
 func (p *Page) padColumns(parts []string, width int) string {
-	// severity 12 / name flex / state 14 / age 12, plus optional
-	// leading tenant 16. The flex column absorbs the remainder.
 	tenantCol := 0
 	if p.showTenantColumn() {
 		tenantCol = 16
 	}
-	const sevCol, stateCol, ageCol = 12, 14, 12
+	const sevCol, stateCol = 12, 14
+	ageCol := 12
+	if p.timeFormat == app.TimeFormatAbsolute {
+		ageCol = 20
+	}
 	flex := max(width-tenantCol-sevCol-stateCol-ageCol-rowPrefixCols, 10)
 
 	cols := []int{}
@@ -979,6 +1001,16 @@ func (p *Page) padColumns(parts []string, width int) string {
 		b.WriteString(padRight(v, cols[i]))
 	}
 	return b.String()
+}
+
+// formatTime renders ts according to the page's active time
+// format. Mirrors the silences / alert-detail formatters so the
+// three views agree on how the toggle reads.
+func (p *Page) formatTime(ts time.Time) string {
+	if p.timeFormat == app.TimeFormatAbsolute {
+		return header.FormatAbsolute(ts)
+	}
+	return header.FormatAge(p.now(), ts)
 }
 
 // padRight truncates / right-pads s to exactly w runes.

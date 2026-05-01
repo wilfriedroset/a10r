@@ -90,6 +90,13 @@ type App struct {
 	height int
 
 	quitting bool
+
+	// timeFormat is the app-global toggle between relative
+	// durations ("5m ago") and absolute ISO local timestamps. List
+	// pages observe TimeFormatChangedMsg and re-render. Defaults
+	// to relative — matches the pre-toggle UX every page shipped
+	// with.
+	timeFormat TimeFormat
 }
 
 // NewApp constructs an App with the supplied dependencies. Registers
@@ -118,6 +125,34 @@ func NewApp(opts Options) *App {
 	return a
 }
 
+// TimeFormat returns the app-global time-format toggle's current
+// value. Page factories close over the App and read this at push
+// time so a page opened *after* the user toggled `t` doesn't open
+// in relative mode while the rest of the app reads absolute.
+func (a *App) TimeFormat() TimeFormat { return a.timeFormat }
+
+// toggleTimeFormatCmd flips the app's TimeFormat and emits the
+// announcement message + a flash. Pages that don't observe the
+// message ignore it (the dispatcher fires regardless of which
+// page is on top of the stack).
+func (a *App) toggleTimeFormatCmd() tea.Cmd {
+	if a.timeFormat == TimeFormatRelative {
+		a.timeFormat = TimeFormatAbsolute
+	} else {
+		a.timeFormat = TimeFormatRelative
+	}
+	captured := a.timeFormat
+	return tea.Batch(
+		func() tea.Msg { return TimeFormatChangedMsg{Format: captured} },
+		func() tea.Msg {
+			return footer.FlashShowMsg{
+				Level: footer.FlashInfo,
+				Text:  "time: " + captured.String(),
+			}
+		},
+	)
+}
+
 // registerTenantBindings wires the numeric quick-switch keys
 // (`0` for all-tenants, `1`-`9` for the Nth configured backend)
 // at LayerGlobal. Pressing one emits a ScopeChangedMsg the top
@@ -143,6 +178,12 @@ func (a *App) registerTenantBindings() {
 func (a *App) registerGlobalBindings() {
 	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+C", func() tea.Cmd { return tea.Quit })
 	a.dispatcher.Set(keys.LayerGlobal, "q", func() tea.Cmd { return tea.Quit })
+	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
+	// state-filter cycle moved to Shift+F to free this slot).
+	// Emits TimeFormatChangedMsg so every page that renders
+	// durations re-renders, and a flash so the user sees the
+	// switch took effect (Q7.5).
+	a.dispatcher.Set(keys.LayerGlobal, "t", a.toggleTimeFormatCmd)
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
@@ -216,6 +257,7 @@ func globalsCatalog() []action.Action {
 		{Key: "/", Description: "filter"},
 		{Key: "?", Description: "help"},
 		{Key: "r", Description: "refresh"},
+		{Key: "t", Description: "time format"},
 		{Key: "Esc", Description: "back"},
 		{Key: "q", Description: "quit"},
 		{Key: "Ctrl+C", Description: "force quit"},

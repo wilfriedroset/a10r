@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -87,6 +88,48 @@ func sample() backend.Alert {
 		State:        backend.AlertStateActive,
 		StartsAt:     fixedNow.Add(-5 * time.Minute),
 	}
+}
+
+func TestPage_OpensInPushTimeFormat(t *testing.T) {
+	t.Parallel()
+
+	// A page pushed *after* the user toggled `t` to absolute must
+	// open already in absolute mode — without this, a detail page
+	// drilled from the alerts list would briefly read 5m ago while
+	// the parent showed an ISO timestamp behind it.
+	p := New(Options{
+		Alert:      sample(),
+		Tenant:     "prod",
+		Styles:     loadStyles(t),
+		Now:        func() time.Time { return fixedNow },
+		TimeFormat: app.TimeFormatAbsolute,
+	})
+	out := stripStyle(p.View(120, 30))
+	require.Contains(t, out, "started:",
+		"absolute mode swaps the age label to started")
+	require.Contains(t, out, "2026-",
+		"absolute mode renders ISO local on first View")
+}
+
+func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	out := stripStyle(p.View(120, 30))
+	require.Contains(t, out, "5m ago")
+	require.NotContains(t, out, "2026-",
+		"relative mode must not surface the absolute date")
+
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	out = stripStyle(p.View(120, 30))
+	require.NotContains(t, out, "5m ago")
+	require.Contains(t, out, "2026-",
+		"absolute mode must surface the ISO local date prefix on the age line")
 }
 
 func TestPage_RenderShowsAllSections(t *testing.T) {

@@ -120,6 +120,44 @@ func TestApp_RefreshRequestedNilHandlerIsSafe(t *testing.T) {
 	require.Nil(t, cmd)
 }
 
+func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	require.Equal(t, TimeFormatRelative, a.timeFormat,
+		"app starts in relative mode")
+
+	_, cmd := a.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	require.Equal(t, TimeFormatAbsolute, a.timeFormat,
+		"first `t` press flips to absolute")
+	require.NotNil(t, cmd)
+
+	// Walk the batch and assert both the announce + flash are
+	// produced. Order doesn't matter — we only care that both
+	// land on the bus.
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok, "Cmd must produce a BatchMsg")
+	var sawAnnounce, sawFlash bool
+	for _, c := range batch {
+		switch m := c().(type) {
+		case TimeFormatChangedMsg:
+			require.Equal(t, TimeFormatAbsolute, m.Format)
+			sawAnnounce = true
+		case footer.FlashShowMsg:
+			require.Contains(t, m.Text, "absolute")
+			sawFlash = true
+		}
+	}
+	require.True(t, sawAnnounce, "must announce the new format")
+	require.True(t, sawFlash, "must flash so the user sees the toggle took effect")
+
+	// Second press flips back.
+	_, _ = a.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	require.Equal(t, TimeFormatRelative, a.timeFormat)
+}
+
 func TestApp_CtrlCQuits(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

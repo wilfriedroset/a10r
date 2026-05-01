@@ -268,3 +268,26 @@ func FormatAge(now, last time.Time) string {
 	}
 	return fmt.Sprintf("%dh ago", int(d.Hours()))
 }
+
+// AbsoluteFormat is the layout pages use when the app-global
+// time-format toggle (`t`) is set to absolute. ISO-style local
+// time per Q7.4: year-month-day HH:MM:SS, no timezone marker so
+// the column stays narrow enough for the widened AGE / ENDS /
+// STARTS budgets. Local zone — the operator typically reads at
+// the same wall clock the alerts themselves came in under.
+const AbsoluteFormat = "2006-01-02 15:04:05"
+
+// FormatAbsolute renders last in the AbsoluteFormat (local zone)
+// or returns "" when last is zero, mirroring FormatAge's empty-
+// state contract. Pulled out here so the alerts / silences /
+// alert-detail pages share one wall-clock conversion. Local zone
+// is deliberate per Q7.4 — operators read TUI timestamps under
+// the same wall clock the alerts arrived under.
+//
+//nolint:gosmopolitan // local time is the explicit operator-facing choice
+func FormatAbsolute(last time.Time) string {
+	if last.IsZero() {
+		return ""
+	}
+	return last.Local().Format(AbsoluteFormat)
+}

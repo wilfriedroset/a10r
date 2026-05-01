@@ -147,6 +147,11 @@ type Page struct {
 	// crashing.
 	editor edit.Resolver
 
+	// timeFormat mirrors the app-global toggle (relative vs.
+	// absolute timestamps). Flipped by app.TimeFormatChangedMsg
+	// so every list page agrees.
+	timeFormat app.TimeFormat
+
 	// pendingEdit captures which silence the user is editing in
 	// $EDITOR so the FinishedMsg handler can call UpdateSilence
 	// against the right backend. Empty between rounds.
@@ -231,6 +236,10 @@ type Options struct {
 	// the binding. Production wiring passes edit.SystemResolver();
 	// tests inject a recording resolver.
 	EditorResolver edit.Resolver
+	// TimeFormat seeds the page's time-format mode at construction
+	// so a page pushed *after* the user toggled `t` doesn't open
+	// in relative while the rest of the app reads absolute.
+	TimeFormat app.TimeFormat
 }
 
 // New constructs an empty silences page.
@@ -249,6 +258,7 @@ func New(opts Options) *Page {
 		clients:       opts.Clients,
 		creator:       opts.Creator,
 		editor:        opts.EditorResolver,
+		timeFormat:    opts.TimeFormat,
 		byTenant:      map[string][]backend.Silence{},
 		marks:         map[string]struct{}{},
 		sort:          SortByEndsAt,
@@ -357,6 +367,10 @@ func (p *Page) showTenantColumn() bool {
 // been applied or queued without re-opening the prompt. Cadence
 // (next-refresh deadline) rides the bordered body's bottom edge
 // via Footer — it's ambient frame state, not a header subtitle.
+// Time-format toggle is intentionally absent: the flash on `t`
+// press is the affordance signal, and the visible cell content
+// (relative vs absolute) is self-evident — adding a subtitle
+// here would steal a body row of real estate.
 func (p *Page) HeaderContent() string {
 	var parts []string
 	if p.filter != "" {
@@ -490,6 +504,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.ScopeChangedMsg:
 		p.scope = m.Scope
 		p.recompute()
+		return p, nil
+	case app.TimeFormatChangedMsg:
+		p.timeFormat = m.Format
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
@@ -1108,8 +1125,8 @@ func (p *Page) renderRows(width, maxRows int) string {
 			row = append(row, e.tenant)
 		}
 		row = append(row,
-			header.FormatAge(p.now(), e.s.EndsAt),
-			header.FormatAge(p.now(), e.s.StartsAt),
+			p.formatTime(e.s.EndsAt),
+			p.formatTime(e.s.StartsAt),
 			e.s.CreatedBy,
 			string(e.s.State),
 		)
@@ -1181,15 +1198,19 @@ func (p *Page) reconcileScroll(maxRows int) {
 
 // padColumns lays out a row across fixed-width columns. The
 // optional leading TENANT column shrinks the flex CreatedBy
-// column so the totals still fit the available width.
+// column so the totals still fit. ENDS / STARTS widen in
+// absolute time mode so the ISO local timestamp fits without
+// truncation per Q7.4.
 func (p *Page) padColumns(parts []string, width int) string {
 	const (
 		tenantW = 16
-		endsW   = 14
-		startsW = 14
 		stateW  = 12
 		minBy   = 10
 	)
+	endsW, startsW := 14, 14
+	if p.timeFormat == app.TimeFormatAbsolute {
+		endsW, startsW = 20, 20
+	}
 	used := endsW + startsW + stateW + 2
 	cols := make([]int, 0, 5)
 	if p.showTenantColumn() {
@@ -1206,6 +1227,15 @@ func (p *Page) padColumns(parts []string, width int) string {
 		b.WriteString(padRight(v, cols[i]))
 	}
 	return b.String()
+}
+
+// formatTime renders ts according to the page's active time
+// format. Mirrors the alerts / alert-detail formatters.
+func (p *Page) formatTime(ts time.Time) string {
+	if p.timeFormat == app.TimeFormatAbsolute {
+		return header.FormatAbsolute(ts)
+	}
+	return header.FormatAge(p.now(), ts)
 }
 
 func padRight(s string, w int) string {

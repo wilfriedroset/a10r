@@ -64,6 +64,10 @@ type Options struct {
 	// Creator seeds the silence form's CreatedBy field; usually
 	// $USER. Empty falls back to "a10r" in the form factory.
 	Creator string
+	// TimeFormat seeds the page's time-format mode at push time
+	// so the detail body opens in the same mode the parent list
+	// page was already showing.
+	TimeFormat app.TimeFormat
 }
 
 // Page is the alert-detail view. Implements app.Page.
@@ -80,6 +84,11 @@ type Page struct {
 	// creator seeds the silence form's CreatedBy field.
 	creator string
 
+	// timeFormat mirrors the app-global toggle. Flipped by
+	// app.TimeFormatChangedMsg so the summary's "age:" line reads
+	// the same shape as the alerts list it was pushed from.
+	timeFormat app.TimeFormat
+
 	// scroll is the index of the first visible body line. j/k/G/gg
 	// walk it; the renderer reconciles against the body height
 	// every frame so the user can never scroll past the bottom.
@@ -93,14 +102,15 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	return &Page{
-		a:       opts.Alert,
-		tenant:  opts.Tenant,
-		styles:  opts.Styles,
-		clip:    opts.Clipboard,
-		browser: opts.Browser,
-		now:     now,
-		clients: opts.Clients,
-		creator: opts.Creator,
+		a:          opts.Alert,
+		tenant:     opts.Tenant,
+		styles:     opts.Styles,
+		clip:       opts.Clipboard,
+		browser:    opts.Browser,
+		now:        now,
+		clients:    opts.Clients,
+		creator:    opts.Creator,
+		timeFormat: opts.TimeFormat,
 	}
 }
 
@@ -154,6 +164,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case app.GoToFirstRowMsg:
 		p.scroll = 0
+		return p, nil
+	case app.TimeFormatChangedMsg:
+		p.timeFormat = m.Format
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped; flash the new silence ID so the user
@@ -377,8 +390,16 @@ func (p *Page) renderSummary() string {
 	if p.a.Fingerprint != "" {
 		lines = append(lines, "fingerprint: "+p.a.Fingerprint)
 	}
-	if age := header.FormatAge(p.now(), p.a.StartsAt); age != "" {
-		lines = append(lines, "age:         "+age)
+	if stamp := p.formatTime(p.a.StartsAt); stamp != "" {
+		// "age" reads as a duration; in absolute mode the line
+		// shows a wall-clock, so the label flips to "started" to
+		// stay semantically honest. Same column width so the
+		// values column doesn't shift on toggle.
+		label := "age:         "
+		if p.timeFormat == app.TimeFormatAbsolute {
+			label = "started:     "
+		}
+		lines = append(lines, label+stamp)
 	}
 	if p.tenant != "" {
 		lines = append(lines, "tenant:      "+p.tenant)
@@ -500,6 +521,16 @@ func bestBreakIndex(s string, limit int) int {
 		width += rw
 	}
 	return len(s)
+}
+
+// formatTime renders ts according to the page's active time
+// format. Mirrors the alerts / silences formatters so the three
+// views agree on how the toggle reads.
+func (p *Page) formatTime(ts time.Time) string {
+	if p.timeFormat == app.TimeFormatAbsolute {
+		return header.FormatAbsolute(ts)
+	}
+	return header.FormatAge(p.now(), ts)
 }
 
 // flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so

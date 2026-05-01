@@ -71,8 +71,21 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// a separate poller isn't justified.
 	tenantVersions := fetchTenantVersions(cmd.Context(), clients)
 	tenantRows := buildTenantRows(cfg, tenantVersions)
+	// The resolver's page factories close over `a` so the active
+	// app-global TimeFormat reaches each newly-pushed page (issue
+	// raised in the post-batch review: pages pushed *after* the
+	// user toggled `t` were opening in relative). a is forward-
+	// declared and assigned on the line below; closures read it at
+	// invocation time, by which point app.NewApp has run.
+	var a *app.App
+	timeFormat := func() app.TimeFormat {
+		if a == nil {
+			return app.TimeFormatRelative
+		}
+		return a.TimeFormat()
+	}
 	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator,
-		tenantRows, cfg, clients)
+		tenantRows, cfg, clients, timeFormat)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -92,7 +105,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// be deferred. We defer the membership of the slice rather
 	// than the wiring shape.)
 	pollerReg := &pollerRegistry{}
-	a := app.NewApp(app.Options{
+	a = app.NewApp(app.Options{
 		Styles:     *styles,
 		Registry:   registry,
 		Dispatcher: dispatcher,
@@ -114,11 +127,12 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	go func() {
 		homeFactory := func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:  *styles,
-				Now:     time.Now,
-				Scope:   scope,
-				Clients: silenceClients,
-				Creator: creator,
+				Styles:     *styles,
+				Now:        time.Now,
+				Scope:      scope,
+				Clients:    silenceClients,
+				Creator:    creator,
+				TimeFormat: timeFormat(),
 			})
 		}
 		prog.Send(app.PushPage(homeFactory)())
@@ -335,16 +349,18 @@ func newResolver(
 	tenantRows []tenant.Row,
 	cfg *config.Config,
 	clients map[string]backend.Client,
+	timeFormat func() app.TimeFormat,
 ) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:  styles,
-				Now:     time.Now,
-				Scope:   scope,
-				Clients: silenceClients,
-				Creator: creator,
+				Styles:     styles,
+				Now:        time.Now,
+				Scope:      scope,
+				Clients:    silenceClients,
+				Creator:    creator,
+				TimeFormat: timeFormat(),
 			})
 		})
 	})
@@ -357,6 +373,7 @@ func newResolver(
 				Clients:        silenceWriteClients,
 				Creator:        creator,
 				EditorResolver: editorResolver,
+				TimeFormat:     timeFormat(),
 			})
 		})
 	}
