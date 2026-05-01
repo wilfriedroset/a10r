@@ -44,6 +44,11 @@ type ClientConfig struct {
 	Auth         *config.AuthSpec
 	Transport    http.RoundTripper
 	Caps         backend.Caps
+	// UserAgent is the value sent in the HTTP User-Agent header on
+	// every request. Empty disables injection. Composed outside auth
+	// and tenant layers so a downstream proxy that strips Authorization
+	// still sees the identifying UA.
+	UserAgent string
 }
 
 // New constructs a *vanilla.Client wrapped with the Mimir-specific
@@ -64,11 +69,12 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 		return nil, err
 	}
 	tenantedRT := transport.WithTenantHeader(authedRT, cfg.TenantHeader, cfg.Tenant)
+	uaRT := transport.WithUserAgent(tenantedRT, cfg.UserAgent)
 
 	return vanilla.New(vanilla.ClientConfig{
 		BaseURL:   cfg.BaseURL,
 		Prefix:    cfg.Prefix,
-		Transport: tenantedRT,
+		Transport: uaRT,
 		Caps:      cfg.Caps,
 	})
 }

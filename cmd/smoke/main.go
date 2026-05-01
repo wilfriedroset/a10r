@@ -56,7 +56,7 @@ func realMain() int {
 }
 
 func run(ctx context.Context, logger *slog.Logger, url string, readOnly bool) error {
-	client, err := factory.Build(config.Backend{Name: "smoke", URL: url})
+	client, err := factory.Build(config.Backend{Name: "smoke", URL: url}, "a10r-smoke")
 	if err != nil {
 		return fmt.Errorf("build client: %w", err)
 	}

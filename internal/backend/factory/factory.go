@@ -30,7 +30,12 @@ import (
 // startup rather than on the first poll. The wrapped error always
 // carries the backend's Name so multi-backend setups know which
 // entry failed.
-func Build(cfg config.Backend) (backend.Client, error) {
+//
+// userAgent is the RFC 9110 User-Agent string applied to every
+// outgoing HTTP request. Pass an empty string to disable injection
+// (tests do; production callers should always pass a meaningful
+// value built from the cmd build vars).
+func Build(cfg config.Backend, userAgent string) (backend.Client, error) {
 	if cfg.URL == "" {
 		return nil, fmt.Errorf("backend %q: url is required", cfg.Name)
 	}
@@ -42,6 +47,7 @@ func Build(cfg config.Backend) (backend.Client, error) {
 		Tenant:       cfg.Tenant,
 		Auth:         cfg.Auth,
 		Caps:         cfg.Capabilities,
+		UserAgent:    userAgent,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("backend %q: %w", cfg.Name, err)

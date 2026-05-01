@@ -83,6 +83,25 @@ func WithTenantHeader(base http.RoundTripper, name, value string) http.RoundTrip
 	return &addHeaderRT{base: base, name: name, value: value}
 }
 
+// WithUserAgent wraps base in a RoundTripper that sets the User-Agent
+// header on every outgoing request per RFC 9110 §10.1.5. Overrides
+// any User-Agent the caller already set so backends can rely on a
+// consistent value identifying the a10r build that issued the
+// request.
+//
+// An empty ua short-circuits to base unchanged so the wiring layer
+// can pass an unset value (e.g. dev-build with the build vars
+// stripped) without conditional plumbing.
+func WithUserAgent(base http.RoundTripper, ua string) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if ua == "" {
+		return base
+	}
+	return &userAgentRT{base: base, ua: ua}
+}
+
 func newBasic(spec *config.BasicAuth, base http.RoundTripper) (http.RoundTripper, error) {
 	if spec == nil || spec.Username == "" || spec.Password == "" {
 		return nil, ErrMissingBasicCreds
@@ -128,5 +147,20 @@ type addHeaderRT struct {
 func (rt *addHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
 	cloned.Header.Set(rt.name, rt.value)
+	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
+}
+
+// userAgentRT injects a fixed User-Agent on every request. Distinct
+// from addHeaderRT only because Go's http stack auto-populates
+// Header["User-Agent"] from req.Header rather than synthesising a
+// default — Set unconditionally overrides any caller-supplied value.
+type userAgentRT struct {
+	base http.RoundTripper
+	ua   string
+}
+
+func (rt *userAgentRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.Header.Set("User-Agent", rt.ua)
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }

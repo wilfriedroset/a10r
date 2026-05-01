@@ -248,6 +248,82 @@ func TestComposition_AuthAndTenantBothApply(t *testing.T) {
 		"tenant header must reach the wire")
 }
 
+func TestWithUserAgent_Injects(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt := WithUserAgent(http.DefaultTransport, "a10r/1.2.3")
+	roundTripOnce(t, rt, srv)
+
+	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
+}
+
+func TestWithUserAgent_EmptyShortCircuits(t *testing.T) {
+	t.Parallel()
+
+	base := http.DefaultTransport
+	rt := WithUserAgent(base, "")
+	require.Same(t, base, rt, "empty UA must return base unchanged")
+}
+
+func TestWithUserAgent_OverridesCallerSetUA(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt := WithUserAgent(http.DefaultTransport, "a10r/1.2.3")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
+	require.NoError(t, err)
+	req.Header.Set("User-Agent", "should-be-overridden/9.9")
+
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+
+	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
+}
+
+func TestWithUserAgent_NilBaseDefaultsToDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt := WithUserAgent(nil, "a10r/dev")
+	roundTripOnce(t, rt, srv)
+	require.Equal(t, "a10r/dev", srvCap.headers.Get("User-Agent"))
+}
+
+func TestComposition_AuthTenantAndUserAgentBothApply(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	authed, err := New(&config.AuthSpec{
+		Type:   config.AuthTypeBearer,
+		Bearer: &config.BearerAuth{Token: "tok"},
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+	tenanted := WithTenantHeader(authed, "X-Scope-OrgID", "tenant-b")
+	rt := WithUserAgent(tenanted, "a10r/1.0 (abc)")
+
+	roundTripOnce(t, rt, srv)
+
+	require.Equal(t, "Bearer tok", srvCap.headers.Get(headerAuthorization))
+	require.Equal(t, "tenant-b", srvCap.headers.Get("X-Scope-Orgid"))
+	require.Equal(t, "a10r/1.0 (abc)", srvCap.headers.Get("User-Agent"))
+}
+
 func TestRoundTrip_DoesNotMutateCallerRequest(t *testing.T) {
 	t.Parallel()
 

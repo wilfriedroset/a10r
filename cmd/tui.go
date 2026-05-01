@@ -147,10 +147,15 @@ func silenceWriteClientsFrom(in map[string]backend.Client) map[string]silences.C
 // warning and is skipped — the rest still get a client. The
 // resulting map is shared between the poller fan-out (read paths)
 // and the page factories (write paths) so the two stay in sync.
+//
+// The User-Agent is identical for every backend per RFC 9110 §10.1.5
+// — backends differentiate via the existing tenant header, so a
+// per-backend UA would only add noise to backend access logs.
 func buildClients(cfg *config.Config) map[string]backend.Client {
+	ua := userAgent()
 	out := make(map[string]backend.Client, len(cfg.Backends))
 	for _, be := range cfg.Backends {
-		c, err := factory.Build(be)
+		c, err := factory.Build(be, ua)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "backend %q: build failed: %v\n", be.Name, err)
 			continue
@@ -158,6 +163,20 @@ func buildClients(cfg *config.Config) map[string]backend.Client {
 		out[be.Name] = c
 	}
 	return out
+}
+
+// userAgent returns the RFC 9110 User-Agent string identifying this
+// build of a10r. Format: `a10r/<version>` for plain releases,
+// `a10r/<version> (<commit>)` when a non-default commit is available
+// — gives backend operators one grep-able token while keeping the
+// header short for log aggregators. The build vars are injected at
+// link time by goreleaser and default to "dev"/"none" for local
+// builds.
+func userAgent() string {
+	if commit == "" || commit == "none" {
+		return "a10r/" + version
+	}
+	return "a10r/" + version + " (" + commit + ")"
 }
 
 // loadConfigForTUI loads the user config; missing config returns

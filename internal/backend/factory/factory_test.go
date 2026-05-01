@@ -14,13 +14,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
-// observingHandler captures one request's path + a tenant header so
-// the factory tests can assert that vanilla / Mimir scenarios
-// produce wire-correct requests.
+// observingHandler captures one request's path + a tenant header +
+// the User-Agent so the factory tests can assert that vanilla /
+// Mimir scenarios produce wire-correct requests.
 type observingHandler struct {
 	calls atomic.Int32
 	path  atomic.Pointer[string]
 	tHead atomic.Pointer[string]
+	ua    atomic.Pointer[string]
 }
 
 func (h *observingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +34,8 @@ func (h *observingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// happy without changing behaviour.
 	t := r.Header.Get("X-Scope-Orgid")
 	h.tHead.Store(&t)
+	ua := r.Header.Get("User-Agent")
+	h.ua.Store(&ua)
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte("[]"))
 }
@@ -46,7 +49,7 @@ func TestBuild_VanillaScenario(t *testing.T) {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
-	c, err := Build(config.Backend{Name: "prod", URL: srv.URL})
+	c, err := Build(config.Backend{Name: "prod", URL: srv.URL}, "")
 	require.NoError(t, err)
 
 	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
@@ -72,7 +75,7 @@ func TestBuild_MimirScenario(t *testing.T) {
 		Prefix:       "/alertmanager",
 		TenantHeader: "X-Scope-OrgID",
 		Tenant:       "tenant-a",
-	})
+	}, "")
 	require.NoError(t, err)
 
 	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
@@ -95,7 +98,7 @@ func TestBuild_MimirSingleTenantNoHeader(t *testing.T) {
 		Name:   "single",
 		URL:    srv.URL,
 		Prefix: "/alertmanager",
-	})
+	}, "")
 	require.NoError(t, err)
 
 	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
@@ -109,7 +112,7 @@ func TestBuild_MimirSingleTenantNoHeader(t *testing.T) {
 func TestBuild_RejectsEmptyURL(t *testing.T) {
 	t.Parallel()
 
-	_, err := Build(config.Backend{Name: "broken"})
+	_, err := Build(config.Backend{Name: "broken"}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "broken",
 		"error must name the backend so multi-backend setups know which entry failed")
@@ -125,7 +128,7 @@ func TestBuild_PropagatesAuthError(t *testing.T) {
 			Type:  config.AuthTypeBasic,
 			Basic: &config.BasicAuth{Username: "u"}, // no password
 		},
-	})
+	}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "bad-auth",
 		"transport-layer error must surface with the backend name")
@@ -142,13 +145,51 @@ func TestBuild_PropagatesCapabilities(t *testing.T) {
 			TenantAdmin: true,
 			Ring:        false,
 		},
-	})
+	}, "")
 	require.NoError(t, err)
 
 	caps := c.Capabilities()
 	require.True(t, caps.ConfigAPI)
 	require.True(t, caps.TenantAdmin)
 	require.False(t, caps.Ring)
+}
+
+func TestBuild_InjectsUserAgent(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	c, err := Build(config.Backend{Name: "prod", URL: srv.URL}, "a10r/1.2.3 (abc)")
+	require.NoError(t, err)
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+
+	require.Equal(t, "a10r/1.2.3 (abc)", *h.ua.Load(),
+		"factory must wire the User-Agent through the transport stack")
+}
+
+func TestBuild_EmptyUserAgentLeavesGoDefault(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	c, err := Build(config.Backend{Name: "prod", URL: srv.URL}, "")
+	require.NoError(t, err)
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+
+	// Empty UA short-circuits the wrapper; Go's http stack supplies its
+	// own default User-Agent ("Go-http-client/...") so the header is
+	// non-empty. The contract is "we don't override", not "header is
+	// missing entirely".
+	require.NotEmpty(t, *h.ua.Load(),
+		"empty UA must leave Go's default User-Agent in place")
+	require.NotContains(t, *h.ua.Load(), "a10r",
+		"empty UA must not synthesise an a10r-prefixed string")
 }
 
 func TestBuild_ImplementsClient(t *testing.T) {
@@ -159,7 +200,7 @@ func TestBuild_ImplementsClient(t *testing.T) {
 	// the factory return type and the interface.
 	var c backend.Client
 	var err error
-	c, err = Build(config.Backend{Name: "x", URL: "http://x"})
+	c, err = Build(config.Backend{Name: "x", URL: "http://x"}, "")
 	require.NoError(t, err)
 	require.NotNil(t, c)
 }
