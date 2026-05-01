@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -70,18 +72,29 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return func() tea.Msg { return app.GoToFirstRowMsg{} }
 	})
 
+	// pollerReg is mutated after the pollers spawn, but the
+	// closure handed to the App captures a pointer so the empty
+	// slice we publish here is filled before the user can press
+	// `r`. (NewProgram needs the model up front in bubbletea v2;
+	// the model needs a refresh handler; the handler needs the
+	// pollers; the pollers need prog.Send — so something has to
+	// be deferred. We defer the membership of the slice rather
+	// than the wiring shape.)
+	pollerReg := &pollerRegistry{}
 	a := app.NewApp(app.Options{
 		Styles:     *styles,
 		Registry:   registry,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
 		Tenants:    backendNames(cfg),
+		Refresh:    pollerReg.Refresh,
 	})
 
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))
 
-	// Spawn the poller for every configured backend.
-	stopPoller := startBackendPoller(cmd.Context(), cfg, clients, prog)
+	// Spawn the poller for every configured backend and publish
+	// each into the registry so the refresh handler can find them.
+	stopPoller := startBackendPoller(cmd.Context(), cfg, clients, prog, pollerReg)
 	defer stopPoller()
 
 	// Push the alerts home page once the program is running. The
@@ -284,7 +297,10 @@ func newResolver(styles theme.Styles, scope string, silenceClients map[string]si
 // pressure is dominated by the alerts feed, and the others are
 // cheap reads that piggy-back. Configurable per-resource intervals
 // are deferred — overkill for v0.1 and not in the audit.
-func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[string]backend.Client, prog *tea.Program) func() {
+//
+// reg is published with each poller so the App's `r` refresh
+// handler can find the matching entry by (resource, tenant).
+func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[string]backend.Client, prog *tea.Program, reg *pollerRegistry) func() {
 	if len(clients) == 0 {
 		return func() {}
 	}
@@ -296,16 +312,17 @@ func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[str
 		}
 		interval := backendInterval(be, cfg)
 		name := be.Name
-		fetchers := backendFetchers(c)
-		for _, f := range fetchers {
+		for _, entry := range backendFetchers(c) {
 			p := poll.New(poll.Options{
 				Tenant:   name,
+				Resource: entry.resource,
 				Interval: interval,
-				Fetch:    f,
+				Fetch:    entry.fetch,
 				Send:     prog.Send,
 			})
 			p.Start(ctx)
 			pollers = append(pollers, p)
+			reg.Add(p)
 		}
 	}
 	return func() {
@@ -328,15 +345,95 @@ func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 	return time.Minute
 }
 
+// fetcherEntry pairs a poll-resource label with its fetch func.
+// The label feeds poll.Options.Resource so the refresh registry
+// can route an `r` press to the right poller — without it the
+// loop is anonymous and every press would have to re-poll every
+// resource.
+type fetcherEntry struct {
+	resource string
+	fetch    func(ctx context.Context) (any, error)
+}
+
 // backendFetchers returns the four poller fetch funcs for one
 // backend client — alerts, silences, receivers, alert-groups.
 // Each returns the resource as `any` so poll.Options.Fetch can
-// be a single shape across resource types.
-func backendFetchers(c backend.Client) []func(ctx context.Context) (any, error) {
-	return []func(ctx context.Context) (any, error){
-		func(ctx context.Context) (any, error) { return c.ListAlerts(ctx, backend.AlertFilter{}) },
-		func(ctx context.Context) (any, error) { return c.ListSilences(ctx, backend.SilenceFilter{}) },
-		func(ctx context.Context) (any, error) { return c.ListReceivers(ctx) },
-		func(ctx context.Context) (any, error) { return c.ListAlertGroups(ctx, backend.AlertFilter{}) },
+// be a single shape across resource types. The resource labels
+// must match the strings the pages emit on RefreshRequestedMsg
+// ("alerts", "silences", "receivers", "groups").
+func backendFetchers(c backend.Client) []fetcherEntry {
+	return []fetcherEntry{
+		{resource: "alerts", fetch: func(ctx context.Context) (any, error) {
+			return c.ListAlerts(ctx, backend.AlertFilter{})
+		}},
+		{resource: "silences", fetch: func(ctx context.Context) (any, error) {
+			return c.ListSilences(ctx, backend.SilenceFilter{})
+		}},
+		{resource: "receivers", fetch: func(ctx context.Context) (any, error) {
+			return c.ListReceivers(ctx)
+		}},
+		{resource: "groups", fetch: func(ctx context.Context) (any, error) {
+			return c.ListAlertGroups(ctx, backend.AlertFilter{})
+		}},
 	}
+}
+
+// pollerRegistry is the wiring-layer index the App's `r` refresh
+// handler walks. Membership is mutated only at startup (right
+// after each Poller is constructed) and read on every refresh —
+// a sync.RWMutex would be over-engineering for a list that
+// stops growing the moment the program enters its event loop, so
+// a plain Mutex is enough; the cost is bounded by O(pollers).
+type pollerRegistry struct {
+	mu      sync.Mutex
+	pollers []*poll.Poller
+}
+
+// Add registers a Poller. Called from startBackendPoller during
+// startup; the goroutine is still safe to grow the slice because
+// the App's Refresh handler only fires after the user can type,
+// which happens after Run starts and Add has settled.
+func (r *pollerRegistry) Add(p *poll.Poller) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pollers = append(r.pollers, p)
+}
+
+// Refresh nudges every poller matching (resource, scope) to fetch
+// now. Scope follows the same shape the silences / alerts pages
+// use: "all" / "" / single-tenant / comma-joined subset. An
+// unrecognised resource quietly no-ops — the page emits "alerts"
+// / "silences" / "receivers" / "groups", and a typo is recoverable
+// without crashing the loop.
+func (r *pollerRegistry) Refresh(resource, scope string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.pollers {
+		if p.Resource() != resource {
+			continue
+		}
+		if !scopeMatches(scope, p.Tenant()) {
+			continue
+		}
+		p.Refresh()
+	}
+}
+
+// scopeMatches mirrors the pages' scopeIncludes: empty or "all"
+// covers every tenant; comma-joined lists exact-match per element.
+// Defined here, not on the pages, because the wiring layer is the
+// only consumer that reasons about a scope without owning a page.
+// `tenantName` rather than `tenant` to keep the local symbol from
+// shadowing the imported `tenant` package.
+func scopeMatches(scope, tenantName string) bool {
+	scope = strings.TrimSpace(scope)
+	if scope == "" || scope == "all" {
+		return true
+	}
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == tenantName {
+			return true
+		}
+	}
+	return false
 }
