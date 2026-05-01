@@ -145,6 +145,32 @@ shell.
   malformed edit flashes a precise error instead of round-
   tripping a 400.
 
+### Silences page polling UX
+
+- Cold-start "loading" empty state on the silences page —
+  bubbles `Points` spinner plus "loading silences from <scope>…"
+  so a fresh open reads as "we're asking" rather than the
+  ambiguous "no silences (yet)" answer. Empty-state pane now
+  uses the terminal default background to match the regular
+  table view's framing.
+- New `Page.Footer()` interface method; rendered centred in the
+  bordered body's bottom edge via a new `panel.RenderBody`
+  parameter, k9s-style symmetry with `Title` in the top edge.
+  Silences page uses it for "next refresh 26s" — drawn from a
+  new `poll.DataMsg.NextAt` field the loop publishes alongside
+  the payload, no parallel ticker. "refreshing…" overrides the
+  static label between an `r` press and the next DataMsg.
+- `r` on the silences page emits a typed
+  `app.RefreshRequestedMsg{Resource, Scope}`; the wiring layer
+  routes it to a per-(resource, tenant) `pollerRegistry`, which
+  calls `Refresh()` on each matching `*poll.Poller`. Refresh
+  coalesces (buffered slot) and leaves the failure backoff
+  intact so a manual nudge against a flaky upstream doesn't
+  pretend the previous attempts didn't happen.
+- Expired silences render with the foreground-only Dimmed style,
+  mirroring the suppressed-alert treatment on the alerts page —
+  cursor / marked rows still win precedence.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.
