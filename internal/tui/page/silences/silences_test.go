@@ -5,16 +5,20 @@ package silences
 import (
 	"context"
 	"errors"
+	"fmt"
+	"image/color"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -312,12 +316,328 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 		"cursor must follow the focused silence by ID across refreshes")
 }
 
-func TestPage_EmptyState(t *testing.T) {
+func TestPage_TitleColdStartReadsLoading(t *testing.T) {
 	t.Parallel()
 
+	// Pre-poll, the page's Title flips to "<spinner frame>
+	// loading silences…" so the bordered body's top edge itself
+	// reads as the loading affordance — k9s-style. The body
+	// stays empty in this window so the spinner doesn't double
+	// up.
 	p := newPage(t)
-	out := stripStyle(p.View(80, 5))
-	require.Contains(t, out, "no silences (yet)")
+	require.Contains(t, p.Title(), "loading silences…")
+	require.NotContains(t, p.Title(), "silences(",
+		"cold start title must not show a count form")
+	body := stripStyle(p.View(80, 5))
+	require.NotContains(t, body, "loading silences",
+		"loading hint lives in the title now — body must not echo it")
+	require.NotContains(t, body, "no silences",
+		"cold start body must not claim there are no silences — we haven't asked yet")
+}
+
+func TestPage_TitleSwitchesBackAfterPoll(t *testing.T) {
+	t.Parallel()
+
+	// Once a DataMsg lands, the title returns to its count form
+	// and the body picks up the appropriate "no silences (yet)"
+	// copy when the answer is a true empty list.
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{}, Tenant: "prod"})
+	require.Equal(t, "silences(all)[0]", p.Title())
+	body := stripStyle(p.View(80, 5))
+	require.Contains(t, body, "no silences (yet)")
+}
+
+func TestPage_TitleFlipsToLoadingDuringRefresh(t *testing.T) {
+	t.Parallel()
+
+	// `r` re-enters the loading window — the title flips back to
+	// "loading silences…" so the user sees the same affordance
+	// they saw on cold start. The next DataMsg flips it back to
+	// the count form.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	require.Equal(t, "silences(all)[1]", p.Title(),
+		"populated page must read as a count title, not loading")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.Contains(t, p.Title(), "loading silences…",
+		"manual r must reuse the loading title affordance")
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "prod",
+		At:       fixedNow,
+		NextAt:   fixedNow.Add(30 * time.Second),
+	})
+	require.Equal(t, "silences(all)[0]", p.Title(),
+		"DataMsg arrival must flip the title back to the count form")
+}
+
+func TestPage_OutOfScopeDataMsgDoesNotEndLoading(t *testing.T) {
+	t.Parallel()
+
+	// Regression: in a multi-backend setup with the scope narrowed
+	// to one tenant, a fast out-of-scope tenant returning [] used
+	// to flip the page into "polled, empty" state, briefly painting
+	// "no silences (yet)" under a "silences(primary)[0]" title
+	// while waiting for primary's first poll. Polled-ness must be
+	// scope-aware: a staging report doesn't count when the scope
+	// is "primary".
+	p := newPage(t)
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "primary"})
+
+	// Out-of-scope tenant answers first.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "staging",
+		At:       fixedNow,
+		NextAt:   fixedNow.Add(30 * time.Second),
+	})
+	require.Contains(t, p.Title(), "loading silences…",
+		"out-of-scope DataMsg must not end the loading window")
+	body := stripStyle(p.View(80, 5))
+	require.NotContains(t, body, "no silences (yet)",
+		"body must not flash the empty-list copy while the in-scope tenant is still pending")
+
+	// In-scope tenant answers next — only now is the page polled.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{
+			{
+				ID: "s-1", CreatedBy: "alice", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			},
+		},
+		Tenant: "primary",
+		At:     fixedNow,
+		NextAt: fixedNow.Add(30 * time.Second),
+	})
+	require.Equal(t, "silences(primary)[1]", p.Title())
+}
+
+func TestPage_RefreshKeyEmitsRefreshRequestedAndKicksSpinner(t *testing.T) {
+	t.Parallel()
+
+	// `r` is the manual-refresh affordance: emits the typed App
+	// message the wiring layer routes to the pollers, flips the
+	// page into refreshing state, and re-kicks the spinner Tick
+	// so the body's "refreshing…" hint animates while the nudge
+	// is in flight.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	require.False(t, p.refreshing)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.NotNil(t, cmd, "r must produce a Cmd")
+	require.True(t, p.refreshing)
+
+	// The Cmd is a tea.Batch — drain via cmd() once and inspect
+	// the resulting BatchMsg.
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	require.True(t, ok, "r must Batch the refresh and the spinner Tick")
+
+	// Run each child Cmd to inspect the message it emits.
+	seen := map[string]bool{}
+	for _, child := range batch {
+		if child == nil {
+			continue
+		}
+		switch m := child().(type) {
+		case app.RefreshRequestedMsg:
+			seen["refresh"] = true
+			require.Equal(t, "silences", m.Resource)
+		case spinner.TickMsg:
+			seen["tick"] = true
+		}
+	}
+	require.True(t, seen["refresh"], "Batch must emit RefreshRequestedMsg")
+	require.True(t, seen["tick"], "Batch must (re)kick the spinner Tick")
+}
+
+func TestPage_RefreshUsesActiveScope(t *testing.T) {
+	t.Parallel()
+
+	// The scope on the emitted RefreshRequestedMsg mirrors the
+	// page's active scope so a `<1>` quick-switch followed by `r`
+	// only nudges the picked tenant's poller — not every backend.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "prod"})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.NotNil(t, cmd)
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok)
+	for _, child := range batch {
+		if child == nil {
+			continue
+		}
+		if m, ok := child().(app.RefreshRequestedMsg); ok {
+			require.Equal(t, "prod", m.Scope)
+			return
+		}
+	}
+	t.Fatal("RefreshRequestedMsg never observed in the batch")
+}
+
+func TestPage_DataMsgClearsRefreshingFlag(t *testing.T) {
+	t.Parallel()
+
+	// The first DataMsg after `r` clears the refreshing flag so
+	// the spinner stops and the static cadence subtitle takes
+	// over. Without this, the spinner would loop forever after a
+	// successful manual refresh.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.True(t, p.refreshing)
+
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "prod",
+		At:       fixedNow,
+		NextAt:   fixedNow.Add(30 * time.Second),
+	})
+	require.False(t, p.refreshing,
+		"DataMsg arrival must clear the in-flight refresh flag")
+}
+
+func TestPage_FooterShowsNextRefreshAfterPoll(t *testing.T) {
+	t.Parallel()
+
+	// Once the first DataMsg arrives carrying NextAt, the page's
+	// Footer renders "next refresh 25s" — k9s-style symmetry with
+	// the title in the top border. HeaderContent stays clean
+	// (filter / mark / sort indicators only); cadence is ambient
+	// frame state, not a subtitle.
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "prod",
+		At:       fixedNow.Add(-5 * time.Second),
+		NextAt:   fixedNow.Add(25 * time.Second),
+	})
+	require.Equal(t, "next refresh 25s", p.Footer())
+	require.NotContains(t, p.HeaderContent(), "next",
+		"cadence must not leak into the header subtitle once it lives in Footer")
+	require.NotContains(t, p.HeaderContent(), "last",
+		"the dropped \"last X ago\" segment must not resurrect in the header")
+}
+
+func TestPage_FooterRefreshingOverridesCadence(t *testing.T) {
+	t.Parallel()
+
+	// Between `r` and the next DataMsg, Footer reads "refreshing
+	// …" so the user has direct frame-level feedback the nudge
+	// landed. The static "next refresh" copy is suppressed in
+	// this window — it's stale until the new DataMsg updates the
+	// NextAt timestamp.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "prod",
+		At:       fixedNow.Add(-5 * time.Second),
+		NextAt:   fixedNow.Add(25 * time.Second),
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.Equal(t, "refreshing…", p.Footer())
+}
+
+func TestPage_FooterEmptyPrePoll(t *testing.T) {
+	t.Parallel()
+	// Pre-poll the bottom border stays a plain rule — the spinner
+	// in the body already says "loading", and a "next refresh"
+	// label here would be a lie because we have no NextAt yet.
+	p := newPage(t)
+	require.Empty(t, p.Footer())
+}
+
+func TestPage_NextRefreshLabelEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	// Past-due reads "due"; sub-second reads "<1s"; minute / hour
+	// boundaries truncate. The subtitle is the user's only signal
+	// when the next pull will land — wording stability matters.
+	now := fixedNow
+	cases := []struct {
+		name string
+		next time.Time
+		want string
+	}{
+		{"due-now", now, "due"},
+		{"past", now.Add(-time.Second), "due"},
+		{"sub-second", now.Add(500 * time.Millisecond), "<1s"},
+		{"seconds", now.Add(25 * time.Second), "25s"},
+		{"minutes", now.Add(3 * time.Minute), "3m"},
+		{"hours", now.Add(2 * time.Hour), "2h"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, nextRefreshLabel(now, tc.next))
+		})
+	}
+}
+
+func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
+	t.Parallel()
+
+	// Expired silences read like the alerts page's suppressed
+	// alerts: foreground-only dim so the row is still legible
+	// but visibly demoted. The active row in the same view
+	// stays at full contrast so the comparison is obvious.
+	styles := loadStyles(t)
+	p := New(Options{
+		Styles: styles,
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{
+			{
+				ID:        "live",
+				CreatedBy: "alice",
+				State:     backend.SilenceStateActive,
+				StartsAt:  fixedNow.Add(-time.Hour),
+				EndsAt:    fixedNow.Add(time.Hour),
+			},
+			{
+				ID:        "dead",
+				CreatedBy: "bob",
+				State:     backend.SilenceStateExpired,
+				StartsAt:  fixedNow.Add(-2 * time.Hour),
+				EndsAt:    fixedNow.Add(-time.Hour),
+			},
+		},
+		Tenant: "prod",
+	})
+
+	// Default sort is EndsAt-asc, so the expired (older EndsAt)
+	// row lands at index 0 and inherits the cursor band. Move the
+	// cursor down so the cursor styling no longer shadows the
+	// expired row's dim — the test isolates the expired-dim
+	// treatment by asserting on the row that's NOT under the
+	// cursor.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	out := p.View(120, 6)
+	lines := strings.Split(out, "\n")
+	var expiredLine, activeLine string
+	for _, line := range lines {
+		stripped := stripStyle(line)
+		switch {
+		case strings.Contains(stripped, "bob"):
+			expiredLine = line
+		case strings.Contains(stripped, "alice"):
+			activeLine = line
+		}
+	}
+	require.NotEmpty(t, expiredLine, "expired row missing from output")
+	require.NotEmpty(t, activeLine, "active row missing from output")
+	dimFG, _, _, _ := styles.Table.Dimmed.GetForeground().RGBA()
+	require.Contains(t, expiredLine, hexEscapeFor(styles.Table.Dimmed.GetForeground()),
+		"expired row must carry the dimmed fg colour (%08x)", dimFG)
+}
+
+func hexEscapeFor(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	// lipgloss emits truecolor as ESC[38;2;R;G;Bm — match the RGB
+	// triple verbatim so the assertion doesn't need the full ANSI
+	// reset/leading sequence.
+	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
 }
 
 func TestPage_RenderShowsCreatorAndState(t *testing.T) {

@@ -270,16 +270,18 @@ func padRight(s string, w int) string {
 }
 
 // RenderBody wraps the page's body content in a single-line
-// border with title centred in the top edge — the k9s look:
+// border with title centred in the top edge and an optional
+// footer label centred in the bottom edge — the k9s look:
 //
 //	┌────────── alerts(prod)[531] ──────────┐
 //	│ <body>                                │
-//	└───────────────────────────────────────┘
+//	└─────────── next refresh 26s ──────────┘
 //
 // Returns a string exactly width columns wide and at most height
 // rows tall. The body content is sliced / padded to fit the
-// inner rectangle (width-2, height-2).
-func RenderBody(width, height int, body, title string, styles theme.Styles) string {
+// inner rectangle (width-2, height-2). Empty footer renders the
+// bottom edge as a plain rule.
+func RenderBody(width, height int, body, title, footer string, styles theme.Styles) string {
 	if width < 4 || height < 2 {
 		return body
 	}
@@ -307,8 +309,9 @@ func RenderBody(width, height int, body, title string, styles theme.Styles) stri
 		lines[i] = "│" + l + "│"
 	}
 
-	// Bottom border.
-	bottom := "└" + strings.Repeat("─", innerWidth) + "┘"
+	// Bottom border, optionally embedding a label the same way
+	// the title sits in the top edge.
+	bottom := buildFooterBorder(innerWidth, footer)
 
 	frame := top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
 	_ = styles // reserved for the future BorderForeground hook
@@ -347,20 +350,32 @@ func RenderFrame(width int, body string, _ theme.Styles) string {
 // Falls back to a plain border when the title is too long for
 // the inner width (rare on terminals ≥ 80 cols).
 func buildTitleBorder(innerWidth int, title string) string {
-	if title == "" {
-		return "┌" + strings.Repeat("─", innerWidth) + "┐"
+	return buildLabelBorder(innerWidth, title, "┌", "┐")
+}
+
+// buildFooterBorder is the bottom-edge counterpart: same layout,
+// `└` / `┘` corners. Empty label renders a plain rule so pages
+// without ambient state to surface still get a clean frame.
+func buildFooterBorder(innerWidth int, footer string) string {
+	return buildLabelBorder(innerWidth, footer, "└", "┘")
+}
+
+// buildLabelBorder draws "<L>── label ──<R>" with the label
+// centred. Falls back to a plain rule when label is empty or
+// would not leave at least 2 chars of border on each side.
+func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string) string {
+	if label == "" {
+		return leftCorner + strings.Repeat("─", innerWidth) + rightCorner
 	}
-	label := " " + title + " "
-	labelW := lipgloss.Width(label)
+	wrapped := " " + label + " "
+	labelW := lipgloss.Width(wrapped)
 	if labelW+4 > innerWidth {
-		// Title doesn't fit with at least 2 chars of border on
-		// each side; truncate it.
-		label = " " + truncate(title, innerWidth-4) + " "
-		labelW = lipgloss.Width(label)
+		wrapped = " " + truncate(label, innerWidth-4) + " "
+		labelW = lipgloss.Width(wrapped)
 	}
 	left := (innerWidth - labelW) / 2
 	right := innerWidth - labelW - left
-	return "┌" + strings.Repeat("─", left) + label + strings.Repeat("─", right) + "┐"
+	return leftCorner + strings.Repeat("─", left) + wrapped + strings.Repeat("─", right) + rightCorner
 }
 
 // truncate cuts s to at most w columns. Lipgloss-aware so a

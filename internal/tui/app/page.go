@@ -58,6 +58,14 @@ type Page interface {
 	// J1 header spec. Empty omits the slot.
 	HeaderContent() string
 
+	// Footer is the optional label centred in the bordered body's
+	// bottom edge — k9s-style symmetry with Title in the top edge.
+	// Pages that have nothing to surface return "" and the bottom
+	// border renders as a plain rule. Used for ambient state that
+	// belongs framed but doesn't deserve a body-line of its own,
+	// like the silences page's "next refresh" countdown.
+	Footer() string
+
 	// Bindings returns the page's hint-strip actions (already
 	// filtered for read-only mode by the registry, if applicable).
 	// The app shell rebuilds the hint strip on every render from
@@ -86,6 +94,20 @@ type ScopeChangedMsg struct {
 // that don't bind it ignore it. Defined here, not in keys/, so
 // pages don't have to import keys just for the message type.
 type GoToFirstRowMsg struct{}
+
+// RefreshRequestedMsg is the typed message a page emits when the
+// user presses `r` to bypass the poll tick (per keybindings.md
+// C5). The App routes it to the wiring layer's refresh func, which
+// pokes the matching pollers via Refresh(). Resource is the bucket
+// label set on poll.Options.Resource ("alerts", "silences", …);
+// Scope mirrors the page's active scope ("all" / single tenant /
+// comma-joined subset). Pages that don't care about the refresh
+// loop can ignore the message — only the wiring layer consumes
+// it. Defined here so pages don't import poll just for the type.
+type RefreshRequestedMsg struct {
+	Resource string
+	Scope    string
+}
 
 // pushPageMsg requests a push of the page produced by Factory.
 // The factory shape (instead of a Page value) lets the page's

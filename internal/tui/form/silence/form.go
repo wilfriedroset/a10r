@@ -267,6 +267,10 @@ func (f *Form) Title() string {
 // echo would just duplicate it.
 func (*Form) HeaderContent() string { return "" }
 
+// Footer implements app.Page. Form doesn't surface ambient
+// state in the bottom border.
+func (*Form) Footer() string { return "" }
+
 // Bindings implements app.Page.
 func (*Form) Bindings() []action.Action {
 	return []action.Action{

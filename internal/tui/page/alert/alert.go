@@ -134,6 +134,10 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
+// Footer implements app.Page. Alert detail doesn't surface
+// ambient state in the bottom border.
+func (*Page) Footer() string { return "" }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{

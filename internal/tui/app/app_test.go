@@ -84,6 +84,42 @@ func TestApp_ResizePropagates(t *testing.T) {
 		"header must render after resize")
 }
 
+func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
+	t.Parallel()
+
+	// The page's `r` binding emits app.RefreshRequestedMsg; the App
+	// hands the (resource, scope) tuple to the wiring layer's
+	// refresh func. Nil-handler runs are covered separately so the
+	// no-config / no-poller paths don't crash.
+	type call struct{ resource, scope string }
+	var got []call
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     *styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		Refresh: func(resource, scope string) {
+			got = append(got, call{resource, scope})
+		},
+	})
+
+	_, cmd := a.Update(RefreshRequestedMsg{Resource: "silences", Scope: "prod"})
+	require.Nil(t, cmd, "refresh routing is a side effect; no Cmd")
+	require.Equal(t, []call{{"silences", "prod"}}, got,
+		"refresh handler must receive the (resource, scope) tuple verbatim")
+}
+
+func TestApp_RefreshRequestedNilHandlerIsSafe(t *testing.T) {
+	t.Parallel()
+	// Without a Refresh func wired (headless tests / no-poller
+	// wizard runs) the App must silently swallow the message —
+	// pressing `r` early in a wizard run shouldn't crash.
+	a := newTestApp(t)
+	_, cmd := a.Update(RefreshRequestedMsg{Resource: "silences", Scope: "all"})
+	require.Nil(t, cmd)
+}
+
 func TestApp_CtrlCQuits(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

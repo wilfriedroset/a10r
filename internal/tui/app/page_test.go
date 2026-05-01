@@ -83,6 +83,7 @@ func (p *fakePage) View(_, _ int) string      { return p.bodyText }
 func (p *fakePage) Crumb() string             { return p.name }
 func (p *fakePage) Title() string             { return p.name }
 func (p *fakePage) HeaderContent() string     { return p.headerLabel }
+func (*fakePage) Footer() string              { return "" }
 func (p *fakePage) Bindings() []action.Action { return p.hints }
 
 // drive runs tea.Cmds inside the App's Update loop the same way

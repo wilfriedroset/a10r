@@ -51,6 +51,12 @@ type Options struct {
 	// the top panel to render the `<0> all <1> name <2> name …`
 	// tenant shortcut column k9s-style.
 	Tenants []string
+	// Refresh is the handler the App calls when a page emits a
+	// RefreshRequestedMsg. The wiring layer wires it to walk the
+	// (resource, scope) tuple and Refresh() each matching poller.
+	// Optional: nil falls back to a no-op so headless tests don't
+	// need to inject a dummy handler.
+	Refresh func(resource, scope string)
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -64,6 +70,7 @@ type App struct {
 	dispatcher *keys.Dispatcher
 	cmdbar     *cmdbar.Resolver
 	tenants    []string
+	refresh    func(resource, scope string)
 
 	crumbs footer.Crumbs
 	prompt footer.Prompt
@@ -101,6 +108,7 @@ func NewApp(opts Options) *App {
 		dispatcher: opts.Dispatcher,
 		cmdbar:     resolver,
 		tenants:    opts.Tenants,
+		refresh:    opts.Refresh,
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(),
 		flash:      footer.NewFlash(),
@@ -347,6 +355,16 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 		return a.openModal(m.Factory), true
 	case closeModalMsg:
 		a.closeModal()
+		return nil, true
+	case RefreshRequestedMsg:
+		// Translate page-level refresh requests into poller nudges
+		// via the wiring-layer handler. Nil-handler runs (headless
+		// tests, no-config wizard) silently no-op so an early `r`
+		// press doesn't crash. The page is free to surface a flash
+		// of its own — the App stays out of UX feedback for refresh.
+		if a.refresh != nil {
+			a.refresh(m.Resource, m.Scope)
+		}
 		return nil, true
 	}
 	return nil, false
@@ -631,12 +649,15 @@ func tenantBindings(tenants []string) []panel.TenantBinding {
 // renders a styled blank pane. When the active page has a non-
 // empty HeaderContent (filter / sort / mark indicators), it
 // renders as a subtitle line directly below the title border so
-// the user can spot the active shaping at a glance.
+// the user can spot the active shaping at a glance. Page Footer
+// (e.g. silences's "next refresh 26s") rides the bottom border —
+// modals don't get one, the bottom edge stays a plain rule for
+// them.
 func (a *App) renderBody(height int) string {
 	innerHeight := max(height-2, 0) // -2 for top + bottom borders
 	innerWidth := max(a.width-2, 0)
 
-	var inner, title string
+	var inner, title, pageFooter string
 	switch {
 	case a.modal != nil:
 		title = a.modal.Title()
@@ -664,11 +685,12 @@ func (a *App) renderBody(height int) string {
 		} else {
 			inner = p.View(innerWidth, innerHeight)
 		}
+		pageFooter = p.Footer()
 	default:
 		title = "a10r"
 		inner = ""
 	}
-	return panel.RenderBody(a.width, height, inner, title, a.styles)
+	return panel.RenderBody(a.width, height, inner, title, pageFooter, a.styles)
 }
 
 // renderFooter stacks the crumbs / flash strips. The prompt has

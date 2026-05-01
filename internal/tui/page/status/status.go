@@ -64,6 +64,10 @@ func (p *Page) HeaderContent() string {
 	return fmt.Sprintf("%s · v%s · uptime %s", p.tenant, p.st.Version.Version, p.st.Uptime)
 }
 
+// Footer implements app.Page. Status pane doesn't surface
+// ambient state in the bottom border.
+func (*Page) Footer() string { return "" }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{

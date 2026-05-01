@@ -79,7 +79,7 @@ func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(40, 6, "row1\nrow2", "alerts[2]", loadStyles(t))
+	out := RenderBody(40, 6, "row1\nrow2", "alerts[2]", "", loadStyles(t))
 	lines := strings.Split(out, "\n")
 	require.GreaterOrEqual(t, len(lines), 4, "frame must have top + bottom + body lines")
 	require.Contains(t, lines[0], "alerts[2]",
@@ -90,9 +90,38 @@ func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	require.True(t, strings.HasSuffix(lines[len(lines)-1], "┘"))
 }
 
+func TestRenderBody_FooterInBottomBorder(t *testing.T) {
+	t.Parallel()
+	// The footer label sits in the bottom border the same way the
+	// title sits in the top — k9s symmetry. Pages use it for
+	// ambient state ("next refresh 26s") that should be framed
+	// rather than spend a body line.
+	out := RenderBody(40, 6, "row1", "alerts[2]", "next refresh 26s", loadStyles(t))
+	lines := strings.Split(out, "\n")
+	bottom := lines[len(lines)-1]
+	require.Contains(t, bottom, "next refresh 26s",
+		"footer must appear in the bottom border")
+	require.True(t, strings.HasPrefix(bottom, "└"))
+	require.True(t, strings.HasSuffix(bottom, "┘"))
+	require.NotContains(t, lines[0], "next refresh",
+		"footer must not leak into the top border")
+}
+
+func TestRenderBody_EmptyFooterIsPlainRule(t *testing.T) {
+	t.Parallel()
+	out := RenderBody(40, 6, "row1", "alerts[2]", "", loadStyles(t))
+	lines := strings.Split(out, "\n")
+	bottom := lines[len(lines)-1]
+	// A plain bottom rule is "└" + (innerWidth × "─") + "┘". With
+	// innerWidth = 38, that's 38 box-drawing dashes between corners
+	// and no label substring.
+	require.Equal(t, "└"+strings.Repeat("─", 38)+"┘", bottom,
+		"empty footer must render the bottom border as a plain rule")
+}
+
 func TestRenderBody_PadsAndTruncatesLines(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(20, 4, "short\nthis-line-is-far-too-long-to-fit", "x", loadStyles(t))
+	out := RenderBody(20, 4, "short\nthis-line-is-far-too-long-to-fit", "x", "", loadStyles(t))
 	for l := range strings.SplitSeq(out, "\n") {
 		require.LessOrEqual(t, len(l), 60,
 			"each rendered line must fit (with byte allowance for box-drawing UTF-8)")

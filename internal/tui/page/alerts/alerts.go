@@ -273,6 +273,11 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
+// Footer implements app.Page. Alerts list doesn't surface
+// ambient state in the bottom border (the silences page does;
+// keeping this empty here so the alerts frame stays unchanged).
+func (*Page) Footer() string { return "" }
+
 // Bindings implements app.Page. Returns the per-view bindings
 // surfaced in the header's right-zone hint strip.
 func (*Page) Bindings() []action.Action {

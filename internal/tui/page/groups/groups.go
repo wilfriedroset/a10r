@@ -171,6 +171,10 @@ func (p *Page) HeaderContent() string {
 	return ""
 }
 
+// Footer implements app.Page. Groups list doesn't surface
+// ambient state in the bottom border.
+func (*Page) Footer() string { return "" }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
