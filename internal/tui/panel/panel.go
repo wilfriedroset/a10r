@@ -53,6 +53,18 @@ type State struct {
 	Logo string
 }
 
+// gridCols caps how many parallel columns the tenants and hints
+// shortcut grids can grow to. Three keeps the panel readable on
+// narrow terminals — k9s does the same for its namespace and menu
+// strips.
+const gridCols = 3
+
+// unboundedRows is the rowsBudget callers pass when there's no
+// logo (and therefore no natural ceiling on the panel height).
+// Larger than any realistic tenant or hint count; a typed sentinel
+// reads cleaner than a bare `1 << 30`.
+const unboundedRows = 1 << 30
+
 // RenderTop produces the multi-line top panel string. Built
 // row-by-row so multi-line columns (the logo in particular)
 // align consistently across every row. Layout:
@@ -63,15 +75,28 @@ type State struct {
 //
 // The tenants column appears only when state.Tenants is non-
 // empty; the logo drops first when the width budget is tight.
+// Tenants and hints are laid out as up-to-3-column k9s-style
+// grids so a long backend list or hint set doesn't push the panel
+// past the logo's height. Items past `gridCols × logoHeight`
+// silently clip — the panel never grows taller than the logo.
 // The output is exactly state.Width columns wide.
 func RenderTop(state State, styles theme.Styles) string {
 	if state.Width <= 0 {
 		return ""
 	}
-	infoLines := renderInfoLines(state.Info, styles)
-	tenantLines := renderTenantLines(state.Tenants, styles)
-	hintLines := renderHintLines(state.Hints, styles)
 	logoLines := splitNonEmpty(state.Logo)
+	rowsBudget := len(logoLines)
+	if rowsBudget <= 0 {
+		// Empty logo — fall back to a generous budget so callers that
+		// strip the logo still get every entry rendered. The narrow-
+		// width drop below clears the logo *after* the grid has been
+		// built, so this branch only fires when the caller explicitly
+		// passes Logo == "".
+		rowsBudget = unboundedRows
+	}
+	infoLines := clipLines(renderInfoLines(state.Info, styles), rowsBudget)
+	tenantLines := renderTenantLines(state.Tenants, rowsBudget, styles)
+	hintLines := renderHintLines(state.Hints, rowsBudget, styles)
 
 	infoW := maxWidth(infoLines)
 	tenantW := maxWidth(tenantLines)
@@ -144,10 +169,13 @@ func RenderTop(state State, styles theme.Styles) string {
 }
 
 // renderTenantLines formats the tenant-shortcut column as a
-// `<key> name` table styled with the hint key colour but bolded
-// to match k9s's convention of distinguishing tenant / namespace
-// shortcuts from action shortcuts.
-func renderTenantLines(tenants []TenantBinding, styles theme.Styles) []string {
+// k9s-style column-major grid of `<key> name` cells. Width is
+// capped at gridCols columns and rowsBudget rows; items past the
+// cap silently drop so the panel never grows taller than the
+// logo. Each cell is styled with the hint key colour and bolded
+// to distinguish tenant / namespace shortcuts from regular action
+// shortcuts.
+func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles theme.Styles) []string {
 	if len(tenants) == 0 {
 		return nil
 	}
@@ -158,15 +186,74 @@ func renderTenantLines(tenants []TenantBinding, styles theme.Styles) []string {
 			maxKey = w
 		}
 	}
-	out := make([]string, len(tenants))
 	keyStyle := styles.Hint.HelpKey.Bold(true)
 	nameStyle := hintFgOnly(styles).Bold(true)
+	cells := make([]string, len(tenants))
 	for i, t := range tenants {
 		key := keyStyle.Render("<" + t.Key + ">")
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
-		out[i] = key + pad + nameStyle.Render(t.Name)
+		cells[i] = key + pad + nameStyle.Render(t.Name)
+	}
+	return gridLines(cells, rowsBudget)
+}
+
+// gridLines lays cells out in a column-major grid of up to
+// gridCols columns and rowsBudget rows, padding each cell to the
+// widest cell so the columns line up. Items past the cap are
+// silently clipped — the caller can detect this by comparing
+// len(cells) before the call against the rendered output.
+//
+// Layout rule: when len(cells) ≤ rowsBudget the grid stays
+// single-column (one item per row, top-down). Otherwise cols is
+// the smallest count that fits (capped at gridCols) and the rows
+// budget fills entirely; remaining items past the capacity drop.
+func gridLines(cells []string, rowsBudget int) []string {
+	if len(cells) == 0 || rowsBudget <= 0 {
+		return nil
+	}
+	cols, rows := 1, len(cells)
+	if len(cells) > rowsBudget {
+		cols = min((len(cells)+rowsBudget-1)/rowsBudget, gridCols)
+		rows = rowsBudget
+	}
+	if capacity := cols * rows; len(cells) > capacity {
+		cells = cells[:capacity]
+	}
+	cellW := 0
+	for _, c := range cells {
+		if w := lipgloss.Width(c); w > cellW {
+			cellW = w
+		}
+	}
+	const colGap = 2
+	out := make([]string, rows)
+	for r := range rows {
+		var sb strings.Builder
+		for col := range cols {
+			idx := col*rows + r
+			if idx >= len(cells) {
+				break
+			}
+			if col > 0 {
+				sb.WriteString(strings.Repeat(" ", colGap))
+			}
+			cell := cells[idx]
+			sb.WriteString(cell)
+			sb.WriteString(strings.Repeat(" ", cellW-lipgloss.Width(cell)))
+		}
+		out[r] = sb.String()
 	}
 	return out
+}
+
+// clipLines returns lines truncated to at most maxRows entries.
+// Used to keep the labelled info column from pushing the panel
+// past the logo's height. nil-safe.
+func clipLines(lines []string, maxRows int) []string {
+	if len(lines) <= maxRows {
+		return lines
+	}
+	return lines[:maxRows]
 }
 
 // hintFgOnly returns a fresh style carrying only the Hint
@@ -204,9 +291,10 @@ func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
 	return out
 }
 
-// renderHintLines formats the hint column as `<key> Description`
-// rows. Mirrors k9s's frame.menu zone.
-func renderHintLines(hints []action.Action, styles theme.Styles) []string {
+// renderHintLines formats the hint column as a k9s-style column-
+// major grid of `<key> Description` cells, capped the same way
+// the tenant shortcuts are. Mirrors k9s's frame.menu zone.
+func renderHintLines(hints []action.Action, rowsBudget int, styles theme.Styles) []string {
 	if len(hints) == 0 {
 		return nil
 	}
@@ -217,8 +305,8 @@ func renderHintLines(hints []action.Action, styles theme.Styles) []string {
 			maxKey = w
 		}
 	}
-	out := make([]string, len(hints))
 	descStyle := hintFgOnly(styles)
+	cells := make([]string, len(hints))
 	for i, a := range hints {
 		keyStyle := styles.Hint.Key.Bold(true)
 		if a.Key == "?" {
@@ -226,9 +314,9 @@ func renderHintLines(hints []action.Action, styles theme.Styles) []string {
 		}
 		key := keyStyle.Render("<" + a.Key + ">")
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
-		out[i] = key + pad + descStyle.Render(a.Description)
+		cells[i] = key + pad + descStyle.Render(a.Description)
 	}
-	return out
+	return gridLines(cells, rowsBudget)
 }
 
 // splitNonEmpty splits s on \n, returning nil for empty input.

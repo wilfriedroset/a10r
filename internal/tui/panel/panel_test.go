@@ -3,6 +3,8 @@
 package panel
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -75,6 +77,122 @@ func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 	}, styles)
 	require.NotContains(t, stripStyle(out), "a10r-logo-marker",
 		"logo column must drop when width is tight (no specific glyph required)")
+}
+
+func TestRenderTop_TenantsClipToLogoHeight(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	tenants := make([]TenantBinding, 16)
+	for i := range tenants {
+		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%02d", i+1)}
+	}
+	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
+	visible := stripStyle(out)
+	// 3 cols × 5 rows (logo height) = 15 cells. Item 16 must clip.
+	require.Contains(t, visible, "t15")
+	require.NotContains(t, visible, "t16",
+		"the 16th tenant must clip — 3-col grid caps at logo height (5 rows)")
+}
+
+func TestRenderTop_TenantsColumnMajorFill(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	// Six tenants, logo height 5 → cols=2, rows=5. Column-major:
+	// <1>..<5> in col 0; <6> at top of col 1.
+	tenants := []TenantBinding{
+		{Key: "1", Name: "alpha"},
+		{Key: "2", Name: "bravo"},
+		{Key: "3", Name: "charlie"},
+		{Key: "4", Name: "delta"},
+		{Key: "5", Name: "echo"},
+		{Key: "6", Name: "foxtrot"},
+	}
+	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
+	lines := strings.Split(stripStyle(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 5)
+	require.Contains(t, lines[0], "<1>")
+	require.Contains(t, lines[0], "alpha")
+	require.Contains(t, lines[0], "<6>",
+		"<6> sits at the top of column 1 in column-major fill")
+	require.Contains(t, lines[1], "<2>")
+	require.NotContains(t, lines[1], "<6>",
+		"<6> only appears in row 0; col 1 has just the one item")
+}
+
+func TestRenderTop_HintsClipAndLayoutMatchTenants(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	hints := make([]action.Action, 16)
+	for i := range hints {
+		hints[i] = action.Action{
+			Key:         fmt.Sprintf("k%02d", i+1),
+			Description: fmt.Sprintf("desc%02d", i+1),
+		}
+	}
+	out := RenderTop(State{Width: 240, Hints: hints, Logo: Logo}, styles)
+	visible := stripStyle(out)
+	require.Contains(t, visible, "desc15")
+	require.NotContains(t, visible, "desc16",
+		"the 16th hint must clip — same 3×5 budget as tenants")
+}
+
+func TestRenderTop_HintsColumnMajorFill(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	// Seven hints, logo height 5 → cols=2, rows=5. <1>..<5> in col 0,
+	// <6>..<7> in col 1 (rows 0..1). Row 1 carries both <2> and <7>.
+	hints := []action.Action{
+		{Key: "a", Description: "act-a"},
+		{Key: "b", Description: "act-b"},
+		{Key: "c", Description: "act-c"},
+		{Key: "d", Description: "act-d"},
+		{Key: "e", Description: "act-e"},
+		{Key: "f", Description: "act-f"},
+		{Key: "g", Description: "act-g"},
+	}
+	out := RenderTop(State{Width: 240, Hints: hints, Logo: Logo}, styles)
+	lines := strings.Split(stripStyle(out), "\n")
+	require.GreaterOrEqual(t, len(lines), 5)
+	require.Contains(t, lines[0], "act-a")
+	require.Contains(t, lines[0], "act-f")
+	require.Contains(t, lines[1], "act-b")
+	require.Contains(t, lines[1], "act-g")
+	require.Contains(t, lines[2], "act-c")
+	require.NotContains(t, lines[2], "act-g",
+		"<g> only appears in row 1; col 1 has just two items")
+}
+
+func TestRenderTop_TenantsExactlyAtCapacity(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	// 15 tenants exactly fill a 3-col × 5-row grid. The off-by-one
+	// guard: every entry stays visible, none clipped.
+	tenants := make([]TenantBinding, 15)
+	for i := range tenants {
+		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%02d", i+1)}
+	}
+	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
+	visible := stripStyle(out)
+	for i := 1; i <= 15; i++ {
+		require.Contains(t, visible, fmt.Sprintf("t%02d", i),
+			"every cell of an exactly-full grid must render")
+	}
+	lines := strings.Split(out, "\n")
+	require.Len(t, lines, len(splitNonEmpty(Logo)),
+		"exactly-full grid must not exceed the logo's row count")
+}
+
+func TestRenderTop_PanelHeightMatchesLogo(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	tenants := make([]TenantBinding, 30)
+	for i := range tenants {
+		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%d", i+1)}
+	}
+	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
+	lines := strings.Split(out, "\n")
+	require.Len(t, lines, len(splitNonEmpty(Logo)),
+		"panel must not exceed the logo's height even with overflowing tenants")
 }
 
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
