@@ -121,6 +121,11 @@ var noJitter = Backoff{
 	JitterFraction: 0,
 }
 
+// stubFetch is the placeholder FetchFunc tests use when the
+// payload doesn't matter — a single helper avoids duplicate
+// "return X, nil" literals across the file.
+func stubFetch(_ context.Context) (any, error) { return "ok", nil }
+
 func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 	t.Parallel()
 
@@ -625,19 +630,225 @@ func TestStateFromErr(t *testing.T) {
 	}
 }
 
+func TestPoller_DataMsgCarriesAtAndNextAt(t *testing.T) {
+	t.Parallel()
+
+	// A successful tick stamps DataMsg.At with the clock's Now and
+	// DataMsg.NextAt with At + the schedule the loop is about to
+	// sleep for. Pages render "last refresh / next refresh in"
+	// straight from these — divergence between NextAt and the real
+	// wait would drift the on-screen countdown off the loop.
+	rec := newRecorder()
+	clock := newFakeClock()
+	startNow := clock.Now()
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "silences",
+		Interval: 30 * time.Second,
+		Fetch: func(_ context.Context) (any, error) {
+			return "payload", nil
+		},
+		Send:    rec.Send,
+		Clock:   clock,
+		Backoff: noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
+	data, ok := rec.next(t).(DataMsg)
+	require.True(t, ok)
+	require.Equal(t, "prod", data.Tenant)
+	require.Equal(t, startNow, data.At, "At must be the post-fetch clock.Now")
+	require.Equal(t, startNow.Add(30*time.Second), data.NextAt,
+		"NextAt must equal At plus the loop's actual sleep")
+}
+
+func TestPoller_RefreshTriggersImmediateTick(t *testing.T) {
+	t.Parallel()
+
+	// Refresh wakes the loop without firing the scheduled After
+	// channel. Asserts (a) a fresh DataMsg arrives without anyone
+	// calling clock.fireNext, and (b) the originally-pending After
+	// is left in place (the test never tries to consume it; the
+	// drain on Stop covers cleanup).
+	rec := newRecorder()
+	clock := newFakeClock()
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "silences",
+		Interval: time.Hour, // long enough that After never fires in this test
+		Fetch: func(_ context.Context) (any, error) {
+			return "payload", nil
+		},
+		Send:    rec.Send,
+		Clock:   clock,
+		Backoff: noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	// Drain the immediate cold-start tick.
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
+	require.IsType(t, DataMsg{}, rec.next(t))
+
+	// Wait for the loop to enter its select on the After channel.
+	// fakeClock records the After call when the loop reaches it;
+	// we poll until at least one pending channel exists so the
+	// Refresh below races against an established sleep, not a
+	// pre-After window.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		clock.mu.Lock()
+		pending := len(clock.pending)
+		clock.mu.Unlock()
+		if pending >= 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loop never reached After before the test deadline")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Refresh nudges the loop early. No fireNext call.
+	p.Refresh()
+	data, ok := rec.next(t).(DataMsg)
+	require.True(t, ok, "Refresh must produce a DataMsg without firing the schedule")
+	require.Equal(t, "payload", data.Resource)
+}
+
+func TestPoller_RefreshIsNonBlocking(t *testing.T) {
+	t.Parallel()
+
+	// Refresh must never block the caller. With no goroutine
+	// running (Start not called) the buffered slot fills on the
+	// first call and subsequent calls coalesce into the same
+	// pending nudge — verifying the default-case branch of the
+	// select. Test passes by completing within the deadline.
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "silences",
+		Interval: time.Hour,
+		Fetch:    stubFetch,
+		Send:     func(tea.Msg) {},
+		Clock:    newFakeClock(),
+		Backoff:  noJitter,
+	})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 100 {
+			p.Refresh()
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Refresh blocked — buffer / default-branch broken")
+	}
+}
+
+func TestPoller_RefreshDoesNotResetFailures(t *testing.T) {
+	t.Parallel()
+
+	// Refresh against a flaky upstream must keep the backoff
+	// counter intact — the manual nudge picks "tick now" but the
+	// fact that the previous attempts failed is still true. After
+	// one failed cold-start tick + one Refresh-driven failed tick,
+	// the next After delay must reflect failures=2 (i.e. 2s, not
+	// the post-success interval).
+	rec := newRecorder()
+	clock := newFakeClock()
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "silences",
+		Interval: time.Hour,
+		Fetch: func(_ context.Context) (any, error) {
+			return nil, backend.ErrUnreachable
+		},
+		Send:    rec.Send,
+		Clock:   clock,
+		Backoff: noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	// Wait for the After-after-cold-start to register.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		clock.mu.Lock()
+		pending := len(clock.pending)
+		firstDelay := time.Duration(0)
+		if pending >= 1 {
+			firstDelay = clock.delays[0]
+		}
+		clock.mu.Unlock()
+		if firstDelay == time.Second { // base = 1s after first failure
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loop never scheduled the post-failure backoff")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// Refresh: triggers a second failed tick without firing After.
+	p.Refresh()
+	// Wait for the next After to be scheduled — its delay reflects
+	// failures=2 (2 × base = 2s), not a post-refresh reset.
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		clock.mu.Lock()
+		pending := len(clock.pending)
+		latest := time.Duration(0)
+		if pending >= 1 {
+			latest = clock.delays[len(clock.delays)-1]
+		}
+		clock.mu.Unlock()
+		if latest == 2*time.Second {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected post-Refresh delay 2s, got %v with %d pending", latest, pending)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestPoller_AccessorsExposeTagFields(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "silences",
+		Interval: time.Second,
+		Fetch:    stubFetch,
+		Send:     func(tea.Msg) {},
+		Backoff:  noJitter,
+	})
+	require.Equal(t, "prod", p.Tenant())
+	require.Equal(t, "silences", p.Resource())
+}
+
 func TestNew_PanicsOnInvalidOptions(t *testing.T) {
 	t.Parallel()
 
-	stub := func(_ context.Context) (any, error) {
-		return "stub", nil
-	}
 	require.PanicsWithValue(t, "poll.New: Interval must be positive", func() {
-		New(Options{Interval: 0, Fetch: stub, Send: func(tea.Msg) {}})
+		New(Options{Interval: 0, Fetch: stubFetch, Send: func(tea.Msg) {}})
 	})
 	require.PanicsWithValue(t, "poll.New: Fetch must not be nil", func() {
 		New(Options{Interval: time.Second, Send: func(tea.Msg) {}})
 	})
 	require.PanicsWithValue(t, "poll.New: Send must not be nil", func() {
-		New(Options{Interval: time.Second, Fetch: stub})
+		New(Options{Interval: time.Second, Fetch: stubFetch})
 	})
 }

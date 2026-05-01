@@ -40,10 +40,16 @@ type SendFunc func(tea.Msg)
 // the typed payload returned by FetchFunc — pages type-assert it
 // to the shape they expect ([]backend.Alert etc.). Tenant is the
 // per-tenant tag the poller was constructed with so a multi-tenant
-// page can route the result.
+// page can route the result. At marks when the fetch completed
+// (clock.Now after the fetch) so pages can render "last refresh
+// 5s ago" without a parallel ticker. NextAt marks when the next
+// tick is scheduled — pages render the countdown straight from
+// it. Both are zero-valued in tests that don't care.
 type DataMsg struct {
 	Resource any
 	Tenant   string
+	At       time.Time
+	NextAt   time.Time
 }
 
 // BackendStatusMsg is emitted only when the connection state
@@ -87,6 +93,11 @@ type Options struct {
 	// Tenant is the tag baked into every emitted message so pages
 	// can route by source backend.
 	Tenant string
+	// Resource labels what the poller fetches ("alerts", "silences",
+	// "receivers", "groups"). The poller does not interpret it; the
+	// wiring layer uses it to bucket pollers so manual `r` refresh
+	// can target a specific resource for the active scope.
+	Resource string
 	// Interval is the desired success-case tick spacing. Per I3 the
 	// configuration default is 1 minute; the poller does NOT enforce
 	// a floor — tests use sub-second intervals freely.
@@ -115,6 +126,7 @@ type Options struct {
 //     starts with a clean state field set the same way New does.
 type Poller struct {
 	tenant   string
+	resource string
 	interval time.Duration
 	fetch    FetchFunc
 	send     SendFunc
@@ -128,6 +140,12 @@ type Poller struct {
 	// failures counts consecutive errors since the last success;
 	// drives the exponential backoff. Loop-goroutine only.
 	failures int
+
+	// refresh wakes the loop early when Refresh is called. Buffered
+	// at 1 so a Refresh during an in-flight fetch lands a single
+	// queued nudge — additional Refresh calls coalesce into the same
+	// pending wake-up. Drained inside the select; never closed.
+	refresh chan struct{}
 
 	// mu protects cancel / done. The loop goroutine never touches
 	// either after Start returns; only the public lifecycle methods
@@ -160,15 +178,41 @@ func New(opts Options) *Poller {
 	}
 	return &Poller{
 		tenant:   opts.Tenant,
+		resource: opts.Resource,
 		interval: opts.Interval,
 		fetch:    opts.Fetch,
 		send:     opts.Send,
 		clock:    clock,
 		backoff:  bo,
+		refresh:  make(chan struct{}, 1),
 		// Start as Unreachable so the very first successful tick
 		// emits a transition to Connected — pages get a clean
 		// "we're online" signal even on cold start.
 		state: header.ConnUnreachable,
+	}
+}
+
+// Tenant returns the tenant tag this poller was constructed with.
+// Read-only; intended for the wiring layer that needs to bucket
+// pollers by (resource, tenant) for refresh routing.
+func (p *Poller) Tenant() string { return p.tenant }
+
+// Resource returns the resource label this poller was constructed
+// with. Read-only; intended for the wiring layer.
+func (p *Poller) Resource() string { return p.resource }
+
+// Refresh nudges the loop to fetch immediately, replacing the
+// next scheduled wake-up. Non-blocking: a Refresh during an
+// in-flight fetch coalesces into the buffered slot, so several
+// presses of `r` in quick succession trigger a single early tick.
+// Failure backoff is left intact — a manual refresh against a
+// down backend doesn't reset the failure counter.
+func (p *Poller) Refresh() {
+	select {
+	case p.refresh <- struct{}{}:
+	default:
+		// Slot already full; the queued nudge will fire on the
+		// next select pass.
 	}
 }
 
@@ -222,44 +266,69 @@ func (p *Poller) run(ctx context.Context) {
 	// Tick immediately on start so the page doesn't wait one full
 	// interval to see its first data — matches k9s "load now, then
 	// poll" UX.
-	if !p.tickOnce(ctx) {
+	delay, ok := p.tickOnce(ctx)
+	if !ok {
 		return
 	}
 	for {
-		delay := p.nextDelay()
 		select {
 		case <-ctx.Done():
 			return
+		case <-p.refresh:
+			// Manual refresh: skip the scheduled wait and tick now.
+			// We deliberately do not reset p.failures — a refresh
+			// against a flaky upstream shouldn't pretend the previous
+			// failures didn't happen.
 		case <-p.clock.After(delay):
 		}
-		if !p.tickOnce(ctx) {
+		delay, ok = p.tickOnce(ctx)
+		if !ok {
 			return
 		}
 	}
 }
 
-// tickOnce performs one fetch and emits the resulting messages.
-// Returns false when ctx is done so the loop can exit promptly.
-func (p *Poller) tickOnce(ctx context.Context) bool {
+// tickOnce performs one fetch, emits the resulting messages, and
+// returns the delay before the next scheduled tick. The same delay
+// value is published as DataMsg.NextAt so the on-screen countdown
+// stays in lockstep with the loop's actual sleep — computing
+// nextDelay twice would produce two different jitter draws and
+// drift the displayed "next refresh in N" off the real wait.
+//
+// Returns (_, false) when ctx is done so the loop can exit
+// promptly. A refresh nudge that landed during the fetch is
+// drained here — we already satisfied it with this tick.
+func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	if ctx.Err() != nil {
-		return false
+		return 0, false
 	}
 	res, err := p.fetch(ctx)
 	if ctx.Err() != nil {
 		// ctx cancelled mid-fetch — drop the result silently and
 		// exit. Don't transition the state because the user asked
 		// us to stop, not because the backend is down.
-		return false
+		return 0, false
+	}
+	select {
+	case <-p.refresh:
+	default:
 	}
 	if err != nil {
 		p.failures++
 		p.transition(stateFromErr(err))
-		return true
+		return p.nextDelay(), true
 	}
 	p.failures = 0
 	p.transition(header.ConnConnected)
-	p.send(DataMsg{Resource: res, Tenant: p.tenant})
-	return true
+	now := p.clock.Now()
+	delay := p.nextDelay()
+	p.send(DataMsg{
+		Resource: res,
+		Tenant:   p.tenant,
+		At:       now,
+		NextAt:   now.Add(delay),
+	})
+	return delay, true
 }
 
 // transition emits a BackendStatusMsg only when state actually
