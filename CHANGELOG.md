@@ -171,6 +171,48 @@ shell.
   mirroring the suppressed-alert treatment on the alerts page —
   cursor / marked rows still win precedence.
 
+### UX polish, batch 1
+
+- Backend HTTP requests now carry an RFC 9110 User-Agent built
+  from the cmd build vars — `a10r/<version>` for plain releases,
+  `a10r/<version> (<commit>)` when a non-default commit is
+  available — so backend operators can tell a10r traffic apart
+  from any other Go HTTP client.
+- Alerts list SEVERITY cell now wears the matching theme
+  Severity.{Critical,Warning,Info,Unknown} foreground; cursor /
+  marked / suppressed rows preserve the row-level style by
+  skipping the per-cell colour.
+- Top panel caps at logo height: tenants and per-page hints lay
+  out as up-to-3-column k9s-style grids (column-major fill),
+  items past the budget silently clip. The labelled info column
+  inherits the same height clip.
+- Spinner cold-start and manual `r` refresh on the alerts and
+  groups pages, mirroring the silences page: title flips to
+  "<spinner> loading…" while a load is in flight, footer reads
+  "refreshing…" / "next refresh Ns", `r` emits
+  `app.RefreshRequestedMsg`. The alerts page also picks up the
+  silences-page comma-joined scope predicate.
+- Groups page colours `k=v` label pairs with `theme.YAML.Key /
+  .Punct / .Value`, applied to leaf-row alertname / state too.
+  Adds a leading TENANT column on group header rows when scope
+  spans more than one in-scope backend.
+- Tenant table reshaped as a read-only inspector with NAME / URL
+  / VERSION columns; Enter drills into a new tenant-config page
+  that surfaces the redacted `a10r.yaml` entry alongside the
+  live Alertmanager `config.original`. Backend versions are
+  fetched once at startup with a per-call timeout; failures
+  render as `—`. Auth secrets (basic password, bearer token,
+  header value) are masked to `***` before they reach the
+  screen.
+- App-global `t` toggles between relative ("5m ago") and
+  absolute ISO local ("2026-05-01 13:45:00") timestamps. The
+  alerts list, silences list, and alert-detail page all observe
+  the announcement and re-render their AGE / ENDS / STARTS
+  columns, widened to 20 cols in absolute mode. HeaderContent
+  surfaces "time:absolute" while the non-default mode is active.
+- Alerts state-filter cycle moved from `t` to `Shift+F` so the
+  app-global time-format toggle can claim `t` cleanly.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.
