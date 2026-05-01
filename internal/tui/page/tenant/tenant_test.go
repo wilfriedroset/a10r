@@ -3,6 +3,7 @@
 package tenant
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -43,58 +44,104 @@ func loadStyles(t *testing.T) theme.Styles {
 
 func sampleRows() []Row {
 	return []Row{
-		{Name: "prod", Conn: header.ConnConnected, Alerts: 12},
-		{Name: "staging", Conn: header.ConnDegraded, Alerts: 0},
-		{Name: "dev", Conn: header.ConnUnreachable, Alerts: 0},
+		{Name: "prod", URL: "http://am-prod:9093", Version: "0.27.0"},
+		{Name: "staging", URL: "http://am-staging:9093"},
+		{Name: "dev", URL: "http://am-dev:9093", Version: "0.26.0"},
 	}
 }
 
 func TestPage_SetRowsClampsCursor(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
 	p.cursor = 99
 	p.SetRows(sampleRows())
 	require.Less(t, p.cursor, len(sampleRows()))
 }
 
-func TestPage_SpaceTogglesMark(t *testing.T) {
+func TestPage_EnterCallsDrillFactoryWithCursorRowName(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	captured := ""
+	p := New(Options{
+		Styles: loadStyles(t),
+		DrillFactory: func(name string) (app.Page, error) {
+			captured = name
+			// Returning nil page is harmless here: the test only
+			// asserts the factory was called with the right name
+			// and that a Cmd is produced. The Cmd itself is the
+			// app.PushPage signal; its Factory closure isn't
+			// invoked until the App's Update consumes it.
+			return nil, nil //nolint:nilnil // sentinel for the factory test
+		},
+	})
 	p.SetRows(sampleRows())
-	// Cursor at 0; rows are sorted alphabetically — first row is dev.
-	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
-	require.Contains(t, p.marks, "prod",
-		"the cursor row at index 0 maps to the unsorted first row in p.rows; mark must reflect that")
-}
-
-func TestPage_AKeySelectsAll(t *testing.T) {
-	t.Parallel()
-	p := New(loadStyles(t))
-	p.SetRows(sampleRows())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
-	require.Len(t, p.marks, len(sampleRows()))
-}
-
-func TestPage_EnterSubmitsMarks(t *testing.T) {
-	t.Parallel()
-	p := New(loadStyles(t))
-	p.SetRows(sampleRows())
-	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "}) // mark prod (index 0)
+	// rowsSorted is alphabetical, so cursor 0 → "dev". Pins the
+	// contract: Enter drills against the *visible* cursor row,
+	// regardless of insertion order.
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	msg := cmd().(SelectedMsg)
-	require.Equal(t, []string{"prod"}, msg.Selections)
+	require.NotNil(t, cmd)
+	require.Equal(t, "dev", captured,
+		"the drill factory must be invoked with the cursor row's name")
 }
 
-func TestPage_EnterWithoutMarksFallsBackToCursor(t *testing.T) {
+func TestPage_EnterFlashesWhenDrillFactoryErrors(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{
+		Styles: loadStyles(t),
+		DrillFactory: func(_ string) (app.Page, error) {
+			return nil, errors.New("backend failed to build")
+		},
+	})
 	p.SetRows(sampleRows())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	msg := cmd().(SelectedMsg)
-	require.Equal(t, []string{"staging"}, msg.Selections,
-		"Enter with no marks falls back to the single cursor row")
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, msg.Level,
+		"misconfigured backend must flash a warning, not silently crash the inspector")
+	require.Contains(t, msg.Text, "backend failed to build")
+}
+
+func TestPage_EnterWithoutFactoryIsSilentNoop(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)}) // no DrillFactory
+	p.SetRows(sampleRows())
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Nil(t, cmd,
+		"nil DrillFactory is a constructor configuration error; "+
+			"Enter cannot recover from it from inside the page")
+}
+
+func TestPage_EnterOnEmptyIsNoop(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles: loadStyles(t),
+		DrillFactory: func(_ string) (app.Page, error) {
+			return nil, nil //nolint:nilnil // sentinel for the empty-rows test
+		},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Nil(t, cmd)
+}
+
+func TestPage_RenderShowsURLAndVersion(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows(sampleRows())
+	out := stripStyle(p.View(140, 10))
+	require.Contains(t, out, "http://am-prod:9093")
+	require.Contains(t, out, "0.27.0")
+	require.Contains(t, out, "—",
+		"missing version renders as `—` so the column stays aligned")
+}
+
+func TestPage_RenderHeaderRowCarriesColumnTitles(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows(sampleRows())
+	out := stripStyle(p.View(160, 10))
+	for _, want := range []string{"NAME", "URL", "VERSION"} {
+		require.Contains(t, out, want, "header row must carry %q", want)
+	}
 }
 
 func TestPage_DigitsAreNotPageOwned(t *testing.T) {
@@ -104,7 +151,7 @@ func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 	// dispatcher consumes them before forwardToTop runs, so the
 	// tenant page must NOT bind them locally — otherwise we'd be
 	// chasing two competing handlers per digit.
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
 	for _, code := range []rune{'0', '1', '2', '5', '9'} {
 		_, cmd := p.Update(tea.KeyPressMsg{Code: code, Text: string(code)})
@@ -114,7 +161,7 @@ func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 
 func TestPage_RenderShowsEveryRow(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
 	out := p.View(80, 10)
 	for _, name := range []string{"prod", "staging", "dev"} {
@@ -124,7 +171,7 @@ func TestPage_RenderShowsEveryRow(t *testing.T) {
 
 func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
 
 	// Default scope reads as "all" — matching every other list page.
@@ -147,12 +194,13 @@ func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 	require.Equal(t, "tenants(all)[3]", p.Title())
 }
 
-func TestPage_HeaderShowsSelectionCount(t *testing.T) {
+func TestPage_HeaderContentIsAlwaysEmpty(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	// Tenant table is read-only as of #7; nothing to surface in
+	// the subtitle line. Pinning this contract so a future
+	// regression that re-introduces the legacy mark counter
+	// trips the test.
+	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
-	require.Empty(t, p.HeaderContent(),
-		"with no marks the header is silent — count lives in the title")
-	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
-	require.Contains(t, p.HeaderContent(), "1 selected")
+	require.Empty(t, p.HeaderContent())
 }

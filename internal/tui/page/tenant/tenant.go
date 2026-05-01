@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package tenant renders the tenant table per C3: one row per
-// configured backend, with active-selection markers, connection
-// state, and counts. The page emits SelectedMsg on submit; the
-// wiring layer translates that into "update the active tenant
-// set, pop back to the invoking page, kick the pollers."
+// configured backend with NAME / URL / VERSION columns and
+// connection / count metadata. As of #7 the table is read-only
+// — Enter drills into the per-tenant config inspector
+// (tenantconfig package); scope selection lives entirely on the
+// global numeric quick-switch.
 package tenant
 
 import (
@@ -17,34 +18,47 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // Row is one tenant's renderable state. The wiring layer rebuilds
 // the slice on every redraw from the configured backends + the
-// poll-aggregated connection / count map.
+// startup-fetched version map. Conn / Alerts / Silence are
+// deliberately absent — the read-only inspector drops them rather
+// than render zero-valued placeholders that the user would read
+// as "every backend is connected with zero alerts" by accident
+// (header.ConnState's zero value is ConnConnected). A future
+// commit can re-attach those columns once the wiring layer
+// publishes a per-(resource, tenant) snapshot map.
 type Row struct {
 	Name    string
-	Conn    header.ConnState
-	Alerts  int
-	Silence int
+	URL     string
+	Version string
 }
 
-// SelectedMsg is emitted when the user accepts a selection. Empty
-// Selections means "all tenants" (the C3 "0" quick-switch).
-type SelectedMsg struct {
-	Selections []string
+// Options bundles the constructor inputs.
+type Options struct {
+	// Styles is the compiled theme.
+	Styles theme.Styles
+	// DrillFactory builds the destination page when the user
+	// presses Enter on a row. Returning a non-nil error makes the
+	// page flash the message instead of pushing — useful when
+	// the named backend is misconfigured (e.g. factory.Build
+	// failed at startup so the inspector would render against a
+	// nil fetcher). Required: nil DrillFactory makes Enter a
+	// silent no-op the user has no way to debug.
+	DrillFactory func(name string) (app.Page, error)
 }
 
 // Page is the tenant table view.
 type Page struct {
 	styles theme.Styles
+	drill  func(name string) (app.Page, error)
 
 	rows   []Row
 	cursor int
-	topRow int                 // first visible row; reconciled in View
-	marks  map[string]struct{} // selected tenant names
+	topRow int // first visible row; reconciled in View
 
 	// scope tracks the active tenant scope as observed from
 	// app.ScopeChangedMsg — "all" includes every row; a single
@@ -56,10 +70,9 @@ type Page struct {
 	scope string
 }
 
-// New constructs an empty tenant page. The wiring layer feeds rows
-// via SetRows on every redraw.
-func New(styles theme.Styles) *Page {
-	return &Page{styles: styles, marks: map[string]struct{}{}, scope: "all"}
+// New constructs a tenant page from Options.
+func New(opts Options) *Page {
+	return &Page{styles: opts.Styles, drill: opts.DrillFactory, scope: "all"}
 }
 
 // SetRows replaces the rendered rows. Used by the wiring layer
@@ -94,17 +107,9 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("tenants(%s)[%d]", scope, len(p.rows))
 }
 
-// HeaderContent implements app.Page. The backend count is in
-// Title's `[N]` suffix; only the live mark count is interesting
-// here, and only when at least one row is marked. Empty marks
-// fold into the cursor-row submit, so an empty subtitle reads as
-// "nothing pending."
-func (p *Page) HeaderContent() string {
-	if len(p.marks) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%d selected", len(p.marks))
-}
+// HeaderContent implements app.Page. Tenant table is read-only
+// as of #7; nothing live to surface in the subtitle line.
+func (*Page) HeaderContent() string { return "" }
 
 // Footer implements app.Page. Tenant table doesn't surface
 // ambient state in the bottom border.
@@ -113,9 +118,7 @@ func (*Page) Footer() string { return "" }
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
-		{Key: "Enter", Description: "select", View: "tenant"},
-		{Key: "Space", Description: "toggle", View: "tenant"},
-		{Key: "a", Description: "all", View: "tenant"},
+		{Key: "Enter", Description: "config", View: "tenant"},
 	}
 }
 
@@ -150,12 +153,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.cursor = 0
 	case "G":
 		p.cursor = max(len(p.rows)-1, 0)
-	case "space":
-		p.toggleAtCursor()
-	case "a":
-		p.selectAll()
 	case "enter":
-		cmd := p.submit()
+		cmd := p.drillToConfig()
 		return p, cmd
 	}
 	// Numeric quick-switch (`0`, `1`-`9`) is owned by the App's
@@ -166,43 +165,38 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-func (p *Page) toggleAtCursor() {
-	if p.cursor >= len(p.rows) {
-		return
+// drillToConfig pushes the tenantconfig page produced by the
+// drill factory, or flashes the factory's error if the named
+// backend is misconfigured. Reads from rowsSorted (the rendered
+// order) so the drill matches the row the user sees under the
+// cursor — the unsorted p.rows would silently disagree on every
+// backend list whose insertion order isn't already alphabetical.
+// nil factory or empty rows are silent no-ops; both are
+// constructor configuration errors the user has no way to fix
+// from inside this page.
+func (p *Page) drillToConfig() tea.Cmd {
+	if p.drill == nil {
+		return nil
 	}
-	name := p.rows[p.cursor].Name
-	if _, ok := p.marks[name]; ok {
-		delete(p.marks, name)
-		return
+	rows := p.rowsSorted()
+	if p.cursor >= len(rows) {
+		return nil
 	}
-	p.marks[name] = struct{}{}
+	name := rows[p.cursor].Name
+	page, err := p.drill(name)
+	if err != nil {
+		return flashFn(footer.FlashWarn, err.Error())
+	}
+	return app.PushPage(func() app.Page { return page })
 }
 
-func (p *Page) selectAll() {
-	for _, r := range p.rows {
-		p.marks[r.Name] = struct{}{}
+// flashFn returns a Cmd emitting a FlashShowMsg with the supplied
+// level and text. Mirror of the alerts / silences / groups
+// helper so the wording stays consistent across pages.
+func flashFn(level footer.FlashLevel, text string) tea.Cmd {
+	return func() tea.Msg {
+		return footer.FlashShowMsg{Level: level, Text: text}
 	}
-}
-
-// submit returns a Cmd emitting SelectedMsg with whatever's
-// currently marked. Empty marks fall back to "the cursor row" so
-// Enter without prior Space behaves intuitively — single-select on
-// today's UX, multi-select on Space-then-Enter.
-func (p *Page) submit() tea.Cmd {
-	if len(p.marks) > 0 {
-		sel := make([]string, 0, len(p.marks))
-		for _, r := range p.rows {
-			if _, ok := p.marks[r.Name]; ok {
-				sel = append(sel, r.Name)
-			}
-		}
-		return func() tea.Msg { return SelectedMsg{Selections: sel} }
-	}
-	if p.cursor < len(p.rows) {
-		single := []string{p.rows[p.cursor].Name}
-		return func() tea.Msg { return SelectedMsg{Selections: single} }
-	}
-	return nil
 }
 
 // View implements app.Page.
@@ -213,41 +207,42 @@ func (p *Page) View(width, height int) string {
 	if len(p.rows) == 0 {
 		return p.styles.Body.Default.Width(width).Height(height).Render("no backends configured")
 	}
-	maxRows := min(height, len(p.rows))
+	headerLine := p.renderHeader(width)
+	bodyHeight := max(height-1, 0)
+	maxRows := min(bodyHeight, len(p.rows))
 	p.reconcileScroll(maxRows)
 	end := min(p.topRow+maxRows, len(p.rows))
-	out := make([]string, 0, end-p.topRow)
+	out := make([]string, 0, end-p.topRow+1)
+	out = append(out, headerLine)
 	rows := p.rowsSorted()
 	for i := p.topRow; i < end; i++ {
 		row := rows[i]
-		mark := "[ ]"
-		if _, ok := p.marks[row.Name]; ok {
-			mark = "[x]"
-		}
 		// Glyph indicates whether the row is part of the active
-		// global scope (the numeric quick-switch state). `●`
-		// reads at a glance against the row body and stays legible
-		// alongside the [ ]/[x] mark column.
+		// global scope (the numeric quick-switch state). `●` reads
+		// at a glance against the row body.
 		scopeGlyph := " "
 		if p.scopeIncludes(row.Name) {
 			scopeGlyph = "●"
 		}
-		body := fmt.Sprintf("%s %s %s %s  alerts:%d  silences:%d",
-			mark, scopeGlyph, row.Conn.String(), row.Name, row.Alerts, row.Silence)
+		version := row.Version
+		if version == "" {
+			version = "—"
+		}
+		columns := []string{
+			row.Name,
+			row.URL,
+			version,
+		}
 		prefix := "  "
 		if i == p.cursor {
 			prefix = "▸ "
 		}
-		// Pad to width before applying the cursor style so the
-		// background extends across the whole row k9s-style.
+		body := scopeGlyph + " " + p.padTenantColumns(columns, width)
 		line := padRight(prefix+body, width)
 		switch {
 		case i == p.cursor:
 			line = p.styles.Table.Cursor.Render(line)
 		case p.scopeIncludes(row.Name):
-			// In-scope rows tint foreground only — same affordance
-			// as marked rows on the alerts page so the two list-
-			// page conventions agree.
 			line = lipgloss.NewStyle().
 				Foreground(p.styles.Table.Marked.GetForeground()).
 				Render(line)
@@ -255,6 +250,47 @@ func (p *Page) View(width, height int) string {
 		out = append(out, line)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+}
+
+// renderHeader returns the styled column-title row. Mirrors the
+// alerts / silences pages' uppercased fg-only header.
+func (p *Page) renderHeader(width int) string {
+	titles := []string{"NAME", "URL", "VERSION"}
+	// Match the per-row prefix ("▸ "/"  " + scope glyph + " ") so
+	// columns align with their headers.
+	const prefix = "    "
+	line := prefix + p.padTenantColumns(titles, width)
+	return lipgloss.NewStyle().
+		Foreground(p.styles.Table.Header.GetForeground()).
+		Render(line)
+}
+
+// tenant column widths. URL gets the flex column since the visible
+// host/port string is the most variable; the other two are fixed.
+const (
+	tenantColName    = 16
+	tenantColVersion = 14
+)
+
+// padTenantColumns lays out a row across NAME / URL (flex) /
+// VERSION columns at fixed widths with URL absorbing the
+// remaining width.
+func (p *Page) padTenantColumns(parts []string, width int) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	const prefixCols = 4 // "▸ " + scope glyph + " "
+	used := tenantColName + tenantColVersion + prefixCols
+	flex := max(width-used, 16)
+	cols := []int{tenantColName, flex, tenantColVersion}
+	var b strings.Builder
+	for i, v := range parts {
+		if i >= len(cols) {
+			break
+		}
+		b.WriteString(padRight(v, cols[i]))
+	}
+	return b.String()
 }
 
 // scopeIncludes reports whether the named tenant is part of the

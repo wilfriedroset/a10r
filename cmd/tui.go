@@ -30,6 +30,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
+	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -61,7 +62,17 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	silenceClients := silenceClientsFrom(clients)
 	silenceWriteClients := silenceWriteClientsFrom(clients)
 	creator := os.Getenv("USER")
-	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator)
+
+	// Fetch each backend's Alertmanager version once at startup
+	// so the tenant page can render a VERSION column without a
+	// separate per-(backend, status) poller. Failures leave the
+	// version blank; the page renders "—" so the column stays
+	// aligned. Per Q4.2 — the version changes rarely, the cost of
+	// a separate poller isn't justified.
+	tenantVersions := fetchTenantVersions(cmd.Context(), clients)
+	tenantRows := buildTenantRows(cfg, tenantVersions)
+	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator,
+		tenantRows, cfg, clients)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -219,6 +230,72 @@ func backendNames(cfg *config.Config) []string {
 	return out
 }
 
+// fetchTenantVersions issues one /api/v2/status call per
+// configured backend and returns the resolved Alertmanager
+// version keyed by backend name. Concurrent fan-out so a slow
+// backend doesn't block startup; per-backend timeout caps each
+// call so a hung backend doesn't stall the program. Failures
+// silently produce an empty entry — the tenant page renders "—"
+// for missing versions per Q4.2.
+func fetchTenantVersions(ctx context.Context, clients map[string]backend.Client) map[string]string {
+	out := make(map[string]string, len(clients))
+	if len(clients) == 0 {
+		return out
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for name, client := range clients {
+		wg.Add(1)
+		go func(name string, c backend.Client) {
+			defer wg.Done()
+			fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			st, err := c.Status(fctx)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			out[name] = st.Version.Version
+			mu.Unlock()
+		}(name, client)
+	}
+	wg.Wait()
+	return out
+}
+
+// buildTenantRows assembles the tenant page's row list from
+// configured backends + the startup-fetched version map.
+// Backends whose factory.Build failed are still surfaced (the
+// user wants to see the misconfigured entry in the tenant table)
+// but with an empty version that renders as "—".
+func buildTenantRows(cfg *config.Config, versions map[string]string) []tenant.Row {
+	rows := make([]tenant.Row, 0, len(cfg.Backends))
+	for _, be := range cfg.Backends {
+		rows = append(rows, tenant.Row{
+			Name:    be.Name,
+			URL:     be.URL,
+			Version: versions[be.Name],
+			// Conn / Alerts / Silence stay zero — the wiring layer
+			// no longer feeds live counts into this page since the
+			// tenant table is read-only as of #7. A future commit
+			// can re-attach poll snapshots if the columns become
+			// load-bearing again.
+		})
+	}
+	return rows
+}
+
+// tenantConfigIndex returns a map from backend name to its
+// resolved config.Backend struct so the tenant-config drill
+// factory can hand the right entry to the inspector page.
+func tenantConfigIndex(cfg *config.Config) map[string]config.Backend {
+	out := make(map[string]config.Backend, len(cfg.Backends))
+	for _, be := range cfg.Backends {
+		out[be.Name] = be
+	}
+	return out
+}
+
 // scopeFor returns the tenant label rendered in the alerts page
 // title. Single backend → its name; two or more → "all" (the
 // k9s convention for the multi-namespace case). Empty config →
@@ -249,7 +326,16 @@ func loadStylesFor(name string) (*theme.Styles, error) {
 // lands a page wired to the active tenant label and (for write-
 // surface pages) the right backend.Client when the user invokes
 // a write action.
-func newResolver(styles theme.Styles, scope string, silenceClients map[string]silenceform.Client, silenceWriteClients map[string]silences.Client, creator string) *cmdbar.Resolver {
+func newResolver(
+	styles theme.Styles,
+	scope string,
+	silenceClients map[string]silenceform.Client,
+	silenceWriteClients map[string]silences.Client,
+	creator string,
+	tenantRows []tenant.Row,
+	cfg *config.Config,
+	clients map[string]backend.Client,
+) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
@@ -296,8 +382,32 @@ func newResolver(styles theme.Styles, scope string, silenceClients map[string]si
 	}
 	r.Register("groups", groupsFactory)
 	r.Register("gr", groupsFactory)
+	tenantConfigByName := tenantConfigIndex(cfg)
+	drillFactory := func(name string) (app.Page, error) {
+		be, ok := tenantConfigByName[name]
+		if !ok {
+			return nil, fmt.Errorf("backend %q not in config", name)
+		}
+		fetcher, ok := clients[name]
+		if !ok {
+			return nil, fmt.Errorf("backend %q failed to build at startup — fix a10r.yaml and restart", name)
+		}
+		return tenantconfig.New(tenantconfig.Options{
+			Tenant:  name,
+			Backend: be,
+			Fetcher: fetcher,
+			Styles:  styles,
+		}), nil
+	}
 	tenantFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return tenant.New(styles) })
+		return app.PushPage(func() app.Page {
+			p := tenant.New(tenant.Options{
+				Styles:       styles,
+				DrillFactory: drillFactory,
+			})
+			p.SetRows(tenantRows)
+			return p
+		})
 	}
 	r.Register("tenant", tenantFactory)
 	r.Register("tenants", tenantFactory)
