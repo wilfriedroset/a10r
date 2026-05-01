@@ -307,6 +307,9 @@ func TestPage_CursorClampsOnEmptyView(t *testing.T) {
 func TestPage_StateFilterCycle(t *testing.T) {
 	t.Parallel()
 
+	// State-filter cycle moved from `t` to `Shift+F` so the
+	// app-global `t` (time-format toggle) doesn't shadow it via
+	// the dispatcher precedence stack.
 	p := newPage(t)
 	alerts := []backend.Alert{
 		mkAlert("A", "critical", backend.AlertStateActive),
@@ -316,21 +319,38 @@ func TestPage_StateFilterCycle(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	require.Len(t, p.view, 3)
 
-	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'F', Text: "F", Mod: tea.ModShift})
 	require.Equal(t, string(backend.AlertStateActive), p.stateFilter)
 	require.Len(t, p.view, 1)
 	require.Equal(t, "A", p.view[0].a.Labels["alertname"])
 
-	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'F', Text: "F", Mod: tea.ModShift})
 	require.Equal(t, string(backend.AlertStateSuppressed), p.stateFilter)
 	require.Len(t, p.view, 1)
 
-	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'F', Text: "F", Mod: tea.ModShift})
 	require.Equal(t, string(backend.AlertStateUnprocessed), p.stateFilter)
 
-	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
-	require.Empty(t, p.stateFilter, "fourth `t` cycles back to all")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'F', Text: "F", Mod: tea.ModShift})
+	require.Empty(t, p.stateFilter, "fourth Shift+F cycles back to all")
 	require.Len(t, p.view, 3)
+}
+
+func TestPage_TKeyDoesNotCycleStateFilter(t *testing.T) {
+	t.Parallel()
+
+	// The page-local `t` handler is dead code — the app-global
+	// `t` (time-format toggle) consumes the key at the dispatcher
+	// before the page's Update sees it. Pinning the contract: a
+	// `t` keypress reaching the page directly (legacy callers,
+	// tests) must NOT cycle state filters.
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("A", "critical", backend.AlertStateActive),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	require.Empty(t, p.stateFilter,
+		"`t` is owned by the app-global time-format toggle; the page must not bind it")
 }
 
 func TestPage_SortColumnWalk(t *testing.T) {

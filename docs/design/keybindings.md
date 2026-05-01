@@ -78,6 +78,7 @@ Apply everywhere except inside a modal or prompt.
 | `/` | Open filter | Substring + matcher syntax per E1 |
 | `?` | Help overlay | Lists the active view's bindings + globals |
 | `r` | Refresh current view | Bypass the poll tick (per C5) |
+| `t` | Toggle relative ↔ absolute time | App-global; flips ages / timestamps on alerts, silences, alert detail |
 | `Esc` | Pop stack | Dismiss modal/prompt first; otherwise pop the page stack |
 | `q` | Quit | Asks for confirm if a form is dirty |
 | `Ctrl+C` | Quit | Hard quit, no confirm |
@@ -111,7 +112,7 @@ Apply on every view whose body is a table (alerts, silences, receivers, tenant t
 | --- | --- | --- |
 | `s` | Silence the current alert (push form) | Dangerous |
 | `Ctrl+S` | Silence all marked alerts (bulk fan-out) | Dangerous, Bulk |
-| `t` | Cycle state filter: active → silenced → inhibited → all | |
+| `Shift+F` | Cycle state filter: active → silenced → inhibited → all | Was `t` pre-#10; freed for app-global time toggle |
 | `f` | Matcher-only filter prompt | Post-v0.1 (per E1) |
 | `Shift+S` | Sort by `severity` | |
 | `Shift+T` | Sort by `startsAt` (time) | |

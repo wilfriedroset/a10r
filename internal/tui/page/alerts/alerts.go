@@ -422,6 +422,7 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Space", Description: "mark", View: "alerts"},
 		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		{Key: "/", Description: "filter", View: "alerts"},
+		{Key: "Shift+F", Description: "state filter", View: "alerts"},
 		// `r` is a global binding too; surface it on the alerts hint
 		// strip so the affordance reads at a glance alongside the
 		// page-specific verbs. Same shape as silences.
@@ -641,6 +642,14 @@ func defaultAsc(k SortKey) bool { return k != SortBySeverity }
 // Returns the page plus optional Cmd. Unrecognised keys are
 // no-ops at this layer; the App's dispatcher had its turn
 // earlier.
+//
+// State-filter cycling is bound to Shift+F (not `t`) since `t`
+// is the app-global time-format toggle as of #9 — the
+// dispatcher's global `t` consumes the key before the page sees
+// it, so a local `t` handler here would be dead code. bubbletea
+// v2's KeyPressMsg.String() emits the textual form ("F") for
+// shift-modified letters — never "shift+f" — so a single `case
+// "F"` is sufficient.
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
 	case "enter":
@@ -648,7 +657,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, cmd
 	case "space":
 		p.toggleMarkAtCursor()
-	case "t":
+	case "F":
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
@@ -816,7 +825,7 @@ func (p *Page) View(width, height int) string {
 // everything" — the second is actionable, the first isn't.
 func (p *Page) emptyState() string {
 	if p.filter != "" || p.stateFilter != "" {
-		return "no alerts match the active filter — Esc clears the prompt, `t` cycles state filters"
+		return "no alerts match the active filter — Esc clears the prompt, Shift+F cycles state filters"
 	}
 	if p.totalAlerts() == 0 {
 		return "no alerts (yet) — the poller will refresh on the next tick"
