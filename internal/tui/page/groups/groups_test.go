@@ -245,9 +245,87 @@ func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	// Move the cursor off row 0 so it doesn't get wrapped in the
+	// row-level Cursor style — that would supersede the per-cell
+	// colouring the next test asserts on.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	out := p.View(80, 10)
-	require.Contains(t, out, "team=platform")
-	require.Contains(t, out, "(2 alerts)")
+	require.Contains(t, stripStyle(out), "team=platform")
+	require.Contains(t, stripStyle(out), "(2 alerts)")
+}
+
+func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	// Move cursor off row 0 → row 0 stays plain so per-cell colouring
+	// is observable in the rendered string.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	out := p.View(120, 10)
+	wantKey := styles.YAML.Key.Render("team")
+	wantValue := styles.YAML.Value.Render("platform")
+	require.Contains(t, out, wantKey,
+		"non-cursor group header must render label name in YAML.Key style")
+	require.Contains(t, out, wantValue,
+		"non-cursor group header must render label value in YAML.Value style")
+}
+
+func TestPage_LeafRowsColourAlertnameAndState(t *testing.T) {
+	t.Parallel()
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // expand row 0
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	// Cursor now sits on the second leaf alert (B). The first leaf
+	// ("A") is plain and should carry per-cell colouring.
+	out := p.View(120, 10)
+	wantName := styles.YAML.Key.Render("A")
+	require.Contains(t, out, wantName,
+		"non-cursor leaf row must render alertname in YAML.Key style")
+}
+
+func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.AlertGroup{{
+			Labels: map[string]string{"team": "platform"},
+			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
+		}},
+		Tenant: "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.AlertGroup{{
+			Labels: map[string]string{"team": "data"},
+			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "B"}}},
+		}},
+		Tenant: "staging",
+	})
+
+	out := stripStyle(p.View(140, 10))
+	require.Contains(t, out, "prod",
+		"two in-scope tenants must surface a TENANT prefix on group headers")
+	require.Contains(t, out, "staging")
+}
+
+func TestPage_TenantColumnHiddenOnSingleTenantScope(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.AlertGroup{{
+			Labels: map[string]string{"team": "platform"},
+			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
+		}},
+		Tenant: "prod",
+	})
+	out := stripStyle(p.View(140, 10))
+	require.NotContains(t, out, "prod ",
+		"single-tenant scope hides the TENANT column even though "+
+			"the tenant tag is in byTenant")
 }
 
 func TestCommonLabels_EmptyInput(t *testing.T) {

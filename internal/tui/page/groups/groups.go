@@ -629,10 +629,18 @@ func (p *Page) View(width, height int) string {
 }
 
 func (p *Page) renderRow(r row, focused bool, width int) string {
-	g := p.flat[r.groupIdx].g
+	entry := p.flat[r.groupIdx]
 	prefix := "  "
 	if focused {
 		prefix = "▸ "
+	}
+	// Per Q5.3: leading TENANT column on group header rows only,
+	// when scope==all and at least two in-scope tenants are present.
+	// Leaf rows skip the column — the parent header already names
+	// the source backend.
+	tenantPrefix := ""
+	if p.showTenantColumn() && r.alertIdx == -1 {
+		tenantPrefix = padRight(entry.tenant, tenantColWidth) + "  "
 	}
 	var body string
 	if r.alertIdx == -1 {
@@ -640,16 +648,54 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 		if p.expanded[r.groupIdx] {
 			marker = "▾"
 		}
-		body = prefix + marker + " " + labelSummary(g.Labels) + fmt.Sprintf(" (%d alerts)", len(g.Alerts))
+		summary := labelSummary(entry.g.Labels)
+		if !focused {
+			// Cursor row wraps the whole line in fg+bg per Q5.4 / the
+			// alerts page convention; nested ANSI inside the wrap is
+			// fragile, so the per-cell colouring is skipped on the
+			// cursor row.
+			summary = styledLabelSummary(entry.g.Labels, p.styles)
+		}
+		body = prefix + tenantPrefix + marker + " " + summary +
+			fmt.Sprintf(" (%d alerts)", len(entry.g.Alerts))
 	} else {
-		a := g.Alerts[r.alertIdx]
-		body = prefix + "    " + a.Labels["alertname"] + " — " + string(a.State)
+		a := entry.g.Alerts[r.alertIdx]
+		alertname := a.Labels["alertname"]
+		state := string(a.State)
+		if !focused {
+			alertname = p.styles.YAML.Key.Render(alertname)
+			state = p.styles.YAML.Value.Render(state)
+		}
+		body = prefix + "    " + alertname + " — " + state
 	}
 	body = padRight(body, width)
 	if focused {
 		return p.styles.Table.Cursor.Render(body)
 	}
 	return body
+}
+
+// tenantColWidth is the fixed width of the leading TENANT column
+// on group header rows in multi-tenant scope. Mirrors the alerts
+// / silences pages so the three list views align visually when
+// the user switches between them.
+const tenantColWidth = 16
+
+// showTenantColumn reports whether the renderer should prefix
+// group header rows with the TENANT column. True when scope
+// spans more than one in-scope tenant. Same predicate as the
+// alerts / silences pages — Q5.3 confirmed.
+func (p *Page) showTenantColumn() bool {
+	if p.scope != scopeAll {
+		return false
+	}
+	in := 0
+	for tenant := range p.byTenant {
+		if p.scopeIncludes(tenant) {
+			in++
+		}
+	}
+	return in > 1
 }
 
 // reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
@@ -685,16 +731,46 @@ func padRight(s string, w int) string {
 }
 
 // labelSummary renders a "k=v, k=v" preview of a label-set so the
-// group header is identifiable at a glance.
+// group header is identifiable at a glance. Plain-text variant
+// kept for filter matching (lower-cased substring search needs
+// the unstyled string) and as the cursor-row body where the
+// row-level fg+bg wrap supersedes per-cell colouring.
 func labelSummary(labels map[string]string) string {
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedLabelKeys(labels)
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		parts[i] = k + "=" + labels[k]
 	}
 	return strings.Join(parts, ",")
+}
+
+// styledLabelSummary returns the same `k=v, k=v` preview with the
+// label name rendered in theme.YAML.Key and the value in
+// theme.YAML.Value — matches the YAML viewer's colouring so the
+// k=v pair reads consistently across the TUI. Punctuation (= and
+// ,) uses theme.YAML.Punct so the visual hierarchy is name >
+// value > separator. Per Q5.2.
+func styledLabelSummary(labels map[string]string, styles theme.Styles) string {
+	keys := sortedLabelKeys(labels)
+	parts := make([]string, len(keys))
+	for i, k := range keys {
+		parts[i] = styles.YAML.Key.Render(k) +
+			styles.YAML.Punct.Render("=") +
+			styles.YAML.Value.Render(labels[k])
+	}
+	return strings.Join(parts, styles.YAML.Punct.Render(","))
+}
+
+// sortedLabelKeys returns the keys of labels in deterministic
+// alphabetical order. Pulled out so labelSummary and
+// styledLabelSummary share the ordering rule — diverging
+// orderings would make the styled vs plain output disagree on
+// how a group reads.
+func sortedLabelKeys(labels map[string]string) []string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
