@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -160,6 +161,27 @@ type Page struct {
 	sort        SortKey
 	sortAsc     bool
 	stateFilter string // "" = all, otherwise an AlertState value
+
+	// polledTenants is the set of tenants that have produced at
+	// least one DataMsg in this page's lifetime. Mirrors the
+	// silences page's pattern so the title's "loading…" affordance
+	// reads truthfully even in a multi-backend setup with a
+	// scope-narrowed view: a fast out-of-scope tenant returning
+	// [] doesn't flip the page out of loading state before the
+	// in-scope tenant has answered.
+	polledTenants map[string]struct{}
+	// nextRefresh is the per-tenant DataMsg.NextAt timestamp.
+	// Footer collapses it into "next refresh Ns" by picking the
+	// soonest entry across in-scope tenants.
+	nextRefresh map[string]time.Time
+	// refreshing is true between an `r` press and the next in-scope
+	// poll.DataMsg arrival so the renderer keeps the spinner up
+	// while the caller's nudge is in flight.
+	refreshing bool
+	// spinner is the cold-start / refresh-in-flight indicator
+	// (bubbles `Points`). Stopped (Tick chain broken) outside of
+	// those two windows; see the spinner.TickMsg branch in Update.
+	spinner spinner.Model
 }
 
 // New constructs a Page from the supplied Options. Initial
@@ -169,16 +191,23 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.Points),
+		spinner.WithStyle(opts.Styles.Header.Accent),
+	)
 	return &Page{
-		styles:   opts.Styles,
-		now:      now,
-		scope:    opts.Scope,
-		clients:  opts.Clients,
-		creator:  opts.Creator,
-		byTenant: map[string][]backend.Alert{},
-		sort:     SortBySeverity,
-		sortAsc:  false,
-		marks:    map[string]struct{}{},
+		styles:        opts.Styles,
+		now:           now,
+		scope:         opts.Scope,
+		clients:       opts.Clients,
+		creator:       opts.Creator,
+		byTenant:      map[string][]backend.Alert{},
+		sort:          SortBySeverity,
+		sortAsc:       false,
+		marks:         map[string]struct{}{},
+		polledTenants: map[string]struct{}{},
+		nextRefresh:   map[string]time.Time{},
+		spinner:       sp,
 	}
 }
 
@@ -192,8 +221,13 @@ func (p *Page) SetScope(s string) {
 	p.recompute()
 }
 
-// Init implements app.Page.
-func (*Page) Init() tea.Cmd { return nil }
+// Init implements app.Page. Kicks the spinner so the cold-start
+// "loading" affordance animates while the first poll tick lands.
+// The Tick chain is broken in Update once the page has any
+// in-scope DataMsg (and re-armed on each manual `r` refresh) so
+// the spinner stops costing per-frame redraws when there's
+// nothing to wait for.
+func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
 
 // Close implements app.Page.
 func (*Page) Close() tea.Cmd { return nil }
@@ -204,8 +238,16 @@ func (*Page) Crumb() string { return "alerts" }
 // Title implements app.Page — k9s-style
 // "alerts(<scope>)[<count>]" with the scope being the active
 // tenant set ("all" / "prod" / "prod,staging" / etc.) and the
-// count being the filtered/total view size.
+// count being the filtered/total view size. While the page is
+// in a loading window — cold start (no in-scope DataMsg yet) or
+// a manual `r` refresh in flight — the title flips to the
+// spinner-led "loading alerts…" so the border itself reads as
+// the loading affordance, k9s-style. Mirror of the silences
+// page's pattern.
 func (p *Page) Title() string {
+	if !p.polled() || p.refreshing {
+		return p.spinner.View() + " loading alerts…"
+	}
 	scope := p.scope
 	if scope == "" {
 		scope = scopeAll
@@ -243,14 +285,22 @@ func (p *Page) showTenantColumn() bool {
 }
 
 // scopeIncludes reports whether tenant should appear in the
-// view given p.scope. "all" / empty includes everyone; anything
-// else does an exact-match on the tenant tag (the poller
-// emitted DataMsg with the configured backend Name).
+// view given p.scope. "all" / empty includes everyone;
+// otherwise the scope is parsed as a comma-joined list (so a
+// Ctrl+T multi-select like "prod,staging" lights up both
+// backends). Mirror of the silences-page predicate so the two
+// list pages agree on scope shape.
 func (p *Page) scopeIncludes(tenant string) bool {
-	if p.scope == "" || p.scope == scopeAll {
+	scope := strings.TrimSpace(p.scope)
+	if scope == "" || scope == scopeAll {
 		return true
 	}
-	return tenant == p.scope
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) == tenant {
+			return true
+		}
+	}
+	return false
 }
 
 // HeaderContent implements app.Page. Surfaces filter / state-
@@ -273,10 +323,81 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
-// Footer implements app.Page. Alerts list doesn't surface
-// ambient state in the bottom border (the silences page does;
-// keeping this empty here so the alerts frame stays unchanged).
-func (*Page) Footer() string { return "" }
+// Footer implements app.Page. Renders the next-refresh deadline
+// — or "refreshing…" while a manual `r` is in flight — into the
+// bordered body's bottom edge, k9s-style symmetry with the title
+// in the top edge. Same shape as the silences page so the two
+// list pages frame identically. Empty pre-poll so the cold-start
+// frame stays quiet (the spinner already says "loading").
+func (p *Page) Footer() string {
+	if p.refreshing {
+		return "refreshing…"
+	}
+	if !p.polled() {
+		return ""
+	}
+	next := p.soonestNextRefresh()
+	if next.IsZero() {
+		return ""
+	}
+	return "next refresh " + nextRefreshLabel(p.now(), next)
+}
+
+// soonestNextRefresh returns the earliest DataMsg.NextAt across
+// in-scope tenants. Zero when no in-scope tenant has published a
+// NextAt — the wiring layer's poll.DataMsg is the single source.
+func (p *Page) soonestNextRefresh() time.Time {
+	var soonest time.Time
+	for tenant, ts := range p.nextRefresh {
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		if soonest.IsZero() || ts.Before(soonest) {
+			soonest = ts
+		}
+	}
+	return soonest
+}
+
+// nextRefreshLabel formats the bottom-border deadline. Past-due
+// renders as "due" so a slow tick reads honestly without flashing
+// a negative duration. Mirrors the silences page's helper.
+func nextRefreshLabel(now, next time.Time) string {
+	d := next.Sub(now)
+	if d <= 0 {
+		return "due"
+	}
+	if d < time.Second {
+		return "<1s"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(d.Hours()))
+}
+
+// polled reports whether at least one in-scope tenant has
+// produced a DataMsg. Read by Title / Footer / emptyState to
+// pick between the loading affordance and the populated frame.
+// Scope-aware so a fast out-of-scope tenant in a multi-backend
+// setup doesn't flip the page out of loading state before the
+// in-scope tenant has answered.
+func (p *Page) polled() bool {
+	for tenant := range p.polledTenants {
+		if p.scopeIncludes(tenant) {
+			return true
+		}
+	}
+	return false
+}
+
+// spinnerActive reports whether the spinner should continue to
+// animate. Two windows: cold start and refresh-in-flight.
+// Outside those, the page draws static "next refresh" timing.
+func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 
 // Bindings implements app.Page. Returns the per-view bindings
 // surfaced in the header's right-zone hint strip.
@@ -286,6 +407,10 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Space", Description: "mark", View: "alerts"},
 		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		{Key: "/", Description: "filter", View: "alerts"},
+		// `r` is a global binding too; surface it on the alerts hint
+		// strip so the affordance reads at a glance alongside the
+		// page-specific verbs. Same shape as silences.
+		{Key: "r", Description: "refresh", View: "alerts"},
 	}
 }
 
@@ -298,8 +423,32 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			return p, nil
 		}
 		p.byTenant[m.Tenant] = alerts
+		// Capture poll metadata so Footer / Title can render without
+		// a parallel ticker. Zero-valued NextAt (legacy / test
+		// DataMsgs) leaves the prior entry intact.
+		if !m.NextAt.IsZero() {
+			p.nextRefresh[m.Tenant] = m.NextAt
+		}
+		p.polledTenants[m.Tenant] = struct{}{}
+		// Only clear refreshing once an in-scope tenant has answered;
+		// an out-of-scope reply during a manual `r` window would
+		// otherwise drop the spinner before the user has actually
+		// seen fresh data for the scope they're looking at.
+		if p.scopeIncludes(m.Tenant) {
+			p.refreshing = false
+		}
 		p.recompute()
 		return p, nil
+	case spinner.TickMsg:
+		// Drop ticks outside the cold-start / refresh-in-flight
+		// windows to break the self-perpetuating Tick chain when
+		// nothing is loading.
+		if !p.spinnerActive() {
+			return p, nil
+		}
+		var cmd tea.Cmd
+		p.spinner, cmd = p.spinner.Update(m)
+		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		p.handleFilterPrompt(m)
@@ -487,8 +636,27 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "s":
 		cmd := p.openSilenceFormForCursor()
 		return p, cmd
+	case "r":
+		cmd := p.requestRefresh()
+		return p, cmd
 	}
 	return p, nil
+}
+
+// requestRefresh emits a RefreshRequestedMsg so the wiring layer
+// pokes the alerts pollers, flips the page into refreshing
+// state, and (re)kicks the spinner Tick chain. Mirror of the
+// silences page's helper.
+func (p *Page) requestRefresh() tea.Cmd {
+	p.refreshing = true
+	scope := p.scope
+	if scope == "" {
+		scope = scopeAll
+	}
+	emit := func() tea.Msg {
+		return app.RefreshRequestedMsg{Resource: "alerts", Scope: scope}
+	}
+	return tea.Batch(emit, p.spinner.Tick)
 }
 
 // openSilenceFormForCursor pushes the silence form prefilled with

@@ -811,8 +811,12 @@ func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
 func TestPage_TitleIncludesScope(t *testing.T) {
 	t.Parallel()
 
-	// Default scope (empty) reads as "all" — k9s convention.
+	// Default scope (empty) reads as "all" — k9s convention. Drive
+	// the page out of cold-start with an empty in-scope DataMsg
+	// before checking the title; pre-poll the title flips to the
+	// loading affordance.
 	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{}, Tenant: ""})
 	require.Equal(t, "alerts(all)[0]", p.Title())
 
 	// Explicit scope from Options threads into the title.
@@ -821,11 +825,96 @@ func TestPage_TitleIncludesScope(t *testing.T) {
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "prod",
 	})
+	_, _ = p2.Update(poll.DataMsg{Resource: []backend.Alert{}, Tenant: "prod"})
 	require.Equal(t, "alerts(prod)[0]", p2.Title())
 
 	// SetScope updates the active label live.
 	p2.SetScope("prod,staging")
 	require.Equal(t, "alerts(prod,staging)[0]", p2.Title())
+}
+
+func TestPage_TitleColdStartShowsLoading(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	out := stripStyle(p.Title())
+	require.Contains(t, out, "loading alerts",
+		"cold-start title must read as loading until the first DataMsg lands")
+}
+
+func TestPage_TitleAfterDataMsgFlipsToCount(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Tenant:   "",
+	})
+	require.Equal(t, "alerts(all)[1]", p.Title(),
+		"first in-scope DataMsg must drop the loading affordance")
+}
+
+func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	// First, get the page into the polled state so the title's
+	// "refreshing" branch is observable as a flip.
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{}, Tenant: ""})
+	require.False(t, p.refreshing)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.True(t, p.refreshing,
+		"`r` must flip the page into refreshing state")
+
+	// The Cmd is a tea.Batch carrying the RefreshRequestedMsg and
+	// the spinner Tick. Walk the batch and assert the Refresh
+	// payload is present.
+	require.NotNil(t, cmd)
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	require.True(t, ok, "Cmd must produce a BatchMsg")
+	var sawRefresh bool
+	for _, c := range batch {
+		if m := c(); m != nil {
+			if rr, ok := m.(app.RefreshRequestedMsg); ok {
+				require.Equal(t, "alerts", rr.Resource)
+				require.Equal(t, "all", rr.Scope)
+				sawRefresh = true
+			}
+		}
+	}
+	require.True(t, sawRefresh,
+		"Batch must contain RefreshRequestedMsg{Resource:alerts}")
+}
+
+func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	require.Empty(t, p.Footer(),
+		"pre-poll Footer is empty so the cold-start frame stays quiet")
+
+	next := fixedNow.Add(25 * time.Second)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{},
+		Tenant:   "",
+		NextAt:   next,
+	})
+	require.Equal(t, "next refresh 25s", p.Footer())
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.Equal(t, "refreshing…", p.Footer(),
+		"manual `r` flips the bottom border to the refreshing affordance")
+
+	// Once the next DataMsg lands, the timer reads naturally again.
+	later := fixedNow.Add(40 * time.Second)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{},
+		Tenant:   "",
+		NextAt:   later,
+	})
+	require.Equal(t, "next refresh 40s", p.Footer())
 }
 
 func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
