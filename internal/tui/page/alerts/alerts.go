@@ -697,12 +697,23 @@ func (p *Page) renderRows(width, maxRows int) string {
 		if marked {
 			mark = "✓"
 		}
+		// Per-cell severity colour applies only to plain rows.
+		// Cursor / marked / suppressed rows wrap the entire line in
+		// a row-level style; nested ANSI inside that wrap is fragile
+		// across terminals, and per Q1.2 the row-level style is
+		// supposed to win — so skip the cell-level colour entirely
+		// for those three cases.
+		rowStyled := i == p.cursor || marked || a.State == backend.AlertStateSuppressed
+		sevCell := severityOf(a)
+		if !rowStyled {
+			sevCell = severityStyle(a, p.styles).Render(sevCell)
+		}
 		row := make([]string, 0, 5)
 		if showTenant {
 			row = append(row, entry.tenant)
 		}
 		row = append(row,
-			severityOf(a),
+			sevCell,
 			a.Labels["alertname"],
 			string(a.State),
 			ageLabel,
@@ -987,4 +998,20 @@ func severityOf(a backend.Alert) string {
 		return v
 	}
 	return "—"
+}
+
+// severityStyle returns the lipgloss style for a's severity label so
+// the renderer can foreground-tint the SEVERITY cell. Falls back to
+// Severity.Unknown for missing / unrecognised values so every cell
+// gets a consistent palette ref rather than a bare default.
+func severityStyle(a backend.Alert, styles theme.Styles) lipgloss.Style {
+	switch strings.ToLower(a.Labels["severity"]) {
+	case "critical":
+		return styles.Severity.Critical
+	case "warning":
+		return styles.Severity.Warning
+	case "info":
+		return styles.Severity.Info
+	}
+	return styles.Severity.Unknown
 }

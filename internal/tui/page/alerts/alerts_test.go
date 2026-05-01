@@ -75,6 +75,88 @@ func newPage(t *testing.T) *Page {
 	})
 }
 
+func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
+	alerts := []backend.Alert{
+		mkAlert("CritOne", "critical", backend.AlertStateActive),
+		mkAlert("WarnTwo", "warning", backend.AlertStateActive),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	// Move the cursor off both rows so neither inherits the cursor
+	// row-level style precedence (kept per Q1.2). With two alerts,
+	// the cursor sits on row 0 by default, so we walk it past the
+	// last row — clamped to the last index — and assert against the
+	// other row instead.
+	p.cursor = 0 // critical at index 0 (severity DESC default)
+
+	out := p.View(120, 20)
+	wantWarn := styles.Severity.Warning.Render("warning")
+	require.Contains(t, out, wantWarn,
+		"non-cursor warning cell must carry Severity.Warning ANSI")
+}
+
+func TestPage_CursorRowSkipsSeverityColour(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
+	alerts := []backend.Alert{
+		mkAlert("CritOne", "critical", backend.AlertStateActive),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	// Single row → cursor sits on it.
+	require.Equal(t, 0, p.cursor)
+
+	out := p.View(120, 20)
+	notWanted := styles.Severity.Critical.Render("critical")
+	require.NotContains(t, out, notWanted,
+		"cursor row must not carry the per-cell severity ANSI; row-level style wins per Q1.2")
+}
+
+func TestPage_MarkedRowSkipsSeverityColour(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
+	alerts := []backend.Alert{
+		mkAlert("CritOne", "critical", backend.AlertStateActive),
+		mkAlert("WarnTwo", "warning", backend.AlertStateActive),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	// Move cursor to row 1 so row 0 isn't the cursor; mark row 0.
+	p.cursor = 1
+	p.snapshotFocus()
+	p.marks[p.view[0].a.Fingerprint] = struct{}{}
+
+	out := p.View(120, 20)
+	notWanted := styles.Severity.Critical.Render("critical")
+	require.NotContains(t, out, notWanted,
+		"marked row must not carry per-cell severity ANSI; marked-row fg wins")
+}
+
+func TestPage_SuppressedRowSkipsSeverityColour(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
+	alerts := []backend.Alert{
+		mkAlert("CritOne", "critical", backend.AlertStateActive),
+		mkAlert("WarnTwo", "warning", backend.AlertStateSuppressed),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	// Cursor on row 0 (critical/active); row 1 (warning/suppressed)
+	// should be dim-styled and skip per-cell colour.
+	p.cursor = 0
+
+	out := p.View(120, 20)
+	notWanted := styles.Severity.Warning.Render("warning")
+	require.NotContains(t, out, notWanted,
+		"suppressed (dimmed) row must not carry per-cell severity ANSI")
+}
+
 func TestPage_DataMsgPopulatesView(t *testing.T) {
 	t.Parallel()
 
@@ -587,15 +669,23 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 	// The cursor row gets wrapped in the Table.Cursor style. The
 	// catppuccin-mocha skin maps that to a lavender-on-base ANSI
 	// sequence; tests don't pin the colour values (the skin can
-	// change), but the cursor row MUST carry an ANSI escape.
+	// change), but the cursor row MUST carry an ANSI escape — and
+	// MUST NOT carry the per-cell severity ANSI (Q1.2: row-level
+	// style wins over per-cell colouring).
 	lines := strings.Split(stripStyle(out), "\n")
 	require.GreaterOrEqual(t, len(lines), 2)
 	cursorLine := strings.SplitN(out, "\n", 4)[1] // header → row 0 (cursor) → ...
 	otherLine := strings.SplitN(out, "\n", 4)[2]
 	require.Contains(t, cursorLine, "\x1b[",
 		"the cursor row must carry ANSI styling")
-	require.NotContains(t, otherLine, "\x1b[",
-		"non-cursor rows in v0.1 stay unstyled — only Cursor wraps the row")
+	// Non-cursor rows do carry per-cell severity ANSI now. Assert
+	// the Cursor style ANSI is absent — that's the contract that
+	// keeps the cursor visually distinct from a coloured cell.
+	styles := loadStyles(t)
+	cursorANSI := styles.Table.Cursor.Render("x")
+	cursorPrefix := strings.SplitN(cursorANSI, "x", 2)[0]
+	require.NotContains(t, otherLine, cursorPrefix,
+		"non-cursor rows must not carry the cursor row-level style")
 }
 
 func TestPage_BindingsIncludeEnterDrill(t *testing.T) {
