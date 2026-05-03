@@ -21,6 +21,16 @@ repos:
     hooks:
       - id: golangci-lint
 
+  - repo: local
+    hooks:
+      # govulncheck ./...
+      - id: govulncheck
+        name: govulncheck
+        entry: govulncheck ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
   - repo: https://github.com/Lucas-C/pre-commit-hooks
     rev: v1.5.5
     hooks:
