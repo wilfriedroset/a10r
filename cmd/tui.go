@@ -128,12 +128,14 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	go func() {
 		homeFactory := func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:     *styles,
-				Now:        time.Now,
-				Scope:      scope,
-				Clients:    silenceClients,
-				Creator:    creator,
-				TimeFormat: timeFormat(),
+				Styles:          *styles,
+				Now:             time.Now,
+				Scope:           scope,
+				Clients:         silenceClients,
+				Creator:         creator,
+				TimeFormat:      timeFormat(),
+				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
+				Logger:          slog.Default(),
 			})
 		}
 		prog.Send(app.PushPage(homeFactory)())
@@ -357,12 +359,14 @@ func newResolver(
 	r.Register("alerts", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:     styles,
-				Now:        time.Now,
-				Scope:      scope,
-				Clients:    silenceClients,
-				Creator:    creator,
-				TimeFormat: timeFormat(),
+				Styles:          styles,
+				Now:             time.Now,
+				Scope:           scope,
+				Clients:         silenceClients,
+				Creator:         creator,
+				TimeFormat:      timeFormat(),
+				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
+				Logger:          slog.Default(),
 			})
 		})
 	})

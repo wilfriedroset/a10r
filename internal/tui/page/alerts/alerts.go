@@ -11,9 +11,12 @@
 //   - Per E2 sort cycling by `Shift+S` (severity), `Shift+N`
 //     (alertname), `Shift+T` (state), `Shift+R` (receiver). `h`/`l`
 //     walk between sort columns.
-//   - `s` opens the silence form (placeholder until #30); the
-//     binding is filtered out under read-only mode (C4) by the
-//     action registry.
+//   - `s` follows the k9s same-key-different-N rule: with no marks
+//     it silences the cursor row via the per-row silence form;
+//     with one or more marks it fans out a bulk silence — the
+//     form opens once, the page substitutes per-target matchers
+//     and dispatches CreateSilence per marked alert. Read-only
+//     mode hides the binding via the action registry.
 //
 // Polling lives in the wiring layer (cmd/tui.go in #39): a poll
 // loop emits DataMsg{Resource: []backend.Alert} that this page
@@ -21,9 +24,13 @@
 package alerts
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -31,11 +38,13 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -104,6 +113,41 @@ type Options struct {
 	// in relative while the rest of the app reads absolute. Zero
 	// value (TimeFormatRelative) is the pre-toggle default.
 	TimeFormat app.TimeFormat
+	// BulkConcurrency caps the per-tenant worker pool for the
+	// bulk-silence fanout (one CreateSilence per marked alert).
+	// Zero resolves to config.DefaultBulkConcurrency at construction
+	// time so callers can pass the unmaterialised
+	// `defaults.bulk_concurrency` directly.
+	BulkConcurrency int
+	// Logger receives per-failure detail (`backend`, `tenant`,
+	// `alert_fingerprint`, `err`) at error level when the bulk
+	// fanout surfaces individual CreateSilence failures. Nil
+	// suppresses logging.
+	Logger *slog.Logger
+}
+
+// bulkSilenceTarget is one resolved entry of a pending bulk-
+// silence round. Tenant routes the CreateSilence call; Fingerprint
+// is the alert identifier the page uses for the unmark step;
+// Matchers is the per-alert label set the form's metadata is
+// stamped onto. Captured at confirm-open time so a poll-tick
+// reordering or filter change between confirm and Yes can't
+// route a CreateSilence to a different alert on a different
+// backend.
+type bulkSilenceTarget struct {
+	Tenant      string
+	Fingerprint string
+	Matchers    []backend.Matcher
+}
+
+// pendingBulkSilence captures the in-flight state between the
+// confirm modal (or bulk-form push) and its result. Empty between
+// rounds. Targets is the resolved list of {tenant, fingerprint,
+// matchers}; tenants is a stable alphabetical list of distinct
+// tenant names for the confirm question and the form banner.
+type pendingBulkSilence struct {
+	targets []bulkSilenceTarget
+	tenants []string
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -157,11 +201,32 @@ type Page struct {
 	focusFingerprint string
 
 	// marks is the set of fingerprints the user has Space-toggled
-	// for bulk operations (Ctrl+S bulk silence in #30). Tracking
-	// by Fingerprint, like the cursor focus, so the marks survive
-	// re-sorts and re-filters without sliding onto unrelated
-	// alerts.
+	// for bulk operations. Tracking by Fingerprint, like the cursor
+	// focus, so the marks survive re-sorts and re-filters without
+	// sliding onto unrelated alerts. `s` with marks fans out one
+	// CreateSilence per marked alert; failed targets keep their
+	// marks so the next `s` retries only the unfinished work.
 	marks map[string]struct{}
+
+	// pendingBulkSilence captures the resolved bulk-silence targets
+	// between an opened confirm modal (N≥2 marks) and its
+	// ConfirmResultMsg, or between an opened bulk form (any N≥1)
+	// and its BulkSubmittedMsg. Cleared after consumption.
+	pendingBulkSilence pendingBulkSilence
+
+	// bulkConcurrency caps the per-tenant worker pool for the
+	// bulk-silence fanout. Tenants always run in parallel; this
+	// knob limits the inner pool size per tenant.
+	bulkConcurrency int
+	// logger is the structured logger used for per-failure detail
+	// in the bulk fanout. Nil suppresses logging.
+	logger *slog.Logger
+	// cancelBulk cancels the in-flight bulk-silence fanout when
+	// set. Populated when fanout starts; the dispatch Cmd defers
+	// its own cancel() so a stale done arriving after a newer
+	// round started cannot abort the newer round (mirrors the
+	// silences page's contract).
+	cancelBulk context.CancelFunc
 
 	sort        SortKey
 	sortAsc     bool
@@ -205,20 +270,26 @@ func New(opts Options) *Page {
 		spinner.WithSpinner(spinner.Points),
 		spinner.WithStyle(opts.Styles.Header.Accent),
 	)
+	concurrency := opts.BulkConcurrency
+	if concurrency <= 0 {
+		concurrency = config.DefaultBulkConcurrency
+	}
 	return &Page{
-		styles:        opts.Styles,
-		now:           now,
-		scope:         opts.Scope,
-		clients:       opts.Clients,
-		creator:       opts.Creator,
-		timeFormat:    opts.TimeFormat,
-		byTenant:      map[string][]backend.Alert{},
-		sort:          SortBySeverity,
-		sortAsc:       false,
-		marks:         map[string]struct{}{},
-		polledTenants: map[string]struct{}{},
-		nextRefresh:   map[string]time.Time{},
-		spinner:       sp,
+		styles:          opts.Styles,
+		now:             now,
+		scope:           opts.Scope,
+		clients:         opts.Clients,
+		creator:         opts.Creator,
+		timeFormat:      opts.TimeFormat,
+		byTenant:        map[string][]backend.Alert{},
+		sort:            SortBySeverity,
+		sortAsc:         false,
+		marks:           map[string]struct{}{},
+		polledTenants:   map[string]struct{}{},
+		nextRefresh:     map[string]time.Time{},
+		spinner:         sp,
+		bulkConcurrency: concurrency,
+		logger:          opts.Logger,
 	}
 }
 
@@ -240,8 +311,20 @@ func (p *Page) SetScope(s string) {
 // nothing to wait for.
 func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
 
-// Close implements app.Page.
-func (*Page) Close() tea.Cmd { return nil }
+// Close implements app.Page. Cancels any in-flight bulk-silence
+// fanout so a page pop while workers are mid-air aborts not-yet-
+// started work via the worker channel select. In-flight HTTP
+// requests are allowed to finish — CreateSilence is non-idempotent,
+// so cancelling mid-flight risks a half-created silence; finishing
+// the request and letting the user see the success / failure on
+// the next poll is the safer trade-off.
+func (p *Page) Close() tea.Cmd {
+	if p.cancelBulk != nil {
+		p.cancelBulk()
+		p.cancelBulk = nil
+	}
+	return nil
+}
 
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "alerts" }
@@ -491,7 +574,19 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. Esc on the form is a non-event.
+		// If a pending bulk round was waiting for the form, drop it
+		// so a subsequent `s` doesn't reuse a stale target list.
+		p.pendingBulkSilence = pendingBulkSilence{}
 		return p, nil
+	case silenceform.BulkSubmittedMsg:
+		cmd := p.handleBulkSilenceSubmit(m)
+		return p, cmd
+	case modal.ConfirmResultMsg:
+		cmd := p.handleBulkSilenceConfirm(m)
+		return p, cmd
+	case bulkSilenceDoneMsg:
+		cmd := p.handleBulkSilenceDone(m)
+		return p, cmd
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
@@ -666,7 +761,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
-		cmd := p.openSilenceFormForCursor()
+		cmd := p.openSilenceForS()
 		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
@@ -689,6 +784,19 @@ func (p *Page) requestRefresh() tea.Cmd {
 		return app.RefreshRequestedMsg{Resource: "alerts", Scope: scope}
 	}
 	return tea.Batch(emit, p.spinner.Tick)
+}
+
+// openSilenceForS is the entry point for the `s` key. k9s-style:
+// no marks → cursor row, single-form gate (existing wording);
+// 1 mark → push the bulk form directly (the form is the gate at
+// N=1 — a separate confirm would be redundant); ≥2 marks → confirm
+// modal first, then bulk form. Mirror of the silences page's
+// openExpireConfirmUnified shape.
+func (p *Page) openSilenceForS() tea.Cmd {
+	if len(p.marks) == 0 {
+		return p.openSilenceFormForCursor()
+	}
+	return p.openBulkSilence()
 }
 
 // openSilenceFormForCursor pushes the silence form prefilled with
@@ -727,6 +835,390 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 			Matchers: matchers,
 		})
 	})
+}
+
+// openBulkSilence resolves the marked alerts into bulkSilenceTargets
+// (matchers minus `__name__`, paired with each alert's tenant) and
+// either pushes the bulk form directly (N=1) or opens a confirm
+// modal first (N≥2). Marks that no longer correspond to any in-
+// scope alert (e.g. the alert resolved between mark and silence)
+// are dropped silently. Empty Clients flashes the standard hint;
+// no marks left after resolution drops to a soft Info flash.
+func (p *Page) openBulkSilence() tea.Cmd {
+	if len(p.clients) == 0 {
+		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+	}
+	targets, tenants := p.resolveBulkSilenceTargets()
+	if len(targets) == 0 {
+		return flashFn(footer.FlashInfo, "no marked alerts remain")
+	}
+	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
+	if len(targets) == 1 {
+		return p.pushBulkSilenceForm()
+	}
+	question := fmt.Sprintf("silence %d alerts? (tenant %s)", len(targets), formatTenantBreakdownAlerts(targets))
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewConfirm(question, modal.ConfirmDefaultYes)
+	})
+}
+
+// resolveBulkSilenceTargets walks p.byTenant (not p.view) so a
+// marked alert hidden by an active filter still ends up in the
+// queue — the user marked it deliberately, an unrelated UI state
+// shouldn't silently drop it. Targets are sorted by (tenant,
+// fingerprint) so the confirm wording and the fanout order are
+// stable across runs / tests. Returns the resolved list plus a
+// stable alphabetical list of distinct tenant names for the
+// confirm question + form banner.
+func (p *Page) resolveBulkSilenceTargets() (targets []bulkSilenceTarget, tenants []string) {
+	targets = make([]bulkSilenceTarget, 0, len(p.marks))
+	tenantSet := map[string]struct{}{}
+	for tenant, alerts := range p.byTenant {
+		if _, ok := p.clients[tenant]; !ok {
+			continue
+		}
+		for _, a := range alerts {
+			if _, marked := p.marks[a.Fingerprint]; !marked {
+				continue
+			}
+			targets = append(targets, bulkSilenceTarget{
+				Tenant:      tenant,
+				Fingerprint: a.Fingerprint,
+				Matchers:    silenceform.MatchersFromLabels(a.Labels),
+			})
+			tenantSet[tenant] = struct{}{}
+		}
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Tenant != targets[j].Tenant {
+			return targets[i].Tenant < targets[j].Tenant
+		}
+		return targets[i].Fingerprint < targets[j].Fingerprint
+	})
+	tenants = make([]string, 0, len(tenantSet))
+	for t := range tenantSet {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	return targets, tenants
+}
+
+// formatTenantBreakdownAlerts mirrors the silences page's
+// formatTenantBreakdown shape but counts targets-per-tenant on a
+// []bulkSilenceTarget rather than []pendingExpireID. Single-tenant
+// returns the bare name; multi-tenant returns "name=count" pairs
+// sorted alphabetically and joined with ", ".
+func formatTenantBreakdownAlerts(targets []bulkSilenceTarget) string {
+	counts := map[string]int{}
+	tenants := []string{}
+	for _, t := range targets {
+		if _, seen := counts[t.Tenant]; !seen {
+			tenants = append(tenants, t.Tenant)
+		}
+		counts[t.Tenant]++
+	}
+	sort.Strings(tenants)
+	if len(tenants) == 1 {
+		return tenants[0]
+	}
+	parts := make([]string, len(tenants))
+	for i, t := range tenants {
+		parts[i] = fmt.Sprintf("%s=%d", t, counts[t])
+	}
+	return strings.Join(parts, ", ")
+}
+
+// pushBulkSilenceForm pushes the silence form in bulk mode with
+// a banner spelling out the per-target fanout shape. Uses the
+// pending state populated by openBulkSilence — caller must have
+// validated client availability already. Picks the first tenant's
+// client as the form's Client field for symmetry with the single-
+// form path; in bulk mode the form never calls Client, so the
+// choice is cosmetic, but a non-nil value avoids a no-op fail
+// branch in the form.
+//
+// The 1-mark path renders this banner ("applies to 1 alert
+// (tenant prod)") rather than the cursor row's matchers buffer
+// the no-marks path uses. Two single-target paths render and
+// confirm differently on purpose: the bulk path can't show a
+// single backend ID up front (the silence is created post-submit)
+// and the form's banner is the user's gate at N=1. Don't try to
+// "unify" them — the divergence is per-design.
+func (p *Page) pushBulkSilenceForm() tea.Cmd {
+	pending := p.pendingBulkSilence
+	if len(pending.targets) == 0 {
+		return flashFn(footer.FlashInfo, "no marked alerts remain")
+	}
+	creator := p.creator
+	if creator == "" {
+		creator = "a10r"
+	}
+	styles := p.styles
+	now := p.now
+	banner := bulkSilenceBanner(pending.targets, pending.tenants)
+	// Pick any client — form never calls it in bulk mode.
+	var client silenceform.Client
+	for _, t := range pending.tenants {
+		if c, ok := p.clients[t]; ok {
+			client = c
+			break
+		}
+	}
+	return app.PushPage(func() app.Page {
+		return silenceform.New(silenceform.Options{
+			Client:     client,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Bulk:       true,
+			BulkBanner: banner,
+		})
+	})
+}
+
+// bulkSilenceBanner formats the form's banner string. Single-
+// tenant + N=1 reads "applies to 1 alert (tenant prod)";
+// otherwise "applies to N alerts across M tenants — each
+// silenced with its own labels". Wording matches docs/design/
+// bulk-silence.md so the user sees exactly what the submit will
+// fan out to.
+func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
+	n := len(targets)
+	if len(tenants) == 1 {
+		alertWord := "alerts"
+		if n == 1 {
+			alertWord = "alert"
+		}
+		return fmt.Sprintf("applies to %d %s (tenant %s)", n, alertWord, tenants[0])
+	}
+	return fmt.Sprintf("applies to %d alerts across %d tenants — each silenced with its own labels", n, len(tenants))
+}
+
+// handleBulkSilenceConfirm consumes a ConfirmResultMsg from the
+// pre-form confirm modal (N≥2 path). Yes pushes the bulk form;
+// No / Cancelled drops the pending state silently. The single-
+// row confirm also lands here when openExpireConfirmUnified-
+// shaped flows ever need it on the alerts page; today there are
+// no such, so the absence of pending state is a plain no-op.
+func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
+	pending := p.pendingBulkSilence
+	if len(pending.targets) == 0 {
+		return nil
+	}
+	if m.Cancelled || !m.Yes {
+		p.pendingBulkSilence = pendingBulkSilence{}
+		return nil
+	}
+	return p.pushBulkSilenceForm()
+}
+
+// bulkSilenceDoneMsg is the result envelope for a completed
+// bulk-silence fanout. Successes carries the alert fingerprints
+// whose CreateSilence returned nil — Update unmarks those rows;
+// fingerprints absent from the list (failures or unstarted-due-
+// cancel) keep their marks so retry is one keystroke. Total is
+// the original target count so the flash can read "silenced N of
+// Total".
+type bulkSilenceDoneMsg struct {
+	total     int
+	successes []string
+}
+
+// handleBulkSilenceSubmit runs after the bulk form auto-pops on
+// Ctrl+S submit. The user has filled the metadata (comment,
+// starts/ends, creator) once; the page stamps it onto every
+// pending target's matcher set and dispatches the fanout. The
+// returned Cmd performs the worker-pool dispatch and emits
+// bulkSilenceDoneMsg when every result has landed.
+func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
+	pending := p.pendingBulkSilence
+	p.pendingBulkSilence = pendingBulkSilence{}
+	if len(pending.targets) == 0 {
+		return nil
+	}
+	if p.cancelBulk != nil {
+		// Cancel any prior in-flight round before starting a new one.
+		// Idempotent: the prior round's deferred cancel() is a no-op
+		// if it already ran.
+		p.cancelBulk()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelBulk = cancel
+	clients := p.clients
+	concurrency := p.bulkConcurrency
+	logger := p.logger
+	targets := pending.targets
+	spec := backend.SilenceSpec{
+		StartsAt:  m.StartsAt,
+		EndsAt:    m.EndsAt,
+		CreatedBy: m.Creator,
+		Comment:   m.Comment,
+	}
+	return func() tea.Msg {
+		// Local cancel: releases this round's ctx subtree the moment
+		// dispatch returns, regardless of whether p.cancelBulk has
+		// since been overwritten by a newer round.
+		defer cancel()
+		successes := dispatchBulkSilence(ctx, clients, targets, spec, concurrency, logger)
+		return bulkSilenceDoneMsg{
+			total:     len(targets),
+			successes: successes,
+		}
+	}
+}
+
+// handleBulkSilenceDone applies a completed bulk-silence fanout.
+// Successes drop their marks; everything else (failures and
+// unstarted-due-cancel) keeps its mark. Does not touch p.cancelBulk
+// — that field may now refer to a newer round; the producing Cmd
+// already deferred its own cancel().
+func (p *Page) handleBulkSilenceDone(m bulkSilenceDoneMsg) tea.Cmd {
+	for _, fp := range m.successes {
+		delete(p.marks, fp)
+	}
+	failed := m.total - len(m.successes)
+	return flashBulkSilenceResult(m.total, len(m.successes), failed)
+}
+
+// flashBulkSilenceResult formats the success / partial / total-
+// failure flash text for a completed bulk-silence round. N=1 reads
+// "silence created" (matching the single-row form's success flash);
+// N≥2 uses count-based wording.
+func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
+	if total == 1 {
+		if success == 1 {
+			return flashFn(footer.FlashSuccess, "silence created")
+		}
+		return flashFn(footer.FlashError, "silence failed")
+	}
+	if failed == 0 {
+		return flashFn(footer.FlashSuccess, fmt.Sprintf("silenced %d alerts", success))
+	}
+	if success == 0 {
+		return flashFn(footer.FlashError, fmt.Sprintf("silence failed for %d alerts", failed))
+	}
+	return flashFn(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
+}
+
+// silenceResult is the per-call outcome the worker pool emits
+// onto the shared results channel. Tenant rides along for
+// structured-log attribution on failure.
+type silenceResult struct {
+	fingerprint string
+	tenant      string
+	err         error
+}
+
+// dispatchBulkSilence runs the per-tenant fanout. Tenants run in
+// parallel goroutines; inside each tenant a bounded worker pool
+// of `min(concurrency, len(targets))` workers consumes from a
+// per-tenant jobs channel. concurrency=1 collapses to fully
+// sequential per tenant. Mirrors the silences page's
+// dispatchBulkExpire shape — the only differences are the verb
+// (CreateSilence vs ExpireSilence) and the result shape.
+//
+// Returns the alert fingerprints whose CreateSilence returned
+// nil. The caller derives "failed = total - len(successes)"; that
+// bucket includes both real errors and unstarted-due-cancel. Both
+// keep their marks so the user can retry only the unfinished work.
+func dispatchBulkSilence(
+	ctx context.Context,
+	clients map[string]silenceform.Client,
+	targets []bulkSilenceTarget,
+	specBase backend.SilenceSpec,
+	concurrency int,
+	logger *slog.Logger,
+) []string {
+	byTenant := map[string][]bulkSilenceTarget{}
+	tenants := []string{}
+	for _, t := range targets {
+		if _, seen := byTenant[t.Tenant]; !seen {
+			tenants = append(tenants, t.Tenant)
+		}
+		byTenant[t.Tenant] = append(byTenant[t.Tenant], t)
+	}
+	resCh := make(chan silenceResult, len(targets))
+	var tenantWg sync.WaitGroup
+	for _, tenant := range tenants {
+		client, ok := clients[tenant]
+		group := byTenant[tenant]
+		if !ok {
+			for _, t := range group {
+				resCh <- silenceResult{
+					fingerprint: t.Fingerprint,
+					tenant:      tenant,
+					err:         errors.New("no writeable backend for tenant"),
+				}
+			}
+			continue
+		}
+		tenantWg.Add(1)
+		go func(tenant string, ts []bulkSilenceTarget, c silenceform.Client) {
+			defer tenantWg.Done()
+			runTenantSilencePool(ctx, tenant, ts, c, specBase, concurrency, resCh)
+		}(tenant, group, client)
+	}
+	go func() {
+		tenantWg.Wait()
+		close(resCh)
+	}()
+	successes := make([]string, 0, len(targets))
+	for r := range resCh {
+		if r.err == nil {
+			successes = append(successes, r.fingerprint)
+			continue
+		}
+		if logger != nil {
+			logger.Error("bulk silence: alert silence failed",
+				slog.String("backend", r.tenant),
+				slog.String("tenant", r.tenant),
+				slog.String("alert_fingerprint", r.fingerprint),
+				slog.String("err", r.err.Error()),
+			)
+		}
+	}
+	return successes
+}
+
+// runTenantSilencePool is the per-tenant bounded worker pool.
+// Producer feeds the jobs channel under ctx.Done so a Close()
+// mid-flight stops dispatching new work; consumers run
+// CreateSilence and emit results regardless of the ctx state for
+// jobs they've already pulled, so an in-flight request completes
+// naturally. Workers cap at min(concurrency, len(targets)).
+func runTenantSilencePool(
+	ctx context.Context,
+	tenant string,
+	targets []bulkSilenceTarget,
+	client silenceform.Client,
+	specBase backend.SilenceSpec,
+	concurrency int,
+	resCh chan<- silenceResult,
+) {
+	workers := max(min(concurrency, len(targets)), 1)
+	jobs := make(chan bulkSilenceTarget)
+	go func() {
+		defer close(jobs)
+		for _, t := range targets {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- t:
+			}
+		}
+	}()
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for t := range jobs {
+				spec := specBase
+				spec.Matchers = t.Matchers
+				_, err := client.CreateSilence(ctx, spec)
+				resCh <- silenceResult{fingerprint: t.Fingerprint, tenant: tenant, err: err}
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // hintNoWriteableBackend is the shared "configure a writeable

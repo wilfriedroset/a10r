@@ -4,8 +4,11 @@ package alerts
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -426,16 +430,80 @@ func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
 }
 
 // fakeSilenceClient is the smallest silenceform.Client a test
-// needs. The alerts test only asserts `s` produces a non-flash
-// Cmd; CreateSilence is never called from within the page.
-type fakeSilenceClient struct{}
+// needs. The single-row tests only assert `s` produces a non-
+// flash Cmd; CreateSilence is never called from within the page
+// in those flows. The bulk-silence tests do call CreateSilence
+// from the page's fanout, so the implementation is concurrent-
+// safe and records every spec seen for assertion.
+type fakeSilenceClient struct {
+	mu       sync.Mutex
+	tenant   string
+	calls    []backend.SilenceSpec
+	failOn   map[string]bool // matcher.Value (alertname) → return error
+	wantErr  error           // unconditional error if non-nil
+	delay    time.Duration   // optional sleep before returning (concurrency tests)
+	released chan struct{}   // optional gate; nil = no gating
+	inflight int
+	peakIn   int
+}
 
-func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, spec)
+	f.inflight++
+	if f.inflight > f.peakIn {
+		f.peakIn = f.inflight
+	}
+	gate := f.released
+	failOn := f.failOn
+	wantErr := f.wantErr
+	delay := f.delay
+	f.mu.Unlock()
+
+	if gate != nil {
+		<-gate
+	}
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	f.mu.Lock()
+	f.inflight--
+	f.mu.Unlock()
+
+	if wantErr != nil {
+		return "", wantErr
+	}
+	for _, m := range spec.Matchers {
+		if m.Name == "alertname" && failOn[m.Value] {
+			return "", fmt.Errorf("seeded failure for %s", m.Value)
+		}
+	}
 	return "fake-silence-id", nil
 }
 
 func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
 	return nil
+}
+
+func (f *fakeSilenceClient) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeSilenceClient) callsCopy() []backend.SilenceSpec {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]backend.SilenceSpec, len(f.calls))
+	copy(out, f.calls)
+	return out
+}
+
+func (f *fakeSilenceClient) peak() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.peakIn
 }
 
 func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
@@ -1143,4 +1211,495 @@ func TestPage_CursorOnSuppressedRowKeepsCursorStyle(t *testing.T) {
 	out := p.View(120, 10)
 	require.Contains(t, out, stylePrefix(t, p.styles.Table.Cursor.Render("x")),
 		"cursor on a suppressed row must render in the cursor style")
+}
+
+// alertWithFP builds a synthetic Alert with a stable fingerprint
+// + tenant-aware labels for the bulk-silence tests. Fingerprint
+// is the bulk-silence mark key; alertname is the matcher value
+// failOn checks for in the fake.
+func alertWithFP(name, fp, severity string) backend.Alert {
+	return backend.Alert{
+		Fingerprint: fp,
+		Labels: map[string]string{
+			"alertname": name,
+			"severity":  severity,
+		},
+		State:    backend.AlertStateActive,
+		StartsAt: fixedNow.Add(-time.Minute),
+	}
+}
+
+// bulkPage builds a page with a populated client map for one or
+// more tenants and seeds it with an alert payload per tenant.
+// alertsByTenant keys the Tenant tag of each DataMsg so bulk
+// fanout tests can drive multi-tenant cases without a custom
+// scaffold per test. Tenants are walked in alphabetical order so
+// the resulting cursor / focus state is deterministic across runs
+// (Go's map iteration order is randomized).
+func bulkPage(t *testing.T, alertsByTenant map[string][]backend.Alert, fakes map[string]*fakeSilenceClient, concurrency int) *Page {
+	t.Helper()
+	clients := map[string]silenceform.Client{}
+	for tenant, fake := range fakes {
+		fake.tenant = tenant
+		clients[tenant] = fake
+	}
+	p := New(Options{
+		Styles:          loadStyles(t),
+		Now:             func() time.Time { return fixedNow },
+		Scope:           "all",
+		Clients:         clients,
+		Creator:         "wilfried",
+		BulkConcurrency: concurrency,
+	})
+	tenants := make([]string, 0, len(alertsByTenant))
+	for tenant := range alertsByTenant {
+		tenants = append(tenants, tenant)
+	}
+	sort.Strings(tenants)
+	for _, tenant := range tenants {
+		_, _ = p.Update(poll.DataMsg{Resource: alertsByTenant[tenant], Tenant: tenant})
+	}
+	return p
+}
+
+// markEvery walks the cursor down through the view marking every
+// row with Space. Resets the cursor to row 0 first via
+// GoToFirstRowMsg so the marks are applied to the visible rows
+// in order regardless of where DataMsg-arrival ordering left the
+// cursor. Stops at the last row so the cursor remains in bounds
+// for any subsequent assertions.
+func markEvery(p *Page) {
+	_, _ = p.Update(app.GoToFirstRowMsg{})
+	for range len(p.view) {
+		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+}
+
+// runBulkSilence drives a posted bulk-silence form submission
+// through dispatch + done so the page state settles.
+func runBulkSilence(t *testing.T, p *Page, msg silenceform.BulkSubmittedMsg) tea.Cmd {
+	t.Helper()
+	_, dispatch := p.Update(msg)
+	require.NotNil(t, dispatch, "BulkSubmittedMsg must produce a dispatch Cmd")
+	doneMsg := dispatch()
+	done, ok := doneMsg.(bulkSilenceDoneMsg)
+	require.True(t, ok, "dispatch must emit bulkSilenceDoneMsg, got %T", doneMsg)
+	_, flashCmd := p.Update(done)
+	return flashCmd
+}
+
+func TestPage_SKeyNoMarksUsesCursor(t *testing.T) {
+	t.Parallel()
+
+	// No marks → existing single-row form push. Pending state
+	// stays empty since the bulk path never engages.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {alertWithFP("HighCPU", "fp-a", "critical")},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "no marks → s must push the single-row silence form, not flash")
+	require.Empty(t, p.pendingBulkSilence.targets, "no-marks path must not populate the bulk pending state")
+}
+
+func TestPage_SKeyOneMarkPushesBulkFormDirectly(t *testing.T) {
+	t.Parallel()
+
+	// One mark → bulk form pushed directly, no confirm modal.
+	// pendingBulkSilence holds the single resolved target.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {alertWithFP("HighCPU", "fp-a", "critical")},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "1-mark path must push the bulk form, not flash")
+	require.Len(t, p.pendingBulkSilence.targets, 1)
+	require.Equal(t, "fp-a", p.pendingBulkSilence.targets[0].Fingerprint)
+}
+
+func TestPage_SKeyTwoMarksOpensConfirmFirst(t *testing.T) {
+	t.Parallel()
+
+	// Two marks → confirm modal opens with the bulk question; the
+	// form is pushed only after Yes.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("HighCPU", "fp-a", "critical"),
+			alertWithFP("DiskFull", "fp-b", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "2-mark path must open confirm modal")
+	require.Len(t, p.pendingBulkSilence.targets, 2)
+}
+
+func TestPage_BulkSilencePerAlertMatchers(t *testing.T) {
+	t.Parallel()
+
+	// Three marked alerts with distinct labels → 3 CreateSilence
+	// calls, each with that alert's labels (minus __name__). The
+	// matchers must round-trip through MatchersFromLabels so the
+	// synthetic key is dropped.
+	fake := &fakeSilenceClient{}
+	alerts := []backend.Alert{
+		alertWithFP("A", "fp-a", "critical"),
+		alertWithFP("B", "fp-b", "warning"),
+		alertWithFP("C", "fp-c", "info"),
+	}
+	// Inject __name__ on each so we can prove it's dropped.
+	for i := range alerts {
+		alerts[i].Labels["__name__"] = "ALERTS"
+	}
+	p := bulkPage(t, map[string][]backend.Alert{"prod": alerts},
+		map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	require.Len(t, p.marks, 3)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	_ = runBulkSilence(t, p, silenceform.BulkSubmittedMsg{
+		Comment:  "ack",
+		Creator:  "wilfried",
+		StartsAt: fixedNow,
+		EndsAt:   fixedNow.Add(time.Hour),
+	})
+
+	require.Equal(t, 3, fake.callCount(), "one CreateSilence per marked alert")
+	for _, call := range fake.callsCopy() {
+		for _, m := range call.Matchers {
+			require.NotEqual(t, "__name__", m.Name,
+				"__name__ must be dropped by MatchersFromLabels")
+		}
+		require.NotEmpty(t, call.Matchers, "every call must carry per-alert matchers")
+		require.Equal(t, "ack", call.Comment)
+		require.Equal(t, "wilfried", call.CreatedBy)
+	}
+}
+
+func TestPage_BulkSilencePerTenantDispatch(t *testing.T) {
+	t.Parallel()
+
+	// 2 alerts on tenant A, 1 on tenant B → A's client sees 2
+	// calls, B's sees 1, no cross-tenant leakage.
+	fakeA := &fakeSilenceClient{}
+	fakeB := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod":    {alertWithFP("A1", "fp-a1", "warning"), alertWithFP("A2", "fp-a2", "warning")},
+		"staging": {alertWithFP("B1", "fp-b1", "info")},
+	}, map[string]*fakeSilenceClient{"prod": fakeA, "staging": fakeB}, 4)
+	require.Len(t, p.view, 3)
+	markEvery(p)
+	require.Len(t, p.marks, 3)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	_ = runBulkSilence(t, p, silenceform.BulkSubmittedMsg{
+		Comment:  "ack",
+		Creator:  "wilfried",
+		StartsAt: fixedNow,
+		EndsAt:   fixedNow.Add(time.Hour),
+	})
+
+	require.Equal(t, 2, fakeA.callCount(), "tenant prod gets 2 calls")
+	require.Equal(t, 1, fakeB.callCount(), "tenant staging gets 1 call")
+}
+
+func TestPage_BulkSilenceUnmarksOnlySuccessfulFingerprints(t *testing.T) {
+	t.Parallel()
+
+	// fp-a and fp-c succeed; fp-b fails. After fanout completes,
+	// only fp-b remains marked so the next `s` retries that one.
+	fake := &fakeSilenceClient{failOn: map[string]bool{"B": true}}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("A", "fp-a", "warning"),
+			alertWithFP("B", "fp-b", "warning"),
+			alertWithFP("C", "fp-c", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	flashCmd := runBulkSilence(t, p, silenceform.BulkSubmittedMsg{
+		Comment: "ack", Creator: "wilfried",
+		StartsAt: fixedNow, EndsAt: fixedNow.Add(time.Hour),
+	})
+	flash := flashCmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, flash.Level)
+	require.Contains(t, flash.Text, "silenced 2 of 3 — 1 failed")
+
+	require.Len(t, p.marks, 1, "only the failed fingerprint keeps its mark")
+	require.Contains(t, p.marks, "fp-b")
+}
+
+func TestPage_BulkSilenceFlashesAllSuccess(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("A", "fp-a", "warning"),
+			alertWithFP("B", "fp-b", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	flashCmd := runBulkSilence(t, p, silenceform.BulkSubmittedMsg{
+		Comment: "ack", Creator: "wilfried",
+		StartsAt: fixedNow, EndsAt: fixedNow.Add(time.Hour),
+	})
+	flash := flashCmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, flash.Level)
+	require.Contains(t, flash.Text, "silenced 2 alerts")
+	require.Empty(t, p.marks, "every successful target drops its mark")
+}
+
+func TestPage_BulkSilenceFlashesTotalFailure(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSilenceClient{wantErr: errors.New("boom")}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("A", "fp-a", "warning"),
+			alertWithFP("B", "fp-b", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	flashCmd := runBulkSilence(t, p, silenceform.BulkSubmittedMsg{
+		Comment: "ack", Creator: "wilfried",
+		StartsAt: fixedNow, EndsAt: fixedNow.Add(time.Hour),
+	})
+	flash := flashCmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, flash.Level)
+	require.Contains(t, flash.Text, "silence failed for 2 alerts")
+	require.Len(t, p.marks, 2, "every failed target keeps its mark")
+}
+
+func TestPage_BulkSilenceConfirmNoIsNoop(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("A", "fp-a", "warning"),
+			alertWithFP("B", "fp-b", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: false})
+
+	require.Nil(t, cmd, "No on the bulk-silence confirm must be a noop")
+	require.Equal(t, 0, fake.callCount())
+	require.Empty(t, p.pendingBulkSilence.targets, "pending state must clear on No")
+	require.Len(t, p.marks, 2, "marks survive a cancelled confirm so the user can retry")
+}
+
+func TestPage_BulkSilenceRespectsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	// concurrency=2 with 5 marked alerts on one tenant → at most
+	// 2 callers in flight at any moment. Use a gating channel so
+	// the test can hold callers blocked, observe inflight, and
+	// release in a controlled order.
+	gate := make(chan struct{}, 256)
+	fake := &fakeSilenceClient{released: gate}
+	alerts := make([]backend.Alert, 0, 5)
+	for i := range 5 {
+		alerts = append(alerts, alertWithFP(string(rune('A'+i)), fmt.Sprintf("fp-%d", i), "warning"))
+	}
+	p := bulkPage(t, map[string][]backend.Alert{"prod": alerts},
+		map[string]*fakeSilenceClient{"prod": fake}, 2)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	_, dispatch := p.Update(silenceform.BulkSubmittedMsg{
+		Comment: "ack", Creator: "wilfried",
+		StartsAt: fixedNow, EndsAt: fixedNow.Add(time.Hour),
+	})
+	resultCh := make(chan tea.Msg, 1)
+	go func() { resultCh <- dispatch() }()
+
+	require.Eventually(t, func() bool { return fake.peak() >= 2 }, time.Second, time.Millisecond)
+	for range 5 {
+		gate <- struct{}{}
+	}
+	<-resultCh
+	require.LessOrEqual(t, fake.peak(), 2,
+		"concurrency=2 must cap in-flight callers per tenant; peak=%d", fake.peak())
+}
+
+func TestPage_BulkSilenceCancelsOnPageClose(t *testing.T) {
+	t.Parallel()
+
+	// concurrency=1 with 5 marks → release the first call, Close
+	// the page mid-flight, observe the producer goroutine sees
+	// ctx.Done and stops feeding work. No further callers should
+	// reach the fake after Close.
+	gate := make(chan struct{}, 256)
+	fake := &fakeSilenceClient{released: gate}
+	alerts := make([]backend.Alert, 0, 5)
+	for i := range 5 {
+		alerts = append(alerts, alertWithFP(string(rune('A'+i)), fmt.Sprintf("fp-%d", i), "warning"))
+	}
+	p := bulkPage(t, map[string][]backend.Alert{"prod": alerts},
+		map[string]*fakeSilenceClient{"prod": fake}, 1)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+
+	_, dispatch := p.Update(silenceform.BulkSubmittedMsg{
+		Comment: "ack", Creator: "wilfried",
+		StartsAt: fixedNow, EndsAt: fixedNow.Add(time.Hour),
+	})
+	doneCh := make(chan tea.Msg, 1)
+	go func() { doneCh <- dispatch() }()
+
+	require.Eventually(t, func() bool { return fake.callCount() >= 1 }, time.Second, time.Millisecond)
+	_ = p.Close()
+	gate <- struct{}{} // release the in-flight caller so the round can drain
+	doneMsg := <-doneCh
+	done := doneMsg.(bulkSilenceDoneMsg)
+	require.Less(t, len(done.successes), 5,
+		"Close must short-circuit the fanout; got %d successes", len(done.successes))
+	require.LessOrEqual(t, fake.callCount(), 1,
+		"after Close the dispatcher must not start additional CreateSilence calls; got %d", fake.callCount())
+}
+
+func TestPage_BulkSilenceEmptyAfterResolve(t *testing.T) {
+	t.Parallel()
+
+	// Mark a fingerprint, then a poll tick drops it from byTenant
+	// (alert resolved server-side between mark and silence). Press
+	// `s` — resolveBulkSilenceTargets returns an empty list and the
+	// page must flash the soft-info "no marked alerts remain" hint
+	// rather than open the bulk form against a stale snapshot.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {alertWithFP("HighCPU", "fp-a", "warning")},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 1)
+
+	// Poll tick: alert resolved, byTenant empties.
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{}, Tenant: "prod"})
+	require.Empty(t, p.view)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "no marked alerts remain")
+	require.Empty(t, p.pendingBulkSilence.targets,
+		"empty-resolve must not leak pending state into the next round")
+}
+
+func TestPage_BulkSilenceCancelledMsgDropsPending(t *testing.T) {
+	t.Parallel()
+
+	// Pushing the bulk form then pressing Esc on it must drop the
+	// pending target list so a subsequent `s` doesn't accidentally
+	// reuse a stale snapshot of marks.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {alertWithFP("A", "fp-a", "warning"), alertWithFP("B", "fp-b", "warning")},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	_, _ = p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.Len(t, p.pendingBulkSilence.targets, 2)
+
+	_, _ = p.Update(silenceform.CancelledMsg{})
+	require.Empty(t, p.pendingBulkSilence.targets)
+}
+
+func TestPage_FormatTenantBreakdownAlerts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   []bulkSilenceTarget
+		want string
+	}{
+		{
+			name: "single tenant",
+			in:   []bulkSilenceTarget{{Tenant: "prod", Fingerprint: "fp-a"}, {Tenant: "prod", Fingerprint: "fp-b"}},
+			want: "prod",
+		},
+		{
+			name: "multi tenant sorted",
+			in: []bulkSilenceTarget{
+				{Tenant: "staging", Fingerprint: "fp-x"},
+				{Tenant: "prod", Fingerprint: "fp-a"},
+				{Tenant: "prod", Fingerprint: "fp-b"},
+			},
+			want: "prod=2, staging=1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, formatTenantBreakdownAlerts(tc.in))
+		})
+	}
+}
+
+func TestPage_BulkSilenceBanner(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		targets []bulkSilenceTarget
+		tenants []string
+		want    string
+	}{
+		{
+			name:    "single tenant single alert",
+			targets: []bulkSilenceTarget{{Tenant: "prod", Fingerprint: "fp-a"}},
+			tenants: []string{"prod"},
+			want:    "applies to 1 alert (tenant prod)",
+		},
+		{
+			name:    "single tenant multiple alerts",
+			targets: []bulkSilenceTarget{{Tenant: "prod"}, {Tenant: "prod"}, {Tenant: "prod"}},
+			tenants: []string{"prod"},
+			want:    "applies to 3 alerts (tenant prod)",
+		},
+		{
+			name:    "multi tenant",
+			targets: []bulkSilenceTarget{{Tenant: "prod"}, {Tenant: "prod"}, {Tenant: "staging"}},
+			tenants: []string{"prod", "staging"},
+			want:    "applies to 3 alerts across 2 tenants — each silenced with its own labels",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, bulkSilenceBanner(tc.targets, tc.tenants))
+		})
+	}
 }
