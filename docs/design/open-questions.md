@@ -279,6 +279,18 @@ When no config exists on first run, launch an in-TUI wizard to capture the first
 
 **Status.** Resolved 2026-04-25 — deferred past v0.1. Auth layer keeps the `RoundTripper` shape so `aws/aws-sdk-go-v2/aws/signer/v4` slots in later without touching call sites.
 
+### F4. Prometheus `remote_write` shape parity
+
+**Context.** Alertmanager users are Prometheus users. Their existing `prometheus.yml` already encodes the auth, TLS, proxy, and header conventions of their environment in the `remote_write` block. The v0.1 `auth:` envelope in `a10r.yaml` does not match that shape — `basic_auth:` is nested under `auth.basic`, there is no TLS or proxy block, and `remote_timeout` is hard-coded.
+
+**Options.** (a) adopt Prometheus's shape verbatim — flat `basic_auth:` / `authorization:` / `bearer_token:` siblings, `tls_config:`, `proxy_url:`, etc. — accepting a pre-1.0 schema break; (b) accept both shapes, with the existing `auth:` envelope as a deprecated alias; (c) keep the v0.1 envelope and require users to translate.
+
+**Lean.** (a). Pre-1.0 break is cheap; "two ways to express the same thing" debt aged poorly in every config schema we have watched.
+
+**Blocks.** Schema migration of `internal/config`, `internal/backend/transport`, examples, the first-run wizard, and the tenant-config redactor.
+
+**Status.** Resolved 2026-05-03 — (a). Detailed schema, in-scope / out-of-scope field list, and migration plan in [`prometheus-remote-write-parity.md`](prometheus-remote-write-parity.md). `*_file` and `*_ref` keys remain rejected per F1 (env-var interpolation is the credential-sourcing answer); `oauth2:`, `sigv4:`, `azuread:`, `google_iam:` deferred.
+
 ---
 
 ## G. Client error model
