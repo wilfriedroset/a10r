@@ -1070,9 +1070,11 @@ func (p *Page) emptyState() string {
 // applies the k9s-style yellow header colour. When the active
 // scope spans more than one tenant, a leading TENANT column is
 // inserted so the user knows which backend each row came from.
-// When marks are present, a leading "  " (two cols) reserves
-// space so the data columns stay aligned with the row mark
-// glyph below.
+//
+// The leading whitespace mirrors the per-row prefix so column
+// titles line up with their data: always two cols for the cursor
+// slot ("▸ " / "  "), plus another two for the mark glyph
+// ("✓ " / "  ") when any row is marked.
 func (p *Page) renderHeader(width int) string {
 	titles := []SortKey{SortByEndsAt, SortByStartsAt, SortByCreatedBy, SortByState}
 	parts := make([]string, 0, len(titles)+1)
@@ -1090,12 +1092,9 @@ func (p *Page) renderHeader(width int) string {
 		}
 		parts = append(parts, label)
 	}
-	leading := ""
+	leading := "  "
 	if p.hasMarks() {
-		// Match the per-row mark width ("✓ " / "  ") so columns
-		// stay aligned. Two cols, foreground-only render so the
-		// strip blends with the body background.
-		leading = "  "
+		leading = "    "
 	}
 	// Foreground-only render so the header row keeps the body
 	// background — flush with the data rows underneath rather

@@ -14,6 +14,7 @@ import (
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stretchr/testify/require"
 
@@ -658,6 +659,18 @@ func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 		"expired row must carry the dimmed fg colour (%08x)", dimFG)
 }
 
+// visualColumnOf returns the display-width column at which token
+// first appears in line. Display width (lipgloss.Width) rather
+// than byte index because some prefix glyphs (▸) are multi-byte
+// but one visual cell wide — using strings.Index would compare
+// apples to oranges.
+func visualColumnOf(t *testing.T, line, token string) int {
+	t.Helper()
+	idx := strings.Index(line, token)
+	require.GreaterOrEqual(t, idx, 0, "token %q missing from line %q", token, line)
+	return lipgloss.Width(line[:idx])
+}
+
 func hexEscapeFor(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	// lipgloss emits truecolor as ESC[38;2;R;G;Bm — match the RGB
@@ -677,6 +690,55 @@ func TestPage_RenderShowsCreatorAndState(t *testing.T) {
 	out := stripStyle(p.View(120, 10))
 	require.Contains(t, out, "alice@example")
 	require.Contains(t, out, "active")
+}
+
+// TestPage_HeaderColumnsAlignWithRows guards the alignment fix:
+// the row prefix is always two cols (cursor "▸ " / "  ") plus
+// optionally two more for the mark glyph, and the header must
+// reserve the same leading space so column titles line up with
+// their data.
+func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		mark bool
+	}{
+		{name: "no marks", mark: false},
+		{name: "with marks", mark: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPage(t)
+			// EndsAt 30m in the past, StartsAt 5h in the past (sil()
+			// always sets StartsAt = fixedNow - 1h, so widen it via
+			// a manual override). Distinct relative-time strings —
+			// "30m ago" vs. "5h ago" — keep the column-search below
+			// unambiguous. Uses an expired silence because FormatAge
+			// collapses every future timestamp to "now".
+			s := sil("only", "alice", backend.SilenceStateExpired, -30*time.Minute)
+			s.StartsAt = fixedNow.Add(-5 * time.Hour)
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{s}})
+			if tc.mark {
+				_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+			}
+			out := stripStyle(p.View(160, 5))
+			lines := strings.Split(out, "\n")
+			require.GreaterOrEqual(t, len(lines), 2,
+				"need a header line and at least one data row")
+			header, data := lines[0], lines[1]
+
+			// ENDS header and its payload (30m ago) must start at the
+			// same visual column — otherwise the table reads
+			// shifted, like in the bug report screenshot. Compared
+			// in display widths (lipgloss.Width) because the ▸
+			// cursor glyph is multi-byte but one visual cell.
+			hdrCol := visualColumnOf(t, header, "ENDS")
+			rowCol := visualColumnOf(t, data, "30m")
+			require.Equal(t, hdrCol, rowCol,
+				"ENDS column header and data must start in the same visual column (header=%q row=%q)", header, data)
+		})
+	}
 }
 
 func TestPage_FilterPromptIsLive(t *testing.T) {
