@@ -177,7 +177,7 @@ func silenceWriteClientsFrom(in map[string]backend.Client) map[string]silences.C
 // — backends differentiate via the existing tenant header, so a
 // per-backend UA would only add noise to backend access logs.
 func buildClients(cfg *config.Config) map[string]backend.Client {
-	ua := userAgent()
+	ua := userAgent(version, commit)
 	out := make(map[string]backend.Client, len(cfg.Backends))
 	for _, be := range cfg.Backends {
 		c, err := factory.Build(be, ua)
@@ -191,17 +191,18 @@ func buildClients(cfg *config.Config) map[string]backend.Client {
 }
 
 // userAgent returns the RFC 9110 User-Agent string identifying this
-// build of a10r. Format: `a10r/<version>` for plain releases,
-// `a10r/<version> (<commit>)` when a non-default commit is available
-// — gives backend operators one grep-able token while keeping the
+// build of a10r. Format: `a10r/<ver>` for plain releases,
+// `a10r/<ver> (<comm>)` when a non-default commit is available —
+// gives backend operators one grep-able token while keeping the
 // header short for log aggregators. The build vars are injected at
 // link time by goreleaser and default to "dev"/"none" for local
-// builds.
-func userAgent() string {
-	if commit == "" || commit == "none" {
-		return "a10r/" + version
+// builds; tests pass them explicitly so the function does not read
+// package state and remains data-race free under t.Parallel.
+func userAgent(ver, comm string) string {
+	if comm == "" || comm == "none" {
+		return "a10r/" + ver
 	}
-	return "a10r/" + version + " (" + commit + ")"
+	return "a10r/" + ver + " (" + comm + ")"
 }
 
 // loadConfigForTUI loads the user config; missing config returns

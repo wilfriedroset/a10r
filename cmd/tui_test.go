@@ -21,9 +21,7 @@ import (
 // the sentinel "none".
 func TestUserAgent_DevBuild(t *testing.T) {
 	t.Parallel()
-	withBuildVars(t, "dev", "none", func() {
-		require.Equal(t, "a10r/dev", userAgent())
-	})
+	require.Equal(t, "a10r/dev", userAgent("dev", "none"))
 }
 
 // TestUserAgent_ReleaseBuild covers the goreleaser path: a
@@ -32,9 +30,7 @@ func TestUserAgent_DevBuild(t *testing.T) {
 // to the exact build.
 func TestUserAgent_ReleaseBuild(t *testing.T) {
 	t.Parallel()
-	withBuildVars(t, "1.2.3", "abc1234", func() {
-		require.Equal(t, "a10r/1.2.3 (abc1234)", userAgent())
-	})
+	require.Equal(t, "a10r/1.2.3 (abc1234)", userAgent("1.2.3", "abc1234"))
 }
 
 // TestUserAgent_EmptyCommitTreatedAsNone pins the defensive branch:
@@ -42,20 +38,7 @@ func TestUserAgent_ReleaseBuild(t *testing.T) {
 // sentinel "none" so neither variant produces a stray "()" suffix.
 func TestUserAgent_EmptyCommitTreatedAsNone(t *testing.T) {
 	t.Parallel()
-	withBuildVars(t, "1.2.3", "", func() {
-		require.Equal(t, "a10r/1.2.3", userAgent())
-	})
-}
-
-// withBuildVars temporarily swaps cmd.version / cmd.commit so tests
-// can exercise userAgent's branches deterministically. Restores
-// the originals on cleanup so test ordering doesn't leak.
-func withBuildVars(t *testing.T, ver, comm string, fn func()) {
-	t.Helper()
-	origVer, origComm := version, commit
-	version, commit = ver, comm
-	t.Cleanup(func() { version, commit = origVer, origComm })
-	fn()
+	require.Equal(t, "a10r/1.2.3", userAgent("1.2.3", ""))
 }
 
 // TestBuildTenantRows_PicksUpVersionsByName covers the join
