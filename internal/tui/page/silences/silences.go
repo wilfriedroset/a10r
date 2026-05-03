@@ -442,6 +442,13 @@ func nextRefreshLabel(now, next time.Time) string {
 	return fmt.Sprintf("%dh", int(d.Hours()))
 }
 
+// PollResources implements app.PollAwarePage so the App-level
+// snapshot cache only replays "silences" payloads into this
+// page on push — alerts / receivers / groups cache entries are
+// filtered out before the page would have to type-assert and
+// discard them.
+func (*Page) PollResources() []string { return []string{"silences"} }
+
 // Bindings implements app.Page. Every write action carries
 // Dangerous so read-only mode (C4) hides them via the action
 // registry.

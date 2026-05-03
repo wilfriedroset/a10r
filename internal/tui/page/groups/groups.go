@@ -259,6 +259,11 @@ func (p *Page) polled() bool {
 // spinnerActive reports whether the spinner should keep ticking.
 func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 
+// PollResources implements app.PollAwarePage so the App-level
+// snapshot cache only replays "groups" payloads into this page
+// on push.
+func (*Page) PollResources() []string { return []string{"groups"} }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{

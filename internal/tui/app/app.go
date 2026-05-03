@@ -24,6 +24,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
+	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -97,6 +98,27 @@ type App struct {
 	// to relative — matches the pre-toggle UX every page shipped
 	// with.
 	timeFormat TimeFormat
+
+	// pollCache stores the latest poll.DataMsg per
+	// (ResourceLabel, Tenant) tuple. Updated as a side-effect of
+	// the App's DataMsg interception in handleLifecycle, replayed
+	// into a freshly-pushed page so the user sees populated rows
+	// the moment the page lands rather than waiting up to a full
+	// poll interval for the next tick. Pollers spawn at process
+	// start (cmd/tui.go), so this cache is populated before the
+	// user can navigate — every page push that comes after the
+	// first round of fetches hydrates instantly.
+	//
+	// Outer key is the poll resource label ("alerts", "silences",
+	// …); inner key is the tenant tag. Value is the full DataMsg
+	// so At/NextAt come along for the page's footer countdown
+	// without a separate ticker. Bounded: O(resources × tenants),
+	// e.g. 4 × 4 = 16 entries in a typical multi-backend setup.
+	//
+	// Single-threaded by construction: bubbletea routes every
+	// Update through the same goroutine, so the App is the sole
+	// reader and writer — no mutex needed.
+	pollCache map[string]map[string]poll.DataMsg
 }
 
 // NewApp constructs an App with the supplied dependencies. Registers
@@ -119,6 +141,7 @@ func NewApp(opts Options) *App {
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(),
 		flash:      footer.NewFlash(),
+		pollCache:  map[string]map[string]poll.DataMsg{},
 	}
 	a.registerGlobalBindings()
 	a.registerTenantBindings()
@@ -387,6 +410,17 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
+	case poll.DataMsg:
+		// Snapshot before forwarding so a page push that lands
+		// later — e.g. via PushPage from a key handler running in
+		// the same Update tick — sees the freshest payload. The
+		// labelled-cache write only fires when the poll layer
+		// stamped ResourceLabel; legacy DataMsgs from tests skip
+		// the cache and just forward.
+		if m.ResourceLabel != "" {
+			a.cacheDataMsg(m)
+		}
+		return a.forwardToTop(m), true
 	case pushPageMsg:
 		return a.pushPage(m.Factory), true
 	case popPageMsg:
@@ -465,7 +499,10 @@ func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
 
 // pushPage adds a new page on top, runs its Init, and refreshes the
 // crumb strip. Returns the page's Init Cmd so callers can chain
-// follow-ups (e.g. an alerts page kicking off a poll).
+// follow-ups (e.g. an alerts page kicking off a poll). After Init,
+// cached poll snapshots are replayed into the new page so it
+// hydrates from the freshest data immediately rather than waiting
+// up to a full poll interval for the next tick.
 func (a *App) pushPage(factory func() Page) tea.Cmd {
 	if factory == nil {
 		return nil
@@ -476,7 +513,9 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	}
 	a.stack = append(a.stack, page)
 	a.refreshCrumbs()
-	return page.Init()
+	initCmd := page.Init()
+	a.replayCachedDataMsgs()
+	return initCmd
 }
 
 // popPage removes the top page when the stack has more than one
@@ -514,7 +553,79 @@ func (a *App) replacePage(factory func() Page) tea.Cmd {
 	departing := a.stack[len(a.stack)-1]
 	a.stack[len(a.stack)-1] = page
 	a.refreshCrumbs()
-	return tea.Sequence(departing.Close(), page.Init())
+	cmd := tea.Sequence(departing.Close(), page.Init())
+	a.replayCachedDataMsgs()
+	return cmd
+}
+
+// cacheDataMsg stores the latest DataMsg per (ResourceLabel,
+// Tenant) tuple. Subsequent ticks for the same tuple overwrite —
+// the cache is a snapshot, not a history.
+func (a *App) cacheDataMsg(m poll.DataMsg) {
+	bucket := a.pollCache[m.ResourceLabel]
+	if bucket == nil {
+		bucket = map[string]poll.DataMsg{}
+		a.pollCache[m.ResourceLabel] = bucket
+	}
+	bucket[m.Tenant] = m
+}
+
+// replayCachedDataMsgs feeds cached snapshots into the top-of-
+// stack page through its Update so a freshly-pushed page can
+// build its byTenant map without waiting for the next poll tick.
+//
+// Replay is filtered by resource label when the top page
+// implements PollAwarePage: only labels the page declared via
+// PollResources() are replayed, so a silences page push doesn't
+// re-walk the alerts / receivers / groups cache. Pages that don't
+// implement the interface receive every cached payload — they
+// already type-assert and ignore wrong shapes, so nothing breaks;
+// the filter just trims the noise for opted-in pages.
+//
+// A returned Cmd is dropped: pages don't return Cmds in response
+// to a poll DataMsg (verified by every existing page's Update
+// branch). Should that invariant change, lift the helper to
+// return tea.Batch of every page Cmd.
+//
+// The inner-loop write to a.stack[len-1] is safe because the App's
+// Update path is single-threaded by bubbletea — replay runs
+// inside the same Update call that pushed the page, so no other
+// goroutine reads or writes the stack while this loop runs.
+func (a *App) replayCachedDataMsgs() {
+	if len(a.stack) == 0 {
+		return
+	}
+	allowed, filtering := a.replayFilter()
+	for label, bucket := range a.pollCache {
+		if filtering {
+			if _, ok := allowed[label]; !ok {
+				continue
+			}
+		}
+		for _, m := range bucket {
+			top, _ := a.stack[len(a.stack)-1].Update(m)
+			a.stack[len(a.stack)-1] = top
+		}
+	}
+}
+
+// replayFilter resolves the active page's PollResources()
+// declaration into a lookup set. Returns (set, true) when the
+// page opts in (an empty set means "want nothing" — still
+// filtering); (nil, false) when the page doesn't implement
+// PollAwarePage, in which case the caller skips filtering
+// entirely.
+func (a *App) replayFilter() (map[string]struct{}, bool) {
+	pa, ok := a.stack[len(a.stack)-1].(PollAwarePage)
+	if !ok {
+		return nil, false
+	}
+	labels := pa.PollResources()
+	allowed := make(map[string]struct{}, len(labels))
+	for _, l := range labels {
+		allowed[l] = struct{}{}
+	}
+	return allowed, true
 }
 
 // refreshCrumbs rebuilds the breadcrumb strip from the current

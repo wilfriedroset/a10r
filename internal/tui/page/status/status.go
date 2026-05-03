@@ -68,6 +68,16 @@ func (p *Page) HeaderContent() string {
 // ambient state in the bottom border.
 func (*Page) Footer() string { return "" }
 
+// PollResources implements app.PollAwarePage. The status page's
+// DataMsg branch handles backend.Status payloads, but no poller
+// emits that label today (status is fetched once at startup —
+// see cmd/tui.go fetchTenantVersions). The empty-but-non-nil
+// return signals "filter is active, allowed set is empty" so
+// no cached payload is replayed — the alternative (leaving the
+// interface unimplemented) would route every cached entry into
+// this page only for the type-assert to discard them.
+func (*Page) PollResources() []string { return []string{} }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{

@@ -40,16 +40,22 @@ type SendFunc func(tea.Msg)
 // the typed payload returned by FetchFunc — pages type-assert it
 // to the shape they expect ([]backend.Alert etc.). Tenant is the
 // per-tenant tag the poller was constructed with so a multi-tenant
-// page can route the result. At marks when the fetch completed
-// (clock.Now after the fetch) so pages can render "last refresh
-// 5s ago" without a parallel ticker. NextAt marks when the next
-// tick is scheduled — pages render the countdown straight from
-// it. Both are zero-valued in tests that don't care.
+// page can route the result. ResourceLabel is the resource bucket
+// the poller was constructed with ("alerts", "silences", …) — it
+// lets the App-level snapshot cache key by (label, tenant) so a
+// freshly-pushed page can hydrate from the cached payload of its
+// own resource without receiving payloads it doesn't care about.
+// Empty in tests that build DataMsg by hand. At marks when the
+// fetch completed (clock.Now after the fetch) so pages can render
+// "last refresh 5s ago" without a parallel ticker. NextAt marks
+// when the next tick is scheduled — pages render the countdown
+// straight from it. Both are zero-valued in tests that don't care.
 type DataMsg struct {
-	Resource any
-	Tenant   string
-	At       time.Time
-	NextAt   time.Time
+	Resource      any
+	Tenant        string
+	ResourceLabel string
+	At            time.Time
+	NextAt        time.Time
 }
 
 // BackendStatusMsg is emitted only when the connection state
@@ -155,12 +161,21 @@ type Poller struct {
 	done   chan struct{}
 }
 
-// New constructs a Poller. Required fields (Tenant, Interval, Fetch,
-// Send) are validated; missing ones panic because they indicate
-// programmer error rather than runtime conditions.
+// New constructs a Poller. Required fields (Resource, Interval,
+// Fetch, Send) are validated; missing ones panic because they
+// indicate programmer error rather than runtime conditions.
+// Tenant is allowed empty for tests that don't fan out across
+// backends, but Resource is mandatory: it's what lets the App-
+// level snapshot cache key payloads by resource so a freshly-
+// pushed page hydrates from the right bucket. A poller that
+// forgot to set Resource would silently bypass the cache —
+// catching it at construction beats debugging "loading…" later.
 func New(opts Options) *Poller {
 	if opts.Interval <= 0 {
 		panic("poll.New: Interval must be positive")
+	}
+	if opts.Resource == "" {
+		panic("poll.New: Resource must not be empty")
 	}
 	if opts.Fetch == nil {
 		panic("poll.New: Fetch must not be nil")
@@ -323,10 +338,11 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	now := p.clock.Now()
 	delay := p.nextDelay()
 	p.send(DataMsg{
-		Resource: res,
-		Tenant:   p.tenant,
-		At:       now,
-		NextAt:   now.Add(delay),
+		Resource:      res,
+		Tenant:        p.tenant,
+		ResourceLabel: p.resource,
+		At:            now,
+		NextAt:        now.Add(delay),
 	})
 	return delay, true
 }

@@ -109,6 +109,23 @@ type RefreshRequestedMsg struct {
 	Scope    string
 }
 
+// PollAwarePage is the optional Page extension a page implements
+// to opt in to resource-filtered cache replay on push. Pages that
+// consume poll.DataMsg with a known resource label list every
+// label they react to (the silences page returns ["silences"],
+// the alerts page returns ["alerts"], a future page that unions
+// alerts and groups can return both). Implementing the interface
+// AND returning an empty slice means "I don't want any cached
+// payload" — useful for pages whose DataMsg branch is vestigial.
+//
+// Pages that don't implement this interface receive every cached
+// payload during replay — fakePage in tests stays this way so
+// the legacy-replay path keeps coverage; production pages should
+// always opt in to keep the replay surface tight.
+type PollAwarePage interface {
+	PollResources() []string
+}
+
 // TimeFormat is the rendering mode for any duration / timestamp
 // the list pages surface. Toggled app-globally by the `t` binding
 // per Q7.2 — flipping it on the alerts page also flips silences

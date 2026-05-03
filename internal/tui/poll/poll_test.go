@@ -132,6 +132,7 @@ func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 	rec := newRecorder()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 10 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return "payload", nil
@@ -157,6 +158,8 @@ func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "payload", data.Resource)
 	require.Equal(t, "prod", data.Tenant)
+	require.Equal(t, "alerts", data.ResourceLabel,
+		"DataMsg must carry the constructor's Resource label so the App-level cache can key by (label, tenant)")
 }
 
 func TestPoller_TickIntervalRespected(t *testing.T) {
@@ -166,6 +169,7 @@ func TestPoller_TickIntervalRespected(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 5 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return 1, nil
@@ -202,6 +206,7 @@ func TestPoller_TransitionEmittedOnlyOnChange(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return 1, nil
@@ -237,6 +242,7 @@ func TestPoller_FirstTickFailureSchedulesBackoffBase(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 30 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return nil, backend.ErrUnreachable
@@ -269,6 +275,7 @@ func TestPoller_FailureClassTransitions(t *testing.T) {
 	var tick atomic.Int32
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 30 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			if tick.Add(1) == 1 {
@@ -305,6 +312,7 @@ func TestPoller_BackoffOnFailure(t *testing.T) {
 	var calls atomic.Int32
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 5 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			calls.Add(1)
@@ -346,6 +354,7 @@ func TestPoller_BackoffCapped(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 5 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return nil, backend.ErrUnreachable
@@ -383,6 +392,7 @@ func TestPoller_ResetBackoffOnSuccess(t *testing.T) {
 	failNext.Store(1)
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 5 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			if failNext.Add(-1) >= 0 {
@@ -420,6 +430,7 @@ func TestPoller_TransitionDegradedOnAuthError(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return nil, backend.ErrUnauthorized
@@ -449,6 +460,7 @@ func TestPoller_CtxCancelHaltsLoop(t *testing.T) {
 	fetchedAtLeastOnce := make(chan struct{}, 1)
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Hour,
 		Fetch: func(_ context.Context) (any, error) {
 			select {
@@ -484,6 +496,7 @@ func TestPoller_StopIdempotent(t *testing.T) {
 	rec := newRecorder()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Hour,
 		Fetch: func(_ context.Context) (any, error) {
 			return 1, nil
@@ -507,6 +520,7 @@ func TestPoller_StopThenStartResetsState(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: 5 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return "ok", nil
@@ -546,6 +560,7 @@ func TestPoller_DoubleStartIsNoOp(t *testing.T) {
 	var calls atomic.Int32
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Hour,
 		Fetch: func(_ context.Context) (any, error) {
 			calls.Add(1)
@@ -580,6 +595,7 @@ func TestPoller_JitterEnvelope(t *testing.T) {
 	clock := newFakeClock()
 	p := New(Options{
 		Tenant:   "prod",
+		Resource: "alerts",
 		Interval: time.Second,
 		Fetch: func(_ context.Context) (any, error) {
 			return 1, nil
@@ -843,12 +859,15 @@ func TestNew_PanicsOnInvalidOptions(t *testing.T) {
 	t.Parallel()
 
 	require.PanicsWithValue(t, "poll.New: Interval must be positive", func() {
-		New(Options{Interval: 0, Fetch: stubFetch, Send: func(tea.Msg) {}})
+		New(Options{Interval: 0, Resource: "alerts", Fetch: stubFetch, Send: func(tea.Msg) {}})
+	})
+	require.PanicsWithValue(t, "poll.New: Resource must not be empty", func() {
+		New(Options{Interval: time.Second, Fetch: stubFetch, Send: func(tea.Msg) {}})
 	})
 	require.PanicsWithValue(t, "poll.New: Fetch must not be nil", func() {
-		New(Options{Interval: time.Second, Send: func(tea.Msg) {}})
+		New(Options{Interval: time.Second, Resource: "alerts", Send: func(tea.Msg) {}})
 	})
 	require.PanicsWithValue(t, "poll.New: Send must not be nil", func() {
-		New(Options{Interval: time.Second, Fetch: stubFetch})
+		New(Options{Interval: time.Second, Resource: "alerts", Fetch: stubFetch})
 	})
 }

@@ -146,6 +146,11 @@ func (p *Page) HeaderContent() string {
 // ambient state in the bottom border.
 func (*Page) Footer() string { return "" }
 
+// PollResources implements app.PollAwarePage so the App-level
+// snapshot cache only replays "receivers" payloads into this
+// page on push.
+func (*Page) PollResources() []string { return []string{"receivers"} }
+
 // Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{

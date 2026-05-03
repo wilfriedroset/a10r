@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
 // fakePage is a minimal Page implementation for stack-mechanics
@@ -85,6 +86,20 @@ func (p *fakePage) Title() string             { return p.name }
 func (p *fakePage) HeaderContent() string     { return p.headerLabel }
 func (*fakePage) Footer() string              { return "" }
 func (p *fakePage) Bindings() []action.Action { return p.hints }
+
+// filteringFakePage embeds fakePage and adds the PollAwarePage
+// implementation so the cache-replay filter has something to
+// match. Defined here rather than as a fakePage flag because
+// pages opt in by interface satisfaction — type-asserting a
+// flag-bearing fakePage would always succeed and the filter
+// path wouldn't be exercised the way production pages exercise it.
+type filteringFakePage struct {
+	*fakePage
+	labels []string
+}
+
+// PollResources satisfies app.PollAwarePage.
+func (p *filteringFakePage) PollResources() []string { return p.labels }
 
 // drive runs tea.Cmds inside the App's Update loop the same way
 // bubbletea's runtime would, draining the cmd queue depth-first
@@ -398,6 +413,194 @@ func TestStack_EscOnOpenPromptDoesNotPop(t *testing.T) {
 	require.False(t, a.prompt.IsOpen())
 	require.Same(t, detail, a.topPage(),
 		"Esc with prompt open must NOT pop the page stack")
+}
+
+// TestPollCache_HydratesNewlyPushedPage covers the snapshot-cache
+// fast path: pollers fire before the user navigates, so a page
+// pushed later must hydrate from the cached DataMsg rather than
+// wait for the next tick. Without the replay the test page's
+// updateLog would be empty until a fresh poll lands — sometimes
+// up to a full minute in production. fakePage doesn't implement
+// PollAwarePage so it gets every cached label; the filter
+// behaviour is covered by TestPollCache_FilteringByPollResources
+// below.
+func TestPollCache_HydratesNewlyPushedPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	// Simulate two pollers (alerts × prod, alerts × staging) that
+	// have already published a tick before any page is pushed.
+	now := time.Now()
+	prodMsg := poll.DataMsg{
+		Resource:      []string{"prod-alert"},
+		Tenant:        "prod",
+		ResourceLabel: "alerts",
+		At:            now,
+		NextAt:        now.Add(time.Minute),
+	}
+	stagingMsg := poll.DataMsg{
+		Resource:      []string{"staging-alert"},
+		Tenant:        "staging",
+		ResourceLabel: "alerts",
+		At:            now,
+		NextAt:        now.Add(time.Minute),
+	}
+	a.Update(prodMsg)
+	a.Update(stagingMsg)
+
+	// Now push a page — its Update must receive both cached msgs
+	// before any new tick arrives.
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// Two cached entries → two replays. Order isn't guaranteed
+	// (map iteration), so assert by membership.
+	tenants := map[string]bool{}
+	for _, msg := range *page.updateLog {
+		if dm, ok := msg.(poll.DataMsg); ok {
+			tenants[dm.Tenant] = true
+		}
+	}
+	require.True(t, tenants["prod"], "prod cached msg must reach page (log=%v)", *page.updateLog)
+	require.True(t, tenants["staging"], "staging cached msg must reach page (log=%v)", *page.updateLog)
+}
+
+// TestPollCache_FilteringByPollResources covers the PollAwarePage
+// extension: a page that opts in to filtering only sees cached
+// payloads for the labels it declared. The reviewer flagged that
+// the original replay-everything path was O(resources × tenants)
+// busy work for every push; the extension trims it to just what
+// the page reacts to.
+func TestPollCache_FilteringByPollResources(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	// Cache one snapshot per resource label.
+	a.Update(poll.DataMsg{Resource: []string{"a"}, Tenant: "prod", ResourceLabel: "alerts"})
+	a.Update(poll.DataMsg{Resource: []string{"s"}, Tenant: "prod", ResourceLabel: "silences"})
+	a.Update(poll.DataMsg{Resource: []string{"r"}, Tenant: "prod", ResourceLabel: "receivers"})
+
+	// Push a page that only wants "silences".
+	page := &filteringFakePage{fakePage: newFakePage("silences"), labels: []string{"silences"}}
+	drive(t, a, PushPage(func() Page { return page }))
+
+	var got []string
+	for _, msg := range *page.updateLog {
+		if dm, ok := msg.(poll.DataMsg); ok {
+			got = append(got, dm.ResourceLabel)
+		}
+	}
+	require.Equal(t, []string{"silences"}, got,
+		"PollAwarePage with declared labels must only receive cached payloads for those labels (log=%v)", got)
+}
+
+// TestPollCache_EmptyPollResourcesGetsNothing covers the
+// "filter active, allowed set empty" branch: a page that
+// implements PollAwarePage but returns an empty slice opts out
+// of cache replay entirely (matches the status page's vestigial
+// DataMsg branch — see status.PollResources).
+func TestPollCache_EmptyPollResourcesGetsNothing(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	a.Update(poll.DataMsg{Resource: []string{"a"}, Tenant: "prod", ResourceLabel: "alerts"})
+
+	page := &filteringFakePage{fakePage: newFakePage("status"), labels: []string{}}
+	drive(t, a, PushPage(func() Page { return page }))
+
+	for _, msg := range *page.updateLog {
+		_, isData := msg.(poll.DataMsg)
+		require.False(t, isData,
+			"PollAwarePage returning [] must receive no cached payloads (msg=%v)", msg)
+	}
+}
+
+// TestPollCache_ReplacePageHydratesNewPage covers the symmetric
+// path on `replacePage`: when a page is swapped (e.g. via the
+// command bar's `:silences` after `:alerts`), the new page must
+// hydrate from the cache the same way `pushPage` does.
+func TestPollCache_ReplacePageHydratesNewPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	// Push an initial page so replacePage takes the swap branch
+	// rather than falling back to push.
+	first := newFakePage("first")
+	drive(t, a, PushPage(func() Page { return first }))
+
+	// Cache lands while `first` is on top.
+	a.Update(poll.DataMsg{Resource: []string{"payload"}, Tenant: "prod", ResourceLabel: "alerts"})
+
+	// Swap to a new page — the cache must replay into `second`,
+	// not vanish with `first`.
+	second := newFakePage("second")
+	drive(t, a, ReplacePage(func() Page { return second }))
+
+	var seen []string
+	for _, msg := range *second.updateLog {
+		if dm, ok := msg.(poll.DataMsg); ok {
+			seen = append(seen, dm.Tenant)
+		}
+	}
+	require.Equal(t, []string{"prod"}, seen,
+		"replacePage must replay the cache into the new page (log=%v)", *second.updateLog)
+}
+
+// TestPollCache_OverwritesByResourceTenant guards the cache key:
+// a second tick for the same (resource, tenant) replaces the
+// stored payload — the page sees the freshest snapshot, not a
+// history. Uses typed slices ([]string) for the payload so the
+// fixture matches the production shape (real pages assert on
+// []backend.Alert / []backend.Silence etc., not on bare strings).
+func TestPollCache_OverwritesByResourceTenant(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	a.Update(poll.DataMsg{Resource: []string{"v1"}, Tenant: "prod", ResourceLabel: "alerts"})
+	a.Update(poll.DataMsg{Resource: []string{"v2"}, Tenant: "prod", ResourceLabel: "alerts"})
+
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	var resources [][]string
+	for _, msg := range *page.updateLog {
+		if dm, ok := msg.(poll.DataMsg); ok {
+			if r, ok := dm.Resource.([]string); ok {
+				resources = append(resources, r)
+			}
+		}
+	}
+	require.Equal(t, [][]string{{"v2"}}, resources,
+		"replay must surface the latest payload only — cache is a snapshot, not a log")
+}
+
+// TestPollCache_LegacyDataMsgIsForwardedNotCached covers tests
+// (and pre-ResourceLabel callers) that emit DataMsg without the
+// label. The App must still forward it to the active page so
+// existing per-page tests keep working, but the cache stays out
+// of the picture so we don't replay an "untyped" entry into the
+// next page.
+func TestPollCache_LegacyDataMsgIsForwardedNotCached(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	first := newFakePage("first")
+	drive(t, a, PushPage(func() Page { return first }))
+
+	a.Update(poll.DataMsg{Resource: "legacy", Tenant: "prod"}) // no ResourceLabel
+
+	// First page received the live forward.
+	require.Len(t, *first.updateLog, 1, "live DataMsg must reach the active page")
+
+	// Now push a second page — it must NOT receive the legacy msg
+	// from a replay, because we never cached it.
+	second := newFakePage("second")
+	drive(t, a, PushPage(func() Page { return second }))
+	for _, msg := range *second.updateLog {
+		_, isData := msg.(poll.DataMsg)
+		require.False(t, isData,
+			"unlabelled DataMsg must not be replayed into a freshly pushed page")
+	}
 }
 
 func TestStack_PageInitChainedCmdsLand(t *testing.T) {

@@ -414,6 +414,11 @@ func (p *Page) polled() bool {
 // Outside those, the page draws static "next refresh" timing.
 func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 
+// PollResources implements app.PollAwarePage so the App-level
+// snapshot cache only replays "alerts" payloads into this page
+// on push.
+func (*Page) PollResources() []string { return []string{"alerts"} }
+
 // Bindings implements app.Page. Returns the per-view bindings
 // surfaced in the header's right-zone hint strip.
 func (*Page) Bindings() []action.Action {
