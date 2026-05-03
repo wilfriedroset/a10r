@@ -572,6 +572,7 @@ func TestNormalizeKey(t *testing.T) {
 		{name: "ctrl letter", key: tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, want: "Ctrl+C"},
 		{name: "shift letter uppercases", key: tea.KeyPressMsg{Code: 'g', Mod: tea.ModShift}, want: "Shift+G"},
 		{name: "ctrl+shift", key: tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl | tea.ModShift}, want: "Ctrl+Shift+S"},
+		{name: "ctrl+backslash", key: tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl}, want: "Ctrl+\\"},
 		{name: "esc", key: tea.KeyPressMsg{Code: tea.KeyEscape}, want: "Esc"},
 		{name: "enter", key: tea.KeyPressMsg{Code: tea.KeyEnter}, want: "Enter"},
 		{name: "backspace", key: tea.KeyPressMsg{Code: tea.KeyBackspace}, want: "Backspace"},

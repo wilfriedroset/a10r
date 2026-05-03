@@ -520,6 +520,9 @@ func (*Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if handled, cmd := p.handleSidebandMsg(msg); handled {
+		return p, cmd
+	}
 	switch m := msg.(type) {
 	case poll.DataMsg:
 		alerts, ok := m.Resource.([]backend.Alert)
@@ -557,17 +560,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		p.handleFilterPrompt(m)
 		return p, nil
-	case app.GoToFirstRowMsg:
-		p.cursor = 0
-		p.snapshotFocus()
-		return p, nil
-	case app.ScopeChangedMsg:
-		p.scope = m.Scope
-		p.recompute()
-		return p, nil
-	case app.TimeFormatChangedMsg:
-		p.timeFormat = m.Format
-		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash the new silence ID so the
 		// user has confirmation. Same shape the silences page uses.
@@ -591,6 +583,30 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// handleSidebandMsg consumes the app-level sideband messages
+// (scope change, time-format toggle, gg-chord first-row, Ctrl+\
+// clear marks) so Update's main switch stays under the cyclop
+// budget. Returns handled=true when the message was claimed and
+// the caller should short-circuit the rest of Update.
+func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
+	switch m := msg.(type) {
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
+		p.recompute()
+		return true, nil
+	case app.TimeFormatChangedMsg:
+		p.timeFormat = m.Format
+		return true, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
+		p.snapshotFocus()
+		return true, nil
+	case app.ClearMarksMsg:
+		return true, p.handleClearMarks()
+	}
+	return false, nil
 }
 
 // handleFilterPrompt centralises the four filter-prompt lifecycle
@@ -1234,6 +1250,20 @@ func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
 	}
+}
+
+// handleClearMarks drops every mark on the page in response to
+// the global Ctrl+\ binding. Flashes "marks cleared" when the
+// pre-clear count was non-zero so the user sees confirmation;
+// silently no-ops otherwise (no flash on a key that did nothing
+// would be a poor affordance, but an unconditional flash on a
+// page that never had marks would be surprising spam).
+func (p *Page) handleClearMarks() tea.Cmd {
+	if len(p.marks) == 0 {
+		return nil
+	}
+	p.marks = map[string]struct{}{}
+	return flashFn(footer.FlashInfo, "marks cleared")
 }
 
 // toggleMarkAtCursor flips the mark on the row under the cursor.

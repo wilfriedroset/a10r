@@ -521,6 +521,9 @@ func (*Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if handled, cmd := p.handleSidebandMsg(msg); handled {
+		return p, cmd
+	}
 	switch m := msg.(type) {
 	case poll.DataMsg:
 		s, ok := m.Resource.([]backend.Silence)
@@ -559,36 +562,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		var cmd tea.Cmd
 		p.spinner, cmd = p.spinner.Update(m)
 		return p, cmd
-	case app.ScopeChangedMsg:
-		p.scope = m.Scope
-		p.recompute()
-		return p, nil
-	case app.TimeFormatChangedMsg:
-		p.timeFormat = m.Format
-		return p, nil
-	case app.GoToFirstRowMsg:
-		p.cursor = 0
-		p.snapshotFocus()
-		return p, nil
-	case silenceform.SubmittedMsg:
-		// Form auto-popped already; flash so the user has visual
-		// confirmation. The next poll tick surfaces the change in
-		// the list. Updated picks "updated" vs. "created" so an
-		// edit doesn't read like a duplicate creation.
-		verb := "created"
-		if m.Updated {
-			verb = "updated"
-		}
-		return p, flashFn(footer.FlashSuccess, "silence "+verb+": "+m.ID)
-	case silenceform.CancelledMsg:
-		// Auto-pop already happened. No flash — form Esc is a
-		// non-event from the user's perspective.
-		return p, nil
-	case modal.ConfirmResultMsg:
-		cmd := p.handleExpireConfirm(m)
-		return p, cmd
-	case bulkExpireDoneMsg:
-		cmd := p.handleBulkExpireDone(m)
+	case silenceform.SubmittedMsg, silenceform.CancelledMsg, modal.ConfirmResultMsg, bulkExpireDoneMsg:
+		_ = m // multi-type case: handleWriteResult consumes msg via its own type switch
+		cmd := p.handleWriteResult(msg)
 		return p, cmd
 	case edit.FinishedMsg:
 		cmd := p.handleEditorFinished(m)
@@ -601,6 +577,58 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p.handleKey(m)
 	}
 	return p, nil
+}
+
+// handleWriteResult dispatches the four messages emitted by the
+// page's write-action machinery (silence form submit / cancel,
+// confirm modal result, bulk-expire fanout result). Pulled out of
+// Update so the main switch stays under the cyclop budget.
+func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case silenceform.SubmittedMsg:
+		// Form auto-popped already; flash so the user has visual
+		// confirmation. The next poll tick surfaces the change in
+		// the list. Updated picks "updated" vs. "created" so an
+		// edit doesn't read like a duplicate creation.
+		verb := "created"
+		if m.Updated {
+			verb = "updated"
+		}
+		return flashFn(footer.FlashSuccess, "silence "+verb+": "+m.ID)
+	case silenceform.CancelledMsg:
+		// Auto-pop already happened. No flash — form Esc is a
+		// non-event from the user's perspective.
+		return nil
+	case modal.ConfirmResultMsg:
+		return p.handleExpireConfirm(m)
+	case bulkExpireDoneMsg:
+		return p.handleBulkExpireDone(m)
+	}
+	return nil
+}
+
+// handleSidebandMsg consumes the app-level sideband messages
+// (scope change, time-format toggle, gg-chord first-row, Ctrl+\
+// clear marks) so Update's main switch stays under the cyclop
+// budget. Returns handled=true when the message was claimed and
+// the caller should short-circuit the rest of Update.
+func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
+	switch m := msg.(type) {
+	case app.ScopeChangedMsg:
+		p.scope = m.Scope
+		p.recompute()
+		return true, nil
+	case app.TimeFormatChangedMsg:
+		p.timeFormat = m.Format
+		return true, nil
+	case app.GoToFirstRowMsg:
+		p.cursor = 0
+		p.snapshotFocus()
+		return true, nil
+	case app.ClearMarksMsg:
+		return true, p.handleClearMarks()
+	}
+	return false, nil
 }
 
 // handleFilterPrompt mirrors the alerts page's handler — see
@@ -791,6 +819,18 @@ func (p *Page) polled() bool {
 		}
 	}
 	return false
+}
+
+// handleClearMarks drops every mark on the page in response to
+// the global Ctrl+\ binding. Flashes "marks cleared" when the
+// pre-clear count was non-zero so the user sees confirmation;
+// silently no-ops otherwise.
+func (p *Page) handleClearMarks() tea.Cmd {
+	if len(p.marks) == 0 {
+		return nil
+	}
+	p.marks = map[string]struct{}{}
+	return flashFn(footer.FlashInfo, "marks cleared")
 }
 
 // toggleMarkAtCursor flips the mark on the cursor row. No-op on

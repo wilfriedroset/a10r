@@ -1590,6 +1590,47 @@ func TestPage_BulkSilenceCancelsOnPageClose(t *testing.T) {
 		"after Close the dispatcher must not start additional CreateSilence calls; got %d", fake.callCount())
 }
 
+func TestPage_ClearMarksMsgEmptiesMarks(t *testing.T) {
+	t.Parallel()
+
+	// Ctrl+\ at LayerGlobal lands as ClearMarksMsg. With one or
+	// more marks active, the page empties the map and flashes
+	// "marks cleared" so the user sees confirmation.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {
+			alertWithFP("A", "fp-a", "warning"),
+			alertWithFP("B", "fp-b", "warning"),
+		},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	markEvery(p)
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(app.ClearMarksMsg{})
+	require.Empty(t, p.marks, "ClearMarksMsg must drop every mark")
+	require.NotNil(t, cmd, "non-empty pre-clear count must surface a flash")
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "marks cleared")
+}
+
+func TestPage_ClearMarksMsgWithNoMarksIsSilent(t *testing.T) {
+	t.Parallel()
+
+	// ClearMarksMsg arriving while no marks are active must be a
+	// silent no-op — flashing "marks cleared" on every Ctrl+\ press
+	// would be surprising spam on pages without any marked rows.
+	fake := &fakeSilenceClient{}
+	p := bulkPage(t, map[string][]backend.Alert{
+		"prod": {alertWithFP("A", "fp-a", "warning")},
+	}, map[string]*fakeSilenceClient{"prod": fake}, 4)
+	require.Empty(t, p.marks)
+
+	_, cmd := p.Update(app.ClearMarksMsg{})
+	require.Empty(t, p.marks)
+	require.Nil(t, cmd, "no-marks ClearMarksMsg must not flash")
+}
+
 func TestPage_BulkSilenceEmptyAfterResolve(t *testing.T) {
 	t.Parallel()
 

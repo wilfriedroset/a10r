@@ -44,6 +44,30 @@ func (r *recorder) lastLabel() string {
 	return ""
 }
 
+func TestDispatch_CtrlBackslashRoutesGlobal(t *testing.T) {
+	t.Parallel()
+
+	// `Ctrl+\` is the global "clear marks" binding registered by
+	// cmd/tui.go at LayerGlobal. The dispatcher itself doesn't
+	// know about ClearMarksMsg — it just dispatches whatever
+	// handler was registered. This test pins the routing contract:
+	// a handler bound at LayerGlobal under the App's normalized
+	// key string fires when that exact key arrives, without chord
+	// buffering. The dispatcher's lookup is a plain map read so
+	// case must match exactly — every Ctrl binding in the codebase
+	// uses the TitleCase `Ctrl+...` shape that `normalizeKey`
+	// emits (see internal/tui/app/keys.go:69).
+	d := New(newFakeClock())
+	r := &recorder{}
+	d.Set(LayerGlobal, "Ctrl+\\", r.handler("clear-marks"))
+
+	consumed, cmd := d.Dispatch("Ctrl+\\")
+	require.True(t, consumed, "Ctrl+\\ at LayerGlobal must be consumed")
+	require.Nil(t, cmd, "the registered handler returns nil cmd in this fake")
+	require.Equal(t, int32(1), r.count.Load())
+	require.Equal(t, "clear-marks", r.lastLabel())
+}
+
 func TestDispatch_Empty(t *testing.T) {
 	t.Parallel()
 

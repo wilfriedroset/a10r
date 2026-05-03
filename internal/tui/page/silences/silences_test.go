@@ -1349,6 +1349,37 @@ func (f *concurrencyFake) totalCalls() int {
 	return f.calls
 }
 
+func TestPage_ClearMarksMsgEmptiesMarks(t *testing.T) {
+	t.Parallel()
+
+	// Ctrl+\ at LayerGlobal lands as ClearMarksMsg. With marks
+	// active the silences page empties the map and flashes
+	// "marks cleared" so the user sees the affordance fired.
+	p := pageWithRows(t, &fakeSilenceClient{}, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(app.ClearMarksMsg{})
+	require.Empty(t, p.marks, "ClearMarksMsg must drop every mark")
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "marks cleared")
+}
+
+func TestPage_ClearMarksMsgWithNoMarksIsSilent(t *testing.T) {
+	t.Parallel()
+
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	require.Empty(t, p.marks)
+
+	_, cmd := p.Update(app.ClearMarksMsg{})
+	require.Empty(t, p.marks)
+	require.Nil(t, cmd, "no-marks ClearMarksMsg must not flash")
+}
+
 func TestPage_FormatTenantBreakdown(t *testing.T) {
 	t.Parallel()
 

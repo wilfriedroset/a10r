@@ -97,6 +97,17 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return func() tea.Msg { return app.GoToFirstRowMsg{} }
 	})
 
+	// `Ctrl+\` is the explicit "drop every mark on the focused
+	// page" binding. Lives at LayerGlobal so it works regardless
+	// of which list page is currently on top of the stack; pages
+	// without a marks map silently ignore the message. The key
+	// string must match the App's normalizeKey output (TitleCase
+	// modifier per keys.go:69) — every other Ctrl binding in the
+	// codebase uses the same `Ctrl+...` shape.
+	dispatcher.Set(keys.LayerGlobal, "Ctrl+\\", func() tea.Cmd {
+		return func() tea.Msg { return app.ClearMarksMsg{} }
+	})
+
 	// pollerReg is mutated after the pollers spawn, but the
 	// closure handed to the App captures a pointer so the empty
 	// slice we publish here is filled before the user can press
