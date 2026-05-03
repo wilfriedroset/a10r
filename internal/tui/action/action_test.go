@@ -88,7 +88,7 @@ func TestRegistry_Filter_ReadOnlyDropsDangerous(t *testing.T) {
 	r.Register(Action{Key: "?", View: ""})
 	r.Register(Action{Key: "s", View: "alerts", Dangerous: true})
 	r.Register(Action{Key: "Shift+T", View: "alerts"})
-	r.Register(Action{Key: "Ctrl+S", View: "alerts", Dangerous: true, Bulk: true})
+	r.Register(Action{Key: "x", View: "silences", Dangerous: true})
 
 	readOnly := r.Filter(true)
 	require.Len(t, readOnly, 2, "two non-Dangerous actions")

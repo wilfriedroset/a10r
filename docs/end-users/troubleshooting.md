@@ -35,19 +35,6 @@ interval is 1 minute. Press `r` to force an immediate refresh,
 or set `defaults.poll_interval: 5s` in the config for
 development.
 
-## `Ctrl+S` does nothing on the alerts page
-
-`Ctrl+S` is the XOFF terminal control. Modern terminals pass it
-through, but if yours doesn't, run:
-
-```sh
-stty -ixon
-```
-
-in the parent shell before launching a10r. Alternatively use
-`:silence` from the command bar, or open the alert via Enter and
-press `s` on the detail page.
-
 ## The header strip says `○ unreachable` *while* alerts are visible
 
 A connection-state transition lags one poll tick behind the data

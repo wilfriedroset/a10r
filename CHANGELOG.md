@@ -145,6 +145,29 @@ shell.
   malformed edit flashes a precise error instead of round-
   tripping a 400.
 
+### Bulk silence and bulk expire (k9s same-key-different-N)
+
+- `s` on the alerts list now silences every marked alert when one
+  or more rows are marked, falling back to the cursor-row form
+  when no marks are active. The bulk path opens the silence form
+  once for the metadata (comment, starts/ends, creator), then
+  fans out one `CreateSilence` per marked alert with that alert's
+  labels (minus the synthetic `__name__`) as matchers. Multi-
+  tenant marks fan out per-tenant: tenants run in parallel, each
+  with a bounded worker pool capped by `defaults.bulk_concurrency`
+  (default 4). Failed silences keep their marks so the next `s`
+  retries only the unfinished work.
+- `x` on the silences list now expires every marked silence when
+  one or more rows are marked, falling back to the cursor-row
+  confirm when no marks are active. Multi-tenant fanout, idempotent
+  on the AM side. Same `defaults.bulk_concurrency` knob.
+- `Ctrl+S` (alerts) and `Ctrl+X` (silences) are removed; the
+  single-binding rule is the whole point.
+- `Ctrl+\` clears every mark on the focused page in one keystroke.
+- `defaults.bulk_concurrency` (default 4) tunes the per-tenant
+  worker pool for both bulk silence and bulk expire. `1` collapses
+  to fully sequential per tenant; tenants always run in parallel.
+
 ### Silences page polling UX
 
 - Cold-start "loading" empty state on the silences page —

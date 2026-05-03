@@ -14,6 +14,7 @@
 | `Ctrl+C` | Hard quit, no confirm. |
 | `r` | Refresh the current view (bypass the poll tick). |
 | `Ctrl+T` | Tenant picker modal (fuzzy search). |
+| `Ctrl+\` | Clear every mark on the focused page (alerts / silences). Silent no-op when nothing is marked. |
 | `0` | Scope: all configured tenants. |
 | `1` … `9` | Scope: nth tenant in `backends:` config order. |
 
@@ -47,8 +48,7 @@ Switching to a new column resets to that column's *default* direction. Severity 
 
 | Key | What |
 | --- | --- |
-| `s` | Silence the current alert (push form) |
-| `Ctrl+S` | Silence every marked alert (bulk; needs prior `Space` marks) |
+| `s` | Silence. With no marks: silences the cursor alert (single form). With one or more marks (toggled via `Space`): bulk silence — the form opens once, then `a10r` fans out one CreateSilence per marked alert (per-alert labels, uniform comment / start / end). |
 | `t` | Cycle state filter: active → silenced → inhibited → all |
 | `Shift+S` | Sort by severity |
 | `Shift+T` | Sort by start time |
@@ -72,8 +72,7 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `n` | New silence (empty form) |
 | `e` | Edit silence (form prefilled) |
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
-| `x` / `Delete` | Expire silence (confirm modal) |
-| `Ctrl+X` | Expire every marked silence (bulk) |
+| `x` / `Delete` | Expire. With no marks: expires the cursor silence after a default-No confirm. With one or more marks: bulk expire — confirm wording counts the queued silences and breaks them down per tenant (`(tenant prod=12, staging=3)`); fanout retries failed targets only. |
 | `Shift+E` | Sort by `endsAt` |
 | `Shift+S` | Sort by state |
 | `Shift+C` | Sort by creator |
@@ -113,7 +112,7 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 
 ## Read-only mode
 
-`--read-only` (or `read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `Ctrl+X` during a screenshare can't fire by accident.
+`--read-only` (or `read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
 
 ## Conventions you'll spot in the chrome
 

@@ -50,9 +50,25 @@ These rules came out of post-implementation testing against the Prometheus publi
 
 Per-view shortcuts of the form `Shift+<letter>` always sort by a column. They never trigger destructive or stateful actions. Bulk verbs use `Ctrl+<letter>` instead so the `Shift+letter` namespace stays sort-only and predictable across views.
 
-### `Ctrl+S` caveat
+### Same-key-different-N rule for bulk operations
 
-`Ctrl+S` is bulk silence on the alerts list. Historically `Ctrl+S` is the XOFF terminal control (suspend output). Modern terminals pass it through to the application by default; if a user reports the binding does nothing, the workaround is `stty -ixon` in the parent shell.
+The k9s convention: a bulk verb shares a single binding with its
+single-row counterpart, branching on the count of marked rows
+(`Space` toggles a row mark). This catalog applies the rule to:
+
+- **Alerts list `s`** — no marks → silence the cursor row (single
+  silence form). One or more marks → bulk silence: the form
+  opens once, the page substitutes per-alert matchers and fans out
+  one `CreateSilence` per marked alert.
+- **Silences list `x`** — no marks → expire the cursor row
+  (single confirm). One or more marks → bulk expire: confirm
+  modal with a tenant breakdown, then a per-tenant bounded
+  worker-pool fanout.
+
+The single-binding rule means there is no `Ctrl+S` or `Ctrl+X`
+binding — the same `s` or `x` keystroke handles both the cursor-
+row and the bulk paths. `Ctrl+\` is the explicit "clear every
+mark on the focused page" escape hatch.
 
 ## Precedence
 
@@ -83,6 +99,7 @@ Apply everywhere except inside a modal or prompt.
 | `q` | Quit | Asks for confirm if a form is dirty |
 | `Ctrl+C` | Quit | Hard quit, no confirm |
 | `Ctrl+T` | Tenant picker modal | Fuzzy search; `Enter` single-selects, `Space` toggles, `a` selects-all (per C3) |
+| `Ctrl+\` | Clear marks on the focused page | Soft-info flash when at least one mark was active; silent no-op otherwise |
 | `0` | Tenant: all | Per C3 |
 | `1` … `9` | Tenant: nth configured | Order from `backends:` array (per C3) |
 
@@ -110,8 +127,7 @@ Apply on every view whose body is a table (alerts, silences, receivers, tenant t
 
 | Key | Action | Tag |
 | --- | --- | --- |
-| `s` | Silence the current alert (push form) | Dangerous |
-| `Ctrl+S` | Silence all marked alerts (bulk fan-out) | Dangerous, Bulk |
+| `s` | No marks → silence the cursor alert (push form). One or more marks → bulk silence: form opens once, fans out one CreateSilence per marked alert. | Dangerous |
 | `Shift+F` | Cycle state filter: active → silenced → inhibited → all | Was `t` pre-#10; freed for app-global time toggle |
 | `f` | Matcher-only filter prompt | Post-v0.1 (per E1) |
 | `Shift+S` | Sort by `severity` | |
@@ -139,8 +155,7 @@ Navigation to the groups view goes through the command bar (`:gr` / `:groups`), 
 | `n` | New silence (push empty form) | Dangerous |
 | `e` | Edit silence (push form prefilled) | Dangerous |
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` (per L1) | Dangerous |
-| `x` / `Delete` | Expire silence (confirm modal) | Dangerous |
-| `Ctrl+X` | Expire all marked silences (bulk fan-out) | Dangerous, Bulk |
+| `x` / `Delete` | No marks → expire the cursor silence (confirm modal). One or more marks → bulk expire: confirm with tenant breakdown, then per-tenant fanout. | Dangerous |
 | `Shift+E` | Sort by `endsAt` | |
 | `Shift+S` | Sort by state (active → pending → expired) | |
 | `Shift+C` | Sort by creator | |
@@ -240,6 +255,6 @@ Per C4, when the active backend (or the global override) sets `read_only: true`:
 
 Plugins (deferred past v0.1; k9s pattern) must not bind these keys, since they are load-bearing TUI controls:
 
-`:`, `/`, `?`, `Esc`, `Ctrl+C`, `Ctrl+T`, `Ctrl+S`, `Ctrl+X`, `Ctrl+E`, `Ctrl+N`, `0`–`9`, vim motions (`j` `k` `h` `l` `gg` `Shift+G`), `Ctrl+D`, `Ctrl+U`, `Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`, `Shift+Tab`.
+`:`, `/`, `?`, `Esc`, `Ctrl+C`, `Ctrl+T`, `Ctrl+E`, `Ctrl+N`, `Ctrl+\`, `0`–`9`, vim motions (`j` `k` `h` `l` `gg` `Shift+G`), `Ctrl+D`, `Ctrl+U`, `Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`, `Shift+Tab`.
 
 `Ctrl+N` is reserved (not yet bound) for a future "compose new silence as YAML" companion to `Ctrl+E` (per L1).

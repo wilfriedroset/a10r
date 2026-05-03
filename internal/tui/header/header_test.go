@@ -217,7 +217,7 @@ func TestRender_WidthInvariantHoldsAtNarrowWidths(t *testing.T) {
 	styles := loadDefaultStyles(t)
 	hints := []action.Action{
 		{Key: "s", Description: "silence", View: "alerts"},
-		{Key: "Ctrl+S", Description: "bulk silence", View: "alerts"},
+		{Key: "Space", Description: "mark", View: "alerts"},
 		{Key: "?", Description: "help", View: ""},
 	}
 
@@ -248,14 +248,14 @@ func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
 	styles := loadDefaultStyles(t)
 	hints := []action.Action{
 		{Key: "s", Description: "silence"},
-		{Key: "Ctrl+S", Description: "bulk silence"},
+		{Key: "Space", Description: "mark"},
 		{Key: "?", Description: "help"},
 	}
 
 	// Generous budget keeps everything.
 	full := renderHintsWithBudget(hints, 200, styles)
 	require.Contains(t, stripStyle(full), "[s]")
-	require.Contains(t, stripStyle(full), "[Ctrl+S]")
+	require.Contains(t, stripStyle(full), "[Space]")
 	require.Contains(t, stripStyle(full), "[?]")
 
 	// Tight budget drops trailing entries — `[s]` (registered first)
