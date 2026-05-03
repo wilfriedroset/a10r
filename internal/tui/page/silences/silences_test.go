@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -178,7 +179,7 @@ func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	wantDangerous := map[string]bool{"n": true, "e": true, "x": true, "Ctrl+E": true, "Ctrl+X": true}
+	wantDangerous := map[string]bool{"n": true, "e": true, "x": true, "Ctrl+E": true}
 	for _, b := range p.Bindings() {
 		if want, ok := wantDangerous[b.Key]; ok {
 			require.True(t, b.Dangerous,
@@ -188,18 +189,18 @@ func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
 	}
 }
 
-func TestPage_BulkExpireBindingIsBulk(t *testing.T) {
+func TestPage_CtrlXBindingRemoved(t *testing.T) {
 	t.Parallel()
 
+	// `x` is the single binding for both cursor-row expire and
+	// bulk expire (k9s-style same-key-different-N). Ctrl+X must
+	// not appear in Bindings — its presence would advertise a
+	// shortcut that no longer routes anywhere and would clutter
+	// the page hint strip.
 	p := newPage(t)
 	for _, b := range p.Bindings() {
-		if b.Key == "Ctrl+X" {
-			require.True(t, b.Bulk,
-				"Ctrl+X must be Bulk so the registry can no-op it without marks")
-			return
-		}
+		require.NotEqual(t, "Ctrl+X", b.Key, "Ctrl+X binding must be removed")
 	}
-	t.Fatal("Ctrl+X binding missing")
 }
 
 func TestPage_CtrlEWithoutEditorFlashesHint(t *testing.T) {
@@ -772,8 +773,10 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 // fakeSilenceClient records every write call so tests can assert
 // the silences page picked the right verb without a live backend.
 // expireErr lets a test seed a per-call failure for partial-result
-// flash assertions.
+// flash assertions. Concurrent-safe because the bulk-expire fanout
+// drives ExpireSilence from multiple goroutines.
 type fakeSilenceClient struct {
+	mu            sync.Mutex
 	created       backend.SilenceSpec
 	updated       backend.SilenceSpec
 	lastUpdateID  string
@@ -783,17 +786,23 @@ type fakeSilenceClient struct {
 }
 
 func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.SilenceSpec) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.created = spec
 	return "fake-silence-id", nil
 }
 
 func (f *fakeSilenceClient) UpdateSilence(_ context.Context, id string, spec backend.SilenceSpec) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.updated = spec
 	f.lastUpdateID = id
 	return nil
 }
 
 func (f *fakeSilenceClient) ExpireSilence(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if err, ok := f.expireErrOnce[id]; ok {
 		return err
 	}
@@ -928,12 +937,15 @@ func TestPage_ConfirmYesCallsExpireSilence(t *testing.T) {
 	fake := &fakeSilenceClient{}
 	p := pageWithRows(t, fake, 1)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
-	require.Contains(t, msg.Text, "silence expired")
+	require.Contains(t, msg.Text, "silence expired",
+		"single-row total of 1 must use the singular 'silence expired' wording")
+	fake.mu.Lock()
 	require.Equal(t, []string{"sil-a"}, fake.expiredIDs)
+	fake.mu.Unlock()
 	require.Empty(t, p.pendingExpire.ids, "pending state must clear after confirm round")
 }
 
@@ -962,8 +974,9 @@ func TestPage_ConfirmFailureFlashesError(t *testing.T) {
 	fake := &fakeSilenceClient{expireErr: errors.New("boom")}
 	p := pageWithRows(t, fake, 1)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
-	msg := cmd().(footer.FlashShowMsg)
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "expire failed")
 }
@@ -977,16 +990,31 @@ func TestPage_SpaceTogglesMark(t *testing.T) {
 	require.Empty(t, p.marks, "second Space toggles the mark off")
 }
 
-func TestPage_BulkExpireRequiresMarks(t *testing.T) {
+func TestPage_XKeyNoMarksUsesCursor(t *testing.T) {
 	t.Parallel()
-	p := pageWithRows(t, &fakeSilenceClient{}, 2)
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "no rows marked")
+
+	// No marks → `x` falls through to the cursor-row path and
+	// opens a single-row confirm. Wording mirrors the legacy
+	// single-row flow ("expire silence sil-a?"); pendingExpire
+	// captures one id with bulk=false so the partial-failure
+	// flash reads correctly downstream.
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 2)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	require.False(t, p.pendingExpire.bulk, "no marks → cursor-row path, bulk=false")
+	require.Len(t, p.pendingExpire.ids, 1)
+	require.Equal(t, "sil-a", p.pendingExpire.ids[0].id)
+	// The Cmd opens the confirm modal — flash assertion would be
+	// the wrong shape here. Cmd not nil is the contract.
 }
 
-func TestPage_BulkExpireConfirmsAndIteratesMarks(t *testing.T) {
+func TestPage_XKeyWithMarksGoesBulk(t *testing.T) {
 	t.Parallel()
+
+	// Marks → `x` queues every marked silence with bulk=true.
+	// Wording for ≥2 marks adds the tenant breakdown; for the
+	// single-tenant case the breakdown is just the tenant name.
 	fake := &fakeSilenceClient{}
 	p := pageWithRows(t, fake, 2)
 	// Mark both rows.
@@ -994,38 +1022,65 @@ func TestPage_BulkExpireConfirmsAndIteratesMarks(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	require.Len(t, p.marks, 2)
-	// Ctrl+X opens confirm.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd, "marks present → x must open the bulk confirm")
 	require.True(t, p.pendingExpire.bulk)
 	require.Len(t, p.pendingExpire.ids, 2)
-	// Yes → expire both, success flash.
-	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
-	msg := cmd().(footer.FlashShowMsg)
+}
+
+// runBulk drives a confirmed bulk-expire fanout to completion and
+// returns the flash command Update emits at the end. The fanout
+// dispatches to an internal goroutine and returns a Cmd that
+// blocks on completion; tests run that Cmd inline so the result
+// is deterministic.
+func runBulk(t *testing.T, p *Page) tea.Cmd {
+	t.Helper()
+	_, dispatchCmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.NotNil(t, dispatchCmd, "Yes must produce the bulk-expire dispatch Cmd")
+	doneMsg := dispatchCmd()
+	done, ok := doneMsg.(bulkExpireDoneMsg)
+	require.True(t, ok, "dispatch Cmd must emit bulkExpireDoneMsg, got %T", doneMsg)
+	_, flashCmd := p.Update(done)
+	return flashCmd
+}
+
+func TestPage_BulkExpireConfirmsAndIteratesMarks(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	require.Len(t, p.marks, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.True(t, p.pendingExpire.bulk)
+	require.Len(t, p.pendingExpire.ids, 2)
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
 	require.Contains(t, msg.Text, "expired 2 silences")
 	require.ElementsMatch(t, []string{"sil-a", "sil-b"}, fake.expiredIDs)
-	require.Empty(t, p.marks, "marks must clear after the bulk round resolves")
+	require.Empty(t, p.marks, "every successful expire must drop its mark")
 }
 
 func TestPage_BulkExpireWalksByTenantNotView(t *testing.T) {
 	t.Parallel()
+
 	// Mark a row, then narrow the filter so the marked silence
-	// drops out of the view. Ctrl+X must still queue and expire
-	// it — marks live by ID across the filter, the user's intent
+	// drops out of the view. `x` must still queue and expire it —
+	// marks live by ID across the filter, the user's intent
 	// shouldn't be silently dropped by an unrelated UI state.
 	fake := &fakeSilenceClient{}
 	p := pageWithRows(t, fake, 2)
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace}) // mark sil-a
 	require.Len(t, p.marks, 1)
-	// Filter to "carol" — neither sample row's createdBy ("alice")
-	// matches, so the view becomes empty while p.marks still
-	// references sil-a.
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "carol"})
 	require.Empty(t, p.view)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	require.Len(t, p.pendingExpire.ids, 1, "marks must drive the queue, not the live view")
-	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
-	require.NotNil(t, cmd)
+	flashCmd := runBulk(t, p)
+	require.NotNil(t, flashCmd)
 	require.Equal(t, []string{"sil-a"}, fake.expiredIDs)
 }
 
@@ -1041,15 +1096,289 @@ func TestPage_RenderShowsMarkGlyphOnMarkedRow(t *testing.T) {
 
 func TestPage_BulkExpireSummaryFlashesPartialFailure(t *testing.T) {
 	t.Parallel()
-	// Seed an error for sil-a only — sil-b succeeds.
+
+	// Seed an error for sil-a only — sil-b succeeds. After the
+	// fanout resolves the partial flash reads "expired 1 of 2 —
+	// 1 failed", and the failed silence keeps its mark so the
+	// user can retry only the unfinished work.
 	fake := &fakeSilenceClient{expireErrOnce: map[string]error{"sil-a": errors.New("boom")}}
 	p := pageWithRows(t, fake, 2)
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
-	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
-	msg := cmd().(footer.FlashShowMsg)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
 	require.Contains(t, msg.Text, "expired 1 of 2 — 1 failed")
+	require.Contains(t, p.marks, "sil-a", "failed mark must survive for retry")
+	require.NotContains(t, p.marks, "sil-b", "successful mark must clear")
+}
+
+func TestPage_BulkExpireSummaryFlashesTotalFailure(t *testing.T) {
+	t.Parallel()
+
+	// Every queued silence's ExpireSilence returns an error. Flash
+	// reads "expire failed for N silences" at FlashError level.
+	// Failed marks all survive so re-pressing `x` retries the lot.
+	fake := &fakeSilenceClient{expireErr: errors.New("boom")}
+	p := pageWithRows(t, fake, 2)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "expire failed for 2 silences")
+	require.Len(t, p.marks, 2, "every failed mark must survive for retry")
+}
+
+func TestPage_BulkExpireUnmarksOnlySuccessfulIDs(t *testing.T) {
+	t.Parallel()
+
+	// Three marks, the middle one fails. The two successes drop
+	// their marks; the failure keeps its mark so re-pressing `x`
+	// retries only the unfinished work. Mirrors the alerts-side
+	// rule once that lands; pinning here makes the unmark contract
+	// load-bearing for both pages.
+	fake := &fakeSilenceClient{expireErrOnce: map[string]error{"sil-b": errors.New("boom")}}
+	p := pageWithRows(t, fake, 3)
+	for range 3 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	_ = runBulk(t, p)
+	require.Len(t, p.marks, 1, "only failures keep marks")
+	require.Contains(t, p.marks, "sil-b")
+}
+
+func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
+	t.Parallel()
+
+	// Build a fake whose ExpireSilence blocks until release is
+	// closed, recording the high-watermark of in-flight callers.
+	// Concurrency = 2 with 5 marks → at most 2 blocked at once.
+	fake := newConcurrencyFake()
+	p := New(Options{
+		Styles:          loadStyles(t),
+		Now:             func() time.Time { return fixedNow },
+		Clients:         map[string]Client{"prod": fake},
+		Creator:         "wilfried",
+		BulkConcurrency: 2,
+	})
+	silences := make([]backend.Silence, 0, 5)
+	for i := range 5 {
+		silences = append(silences, backend.Silence{
+			ID:        "sil-" + string(rune('a'+i)),
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(time.Hour),
+		})
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	for range 5 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 5)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	// Drive the dispatcher in a goroutine; it blocks until
+	// every call returns. We release them one at a time and
+	// observe the in-flight count never exceeds the concurrency
+	// limit.
+	_, dispatchCmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	resultCh := make(chan tea.Msg, 1)
+	go func() { resultCh <- dispatchCmd() }()
+
+	// Let all five callers race to acquire the gate; with
+	// concurrency=2, only two should be in flight at any moment.
+	// Wait until at least two are blocked, then release one at a
+	// time and assert the watermark stayed at 2.
+	require.Eventually(t, func() bool { return fake.inFlight() >= 2 }, time.Second, time.Millisecond)
+	for range 5 {
+		fake.release()
+	}
+	<-resultCh
+	require.LessOrEqual(t, fake.peak(), 2,
+		"concurrency=2 must cap in-flight callers per tenant; got peak %d", fake.peak())
+}
+
+func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
+	t.Parallel()
+
+	// Page.Close mid-fanout must cancel pending workers so they
+	// exit without dispatching the rest. Five marks, concurrency=1
+	// (sequential) → release the first call, Close, observe the
+	// dispatcher still drains (in-flight finishes) but no further
+	// callers arrive at the fake after Close.
+	fake := newConcurrencyFake()
+	p := New(Options{
+		Styles:          loadStyles(t),
+		Now:             func() time.Time { return fixedNow },
+		Clients:         map[string]Client{"prod": fake},
+		Creator:         "wilfried",
+		BulkConcurrency: 1,
+	})
+	silences := make([]backend.Silence, 0, 5)
+	for i := range 5 {
+		silences = append(silences, backend.Silence{
+			ID:        "sil-" + string(rune('a'+i)),
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(time.Hour),
+		})
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	for range 5 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	_, dispatchCmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	doneCh := make(chan tea.Msg, 1)
+	go func() { doneCh <- dispatchCmd() }()
+
+	require.Eventually(t, func() bool { return fake.inFlight() >= 1 }, time.Second, time.Millisecond)
+	_ = p.Close()
+	fake.release() // unblock the in-flight call so it can finish
+	// The producer goroutine sees ctx.Done() and stops feeding
+	// jobs; no further callers should arrive at the fake.
+	doneMsg := <-doneCh
+	done := doneMsg.(bulkExpireDoneMsg)
+	require.Less(t, len(done.successes), 5,
+		"Close must short-circuit the fanout — got %d successes", len(done.successes))
+	require.LessOrEqual(t, fake.totalCalls(), 1,
+		"after Close the dispatcher must not start additional ExpireSilence calls; got %d", fake.totalCalls())
+}
+
+func TestPage_BulkExpireDoneDoesNotCancelLatestRound(t *testing.T) {
+	t.Parallel()
+
+	// Pin the cancel-by-identity contract: a stale bulkExpireDoneMsg
+	// arriving on Update must not abort an in-flight newer round.
+	// The Cmd that produced the message already deferred its own
+	// cancel(); handleBulkExpireDone is forbidden from touching
+	// p.cancelBulk because that field now points to the *newer*
+	// round.
+	//
+	// Set up a non-nil p.cancelBulk via a stub round, then deliver
+	// a stale bulkExpireDoneMsg to Update and assert p.cancelBulk
+	// is still non-nil and uncancelled afterwards.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1)
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.cancelBulk = cancel
+	ctxBefore := p.cancelBulk
+
+	_, _ = p.Update(bulkExpireDoneMsg{bulk: false, total: 1, successes: []string{"sil-a"}})
+
+	require.NotNil(t, p.cancelBulk, "stale done must not nil out the latest round's cancel")
+	// Pointer identity: same cancel func still installed.
+	require.Equal(t,
+		fmt.Sprintf("%p", ctxBefore),
+		fmt.Sprintf("%p", p.cancelBulk),
+		"the cancel func must be the same instance — handleBulkExpireDone may not touch p.cancelBulk")
+}
+
+// concurrencyFake is a controllable Client used by the
+// concurrency / cancellation tests. ExpireSilence blocks on a
+// per-call gate so the test can observe how many callers are
+// in flight at once and release them in a controlled order.
+type concurrencyFake struct {
+	mu       sync.Mutex
+	inflight int
+	peakIn   int
+	calls    int
+	gate     chan struct{}
+}
+
+func newConcurrencyFake() *concurrencyFake {
+	return &concurrencyFake{gate: make(chan struct{}, 256)}
+}
+
+func (f *concurrencyFake) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
+	return "", nil
+}
+
+func (f *concurrencyFake) UpdateSilence(context.Context, string, backend.SilenceSpec) error {
+	return nil
+}
+
+func (f *concurrencyFake) ExpireSilence(_ context.Context, _ string) error {
+	f.mu.Lock()
+	f.calls++
+	f.inflight++
+	if f.inflight > f.peakIn {
+		f.peakIn = f.inflight
+	}
+	f.mu.Unlock()
+	<-f.gate
+	f.mu.Lock()
+	f.inflight--
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *concurrencyFake) release() { f.gate <- struct{}{} }
+
+func (f *concurrencyFake) inFlight() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.inflight
+}
+
+func (f *concurrencyFake) peak() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.peakIn
+}
+
+func (f *concurrencyFake) totalCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func TestPage_FormatTenantBreakdown(t *testing.T) {
+	t.Parallel()
+
+	// Single tenant → bare name; multi tenant → comma-joined
+	// "name=count" sorted alphabetically. Pinning sort order so
+	// the confirm modal wording is deterministic across runs.
+	cases := []struct {
+		name string
+		ids  []pendingExpireID
+		want string
+	}{
+		{
+			name: "single tenant",
+			ids:  []pendingExpireID{{id: "a", tenant: "prod"}, {id: "b", tenant: "prod"}},
+			want: "prod",
+		},
+		{
+			name: "multi tenant sorted",
+			ids: []pendingExpireID{
+				{id: "a", tenant: "staging"},
+				{id: "b", tenant: "prod"},
+				{id: "c", tenant: "prod"},
+			},
+			want: "prod=2, staging=1",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, formatTenantBreakdown(tc.ids))
+		})
+	}
 }

@@ -4,19 +4,25 @@
 // surfaces the Silence write actions (new, edit, expire, editor)
 // behind Dangerous bindings so read-only mode hides them all.
 //
-// Single-row writes (`n`, `e`, `x`) operate on the cursor row;
-// `Ctrl+X` bulk-expires every Space-marked row. Destructive verbs
-// (`x` / `Ctrl+X`) round-trip through a confirm modal with the
-// default-No safe choice so a stray Enter never destroys data.
-// `Ctrl+E` opens the silence in $EDITOR (or $A10R_EDITOR) — that
-// path lands in a follow-up commit.
+// Single-row writes (`n`, `e`) operate on the cursor row. The
+// expire verb `x` follows the k9s same-key-different-N rule: with
+// no marks it expires the cursor row (existing wording); with one
+// or more marks it bulk-expires every marked silence via a per-
+// tenant bounded worker pool (defaults.bulk_concurrency, default
+// 4). Destructive verbs always round-trip through a confirm modal
+// with the default-No safe choice so a stray Enter never destroys
+// data. `Ctrl+E` opens the silence in $EDITOR (or $A10R_EDITOR)
+// for free-form editing.
 package silences
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -24,6 +30,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -67,11 +74,11 @@ func (s SortKey) String() string {
 
 // Client is the write surface the silences page needs: it pushes
 // the silence form (silenceform.Client) on `n` / `e` and calls
-// ExpireSilence on `x` / `Ctrl+X`. Bundled at the page level
-// rather than added to silenceform.Client because expire isn't
-// part of the form's contract — the form never expires anything.
-// backend.Client satisfies this interface for free; tests inject
-// a small fake.
+// ExpireSilence on `x` (cursor or bulk, depending on marks).
+// Bundled at the page level rather than added to silenceform.Client
+// because expire isn't part of the form's contract — the form
+// never expires anything. backend.Client satisfies this interface
+// for free; tests inject a small fake.
 type Client interface {
 	silenceform.Client
 	ExpireSilence(ctx context.Context, id string) error
@@ -157,6 +164,22 @@ type Page struct {
 	// against the right backend. Empty between rounds.
 	pendingEdit pendingEdit
 
+	// bulkConcurrency caps the per-tenant worker pool for the
+	// bulk-expire fanout. Tenants always run in parallel; this
+	// knob limits the inner pool size per tenant. Resolved from
+	// Options.BulkConcurrency (zero falls back to the config
+	// default at construction time).
+	bulkConcurrency int
+	// logger is the structured logger used for per-failure detail
+	// in the bulk fanout. Nil suppresses logging — the page never
+	// crashes on a missing logger.
+	logger *slog.Logger
+	// cancelBulk cancels the in-flight bulk-expire fanout when set.
+	// Populated by handleExpireConfirm at fanout start; cleared
+	// when the bulkExpireDoneMsg lands. Close() calls it so a page
+	// pop short-circuits not-yet-started workers.
+	cancelBulk context.CancelFunc
+
 	// polledTenants is the set of tenants that have produced at
 	// least one DataMsg in this page's lifetime. The page's
 	// "have we polled?" check reads it through the active scope
@@ -240,6 +263,16 @@ type Options struct {
 	// so a page pushed *after* the user toggled `t` doesn't open
 	// in relative while the rest of the app reads absolute.
 	TimeFormat app.TimeFormat
+	// BulkConcurrency caps the per-tenant worker pool for the
+	// bulk-expire fanout. Zero resolves to config.DefaultBulkConcurrency
+	// at construction time so callers can pass the unmaterialised
+	// `defaults.bulk_concurrency` directly.
+	BulkConcurrency int
+	// Logger receives per-failure detail (`backend`, `tenant`,
+	// `silence_id`, `err`) at error level when the bulk fanout
+	// surfaces individual ExpireSilence failures. Nil suppresses
+	// logging — the page never crashes on a missing logger.
+	Logger *slog.Logger
 }
 
 // New constructs an empty silences page.
@@ -252,21 +285,27 @@ func New(opts Options) *Page {
 		spinner.WithSpinner(spinner.Points),
 		spinner.WithStyle(opts.Styles.Header.Accent),
 	)
+	concurrency := opts.BulkConcurrency
+	if concurrency <= 0 {
+		concurrency = config.DefaultBulkConcurrency
+	}
 	return &Page{
-		styles:        opts.Styles,
-		now:           now,
-		clients:       opts.Clients,
-		creator:       opts.Creator,
-		editor:        opts.EditorResolver,
-		timeFormat:    opts.TimeFormat,
-		byTenant:      map[string][]backend.Silence{},
-		marks:         map[string]struct{}{},
-		sort:          SortByEndsAt,
-		sortAsc:       true, // soonest-expiring first
-		scope:         scopeAll,
-		nextRefresh:   map[string]time.Time{},
-		polledTenants: map[string]struct{}{},
-		spinner:       sp,
+		styles:          opts.Styles,
+		now:             now,
+		clients:         opts.Clients,
+		creator:         opts.Creator,
+		editor:          opts.EditorResolver,
+		timeFormat:      opts.TimeFormat,
+		byTenant:        map[string][]backend.Silence{},
+		marks:           map[string]struct{}{},
+		sort:            SortByEndsAt,
+		sortAsc:         true, // soonest-expiring first
+		scope:           scopeAll,
+		nextRefresh:     map[string]time.Time{},
+		polledTenants:   map[string]struct{}{},
+		spinner:         sp,
+		bulkConcurrency: concurrency,
+		logger:          opts.Logger,
 	}
 }
 
@@ -288,8 +327,18 @@ const scopeAll = "all"
 // timer to manage.
 func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
 
-// Close implements app.Page.
-func (*Page) Close() tea.Cmd { return nil }
+// Close implements app.Page. Cancels any in-flight bulk-expire
+// fanout so a page-pop while workers are mid-air aborts not-yet-
+// started work via the worker channel select. In-flight HTTP
+// requests are allowed to finish; expire is idempotent on the AM
+// side so completing them is safe.
+func (p *Page) Close() tea.Cmd {
+	if p.cancelBulk != nil {
+		p.cancelBulk()
+		p.cancelBulk = nil
+	}
+	return nil
+}
 
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "silences" }
@@ -451,15 +500,17 @@ func (*Page) PollResources() []string { return []string{"silences"} }
 
 // Bindings implements app.Page. Every write action carries
 // Dangerous so read-only mode (C4) hides them via the action
-// registry.
+// registry. `x` doubles as "expire cursor row" (no marks) and
+// "bulk expire all marked rows" (one or more marks) — k9s-style
+// same-key-different-N. Ctrl+X is intentionally absent; the
+// single-binding rule is the whole point of this page's bulk UX.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "n", Description: "new", View: "silences", Dangerous: true},
 		{Key: "e", Description: "edit", View: "silences", Dangerous: true},
-		{Key: "x", Description: "expire", View: "silences", Dangerous: true},
+		{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
 		{Key: "Space", Description: "mark", View: "silences"},
 		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
-		{Key: "Ctrl+X", Description: "bulk expire", View: "silences", Dangerous: true, Bulk: true},
 		// `r` is documented in the global help catalog; the page
 		// hint strip surfaces it here so the affordance also shows
 		// up next to the page-specific verbs the user is reading
@@ -535,6 +586,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case modal.ConfirmResultMsg:
 		cmd := p.handleExpireConfirm(m)
+		return p, cmd
+	case bulkExpireDoneMsg:
+		cmd := p.handleBulkExpireDone(m)
 		return p, cmd
 	case edit.FinishedMsg:
 		cmd := p.handleEditorFinished(m)
@@ -671,21 +725,30 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.openEditSilenceForm()
 		return p, cmd
 	case "x":
-		cmd := p.openExpireConfirm()
+		cmd := p.openExpireConfirmUnified()
 		return p, cmd
 	case "space":
 		p.toggleMarkAtCursor()
 	case "ctrl+e":
 		cmd := p.openEditorForCursor()
 		return p, cmd
-	case "ctrl+x":
-		cmd := p.openBulkExpireConfirm()
-		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
 		return p, cmd
 	}
 	return p, nil
+}
+
+// openExpireConfirmUnified is the entry point for the `x` key.
+// k9s-style: marks-if-any, cursor-row otherwise. Routing the same
+// key through one helper keeps the user's muscle memory shared
+// across both flows; the underlying confirm machinery still picks
+// the appropriate question wording from the count.
+func (p *Page) openExpireConfirmUnified() tea.Cmd {
+	if len(p.marks) == 0 {
+		return p.openExpireConfirm()
+	}
+	return p.openBulkExpireConfirm()
 }
 
 // requestRefresh emits a RefreshRequestedMsg so the wiring layer
@@ -821,6 +884,14 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 // marked it deliberately and a filter change shouldn't silently
 // drop it from the queue. Empty marks → soft Info flash hinting
 // at the Space binding so the user discovers the affordance.
+//
+// Question wording matches docs/design/bulk-silence.md: a single
+// queued silence keeps the existing single-row "expire silence
+// <id>?" wording (functionally identical to the cursor-row path);
+// two-or-more uses "expire N silences? (tenant <breakdown>)" so
+// the user can see at a glance how many backends the fanout will
+// touch. Default-No because expire is mostly-irreversible — the
+// next poll re-fires the alert and on-call may page.
 func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	if len(p.marks) == 0 {
 		return flashFn(footer.FlashInfo, "no rows marked — Space marks one")
@@ -846,46 +917,241 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	// stable iteration order across runs / tests.
 	sort.Slice(ids, func(i, j int) bool { return ids[i].id < ids[j].id })
 	p.pendingExpire = pendingExpire{ids: ids, bulk: true}
-	question := fmt.Sprintf("expire %d marked silences?", len(ids))
+	var question string
+	if len(ids) == 1 {
+		question = "expire silence " + ids[0].id + "?"
+	} else {
+		question = fmt.Sprintf("expire %d silences? (tenant %s)", len(ids), formatTenantBreakdown(ids))
+	}
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
 	})
 }
 
+// formatTenantBreakdown renders the per-tenant count for the
+// bulk-expire confirm modal. Single tenant returns the bare name
+// (`"prod"`); multi-tenant returns a comma-joined `name=count`
+// sequence sorted alphabetically by tenant for stable wording
+// across runs (`"prod=12, staging=3"`).
+func formatTenantBreakdown(ids []pendingExpireID) string {
+	counts := map[string]int{}
+	tenants := []string{}
+	for _, id := range ids {
+		if _, seen := counts[id.tenant]; !seen {
+			tenants = append(tenants, id.tenant)
+		}
+		counts[id.tenant]++
+	}
+	sort.Strings(tenants)
+	if len(tenants) == 1 {
+		return tenants[0]
+	}
+	parts := make([]string, len(tenants))
+	for i, t := range tenants {
+		parts[i] = fmt.Sprintf("%s=%d", t, counts[t])
+	}
+	return strings.Join(parts, ", ")
+}
+
+// bulkExpireDoneMsg is the result envelope for a completed
+// bulk-expire fanout. Successes carries the silence IDs whose
+// ExpireSilence returned nil — Update unmarks those rows; the
+// IDs that don't appear (failures or unstarted-due-cancel) keep
+// their marks so retry is one keystroke. Total is the original
+// queue size so the flash can read "expired N of Total".
+type bulkExpireDoneMsg struct {
+	bulk      bool
+	total     int
+	successes []string
+}
+
 // handleExpireConfirm consumes a ConfirmResultMsg arriving after
-// an expire confirm modal. Yes drives ExpireSilence on every
-// pending {id, tenant} captured at modal-open time. No /
-// Cancelled clears the pending state silently. Tenants are read
-// directly from the captured pair — no live-view lookup — so a
-// poll tick or filter change between Open and Yes never reroutes
-// the expire to the wrong backend or drops it as "unknown".
+// an expire confirm modal. Yes kicks off the bulk-expire fanout
+// (per-tenant bounded worker pool); the resulting bulkExpireDoneMsg
+// arrives on Update and applies the unmark + flash. No / Cancelled
+// clears the pending state silently. Tenants are read directly
+// from the captured pair — no live-view lookup — so a poll tick
+// or filter change between Open and Yes never reroutes the expire
+// to the wrong backend or drops it as "unknown".
+//
+// Cancellation: a fresh context.Context is created per round and
+// stored in p.cancelBulk. Close() on the page calls it; workers
+// see the cancellation via the worker-channel select and exit
+// without processing remaining IDs. The Cmd defers its own
+// cancel() so a completed round releases its ctx without the
+// done-handler having to look at p.cancelBulk — that field always
+// refers to the *latest* round, not the one whose done message we
+// happen to be processing. Any in-flight ExpireSilence runs to
+// completion — expire is idempotent on the AM side, so finishing
+// a request mid-cancel doesn't risk double-effect.
 func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	pending := p.pendingExpire
 	p.pendingExpire = pendingExpire{}
 	if m.Cancelled || !m.Yes || len(pending.ids) == 0 {
 		return nil
 	}
-	success := 0
-	failed := 0
-	for _, target := range pending.ids {
-		client, ok := p.clients[target.tenant]
+	if p.cancelBulk != nil {
+		// A second confirm landing while a prior fanout hasn't
+		// drained replaces its context. The prior round's in-flight
+		// workers see Done and skip the rest; its own deferred
+		// cancel() is then a no-op (idempotent).
+		p.cancelBulk()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelBulk = cancel
+	clients := p.clients
+	concurrency := p.bulkConcurrency
+	logger := p.logger
+	bulk := pending.bulk
+	ids := pending.ids
+	return func() tea.Msg {
+		// Local cancel: releases this round's ctx subtree the moment
+		// dispatch returns, regardless of whether p.cancelBulk has
+		// since been overwritten by a newer round.
+		defer cancel()
+		successes := dispatchBulkExpire(ctx, clients, ids, concurrency, logger)
+		return bulkExpireDoneMsg{
+			bulk:      bulk,
+			total:     len(ids),
+			successes: successes,
+		}
+	}
+}
+
+// handleBulkExpireDone applies a completed bulk-expire fanout.
+// Successes drop their marks; everything else (failures and
+// unstarted-due-cancel) keeps its mark so re-pressing `x` retries
+// only the unfinished work. The flash summary distinguishes
+// all-success / partial / all-fail wording.
+//
+// Does not touch p.cancelBulk — that field may now point to a
+// newer round's cancel func (the user re-fired `x` while this
+// fanout was still draining). The Cmd that produced this message
+// already deferred its own cancel(), so the local ctx is released
+// without the handler having to disambiguate.
+func (p *Page) handleBulkExpireDone(m bulkExpireDoneMsg) tea.Cmd {
+	for _, id := range m.successes {
+		delete(p.marks, id)
+	}
+	failed := m.total - len(m.successes)
+	return p.flashExpireResult(m.bulk, len(m.successes), failed)
+}
+
+// expireResult is the per-call outcome the worker pool emits onto
+// the shared results channel. Tenant rides along for structured
+// log attribution on failure.
+type expireResult struct {
+	id     string
+	tenant string
+	err    error
+}
+
+// dispatchBulkExpire runs the fanout. Tenants run in parallel
+// goroutines; inside each tenant a bounded worker pool of
+// `min(concurrency, len(ids))` workers consumes from a per-tenant
+// jobs channel. concurrency=1 collapses to fully sequential per
+// tenant. The producer goroutine respects ctx.Done so a Close()
+// mid-flight stops feeding work; in-flight requests are allowed
+// to complete (expire is idempotent on the AM side).
+//
+// Returns the silence IDs whose ExpireSilence returned nil. The
+// caller derives "failed = total - len(successes)"; that bucket
+// includes both real errors and unstarted-due-cancel. Both keep
+// their marks so the user can retry only the unfinished work
+// with one more keystroke.
+func dispatchBulkExpire(
+	ctx context.Context,
+	clients map[string]Client,
+	ids []pendingExpireID,
+	concurrency int,
+	logger *slog.Logger,
+) []string {
+	byTenant := map[string][]string{}
+	tenants := []string{}
+	for _, id := range ids {
+		if _, seen := byTenant[id.tenant]; !seen {
+			tenants = append(tenants, id.tenant)
+		}
+		byTenant[id.tenant] = append(byTenant[id.tenant], id.id)
+	}
+	resCh := make(chan expireResult, len(ids))
+	var tenantWg sync.WaitGroup
+	for _, tenant := range tenants {
+		client, ok := clients[tenant]
+		group := byTenant[tenant]
 		if !ok {
-			failed++
+			// No client for this tenant — record every queued ID as
+			// a failure so the summary count adds up. The mark stays
+			// because the result IDs aren't in `successes`.
+			for _, id := range group {
+				resCh <- expireResult{id: id, tenant: tenant, err: errors.New("no writeable backend for tenant")}
+			}
 			continue
 		}
-		if err := client.ExpireSilence(context.Background(), target.id); err != nil {
-			failed++
+		tenantWg.Add(1)
+		go func(tenant string, ids []string, c Client) {
+			defer tenantWg.Done()
+			runTenantExpirePool(ctx, tenant, ids, c, concurrency, resCh)
+		}(tenant, group, client)
+	}
+	go func() {
+		tenantWg.Wait()
+		close(resCh)
+	}()
+	successes := make([]string, 0, len(ids))
+	for r := range resCh {
+		if r.err == nil {
+			successes = append(successes, r.id)
 			continue
 		}
-		success++
+		if logger != nil {
+			logger.Error("bulk expire: silence expire failed",
+				slog.String("backend", r.tenant),
+				slog.String("tenant", r.tenant),
+				slog.String("silence_id", r.id),
+				slog.String("err", r.err.Error()),
+			)
+		}
 	}
-	// Clear marks for every queued ID — a failed expire isn't a
-	// signal to keep the silence marked for retry; the user can
-	// re-mark deliberately.
-	for _, target := range pending.ids {
-		delete(p.marks, target.id)
+	return successes
+}
+
+// runTenantExpirePool runs the bounded worker pool for one
+// tenant. Producer feeds the jobs channel under ctx.Done so a
+// cancellation stops dispatching new work; consumers run
+// ExpireSilence and emit results regardless of the ctx state for
+// jobs they've already pulled, so an in-flight request completes
+// naturally. Workers cap at min(concurrency, len(ids)).
+func runTenantExpirePool(
+	ctx context.Context,
+	tenant string,
+	ids []string,
+	client Client,
+	concurrency int,
+	resCh chan<- expireResult,
+) {
+	workers := max(min(concurrency, len(ids)), 1)
+	jobs := make(chan string)
+	go func() {
+		defer close(jobs)
+		for _, id := range ids {
+			select {
+			case <-ctx.Done():
+				return
+			case jobs <- id:
+			}
+		}
+	}()
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			for id := range jobs {
+				err := client.ExpireSilence(ctx, id)
+				resCh <- expireResult{id: id, tenant: tenant, err: err}
+			}
+		})
 	}
-	return p.flashExpireResult(pending.bulk, success, failed)
+	wg.Wait()
 }
 
 // openEditorForCursor marshals the cursor silence as YAML and
@@ -961,11 +1227,15 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 }
 
 // flashExpireResult formats the success / partial / total-failure
-// flash text for a completed expire round. Called from
-// handleExpireConfirm so single-row x and bulk Ctrl+X share one
-// wording table.
-func (p *Page) flashExpireResult(bulk bool, success, failed int) tea.Cmd {
-	if !bulk {
+// flash text for a completed expire round. Branches on the total
+// count rather than the bulk flag so a one-mark bulk path reads
+// "silence expired" (matching the confirm modal's single-row
+// wording) instead of the awkward "expired 1 silences". The
+// bulk parameter is retained for symmetry with the message
+// envelope but no longer drives wording.
+func (p *Page) flashExpireResult(_ bool, success, failed int) tea.Cmd {
+	total := success + failed
+	if total == 1 {
 		if success == 1 {
 			return flashFn(footer.FlashSuccess, "silence expired")
 		}
@@ -977,7 +1247,7 @@ func (p *Page) flashExpireResult(bulk bool, success, failed int) tea.Cmd {
 	if success == 0 {
 		return flashFn(footer.FlashError, fmt.Sprintf("expire failed for %d silences", failed))
 	}
-	return flashFn(footer.FlashWarn, fmt.Sprintf("expired %d of %d — %d failed", success, success+failed, failed))
+	return flashFn(footer.FlashWarn, fmt.Sprintf("expired %d of %d — %d failed", success, total, failed))
 }
 
 // openNewSilenceForm pushes an empty silence form targeting the

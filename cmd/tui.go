@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -369,12 +370,14 @@ func newResolver(
 	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return silences.New(silences.Options{
-				Styles:         styles,
-				Now:            time.Now,
-				Clients:        silenceWriteClients,
-				Creator:        creator,
-				EditorResolver: editorResolver,
-				TimeFormat:     timeFormat(),
+				Styles:          styles,
+				Now:             time.Now,
+				Clients:         silenceWriteClients,
+				Creator:         creator,
+				EditorResolver:  editorResolver,
+				TimeFormat:      timeFormat(),
+				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
+				Logger:          slog.Default(),
 			})
 		})
 	}
