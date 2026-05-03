@@ -17,6 +17,12 @@ defaults:
   poll_interval: 30s
   read_only: true
   log_format: logfmt
+  # bulk_concurrency caps the per-tenant worker pool used by bulk
+  # silence-create (s with marks on :alerts) and bulk silence-expire
+  # (x with marks on :silences). Tenants always run in parallel; this
+  # knob limits the inner pool size per tenant. 0 means "use the
+  # built-in default of 4"; 1 collapses to fully sequential per tenant.
+  # bulk_concurrency: 4
 
 theme:
   name: catppuccin-mocha

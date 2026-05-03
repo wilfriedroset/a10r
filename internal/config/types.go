@@ -45,6 +45,13 @@ const (
 	// resolves to when the user leaves it blank. Matches Prometheus
 	// (HTTPClientConfig.Authorization.Type defaults to "Bearer").
 	DefaultAuthorizationType = "Bearer"
+
+	// DefaultBulkConcurrency is the per-tenant worker-pool size used
+	// when a bulk silence-create or bulk silence-expire fans out and
+	// the user has not set defaults.bulk_concurrency. Picked to keep
+	// the AM well below the per-host write rate for typical setups
+	// while still finishing a 30-mark bulk in a few wall-clock seconds.
+	DefaultBulkConcurrency = 4
 )
 
 // Config is the top-level shape of a10r.yaml. The Keys section is
@@ -136,16 +143,16 @@ func (b *Backend) Validate() error {
 	return nil
 }
 
-// Validate walks every backend in the config. The first error wins —
-// a single misconfigured backend halts startup so the user sees one
-// problem at a time rather than a wall.
+// Validate walks every backend in the config and the Defaults block.
+// The first error wins — a single misconfigured field halts startup so
+// the user sees one problem at a time rather than a wall.
 func (c *Config) Validate() error {
 	for i := range c.Backends {
 		if err := c.Backends[i].Validate(); err != nil {
 			return err
 		}
 	}
-	return nil
+	return c.Defaults.Validate()
 }
 
 func (b *Backend) validateAuthExclusive() error {
@@ -313,6 +320,38 @@ type Defaults struct {
 	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
 	ReadOnly     bool          `yaml:"read_only,omitempty"`
 	LogFormat    string        `yaml:"log_format,omitempty"`
+
+	// BulkConcurrency caps the per-tenant worker pool used by the bulk
+	// silence-create and bulk silence-expire fan-outs. Tenants always
+	// run in parallel; this knob limits the inner pool size per tenant.
+	// Zero means "use DefaultBulkConcurrency"; negative is rejected by
+	// Validate. Setting it to 1 collapses the fanout to fully sequential
+	// per tenant.
+	BulkConcurrency int `yaml:"bulk_concurrency,omitempty"`
+}
+
+// Validate runs the schema-level checks on Defaults that struct tags
+// alone cannot express. Today that's the BulkConcurrency lower bound;
+// other Defaults fields validate by virtue of their type (zero-valued
+// durations and bools are legal).
+func (d *Defaults) Validate() error {
+	if d.BulkConcurrency < 0 {
+		return fmt.Errorf("defaults.bulk_concurrency must be >= 0 (got %d); 0 means use the built-in default of %d", d.BulkConcurrency, DefaultBulkConcurrency)
+	}
+	return nil
+}
+
+// BulkConcurrencyOrDefault returns the configured worker-pool size, or
+// DefaultBulkConcurrency when the user left the knob unset (zero).
+// Callers in the bulk silence-create / silence-expire fan-outs use
+// this rather than reading the field directly so the "0 means default"
+// rule has one home. Pointer receiver matches Defaults.Validate so
+// recvcheck stays happy and the method set is uniform.
+func (d *Defaults) BulkConcurrencyOrDefault() int {
+	if d.BulkConcurrency <= 0 {
+		return DefaultBulkConcurrency
+	}
+	return d.BulkConcurrency
 }
 
 // Theme picks the bundled or user-supplied skin per M1. An empty Name

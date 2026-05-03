@@ -117,6 +117,65 @@ func TestDefaultsAreThePinnedConstants(t *testing.T) {
 		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
 	require.Equal(t, "Bearer", DefaultAuthorizationType,
 		"DefaultAuthorizationType matches Prometheus's HTTPClientConfig.Authorization default")
+	require.Equal(t, 4, DefaultBulkConcurrency,
+		"DefaultBulkConcurrency is the per-tenant worker-pool size when defaults.bulk_concurrency is unset")
+}
+
+func TestDefaults_BulkConcurrencyDefaultsTo4WhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	// A YAML document with no bulk_concurrency key must leave the
+	// field at its zero value, and BulkConcurrencyOrDefault must
+	// resolve that to DefaultBulkConcurrency.
+	body := []byte("poll_interval: 30s\n")
+	var d Defaults
+	require.NoError(t, yaml.Unmarshal(body, &d))
+	require.Equal(t, 0, d.BulkConcurrency, "absent key must leave the field at zero")
+	require.Equal(t, DefaultBulkConcurrency, d.BulkConcurrencyOrDefault())
+}
+
+func TestDefaults_BulkConcurrencyZeroResolvesTo4(t *testing.T) {
+	t.Parallel()
+
+	// Explicit zero is the same shape as "key omitted"; the helper
+	// resolves both to DefaultBulkConcurrency.
+	d := Defaults{BulkConcurrency: 0}
+	require.Equal(t, DefaultBulkConcurrency, d.BulkConcurrencyOrDefault())
+}
+
+func TestDefaults_BulkConcurrencyExplicitValuePreserved(t *testing.T) {
+	t.Parallel()
+
+	cases := []int{1, 2, 4, 8, 32}
+	for _, n := range cases {
+		d := Defaults{BulkConcurrency: n}
+		require.Equal(t, n, d.BulkConcurrencyOrDefault(), "explicit %d must round-trip through the helper", n)
+	}
+}
+
+func TestDefaults_BulkConcurrencyRejectsNegative(t *testing.T) {
+	t.Parallel()
+
+	d := Defaults{BulkConcurrency: -1}
+	err := d.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bulk_concurrency must be >= 0")
+
+	// Config.Validate must surface the same error so a negative knob
+	// halts startup rather than silently being clamped.
+	c := Config{Defaults: Defaults{BulkConcurrency: -7}}
+	err = c.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "bulk_concurrency must be >= 0")
+}
+
+func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {
+	t.Parallel()
+
+	// Zero is a legal "use the default" sentinel — Validate must accept
+	// it so a brand-new config without the key parses cleanly.
+	d := Defaults{BulkConcurrency: 0}
+	require.NoError(t, d.Validate())
 }
 
 func TestConfig_StrictModeRejectsUnknownFields(t *testing.T) {
