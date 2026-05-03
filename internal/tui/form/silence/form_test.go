@@ -560,3 +560,195 @@ func TestForm_TitleSwitchesOnEditID(t *testing.T) {
 	require.Equal(t, "new silence", create.Title())
 	require.Equal(t, "edit silence sil-7", edit.Title())
 }
+
+// panickingClient fails any test that drives the form into a Client
+// call. Used by the bulk-mode tests to prove the form never reaches
+// the write surface — bulk fanout is the page's job, not the form's.
+type panickingClient struct{}
+
+func (panickingClient) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
+	panic("CreateSilence must not be called in bulk mode")
+}
+
+func (panickingClient) UpdateSilence(context.Context, string, backend.SilenceSpec) error {
+	panic("UpdateSilence must not be called in bulk mode")
+}
+
+func newBulkForm(t *testing.T, client Client, banner string) *Form {
+	t.Helper()
+	return New(Options{
+		Client:     client,
+		Styles:     loadStyles(t),
+		Now:        func() time.Time { return fixedNow },
+		Creator:    "alice",
+		Bulk:       true,
+		BulkBanner: banner,
+	})
+}
+
+func TestForm_BulkModeTitle(t *testing.T) {
+	t.Parallel()
+
+	f := newBulkForm(t, &fakeClient{}, "applies to 5 alerts across 2 tenants — each silenced with its own labels")
+	require.Equal(t, "bulk silence", f.Title(),
+		"bulk mode wins over create/edit; the banner carries the count breakdown")
+}
+
+func TestForm_BulkModeStartsFocusOnStarts(t *testing.T) {
+	t.Parallel()
+
+	// fieldMatchers is hidden in bulk mode, so initial focus must
+	// land on the first visible field. Tab walks the four metadata
+	// fields in a closed loop without ever touching matchers.
+	f := newBulkForm(t, nil, "banner")
+	require.Equal(t, fieldStarts, f.focus, "bulk mode starts on Starts; matchers is hidden")
+}
+
+func TestForm_BulkModeTabSkipsMatcherField(t *testing.T) {
+	t.Parallel()
+
+	// Closed cycle of four fields: Starts → Ends → Creator → Comment
+	// → Starts. Matchers must never appear.
+	f := newBulkForm(t, nil, "banner")
+	want := []fieldIndex{fieldEnds, fieldCreator, fieldComment, fieldStarts, fieldEnds}
+	for i, expected := range want {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		require.Equalf(t, expected, f.focus, "tab #%d landed on the wrong field (expected %v, got %v)", i+1, expected, f.focus)
+	}
+
+	// Shift+Tab walks the same closed cycle in reverse — must also
+	// skip matchers.
+	f2 := newBulkForm(t, nil, "banner")
+	require.Equal(t, fieldStarts, f2.focus)
+	_, _ = f2.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	require.Equal(t, fieldComment, f2.focus,
+		"shift+tab from Starts must skip matchers and land on Comment")
+}
+
+func TestForm_BulkModeSkipsMatcherValidation(t *testing.T) {
+	t.Parallel()
+
+	// In bulk mode, leaving the matchers buffer empty must not
+	// error — the page substitutes per-target matchers at fanout.
+	// Create + comment + submit and assert no matcher-related error.
+	f := newBulkForm(t, panickingClient{}, "banner")
+	// Tab past Starts/Ends/Creator to Comment, then type.
+	for range 3 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	require.Equal(t, fieldComment, f.focus)
+	type_(f, "ack while patching")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	_, ok := msg.(BulkSubmittedMsg)
+	require.True(t, ok, "submit must succeed and emit BulkSubmittedMsg, got %T", msg)
+}
+
+func TestForm_BulkModeEmitsBulkSubmittedMsg(t *testing.T) {
+	t.Parallel()
+
+	f := newBulkForm(t, panickingClient{}, "banner")
+	for range 3 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack while patching")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	got, ok := cmd().(BulkSubmittedMsg)
+	require.True(t, ok)
+	require.Equal(t, "ack while patching", got.Comment)
+	require.Equal(t, "alice", got.Creator)
+	require.Equal(t, fixedNow, got.StartsAt, "default starts is the injected now")
+	require.Equal(t, fixedNow.Add(2*time.Hour), got.EndsAt, "default ends is +2h")
+}
+
+func TestForm_BulkModeNeverCallsClient(t *testing.T) {
+	t.Parallel()
+
+	// Same shape as BulkModeEmitsBulkSubmittedMsg but with the
+	// panicking client wired in. If submit ever reaches Client.*
+	// the test panics and fails.
+	f := newBulkForm(t, panickingClient{}, "banner")
+	for range 3 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	require.NotPanics(t, func() {
+		_ = cmd()
+	}, "bulk submit must not call Client.* — the page owns dispatch")
+}
+
+func TestForm_BulkModeNilClientIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	// Pages opening the bulk form may legitimately pass Client = nil
+	// because the form never dispatches in bulk mode. A nil client
+	// must round-trip through submit without the "client not
+	// configured" failure path tripping.
+	f := newBulkForm(t, nil, "banner")
+	for range 3 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	_, ok := cmd().(BulkSubmittedMsg)
+	require.True(t, ok, "nil-client bulk submit must still emit BulkSubmittedMsg")
+}
+
+func TestForm_BulkModeRendersBanner(t *testing.T) {
+	t.Parallel()
+
+	// Pick a banner short enough to fit one line inside the
+	// 120-col View — long banners wrap to the input width, which
+	// is correct behaviour but would break a literal substring
+	// match. Real-world banners (e.g. "applies to 5 alerts
+	// across 2 tenants — each silenced with its own labels") may
+	// well wrap; the wrap shape is incidental, the verbatim
+	// presence in the rendered view is what we care about.
+	banner := "applies to 5 alerts; per-target labels"
+	f := newBulkForm(t, nil, banner)
+
+	view := f.View(120, 24)
+	require.Contains(t, view, banner, "bulk View must render the banner string verbatim")
+	require.Contains(t, view, "Targets", "bulk View labels the slot 'Targets' so the user knows the matchers are per-target")
+	require.NotContains(t, view, "alertname=HighCPU",
+		"bulk View must NOT render the matchers placeholder — the buffer is hidden")
+}
+
+func TestForm_BulkModeIgnoresPrefilledMatchers(t *testing.T) {
+	t.Parallel()
+
+	// A caller passing both Bulk and Matchers is contradictory; the
+	// form must not leak the matcher prefill into the hidden buffer.
+	// This guards a future regression where a caller copies an Options
+	// struct and forgets to clear Matchers.
+	f := New(Options{
+		Styles:     loadStyles(t),
+		Now:        func() time.Time { return fixedNow },
+		Creator:    "alice",
+		Bulk:       true,
+		BulkBanner: "banner",
+		Matchers: []backend.Matcher{
+			{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		},
+	})
+	require.Empty(t, f.matchers.Value(), "bulk mode must not prefill the hidden matchers buffer")
+}
+
+func TestForm_BulkSubmittedMsgIsAutoPop(t *testing.T) {
+	t.Parallel()
+
+	// Pinning the AutoPopMsg contract — the App's stack only auto-pops
+	// messages that satisfy the marker interface. Without this assertion
+	// a future rename breaks the form's submit-and-pop UX silently.
+	var msg interface{ IsAutoPop() } = BulkSubmittedMsg{}
+	require.NotNil(t, msg)
+}

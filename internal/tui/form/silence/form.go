@@ -64,6 +64,23 @@ type CancelledMsg struct{}
 // IsAutoPop satisfies app.AutoPopMsg.
 func (CancelledMsg) IsAutoPop() {}
 
+// BulkSubmittedMsg is emitted on submit when the form was opened in
+// bulk mode (Options.Bulk = true). It carries the metadata the user
+// filled in once — the parent page is responsible for substituting
+// per-target matchers and dispatching one CreateSilence per marked
+// alert. No Matchers field: bulk mode never collects them. Implements
+// app.AutoPopMsg so the form auto-pops on submit; the page handles
+// fan-out from there.
+type BulkSubmittedMsg struct {
+	Comment  string
+	StartsAt time.Time
+	EndsAt   time.Time
+	Creator  string
+}
+
+// IsAutoPop satisfies app.AutoPopMsg.
+func (BulkSubmittedMsg) IsAutoPop() {}
+
 // fieldIndex enumerates the form's input slots so Tab navigation
 // can walk them in display order.
 type fieldIndex int
@@ -100,6 +117,15 @@ type Form struct {
 	// the form is in create mode; non-empty switches the submit
 	// branch to UpdateSilence and the title to "edit silence <id>".
 	editID string
+
+	// bulk is the bulk-create mode flag wired from Options.Bulk.
+	// True hides matchers, skips matcher validation, renders the
+	// banner instead of the textarea, and routes submit through
+	// BulkSubmittedMsg.
+	bulk bool
+	// bulkBanner is the descriptive string rendered in place of the
+	// matchers buffer when bulk is true. See Options.BulkBanner.
+	bulkBanner string
 
 	focus fieldIndex
 	err   string // last submit error; cleared on next keystroke
@@ -139,6 +165,25 @@ type Options struct {
 	// form's title and SubmittedMsg both echo the id so callers
 	// can flash "silence updated: <id>".
 	EditID string
+
+	// Bulk switches the form into bulk-create mode. The matchers
+	// buffer is hidden, the matchers-required validation is skipped,
+	// the banner string below is rendered where the buffer would
+	// have lived, and submit emits BulkSubmittedMsg instead of
+	// calling Client.CreateSilence. The page that opened the form
+	// owns the per-target matcher substitution and the fan-out.
+	// Client may be nil in bulk mode (the form never calls it). Bulk
+	// is mutually exclusive with EditID — bulk-edit is out of scope
+	// (see docs/design/bulk-silence.md "Out of scope").
+	Bulk bool
+
+	// BulkBanner is the descriptive line rendered where the matchers
+	// buffer would have rendered when Bulk is true. The page formats
+	// this string with the target count and tenant breakdown so the
+	// user sees what their submit will fan out to (e.g. "applies to
+	// 5 alerts across 2 tenants — each silenced with its own
+	// labels"). Ignored when Bulk is false.
+	BulkBanner string
 }
 
 // matchersHeight is the number of visible rows reserved for the
@@ -161,7 +206,10 @@ func New(opts Options) *Form {
 	matchers.SetHeight(matchersHeight)
 	matchers.ShowLineNumbers = false
 	flattenTextareaBlur(&matchers)
-	if len(opts.Matchers) > 0 {
+	// Skip the matchers prefill in bulk mode — the buffer is hidden
+	// and parseSpec ignores it; pre-populating would only leak state
+	// into a future non-bulk reuse.
+	if !opts.Bulk && len(opts.Matchers) > 0 {
 		matchers.SetValue(formatMatchers(opts.Matchers))
 	}
 
@@ -182,17 +230,23 @@ func New(opts Options) *Form {
 	}
 
 	f := &Form{
-		client:   opts.Client,
-		styles:   opts.Styles,
-		now:      now,
-		matchers: matchers,
-		starts:   starts,
-		ends:     ends,
-		creator:  creator,
-		comment:  comment,
-		editID:   opts.EditID,
+		client:     opts.Client,
+		styles:     opts.Styles,
+		now:        now,
+		matchers:   matchers,
+		starts:     starts,
+		ends:       ends,
+		creator:    creator,
+		comment:    comment,
+		editID:     opts.EditID,
+		bulk:       opts.Bulk,
+		bulkBanner: opts.BulkBanner,
 	}
-	// Focus the first field so the user lands ready to type.
+	// Bulk mode never lands on the (hidden) matchers field; start
+	// focus on Starts so the first Tab walks the metadata fields.
+	if f.bulk {
+		f.focus = fieldStarts
+	}
 	_ = f.activeFocus()
 	return f
 }
@@ -251,10 +305,15 @@ func (*Form) CapturesInput() bool { return true }
 // Crumb implements app.Page.
 func (*Form) Crumb() string { return "silence" }
 
-// Title implements app.Page. Reads "new silence" in create mode
-// and "edit silence <id>" in edit mode so the user always knows
-// which verb the submit will fire.
+// Title implements app.Page. Reads "new silence" in create mode,
+// "edit silence <id>" in edit mode, and "bulk silence" in bulk
+// mode so the user always knows which verb the submit will fire.
+// The bulk form's banner carries the per-target count breakdown,
+// keeping the title slot clean.
 func (f *Form) Title() string {
+	if f.bulk {
+		return "bulk silence"
+	}
 	if f.editID != "" {
 		return "edit silence " + f.editID
 	}
@@ -335,10 +394,16 @@ func (f *Form) forwardToFocused(msg tea.Msg) tea.Cmd {
 // cycleFocus walks focus by delta (typically ±1), blurring the
 // outgoing field and focusing the incoming one. Returns the
 // Cmd Focus emits (cursor blink schedule) so the program loop
-// drives the new field's blink timer.
+// drives the new field's blink timer. In bulk mode the matchers
+// field is hidden and never focusable, so a single skip-step
+// past it keeps the cycle a closed loop over the four metadata
+// fields (Starts → Ends → Creator → Comment → Starts …).
 func (f *Form) cycleFocus(delta int) tea.Cmd {
 	f.activeBlur()
 	f.focus = (f.focus + fieldIndex(delta) + numFields) % numFields
+	if f.bulk && f.focus == fieldMatchers {
+		f.focus = (f.focus + fieldIndex(delta) + numFields) % numFields
+	}
 	return f.activeFocus()
 }
 
@@ -377,17 +442,30 @@ func (f *Form) activeBlur() {
 	}
 }
 
-// submit parses the buffers and either creates or updates the
-// silence depending on whether the form is in edit mode. On
-// success emits SubmittedMsg carrying the relevant ID; on failure
-// surfaces the error as a flash and stays on the form.
+// submit parses the buffers and routes to one of three shapes:
+// bulk-create emits BulkSubmittedMsg (the page fans out per-target);
+// edit calls UpdateSilence; create calls CreateSilence. On success
+// emits the appropriate message; on failure surfaces the error as a
+// flash and stays on the form.
 func (f *Form) submit() tea.Cmd {
-	if f.client == nil {
-		return f.fail("client not configured")
-	}
 	spec, err := f.parseSpec()
 	if err != nil {
 		return f.fail(err.Error())
+	}
+	if f.bulk {
+		// Client may legitimately be nil in bulk mode — the page
+		// owns dispatch, the form just collects metadata.
+		return func() tea.Msg {
+			return BulkSubmittedMsg{
+				Comment:  spec.Comment,
+				StartsAt: spec.StartsAt,
+				EndsAt:   spec.EndsAt,
+				Creator:  spec.CreatedBy,
+			}
+		}
+	}
+	if f.client == nil {
+		return f.fail("client not configured")
 	}
 	if f.editID != "" {
 		if err := f.client.UpdateSilence(context.Background(), f.editID, spec); err != nil {
@@ -413,13 +491,15 @@ func (f *Form) fail(text string) tea.Cmd {
 }
 
 // parseSpec converts the field buffers into a backend.SilenceSpec.
-// Returns the first validation error encountered.
+// Returns the first validation error encountered. In bulk mode the
+// matchers buffer is hidden and the resulting spec leaves Matchers
+// empty; the parent page substitutes per-target matchers at fan-out.
 func (f *Form) parseSpec() (backend.SilenceSpec, error) {
 	matchers, err := parseMatchers(f.matchers.Value())
 	if err != nil {
 		return backend.SilenceSpec{}, err
 	}
-	if len(matchers) == 0 {
+	if !f.bulk && len(matchers) == 0 {
 		return backend.SilenceSpec{}, errors.New("at least one matcher is required")
 	}
 	starts, err := parseTimeOrNow(f.starts.Value(), f.now())
@@ -643,7 +723,7 @@ func (f *Form) View(width, height int) string {
 	f.comment.SetWidth(inputWidth)
 
 	rows := []string{
-		f.fieldRow("Matchers", fieldMatchers, f.matchers.View()),
+		f.matcherSlotRow(),
 		f.fieldRow("Starts", fieldStarts, f.starts.View()),
 		f.fieldRow("Ends", fieldEnds, f.ends.View()),
 		f.fieldRow("Creator", fieldCreator, f.creator.View()),
@@ -658,6 +738,19 @@ func (f *Form) View(width, height int) string {
 		body += "\n\n" + f.styles.Flash.Error.Render("ERR: "+f.err)
 	}
 	return lipgloss.NewStyle().Width(width).Render(body)
+}
+
+// matcherSlotRow renders the top row of the form. In create / edit
+// mode this is the live matchers textarea labelled "Matchers"; in
+// bulk mode the textarea is hidden and the slot is filled with the
+// non-focusable BulkBanner labelled "Targets" — the banner carries
+// the count breakdown the user needs to see what their submit will
+// fan out to.
+func (f *Form) matcherSlotRow() string {
+	if f.bulk {
+		return f.fieldRow("Targets", fieldMatchers, f.bulkBanner)
+	}
+	return f.fieldRow("Matchers", fieldMatchers, f.matchers.View())
 }
 
 // fieldRow assembles one labelled row: leading prefix (▸ for the
