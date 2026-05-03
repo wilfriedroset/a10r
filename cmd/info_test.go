@@ -26,9 +26,9 @@ func TestRenderInfo_FullConfig(t *testing.T) {
 	cfg := &config.Config{
 		Backends: []config.Backend{
 			{
-				Name: "prod-vanilla",
-				URL:  "https://am-prod.internal",
-				Auth: &config.AuthSpec{Type: config.AuthTypeBearer},
+				Name:        "prod-vanilla",
+				URL:         "https://am-prod.internal",
+				BearerToken: "tok",
 			},
 			{
 				Name:         "staging-mimir",
@@ -37,7 +37,7 @@ func TestRenderInfo_FullConfig(t *testing.T) {
 				TenantHeader: "X-Scope-OrgID",
 				Tenant:       "tenant-a",
 				Capabilities: config.Capabilities{ConfigAPI: true, TenantAdmin: true},
-				Auth:         &config.AuthSpec{Type: config.AuthTypeBasic},
+				BasicAuth:    &config.BasicAuth{Username: "u", Password: "p"},
 			},
 		},
 	}
@@ -84,24 +84,45 @@ func TestRenderInfo_NotFound(t *testing.T) {
 	require.Equal(t, readGolden(t, "info_notfound.golden"), buf.String())
 }
 
-func TestAuthTypeLabel(t *testing.T) {
+func TestAuthLabel(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name string
-		in   *config.AuthSpec
+		in   config.Backend
 		want string
 	}{
-		{name: "nil spec yields empty", want: ""},
-		{name: "empty type yields empty", in: &config.AuthSpec{}, want: ""},
-		{name: "basic", in: &config.AuthSpec{Type: config.AuthTypeBasic}, want: "basic"},
-		{name: "bearer", in: &config.AuthSpec{Type: config.AuthTypeBearer}, want: "bearer"},
+		{name: "no auth yields empty"},
+		{
+			name: "basic",
+			in:   config.Backend{BasicAuth: &config.BasicAuth{Username: "u", Password: "p"}},
+			want: "basic",
+		},
+		{
+			name: "bearer_token shorthand",
+			in:   config.Backend{BearerToken: "tok"},
+			want: "bearer",
+		},
+		{
+			name: "authorization echoes the wire scheme",
+			in: config.Backend{
+				Authorization: &config.Authorization{Type: "Bearer", Credentials: "tok"},
+			},
+			want: "authorization (Bearer)",
+		},
+		{
+			name: "authorization with custom type",
+			in: config.Backend{
+				Authorization: &config.Authorization{Type: "Token", Credentials: "tok"},
+			},
+			want: "authorization (Token)",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, authTypeLabel(tc.in))
+			require.Equal(t, tc.want, authLabel(tc.in))
 		})
 	}
 }

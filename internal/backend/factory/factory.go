@@ -4,7 +4,7 @@
 // `a10r.yaml`'s `backends:` array and the runtime backend.Client
 // implementations. Per audit §5.1 there is one code path per method;
 // vanilla Alertmanager is just the Mimir constructor with empty
-// prefix and empty tenant header.
+// prefix and empty Headers map.
 //
 // The package lives as a sub-package of internal/backend rather than
 // inside it because the parent package is imported by both vanilla
@@ -14,6 +14,7 @@ package factory
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/mimir"
@@ -23,8 +24,12 @@ import (
 // Build constructs a backend.Client from one entry of the user's
 // `backends:` array. There is no NewVanilla / NewMimir split — the
 // audit deliberately chose a single code path: vanilla means
-// "prefix is empty and no tenant header"; Mimir is the same
-// constructor with prefix and (optionally) tenant header set.
+// "prefix is empty and no Headers"; Mimir is the same constructor
+// with prefix and (optionally) tenant header set.
+//
+// The factory folds the YAML `tenant_header:` / `tenant:` sugar
+// into the same Headers map that arbitrary user-supplied headers
+// land in, so downstream code sees one shape.
 //
 // Validation happens eagerly so a misconfigured backend surfaces at
 // startup rather than on the first poll. The wrapped error always
@@ -41,16 +46,43 @@ func Build(cfg config.Backend, userAgent string) (backend.Client, error) {
 	}
 
 	c, err := mimir.New(mimir.ClientConfig{
-		BaseURL:      cfg.URL,
-		Prefix:       cfg.Prefix,
-		TenantHeader: cfg.TenantHeader,
-		Tenant:       cfg.Tenant,
-		Auth:         cfg.Auth,
-		Caps:         cfg.Capabilities,
-		UserAgent:    userAgent,
+		BaseURL:              cfg.URL,
+		Prefix:               cfg.Prefix,
+		Headers:              mergedHeaders(cfg),
+		BasicAuth:            cfg.BasicAuth,
+		Authorization:        cfg.Authorization,
+		BearerToken:          cfg.BearerToken,
+		TLS:                  cfg.TLSConfig,
+		ProxyURL:             cfg.ProxyURL,
+		NoProxy:              cfg.NoProxy,
+		ProxyFromEnvironment: cfg.ProxyFromEnvironment,
+		Timeout:              cfg.RemoteTimeout,
+		Caps:                 cfg.Capabilities,
+		UserAgent:            userAgent,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("backend %q: %w", cfg.Name, err)
 	}
 	return c, nil
+}
+
+// mergedHeaders returns a single map combining the user's Headers
+// block with the tenant_header / tenant YAML sugar. Returns nil
+// when neither source contributes anything so transport.WithHeaders
+// short-circuits and no allocation happens for the common
+// no-headers case.
+//
+// The schema layer (config.Backend.Validate) guarantees these two
+// sources do not collide on the same header name, so the merge is
+// unambiguous.
+func mergedHeaders(cfg config.Backend) map[string]string {
+	if len(cfg.Headers) == 0 && cfg.TenantHeader == "" {
+		return nil
+	}
+	out := make(map[string]string, len(cfg.Headers)+1)
+	maps.Copy(out, cfg.Headers)
+	if cfg.TenantHeader != "" {
+		out[cfg.TenantHeader] = cfg.Tenant
+	}
+	return out
 }

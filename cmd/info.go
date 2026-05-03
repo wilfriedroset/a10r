@@ -133,7 +133,7 @@ func renderBackend(w *writer, b config.Backend) {
 		}
 		w.printf("    tenant: %s (%s)\n", b.Tenant, header)
 	}
-	if authLabel := authTypeLabel(b.Auth); authLabel != "" {
+	if authLabel := authLabel(b); authLabel != "" {
 		w.printf("    auth:   %s\n", authLabel)
 	}
 	if caps := capabilityList(b.Capabilities); caps != "" {
@@ -141,14 +141,25 @@ func renderBackend(w *writer, b config.Backend) {
 	}
 }
 
-// authTypeLabel summarises the configured auth as a single word for
-// the info report. Returns empty string when no auth is configured —
-// the caller skips the line entirely.
-func authTypeLabel(spec *config.AuthSpec) string {
-	if spec == nil || spec.Type == "" {
+// authLabel summarises the configured auth as a single word for the
+// info report. Returns empty string when no auth is configured —
+// the caller skips the line entirely. The schema's "at most one of
+// basic_auth, authorization, bearer_token" rule (config.Backend.
+// Validate) means at most one branch fires per backend.
+func authLabel(b config.Backend) string {
+	switch {
+	case b.BasicAuth != nil:
+		return "basic"
+	case b.Authorization != nil:
+		// authorization.type defaults to "Bearer" via Backend.Validate
+		// — surface it as-is so the operator can read off the wire
+		// scheme without consulting the source YAML.
+		return "authorization (" + b.Authorization.Type + ")"
+	case b.BearerToken != "":
+		return "bearer"
+	default:
 		return ""
 	}
-	return spec.Type
 }
 
 // capabilityList returns the enabled capability flags as a comma-

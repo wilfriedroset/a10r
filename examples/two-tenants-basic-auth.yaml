@@ -17,16 +17,12 @@ theme:
 backends:
   - name: primary
     url: https://alertmanager.example
-    auth:
-      type: basic
-      basic:
-        username: primary-ops
-        password: ${A10R_PRIMARY_PASSWORD}
+    basic_auth:
+      username: primary-ops
+      password: ${A10R_PRIMARY_PASSWORD}
 
   - name: secondary
     url: https://alertmanager.example
-    auth:
-      type: basic
-      basic:
-        username: secondary-ops
-        password: ${A10R_SECONDARY_PASSWORD}
+    basic_auth:
+      username: secondary-ops
+      password: ${A10R_SECONDARY_PASSWORD}

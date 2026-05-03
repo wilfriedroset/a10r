@@ -1,19 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package transport composes http.RoundTripper layers for backend
-// auth and tenant-header injection. The split into a transport
-// package (rather than baking into the vanilla / Mimir clients)
-// reflects the audit's design that auth and tenant scoping are
-// orthogonal concerns: every backend type uses the same auth shapes
-// (basic / bearer / header — mTLS and SigV4 deferred per F2/F3),
-// and Mimir only differs from vanilla in needing the tenant header
-// injected.
+// auth, header injection, TLS, and proxy configuration. The split
+// into a transport package (rather than baking into the vanilla /
+// Mimir clients) reflects the audit's design that auth and tenant
+// scoping are orthogonal concerns: every backend type uses the same
+// auth shapes (basic / authorization / bearer — mTLS, OAuth2, SigV4
+// deferred per F2/F3), and Mimir only differs from vanilla in
+// needing the tenant header injected.
+//
+// Schema is the Prometheus `remote_write` shape per
+// docs/design/prometheus-remote-write-parity.md — `basic_auth:`,
+// `authorization:`, `bearer_token:` are peers on the Backend struct
+// rather than a discriminated `auth:` envelope.
 package transport
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/config"
 )
@@ -26,61 +37,74 @@ const (
 	bearerPrefix        = "Bearer "
 )
 
-// Errors returned by New for malformed AuthSpec inputs. Validation
-// is eager so the factory (#15) surfaces the misconfiguration at
+// Errors returned by NewAuth and NewBase for malformed inputs.
+// Validation is eager so the factory surfaces the misconfiguration at
 // startup rather than on the first poll.
 var (
-	ErrMissingBasicCreds  = errors.New("auth.type=basic requires auth.basic.{username,password}")
-	ErrMissingBearerToken = errors.New("auth.type=bearer requires auth.bearer.token")
-	ErrMissingHeaderPair  = errors.New("auth.type=header requires auth.header.{name,value}")
-	ErrUnsupportedType    = errors.New("auth.type is not supported in v0.1 (see open-questions F2/F3)")
+	ErrMissingBasicCreds  = errors.New("basic_auth requires both username and password")
+	ErrMissingBearerToken = errors.New("bearer_token must not be empty")
+	ErrMissingAuthCreds   = errors.New("authorization requires credentials")
+	ErrInvalidProxyURL    = errors.New("proxy_url is not a valid URL")
+	ErrInvalidCABundle    = errors.New("tls_config.ca is not a valid PEM bundle")
 )
 
-// New returns a RoundTripper that wraps base with the auth scheme
-// described in spec. A nil or empty spec / Type=="" / Type=="none"
-// short-circuits to base unchanged.
+// AuthOptions bundles the three peer auth blocks that may appear on
+// a Backend. The constructor enforces the "at most one" rule per
+// docs/design/prometheus-remote-write-parity.md §3.1; passing a
+// second non-nil block alongside a populated one returns an error
+// rather than silently picking a winner.
+//
+// The struct shape mirrors Prometheus's HTTPClientConfig peers so
+// the factory can copy fields straight off `config.Backend` without
+// translation.
+type AuthOptions struct {
+	BasicAuth     *config.BasicAuth
+	Authorization *config.Authorization
+	BearerToken   string
+}
+
+// NewAuth returns a RoundTripper that wraps base with the auth
+// scheme described in opts. A zero-value AuthOptions is a no-op and
+// returns base unchanged.
 //
 // nil base defaults to http.DefaultTransport — keeps test wiring
 // terse and matches the stdlib convention used by http.Client.
-//
-// Returns one of the Err* sentinels for malformed input so the
-// factory can render a precise error to the user.
-func New(spec *config.AuthSpec, base http.RoundTripper) (http.RoundTripper, error) {
+func NewAuth(opts AuthOptions, base http.RoundTripper) (http.RoundTripper, error) {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	if spec == nil || spec.Type == "" || spec.Type == config.AuthTypeNone {
-		return base, nil
-	}
-
-	switch spec.Type {
-	case config.AuthTypeBasic:
-		return newBasic(spec.Basic, base)
-	case config.AuthTypeBearer:
-		return newBearer(spec.Bearer, base)
-	case config.AuthTypeHeader:
-		return newHeader(spec.Header, base)
+	switch {
+	case opts.BasicAuth != nil:
+		return newBasic(opts.BasicAuth, base)
+	case opts.Authorization != nil:
+		return newAuthorization(opts.Authorization, base)
+	case opts.BearerToken != "":
+		return newBearer(opts.BearerToken, base)
 	default:
-		return nil, fmt.Errorf("%w: %q", ErrUnsupportedType, spec.Type)
+		return base, nil
 	}
 }
 
-// WithTenantHeader wraps base in a RoundTripper that injects the
-// (name, value) pair on every request before delegating. Composes
-// with auth: chain `WithTenantHeader(New(spec, base), header, value)`
-// so auth is the inner layer (visible to base) and the tenant header
-// is added on top.
+// WithHeaders wraps base in a RoundTripper that injects every
+// (name, value) pair from headers on outgoing requests. nil or
+// empty headers short-circuits to base unchanged.
 //
-// An empty name short-circuits to base unchanged so callers can
-// pass the config-flat value without conditional plumbing.
-func WithTenantHeader(base http.RoundTripper, name, value string) http.RoundTripper {
+// Reserved-header validation lives in the config layer (see
+// config.validateHeaders) so this layer can trust whatever it
+// receives. Order of injection across many headers is not specified;
+// callers must not rely on it.
+func WithHeaders(base http.RoundTripper, headers map[string]string) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	if name == "" {
+	if len(headers) == 0 {
 		return base
 	}
-	return &addHeaderRT{base: base, name: name, value: value}
+	// Snapshot the map so a later mutation by the caller cannot leak
+	// into in-flight requests.
+	snap := make(map[string]string, len(headers))
+	maps.Copy(snap, headers)
+	return &headersRT{base: base, headers: snap}
 }
 
 // WithUserAgent wraps base in a RoundTripper that sets the User-Agent
@@ -102,25 +126,206 @@ func WithUserAgent(base http.RoundTripper, ua string) http.RoundTripper {
 	return &userAgentRT{base: base, ua: ua}
 }
 
+// BaseOptions bundles every TLS / proxy knob plumbed through to the
+// underlying *http.Transport. Each field maps 1:1 onto the
+// equivalent `config.Backend` / `config.TLSConfig` field; the
+// translation is in the factory layer so the shape is stable across
+// future schema additions.
+type BaseOptions struct {
+	TLS                  *config.TLSConfig
+	ProxyURL             string
+	NoProxy              string
+	ProxyFromEnvironment bool
+}
+
+// NewBase returns the *http.Transport that sits at the bottom of
+// every backend's roundtripper chain. Returns http.DefaultTransport
+// unchanged when no TLS or proxy configuration is requested so the
+// stdlib's connection pool defaults apply.
+//
+// Callers wrap the returned transport with NewAuth, WithHeaders, and
+// WithUserAgent in that order — auth is innermost so a downstream
+// proxy that strips Authorization still sees the User-Agent.
+func NewBase(opts BaseOptions) (http.RoundTripper, error) {
+	if opts.TLS == nil && opts.ProxyURL == "" && opts.NoProxy == "" && !opts.ProxyFromEnvironment {
+		return http.DefaultTransport, nil
+	}
+	// Clone to inherit the stdlib defaults (HTTP/2, idle timeouts,
+	// dialer settings) without mutating the global default.
+	dt, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, errors.New("http.DefaultTransport is not *http.Transport — cannot clone for per-backend customisation")
+	}
+	t := dt.Clone()
+
+	if opts.TLS != nil {
+		cfg, err := buildTLSConfig(opts.TLS)
+		if err != nil {
+			return nil, err
+		}
+		t.TLSClientConfig = cfg
+	}
+
+	proxyFunc, err := buildProxyFunc(opts)
+	if err != nil {
+		return nil, err
+	}
+	if proxyFunc != nil {
+		t.Proxy = proxyFunc
+	}
+	return t, nil
+}
+
 func newBasic(spec *config.BasicAuth, base http.RoundTripper) (http.RoundTripper, error) {
-	if spec == nil || spec.Username == "" || spec.Password == "" {
+	if spec.Username == "" || spec.Password == "" {
 		return nil, ErrMissingBasicCreds
 	}
 	return &basicRT{base: base, user: spec.Username, pass: spec.Password}, nil
 }
 
-func newBearer(spec *config.BearerAuth, base http.RoundTripper) (http.RoundTripper, error) {
-	if spec == nil || spec.Token == "" {
+func newBearer(token string, base http.RoundTripper) (http.RoundTripper, error) {
+	if token == "" {
 		return nil, ErrMissingBearerToken
 	}
-	return &addHeaderRT{base: base, name: headerAuthorization, value: bearerPrefix + spec.Token}, nil
+	return &addHeaderRT{base: base, name: headerAuthorization, value: bearerPrefix + token}, nil
 }
 
-func newHeader(spec *config.HeaderAuth, base http.RoundTripper) (http.RoundTripper, error) {
-	if spec == nil || spec.Name == "" || spec.Value == "" {
-		return nil, ErrMissingHeaderPair
+func newAuthorization(spec *config.Authorization, base http.RoundTripper) (http.RoundTripper, error) {
+	if spec.Credentials == "" {
+		return nil, ErrMissingAuthCreds
 	}
-	return &addHeaderRT{base: base, name: spec.Name, value: spec.Value}, nil
+	t := spec.Type
+	if t == "" {
+		t = config.DefaultAuthorizationType
+	}
+	return &addHeaderRT{base: base, name: headerAuthorization, value: t + " " + spec.Credentials}, nil
+}
+
+func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
+	cfg := &tls.Config{
+		ServerName:         spec.ServerName,
+		InsecureSkipVerify: spec.InsecureSkipVerify, //nolint:gosec // user opt-in: tls_config.insecure_skip_verify is documented in the schema
+	}
+	if spec.CA != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(spec.CA)) {
+			return nil, ErrInvalidCABundle
+		}
+		cfg.RootCAs = pool
+	}
+	if v, ok := tlsVersionLookup(spec.MinVersion); ok {
+		cfg.MinVersion = v
+	}
+	if v, ok := tlsVersionLookup(spec.MaxVersion); ok {
+		cfg.MaxVersion = v
+	}
+	return cfg, nil
+}
+
+// tlsVersionLookup maps the wire-level strings Prometheus accepts
+// (and the schema validates) to the stdlib uint16 constants. The
+// second return value distinguishes "user did not configure" (no
+// override) from a configured version.
+func tlsVersionLookup(s string) (uint16, bool) {
+	switch s {
+	case "TLS10":
+		return tls.VersionTLS10, true
+	case "TLS11":
+		return tls.VersionTLS11, true
+	case "TLS12":
+		return tls.VersionTLS12, true
+	case "TLS13":
+		return tls.VersionTLS13, true
+	default:
+		return 0, false
+	}
+}
+
+// buildProxyFunc translates the proxy fields into the http.Transport
+// Proxy callback. Returns nil when no proxy override is requested so
+// the cloned transport keeps DefaultTransport's behaviour. The schema
+// layer (config.Backend.validateProxy) guarantees proxy_url and
+// proxy_from_environment are not both set, so this function only
+// branches between them.
+func buildProxyFunc(opts BaseOptions) (func(*http.Request) (*url.URL, error), error) {
+	if opts.ProxyFromEnvironment {
+		return http.ProxyFromEnvironment, nil
+	}
+	if opts.ProxyURL == "" {
+		return nil, nil //nolint:nilnil // explicit "no proxy override" — caller checks for nil function
+	}
+	parsed, err := url.Parse(opts.ProxyURL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidProxyURL, opts.ProxyURL, err)
+	}
+	matcher := compileNoProxy(opts.NoProxy)
+	return func(req *http.Request) (*url.URL, error) {
+		if matcher != nil && matcher(req.URL.Host) {
+			return nil, nil //nolint:nilnil // matched a no_proxy entry — caller treats nil URL as "go direct"
+		}
+		return parsed, nil
+	}, nil
+}
+
+// compileNoProxy parses a Prometheus-style `no_proxy` directive
+// into a host-matching predicate. Entries are comma-separated; an
+// entry starting with `.` is a suffix match against the host
+// (`.svc.cluster.local` matches `foo.svc.cluster.local`), every
+// other entry is an exact match against the host (port stripped).
+// Empty or whitespace-only input returns nil so the caller can
+// short-circuit.
+//
+// CIDR matching (a Prometheus extension) is intentionally out of
+// scope for this iteration — it requires resolving the request's
+// destination IP, which is more orchestration than a TUI poller
+// warrants. Callers who need CIDR-based exclusion should rely on
+// `proxy_from_environment: true` and the OS-level NO_PROXY parser.
+func compileNoProxy(spec string) func(host string) bool {
+	if spec == "" {
+		return nil
+	}
+	var exact []string
+	var suffixes []string
+	for _, raw := range splitComma(spec) {
+		switch {
+		case raw == "":
+			continue
+		case raw[0] == '.':
+			suffixes = append(suffixes, raw)
+		default:
+			exact = append(exact, raw)
+		}
+	}
+	if len(exact) == 0 && len(suffixes) == 0 {
+		return nil
+	}
+	return func(host string) bool {
+		// Strip the port — the user writes "localhost", not
+		// "localhost:9093".
+		if i := strings.LastIndexByte(host, ':'); i >= 0 {
+			host = host[:i]
+		}
+		if slices.Contains(exact, host) {
+			return true
+		}
+		for _, s := range suffixes {
+			if strings.HasSuffix(host, s) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// splitComma trims leading/trailing whitespace on each fragment.
+// Empty entries are kept (the caller drops them) so the function
+// is usable for non-no_proxy callers as well.
+func splitComma(s string) []string {
+	parts := strings.Split(s, ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
 }
 
 // basicRT injects HTTP Basic auth via http.Request.SetBasicAuth so
@@ -138,7 +343,7 @@ func (rt *basicRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // addHeaderRT sets a single (name, value) header on every request.
 // Used both for bearer auth (with name=Authorization, value=Bearer
-// <token>) and for raw header auth and for tenant header injection.
+// <token>) and for the generic Authorization spec.
 type addHeaderRT struct {
 	base        http.RoundTripper
 	name, value string
@@ -147,6 +352,22 @@ type addHeaderRT struct {
 func (rt *addHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
 	cloned.Header.Set(rt.name, rt.value)
+	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
+}
+
+// headersRT applies a fixed set of headers to every request. Distinct
+// from addHeaderRT because callers commonly want a multi-key map and
+// chaining N addHeaderRTs would be O(N) Clone calls per request.
+type headersRT struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (rt *headersRT) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	for k, v := range rt.headers {
+		cloned.Header.Set(k, v)
+	}
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }
 

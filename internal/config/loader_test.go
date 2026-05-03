@@ -27,10 +27,7 @@ theme:
 backends:
   - name: prod-vanilla
     url: https://am-prod.internal
-    auth:
-      type: bearer
-      bearer:
-        token: ${A10R_PROD_TOKEN}
+    bearer_token: ${A10R_PROD_TOKEN}
 `
 
 func writeFixtureToDir(t *testing.T, body string) string {
@@ -59,10 +56,7 @@ func TestLoad_ValidWithEnvInterpolation(t *testing.T) {
 	require.Equal(t, "gruvbox-dark", cfg.Theme.Name)
 	require.Len(t, cfg.Backends, 1)
 	require.Equal(t, "prod-vanilla", cfg.Backends[0].Name)
-	require.NotNil(t, cfg.Backends[0].Auth)
-	require.Equal(t, AuthTypeBearer, cfg.Backends[0].Auth.Type)
-	require.NotNil(t, cfg.Backends[0].Auth.Bearer)
-	require.Equal(t, "secret-prod", cfg.Backends[0].Auth.Bearer.Token,
+	require.Equal(t, "secret-prod", cfg.Backends[0].BearerToken,
 		"env var must be substituted into the bearer token")
 }
 

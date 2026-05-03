@@ -13,10 +13,7 @@ log:
 backends:
   - name: prod-vanilla
     url: https://am-prod.internal
-    auth:
-      type: bearer
-      bearer:
-        token: ${A10R_PROD_TOKEN}
+    bearer_token: ${A10R_PROD_TOKEN}
 
   - name: staging-mimir
     url: https://mimir-staging.internal
@@ -27,18 +24,25 @@ backends:
       config_api: true
       tenant_admin: true
       ring: false
-    auth:
-      type: basic
-      basic:
-        username: a10r-bot
-        password: ${A10R_STAGING_PASS}
+    basic_auth:
+      username: a10r-bot
+      password: ${A10R_STAGING_PASS}
+    tls_config:
+      ca: |
+        -----BEGIN CERTIFICATE-----
+        MIIBkTCB+wIJAKHHIgIIsgqrMA0GCSqGSIb3DQEBCwUAMA0xCzAJBgNVBAYTAlVT
+        -----END CERTIFICATE-----
+      server_name: mimir-staging.internal
+      insecure_skip_verify: false
+      min_version: TLS12
+    proxy_url: http://proxy.internal:3128
+    no_proxy: 127.0.0.1,localhost,.svc.cluster.local
+    remote_timeout: 15s
     poll_interval: 10s
     read_only: true
 
   - name: gateway-headers
     url: https://am-via-gateway.example
-    auth:
-      type: header
-      header:
-        name: X-Gateway-Token
-        value: ${A10R_GW_TOKEN}
+    headers:
+      X-Gateway-Token: ${A10R_GW_TOKEN}
+      X-Trace-Id: a10r

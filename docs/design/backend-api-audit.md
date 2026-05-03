@@ -246,7 +246,7 @@ type Client interface {
 }
 ```
 
-**One constructor, config-driven.** There is no `NewVanilla` / `NewMimir` split — the backend is described in the YAML config:
+**One constructor, config-driven.** There is no `NewVanilla` / `NewMimir` split — the backend is described in the YAML config. The schema mirrors Prometheus's `remote_write` block per F4 / `prometheus-remote-write-parity.md`:
 
 ```yaml
 backends:
@@ -255,14 +255,33 @@ backends:
     # all of these are optional
     prefix: ""                       # e.g. "/alertmanager" for Mimir
     tenant_header: ""                # e.g. "X-Scope-OrgID"; any header name
-    tenant: ""                       # value sent in tenant_header
+    tenant: ""                       # value sent in tenant_header (sugar
+                                     # for a single `headers:` entry)
     capabilities:                    # explicit opt-in; nothing auto-enabled
       config_api: false              # /api/v1/alerts GET/POST/DELETE
       tenant_admin: false            # /multitenant_alertmanager/configs
       ring: false                    # /multitenant_alertmanager/ring
-    auth:
-      type: none | basic | bearer | header | mtls | sigv4
-      # …type-specific fields…
+
+    # at most one auth block per backend (Prometheus's
+    # validateAuthConfigs rule):
+    basic_auth: { username, password }
+    # — or —
+    authorization: { type, credentials }   # type defaults to "Bearer"
+    # — or —
+    bearer_token: "…"
+
+    headers: { X-Scope-OrgID: tenant-1, … }
+    tls_config:
+      ca: |
+        -----BEGIN CERTIFICATE-----
+        …
+      server_name: ""
+      insecure_skip_verify: false
+      min_version: "TLS12"           # "TLS10" .. "TLS13"
+    proxy_url: ""
+    no_proxy: ""
+    proxy_from_environment: false
+    remote_timeout: 30s
 ```
 
 Rationale for each dial:

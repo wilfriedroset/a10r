@@ -87,6 +87,9 @@ func loadWithEnv(
 	if err != nil {
 		return nil, fmt.Errorf("parse config %q: %w", path, err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config %q: %w", path, err)
+	}
 	return cfg, nil
 }
 

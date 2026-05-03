@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -76,7 +77,7 @@ func TestBuild_MimirScenario(t *testing.T) {
 		TenantHeader: "X-Scope-OrgID",
 		Tenant:       "tenant-a",
 	}, "")
-	require.NoError(t, err)
+	require.NoError(t, err, "tenant_header/tenant sugar must round-trip through the factory")
 
 	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
 	require.NoError(t, err)
@@ -122,12 +123,9 @@ func TestBuild_PropagatesAuthError(t *testing.T) {
 	t.Parallel()
 
 	_, err := Build(config.Backend{
-		Name: "bad-auth",
-		URL:  "http://x",
-		Auth: &config.AuthSpec{
-			Type:  config.AuthTypeBasic,
-			Basic: &config.BasicAuth{Username: "u"}, // no password
-		},
+		Name:      "bad-auth",
+		URL:       "http://x",
+		BasicAuth: &config.BasicAuth{Username: "u"}, // no password
 	}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "bad-auth",
@@ -190,6 +188,63 @@ func TestBuild_EmptyUserAgentLeavesGoDefault(t *testing.T) {
 		"empty UA must leave Go's default User-Agent in place")
 	require.NotContains(t, *h.ua.Load(), "a10r",
 		"empty UA must not synthesise an a10r-prefixed string")
+}
+
+// TestBuild_PrometheusShapedConfigPastesCleanly is the regression that
+// guards the design goal: a Prometheus-shaped backend (basic_auth +
+// custom headers + remote_timeout) flows through Build without
+// translation and the wire requests carry the expected headers.
+func TestBuild_PrometheusShapedConfigPastesCleanly(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	be := config.Backend{
+		Name:      "prom-shape",
+		URL:       srv.URL,
+		BasicAuth: &config.BasicAuth{Username: "alice", Password: "s3cret"},
+		Headers: map[string]string{
+			"X-Scope-OrgID": "tenant-a",
+			"X-Trace-Id":    "factory-test",
+		},
+		RemoteTimeout: time.Second,
+	}
+	require.NoError(t, be.Validate(), "the fixture must satisfy the schema validator")
+
+	c, err := Build(be, "")
+	require.NoError(t, err)
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+
+	require.Equal(t, "tenant-a", *h.tHead.Load(),
+		"tenant header must reach the wire when supplied via headers map")
+}
+
+// TestBuild_TenantSugarFoldsIntoHeaders pins the contract that
+// tenant_header/tenant is materialised as a single Headers entry —
+// downstream code only ever sees Headers.
+func TestBuild_TenantSugarFoldsIntoHeaders(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	c, err := Build(config.Backend{
+		Name:         "sugar",
+		URL:          srv.URL,
+		TenantHeader: "X-Scope-OrgID",
+		Tenant:       "tenant-c",
+		Headers:      map[string]string{"X-Trace-Id": "abc"},
+	}, "")
+	require.NoError(t, err)
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+
+	require.Equal(t, "tenant-c", *h.tHead.Load(),
+		"tenant_header sugar must materialise as a Headers entry")
 }
 
 func TestBuild_ImplementsClient(t *testing.T) {

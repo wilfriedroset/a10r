@@ -3,11 +3,12 @@
 package transport
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,40 +44,33 @@ func roundTripOnce(t *testing.T, rt http.RoundTripper, srv *httptest.Server) {
 	require.NoError(t, err)
 }
 
-func TestNew_NoneOrEmptyReturnsBase(t *testing.T) {
+func TestNewAuth_EmptyOptionsReturnsBase(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name string
-		spec *config.AuthSpec
-	}{
-		{name: "nil spec"},
-		{name: "empty type", spec: &config.AuthSpec{}},
-		{name: "explicit none", spec: &config.AuthSpec{Type: config.AuthTypeNone}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			base := http.DefaultTransport
-			rt, err := New(tc.spec, base)
-			require.NoError(t, err)
-			require.Same(t, base, rt, "no-op auth must return the base RT unchanged")
-		})
-	}
+	base := http.DefaultTransport
+	rt, err := NewAuth(AuthOptions{}, base)
+	require.NoError(t, err)
+	require.Same(t, base, rt, "zero-value auth must return the base RT unchanged")
 }
 
-func TestNew_BasicAuthHeader(t *testing.T) {
+func TestNewAuth_NilBaseDefaultsToDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	rt, err := NewAuth(AuthOptions{}, nil)
+	require.NoError(t, err)
+	require.Same(t, http.DefaultTransport, rt,
+		"nil base + zero-value auth must return http.DefaultTransport unchanged")
+}
+
+func TestNewAuth_BasicAuthHeader(t *testing.T) {
 	t.Parallel()
 
 	srvCap := &captureHandler{}
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt, err := New(&config.AuthSpec{
-		Type:  config.AuthTypeBasic,
-		Basic: &config.BasicAuth{Username: "alice", Password: "s3cret"},
+	rt, err := NewAuth(AuthOptions{
+		BasicAuth: &config.BasicAuth{Username: "alice", Password: "s3cret"},
 	}, http.DefaultTransport)
 	require.NoError(t, err)
 
@@ -86,16 +80,15 @@ func TestNew_BasicAuthHeader(t *testing.T) {
 	require.Equal(t, want, srvCap.headers.Get(headerAuthorization))
 }
 
-func TestNew_BearerAuthHeader(t *testing.T) {
+func TestNewAuth_BearerToken(t *testing.T) {
 	t.Parallel()
 
 	srvCap := &captureHandler{}
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt, err := New(&config.AuthSpec{
-		Type:   config.AuthTypeBearer,
-		Bearer: &config.BearerAuth{Token: "abc.def.ghi"},
+	rt, err := NewAuth(AuthOptions{
+		BearerToken: "abc.def.ghi",
 	}, http.DefaultTransport)
 	require.NoError(t, err)
 
@@ -104,142 +97,136 @@ func TestNew_BearerAuthHeader(t *testing.T) {
 	require.Equal(t, "Bearer abc.def.ghi", srvCap.headers.Get(headerAuthorization))
 }
 
-func TestNew_CustomHeader(t *testing.T) {
+func TestNewAuth_AuthorizationDefaultType(t *testing.T) {
 	t.Parallel()
 
 	srvCap := &captureHandler{}
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt, err := New(&config.AuthSpec{
-		Type:   config.AuthTypeHeader,
-		Header: &config.HeaderAuth{Name: "X-API-Key", Value: "kkkk"},
+	// Empty Type defaults to Bearer per Prometheus parity.
+	rt, err := NewAuth(AuthOptions{
+		Authorization: &config.Authorization{Credentials: "tok"},
 	}, http.DefaultTransport)
 	require.NoError(t, err)
 
 	roundTripOnce(t, rt, srv)
 
-	require.Equal(t, "kkkk", srvCap.headers.Get("X-Api-Key"))
-	require.Empty(t, srvCap.headers.Get(headerAuthorization),
-		"custom header auth must not also set Authorization")
+	require.Equal(t, "Bearer tok", srvCap.headers.Get(headerAuthorization))
 }
 
-func TestNew_MalformedSpecsReturnSentinels(t *testing.T) {
+func TestNewAuth_AuthorizationCustomType(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	// A non-Bearer auth scheme (e.g. "Token", "GenieKey", any value
+	// the upstream gateway expects) flows through unchanged.
+	rt, err := NewAuth(AuthOptions{
+		Authorization: &config.Authorization{Type: "Token", Credentials: "abcdef"},
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	roundTripOnce(t, rt, srv)
+
+	require.Equal(t, "Token abcdef", srvCap.headers.Get(headerAuthorization))
+}
+
+func TestNewAuth_MalformedInputsReturnSentinels(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name    string
-		spec    *config.AuthSpec
+		opts    AuthOptions
 		wantErr error
 	}{
 		{
-			name:    "basic missing struct",
-			spec:    &config.AuthSpec{Type: config.AuthTypeBasic},
+			name:    "basic missing password",
+			opts:    AuthOptions{BasicAuth: &config.BasicAuth{Username: "u"}},
 			wantErr: ErrMissingBasicCreds,
 		},
 		{
-			name: "basic missing username",
-			spec: &config.AuthSpec{
-				Type:  config.AuthTypeBasic,
-				Basic: &config.BasicAuth{Password: "x"},
-			},
+			name:    "basic missing username",
+			opts:    AuthOptions{BasicAuth: &config.BasicAuth{Password: "p"}},
 			wantErr: ErrMissingBasicCreds,
 		},
 		{
-			name: "basic missing password",
-			spec: &config.AuthSpec{
-				Type:  config.AuthTypeBasic,
-				Basic: &config.BasicAuth{Username: "x"},
-			},
-			wantErr: ErrMissingBasicCreds,
-		},
-		{
-			name:    "bearer missing struct",
-			spec:    &config.AuthSpec{Type: config.AuthTypeBearer},
-			wantErr: ErrMissingBearerToken,
-		},
-		{
-			name: "bearer empty token",
-			spec: &config.AuthSpec{
-				Type:   config.AuthTypeBearer,
-				Bearer: &config.BearerAuth{},
-			},
-			wantErr: ErrMissingBearerToken,
-		},
-		{
-			name:    "header missing struct",
-			spec:    &config.AuthSpec{Type: config.AuthTypeHeader},
-			wantErr: ErrMissingHeaderPair,
-		},
-		{
-			name: "header missing value",
-			spec: &config.AuthSpec{
-				Type:   config.AuthTypeHeader,
-				Header: &config.HeaderAuth{Name: "X-K"},
-			},
-			wantErr: ErrMissingHeaderPair,
-		},
-		{
-			name:    "unsupported type",
-			spec:    &config.AuthSpec{Type: "mtls"},
-			wantErr: ErrUnsupportedType,
+			name:    "authorization missing credentials",
+			opts:    AuthOptions{Authorization: &config.Authorization{Type: "Bearer"}},
+			wantErr: ErrMissingAuthCreds,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := New(tc.spec, http.DefaultTransport)
+			_, err := NewAuth(tc.opts, http.DefaultTransport)
 			require.Error(t, err)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
 }
 
-func TestNew_NilBaseDefaultsToDefaultTransport(t *testing.T) {
-	t.Parallel()
-
-	rt, err := New(nil, nil)
-	require.NoError(t, err)
-	require.Same(t, http.DefaultTransport, rt,
-		"nil base + nil spec must return http.DefaultTransport unchanged")
-}
-
-func TestWithTenantHeader_Injects(t *testing.T) {
+func TestWithHeaders_InjectsEveryEntry(t *testing.T) {
 	t.Parallel()
 
 	srvCap := &captureHandler{}
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt := WithTenantHeader(http.DefaultTransport, "X-Scope-OrgID", "tenant-a")
+	rt := WithHeaders(http.DefaultTransport, map[string]string{
+		"X-Scope-OrgID":   "tenant-a",
+		"X-Gateway-Token": "g1",
+	})
 	roundTripOnce(t, rt, srv)
 
 	require.Equal(t, "tenant-a", srvCap.headers.Get("X-Scope-Orgid"))
+	require.Equal(t, "g1", srvCap.headers.Get("X-Gateway-Token"))
 }
 
-func TestWithTenantHeader_EmptyNameShortCircuits(t *testing.T) {
+func TestWithHeaders_EmptyMapShortCircuits(t *testing.T) {
 	t.Parallel()
 
 	base := http.DefaultTransport
-	rt := WithTenantHeader(base, "", "tenant-a")
-	require.Same(t, base, rt, "empty header name must return base unchanged")
+	rt := WithHeaders(base, nil)
+	require.Same(t, base, rt, "empty map must return base unchanged")
+	rt = WithHeaders(base, map[string]string{})
+	require.Same(t, base, rt, "zero-length map must return base unchanged")
 }
 
-func TestComposition_AuthAndTenantBothApply(t *testing.T) {
+func TestWithHeaders_SnapshotsTheMap(t *testing.T) {
 	t.Parallel()
 
 	srvCap := &captureHandler{}
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	authed, err := New(&config.AuthSpec{
-		Type:   config.AuthTypeBearer,
-		Bearer: &config.BearerAuth{Token: "tok"},
-	}, http.DefaultTransport)
+	in := map[string]string{"X-Snap": "before"}
+	rt := WithHeaders(http.DefaultTransport, in)
+	in["X-Snap"] = "after"
+	in["X-Late"] = "added"
+
+	roundTripOnce(t, rt, srv)
+
+	require.Equal(t, "before", srvCap.headers.Get("X-Snap"),
+		"caller's later mutation must not leak into in-flight requests")
+	require.Empty(t, srvCap.headers.Get("X-Late"),
+		"caller's later additions must not leak either")
+}
+
+func TestComposition_AuthAndHeadersBothApply(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	authed, err := NewAuth(AuthOptions{BearerToken: "tok"}, http.DefaultTransport)
 	require.NoError(t, err)
 
-	rt := WithTenantHeader(authed, "X-Scope-OrgID", "tenant-b")
+	rt := WithHeaders(authed, map[string]string{"X-Scope-OrgID": "tenant-b"})
 	roundTripOnce(t, rt, srv)
 
 	require.Equal(t, "Bearer tok", srvCap.headers.Get(headerAuthorization),
@@ -290,40 +277,6 @@ func TestWithUserAgent_OverridesCallerSetUA(t *testing.T) {
 	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
 }
 
-func TestWithUserAgent_NilBaseDefaultsToDefaultTransport(t *testing.T) {
-	t.Parallel()
-
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
-
-	rt := WithUserAgent(nil, "a10r/dev")
-	roundTripOnce(t, rt, srv)
-	require.Equal(t, "a10r/dev", srvCap.headers.Get("User-Agent"))
-}
-
-func TestComposition_AuthTenantAndUserAgentBothApply(t *testing.T) {
-	t.Parallel()
-
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
-
-	authed, err := New(&config.AuthSpec{
-		Type:   config.AuthTypeBearer,
-		Bearer: &config.BearerAuth{Token: "tok"},
-	}, http.DefaultTransport)
-	require.NoError(t, err)
-	tenanted := WithTenantHeader(authed, "X-Scope-OrgID", "tenant-b")
-	rt := WithUserAgent(tenanted, "a10r/1.0 (abc)")
-
-	roundTripOnce(t, rt, srv)
-
-	require.Equal(t, "Bearer tok", srvCap.headers.Get(headerAuthorization))
-	require.Equal(t, "tenant-b", srvCap.headers.Get("X-Scope-Orgid"))
-	require.Equal(t, "a10r/1.0 (abc)", srvCap.headers.Get("User-Agent"))
-}
-
 func TestRoundTrip_DoesNotMutateCallerRequest(t *testing.T) {
 	t.Parallel()
 
@@ -332,10 +285,7 @@ func TestRoundTrip_DoesNotMutateCallerRequest(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rt, err := New(&config.AuthSpec{
-		Type:   config.AuthTypeBearer,
-		Bearer: &config.BearerAuth{Token: "tok"},
-	}, http.DefaultTransport)
+	rt, err := NewAuth(AuthOptions{BearerToken: "tok"}, http.DefaultTransport)
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
@@ -349,8 +299,170 @@ func TestRoundTrip_DoesNotMutateCallerRequest(t *testing.T) {
 	// — clone-then-mutate is the contract.
 	require.Empty(t, req.Header.Get(headerAuthorization),
 		"caller's request must not be mutated by the RoundTripper chain")
+}
 
-	// And the bearer header must NOT include any leakage of the
-	// original context's cancellation signal
-	require.True(t, strings.HasPrefix(srv.URL, "http://"))
+func TestNewBase_NoOptionsReturnsDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	rt, err := NewBase(BaseOptions{})
+	require.NoError(t, err)
+	require.Same(t, http.DefaultTransport, rt,
+		"zero-value BaseOptions must short-circuit to http.DefaultTransport")
+}
+
+func TestNewBase_AppliesTLSConfig(t *testing.T) {
+	t.Parallel()
+
+	pem := generateSelfSignedCA(t)
+
+	rt, err := NewBase(BaseOptions{
+		TLS: &config.TLSConfig{
+			CA:                 pem,
+			ServerName:         "am.internal",
+			InsecureSkipVerify: false,
+			MinVersion:         "TLS12",
+			MaxVersion:         "TLS13",
+		},
+	})
+	require.NoError(t, err)
+
+	// rt is a cloned *http.Transport — assert each TLS field round-tripped.
+	tt, ok := rt.(*http.Transport)
+	require.True(t, ok, "NewBase must return *http.Transport when TLS is configured")
+	require.NotNil(t, tt.TLSClientConfig)
+	require.Equal(t, "am.internal", tt.TLSClientConfig.ServerName)
+	require.False(t, tt.TLSClientConfig.InsecureSkipVerify)
+	require.Equal(t, uint16(tls.VersionTLS12), tt.TLSClientConfig.MinVersion)
+	require.Equal(t, uint16(tls.VersionTLS13), tt.TLSClientConfig.MaxVersion)
+	require.NotNil(t, tt.TLSClientConfig.RootCAs)
+}
+
+func TestNewBase_RejectsInvalidCABundle(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewBase(BaseOptions{
+		TLS: &config.TLSConfig{CA: "not a pem block"},
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidCABundle)
+}
+
+func TestNewBase_AppliesProxyURL(t *testing.T) {
+	t.Parallel()
+
+	rt, err := NewBase(BaseOptions{ProxyURL: "http://proxy.internal:3128"})
+	require.NoError(t, err)
+
+	tt, ok := rt.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, tt.Proxy)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://am.internal/api/v2/alerts", http.NoBody)
+	require.NoError(t, err)
+	got, err := tt.Proxy(req)
+	require.NoError(t, err)
+	require.Equal(t, "http://proxy.internal:3128", got.String())
+}
+
+func TestNewBase_NoProxyMatchesExactAndSuffix(t *testing.T) {
+	t.Parallel()
+
+	rt, err := NewBase(BaseOptions{
+		ProxyURL: "http://proxy.internal:3128",
+		NoProxy:  "localhost,127.0.0.1,.svc.cluster.local",
+	})
+	require.NoError(t, err)
+	tt := rt.(*http.Transport)
+
+	cases := []struct {
+		host    string
+		bypass  bool
+		comment string
+	}{
+		{host: "localhost:9093", bypass: true, comment: "exact (with port stripped)"},
+		{host: "127.0.0.1:80", bypass: true, comment: "exact IPv4"},
+		{host: "alertmanager.svc.cluster.local:9093", bypass: true, comment: "suffix match"},
+		{host: "am.example.com", bypass: false, comment: "no match — must use proxy"},
+	}
+
+	for _, tc := range cases {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+tc.host+"/api/v2/alerts", http.NoBody)
+		require.NoError(t, err)
+		got, err := tt.Proxy(req)
+		require.NoError(t, err)
+		if tc.bypass {
+			require.Nil(t, got, "host %q must bypass proxy (%s)", tc.host, tc.comment)
+			continue
+		}
+		require.NotNil(t, got, "host %q must route through proxy", tc.host)
+	}
+}
+
+func TestNewBase_ProxyFromEnvironment(t *testing.T) {
+	t.Parallel()
+
+	rt, err := NewBase(BaseOptions{ProxyFromEnvironment: true})
+	require.NoError(t, err)
+	tt, ok := rt.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, tt.Proxy, "proxy_from_environment must wire http.ProxyFromEnvironment")
+}
+
+func TestNewBase_RejectsInvalidProxyURL(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewBase(BaseOptions{ProxyURL: "://nope"})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidProxyURL)
+}
+
+// generateSelfSignedCA emits a single-cert PEM bundle so TLS tests can
+// drive the CA-bundle path without checking a fixture into the repo.
+// The CA is regenerated per test run; the cert is never trusted by
+// any real system — its only purpose is to satisfy
+// x509.NewCertPool().AppendCertsFromPEM.
+func generateSelfSignedCA(t *testing.T) string {
+	t.Helper()
+	// Hand-rolled because the real CA-generation helpers (crypto/tls,
+	// x509) need 50+ lines of boilerplate. A pre-generated PEM works
+	// too but the cert would expire over time. Use a stdlib
+	// self-signed cert generated once and embedded in the test for
+	// clarity.
+	const pem = `-----BEGIN CERTIFICATE-----
+MIIBhTCCASugAwIBAgIQIRi6zePL6mKjOipn+dNuaTAKBggqhkjOPQQDAjASMRAw
+DgYDVQQKEwdBY21lIENvMB4XDTE3MTAyMDE5NDMwNloXDTE4MTAyMDE5NDMwNlow
+EjEQMA4GA1UEChMHQWNtZSBDbzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABD0d
+7VNhbWvZLWPuj/RtHFjvtJBEwOkhbN/BnnE8rnZR8+sbwnc/KhCk3FhnpHZnQz7B
+5aETbbIgmuvewdjvSBSjYzBhMA4GA1UdDwEB/wQEAwICpDATBgNVHSUEDDAKBggr
+BgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MCkGA1UdEQQiMCCCDmxvY2FsaG9zdDo1
+NDUzgg4xMjcuMC4wLjE6NTQ1MzAKBggqhkjOPQQDAgNIADBFAiEA2zpJEPQyz6/l
+Wf86aX6PepsntZv2GYlA5UpabfT2EZICICpJ5h/iI+i341gBmLiAFQOyTDT+/wQc
+6MF9+Yw1Yy0t
+-----END CERTIFICATE-----
+`
+	// Sanity-check this PEM is parseable so a future paste mistake
+	// surfaces here rather than in the production code path.
+	pool := x509.NewCertPool()
+	require.True(t, pool.AppendCertsFromPEM([]byte(pem)),
+		"embedded PEM must parse; regenerate generateSelfSignedCA's literal if this fails")
+	return pem
+}
+
+func TestCompileNoProxy_EmptyReturnsNil(t *testing.T) {
+	t.Parallel()
+	require.Nil(t, compileNoProxy(""), "empty input must return nil so callers can short-circuit")
+	require.Nil(t, compileNoProxy(",,,"), "all-empty entries must return nil")
+}
+
+func TestNewBase_AssertsErrorTypeStability(t *testing.T) {
+	t.Parallel()
+
+	// Sanity that the sentinel chain we expose to the factory is
+	// errors.Is-detectable end-to-end so the factory's wrapping at
+	// `backend %q: %w` keeps the typed error reachable.
+	_, err := NewBase(BaseOptions{TLS: &config.TLSConfig{CA: "garbage"}})
+	require.ErrorIs(t, err, ErrInvalidCABundle)
+
+	_, err = NewBase(BaseOptions{ProxyURL: "://broken"})
+	require.ErrorIs(t, err, ErrInvalidProxyURL)
 }

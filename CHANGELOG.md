@@ -213,6 +213,47 @@ shell.
 - Alerts state-filter cycle moved from `t` to `Shift+F` so the
   app-global time-format toggle can claim `t` cleanly.
 
+### Schema: Prometheus `remote_write` parity (breaking)
+
+Backend entries in `a10r.yaml` now use the same shape as Prometheus's
+[`remote_write`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)
+block — paste a `remote_write` entry under `backends:`, adjust the
+`url:` path to your Alertmanager v2 root, and you are done. Detail
+in `docs/design/prometheus-remote-write-parity.md` (open-questions
+F4); migration notes for users coming from earlier development
+builds:
+
+- Auth blocks moved from a nested `auth: { type, basic|bearer|header }`
+  envelope to flat siblings of `url:` —
+  `basic_auth: {username, password}`, `authorization: {type,
+  credentials}`, `bearer_token: <token>`. At most one of the three
+  is allowed per backend.
+- The single-header auth shape (`auth.header.{name,value}`) is
+  superseded by a free-form `headers: { Name: value, … }` map at
+  the backend level. Reserved keys (`Authorization`, `Host`,
+  `Content-Type`, `Content-Length`, `Content-Encoding`) are
+  rejected at load time.
+- New optional `tls_config:` block accepts inline-only `ca:`,
+  `server_name:`, `insecure_skip_verify:`, `min_version:`,
+  `max_version:`. `cert:` / `key:` are reserved for the F2 mTLS
+  work and currently rejected with a pointer to that question.
+- New `proxy_url:`, `no_proxy:`, `proxy_from_environment:` knobs
+  match Prometheus's `ProxyConfig` semantics.
+- New `remote_timeout:` per backend; replaces the previously
+  hard-coded 30 s in `vanilla.Client`.
+- `tenant_header:` / `tenant:` are retained as a10r-specific YAML
+  sugar that materialises into a single `headers:` entry at
+  construction time; setting both `tenant:` and a colliding
+  `headers:` entry is a load-time error.
+- Examples migrated: `examples/two-tenants-basic-auth.yaml` uses
+  the flat shape; new `examples/prometheus-paste.yaml` shows
+  every supported field with PEM, proxy, and headers blocks.
+
+`*_file` and `*_ref` keys are deliberately not supported (per F1 —
+credentials live in env vars referenced via `${VAR}`); pasted
+Prometheus configs that use file-based secrets surface a
+strict-mode error naming the offending key.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.
@@ -234,7 +275,9 @@ shell.
   but exercise only in single-backend setups; multi-tenant write
   flows arrive in v0.2.
 - mTLS and SigV4 auth are not yet implemented; the schema slot
-  is reserved.
+  is reserved (see open-questions F2 / F3, and the
+  Prometheus-parity doc for OAuth2 / Azure AD / Google IAM, which
+  are deferred for the same reason).
 
 ### Smoke checklist (release-prep)
 

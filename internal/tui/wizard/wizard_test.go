@@ -34,7 +34,10 @@ func TestBuild_NoAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, cfg.Backends, 1)
 	require.Equal(t, "https://am.example", cfg.Backends[0].URL)
-	require.Nil(t, cfg.Backends[0].Auth)
+	require.Nil(t, cfg.Backends[0].BasicAuth)
+	require.Nil(t, cfg.Backends[0].Authorization)
+	require.Empty(t, cfg.Backends[0].BearerToken)
+	require.Empty(t, cfg.Backends[0].Headers)
 }
 
 func TestBuild_BasicAuth(t *testing.T) {
@@ -44,8 +47,9 @@ func TestBuild_BasicAuth(t *testing.T) {
 		AuthType: AuthBasic, BasicUser: "alice", BasicPass: "${PW}",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "basic", cfg.Backends[0].Auth.Type)
-	require.Equal(t, "alice", cfg.Backends[0].Auth.Basic.Username)
+	require.NotNil(t, cfg.Backends[0].BasicAuth)
+	require.Equal(t, "alice", cfg.Backends[0].BasicAuth.Username)
+	require.Equal(t, "${PW}", cfg.Backends[0].BasicAuth.Password)
 }
 
 func TestBuild_BasicAuthMissingFieldErrors(t *testing.T) {
@@ -64,8 +68,7 @@ func TestBuild_BearerAuth(t *testing.T) {
 		AuthType: AuthBearer, BearerToken: "tok",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "bearer", cfg.Backends[0].Auth.Type)
-	require.Equal(t, "tok", cfg.Backends[0].Auth.Bearer.Token)
+	require.Equal(t, "tok", cfg.Backends[0].BearerToken)
 }
 
 func TestBuild_HeaderAuth(t *testing.T) {
@@ -75,8 +78,8 @@ func TestBuild_HeaderAuth(t *testing.T) {
 		AuthType: AuthHeader, HeaderName: "X-Auth", HeaderValue: "v",
 	})
 	require.NoError(t, err)
-	require.Equal(t, "header", cfg.Backends[0].Auth.Type)
-	require.Equal(t, "X-Auth", cfg.Backends[0].Auth.Header.Name)
+	require.Equal(t, "v", cfg.Backends[0].Headers["X-Auth"],
+		"AuthHeader sugar must materialise as a single Headers entry")
 }
 
 func TestBuild_TenantFields(t *testing.T) {

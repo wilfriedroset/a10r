@@ -303,33 +303,24 @@ func isCommentLine(line string) bool {
 // "<redacted>") edits one site.
 const redactionMarker = "***"
 
-// redactedBackendYAML marshals cfg with secrets masked. Auth
-// fields that carry credentials are replaced with the
-// redactionMarker so a glance at the page never leaks them —
-// every other field is left unchanged.
+// redactedBackendYAML marshals cfg with secrets masked. Fields that
+// carry credentials (basic_auth.password, authorization.credentials,
+// bearer_token, every value of headers) are replaced with the
+// redactionMarker so a glance at the page never leaks them — every
+// other field is left unchanged.
 func redactedBackendYAML(cfg config.Backend) (string, error) {
 	out := cfg
-	out.Auth = redactAuth(cfg.Auth)
+	out.BasicAuth = redactBasic(cfg.BasicAuth)
+	out.Authorization = redactAuthorization(cfg.Authorization)
+	if cfg.BearerToken != "" {
+		out.BearerToken = redactionMarker
+	}
+	out.Headers = redactHeaders(cfg.Headers)
 	body, err := yaml.Marshal(out)
 	if err != nil {
 		return "", fmt.Errorf("marshal backend: %w", err)
 	}
 	return string(body), nil
-}
-
-// redactAuth deep-copies the auth spec and masks every secret
-// field. nil input returns nil so cfg.Auth's nullable contract
-// survives the round-trip — yaml.Marshal then omits the auth
-// block entirely.
-func redactAuth(in *config.AuthSpec) *config.AuthSpec {
-	if in == nil {
-		return nil
-	}
-	out := *in
-	out.Basic = redactBasic(in.Basic)
-	out.Bearer = redactBearer(in.Bearer)
-	out.Header = redactHeader(in.Header)
-	return &out
 }
 
 func redactBasic(in *config.BasicAuth) *config.BasicAuth {
@@ -343,24 +334,34 @@ func redactBasic(in *config.BasicAuth) *config.BasicAuth {
 	return &out
 }
 
-func redactBearer(in *config.BearerAuth) *config.BearerAuth {
+func redactAuthorization(in *config.Authorization) *config.Authorization {
 	if in == nil {
 		return nil
 	}
 	out := *in
-	if out.Token != "" {
-		out.Token = redactionMarker
+	if out.Credentials != "" {
+		out.Credentials = redactionMarker
 	}
 	return &out
 }
 
-func redactHeader(in *config.HeaderAuth) *config.HeaderAuth {
-	if in == nil {
+// redactHeaders masks every value in the user-supplied headers map.
+// We cannot tell from the schema which entries are secrets and which
+// are plain identifiers (e.g. an X-Trace-Id), so the conservative
+// choice — mask all of them — is the only one consistent with the
+// "never leak credentials at a glance" contract. Operators who want
+// a non-redacted view can read the source YAML directly.
+func redactHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
 		return nil
 	}
-	out := *in
-	if out.Value != "" {
-		out.Value = redactionMarker
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if v == "" {
+			out[k] = ""
+			continue
+		}
+		out[k] = redactionMarker
 	}
-	return &out
+	return out
 }

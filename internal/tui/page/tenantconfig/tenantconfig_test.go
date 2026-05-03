@@ -60,12 +60,9 @@ func (f *fakeFetcher) Status(_ context.Context) (backend.Status, error) {
 func TestRedactedBackendYAML_RedactsBasicPassword(t *testing.T) {
 	t.Parallel()
 	body, err := redactedBackendYAML(config.Backend{
-		Name: "prod",
-		URL:  "http://am",
-		Auth: &config.AuthSpec{
-			Type:  config.AuthTypeBasic,
-			Basic: &config.BasicAuth{Username: "alice", Password: "hunter2"},
-		},
+		Name:      "prod",
+		URL:       "http://am",
+		BasicAuth: &config.BasicAuth{Username: "alice", Password: "hunter2"},
 	})
 	require.NoError(t, err)
 	// Round-trip the YAML so the assertion is semantic — yaml.v3's
@@ -76,8 +73,8 @@ func TestRedactedBackendYAML_RedactsBasicPassword(t *testing.T) {
 	// the absence of the secret literal in the rendered text.
 	var got config.Backend
 	require.NoError(t, yamlUnmarshal(body, &got))
-	require.Equal(t, "alice", got.Auth.Basic.Username)
-	require.Equal(t, redactionMarker, got.Auth.Basic.Password)
+	require.Equal(t, "alice", got.BasicAuth.Username)
+	require.Equal(t, redactionMarker, got.BasicAuth.Password)
 	require.NotContains(t, body, "hunter2",
 		"the password must never reach the rendered output")
 }
@@ -85,36 +82,52 @@ func TestRedactedBackendYAML_RedactsBasicPassword(t *testing.T) {
 func TestRedactedBackendYAML_RedactsBearerToken(t *testing.T) {
 	t.Parallel()
 	body, err := redactedBackendYAML(config.Backend{
-		Name: "prod",
-		URL:  "http://am",
-		Auth: &config.AuthSpec{
-			Type:   config.AuthTypeBearer,
-			Bearer: &config.BearerAuth{Token: "eyJabc.def.ghi"},
-		},
+		Name:        "prod",
+		URL:         "http://am",
+		BearerToken: "eyJabc.def.ghi",
 	})
 	require.NoError(t, err)
 	var got config.Backend
 	require.NoError(t, yamlUnmarshal(body, &got))
-	require.Equal(t, redactionMarker, got.Auth.Bearer.Token)
+	require.Equal(t, redactionMarker, got.BearerToken)
 	require.NotContains(t, body, "eyJabc")
 }
 
-func TestRedactedBackendYAML_RedactsHeaderValue(t *testing.T) {
+func TestRedactedBackendYAML_RedactsAuthorizationCredentials(t *testing.T) {
 	t.Parallel()
 	body, err := redactedBackendYAML(config.Backend{
 		Name: "prod",
 		URL:  "http://am",
-		Auth: &config.AuthSpec{
-			Type:   config.AuthTypeHeader,
-			Header: &config.HeaderAuth{Name: "X-API-Key", Value: "very-secret-key"},
+		Authorization: &config.Authorization{
+			Type:        "Bearer",
+			Credentials: "eyJabc.def.ghi",
 		},
 	})
 	require.NoError(t, err)
 	var got config.Backend
 	require.NoError(t, yamlUnmarshal(body, &got))
-	require.Equal(t, "X-API-Key", got.Auth.Header.Name,
-		"non-secret header name stays visible so the user can verify wiring")
-	require.Equal(t, redactionMarker, got.Auth.Header.Value)
+	require.Equal(t, "Bearer", got.Authorization.Type,
+		"non-secret type stays visible so the user can verify wiring")
+	require.Equal(t, redactionMarker, got.Authorization.Credentials)
+	require.NotContains(t, body, "eyJabc")
+}
+
+func TestRedactedBackendYAML_RedactsHeadersMap(t *testing.T) {
+	t.Parallel()
+	body, err := redactedBackendYAML(config.Backend{
+		Name: "prod",
+		URL:  "http://am",
+		Headers: map[string]string{
+			"X-API-Key":     "very-secret-key",
+			"X-Scope-OrgID": "tenant-1",
+		},
+	})
+	require.NoError(t, err)
+	var got config.Backend
+	require.NoError(t, yamlUnmarshal(body, &got))
+	require.Equal(t, redactionMarker, got.Headers["X-API-Key"])
+	require.Equal(t, redactionMarker, got.Headers["X-Scope-OrgID"],
+		"every header value is redacted — we cannot tell secrets from identifiers at the schema level")
 	require.NotContains(t, body, "very-secret-key")
 }
 
@@ -138,16 +151,13 @@ func yamlUnmarshal(s string, dst any) error {
 func TestRedactedBackendYAML_RedactionDoesNotMutateInput(t *testing.T) {
 	t.Parallel()
 	cfg := config.Backend{
-		Name: "prod",
-		URL:  "http://am",
-		Auth: &config.AuthSpec{
-			Type:  config.AuthTypeBasic,
-			Basic: &config.BasicAuth{Username: "alice", Password: "hunter2"},
-		},
+		Name:      "prod",
+		URL:       "http://am",
+		BasicAuth: &config.BasicAuth{Username: "alice", Password: "hunter2"},
 	}
 	_, err := redactedBackendYAML(cfg)
 	require.NoError(t, err)
-	require.Equal(t, "hunter2", cfg.Auth.Basic.Password,
+	require.Equal(t, "hunter2", cfg.BasicAuth.Password,
 		"redaction must operate on a copy — original config stays intact")
 }
 
@@ -162,12 +172,9 @@ func TestPage_BodyShowsRedactedBackendImmediately(t *testing.T) {
 	p := New(Options{
 		Tenant: "prod",
 		Backend: config.Backend{
-			Name: "prod",
-			URL:  "http://am",
-			Auth: &config.AuthSpec{
-				Type:   config.AuthTypeBearer,
-				Bearer: &config.BearerAuth{Token: "supersecret"},
-			},
+			Name:        "prod",
+			URL:         "http://am",
+			BearerToken: "supersecret",
 		},
 		Styles: loadStyles(t),
 	})

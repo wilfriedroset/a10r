@@ -109,19 +109,19 @@ backends:
     url: https://alertmanager.example
 ```
 
-A Mimir config with one tenant:
+A Mimir config with one tenant. The schema mirrors Prometheus's
+[`remote_write`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)
+block — paste a `remote_write` entry, change the `url:` path, and
+you are done:
 
 ```yaml
 backends:
   - name: mimir-prod
     url: https://mimir.example
     prefix: /api/prom
-    tenant_header: X-Scope-OrgID
-    tenant: tenant-1
-    auth:
-      type: bearer
-      bearer:
-        token: ${MIMIR_TOKEN}
+    bearer_token: ${MIMIR_TOKEN}
+    headers:
+      X-Scope-OrgID: tenant-1
 ```
 
 Environment variables in any string field are expanded via

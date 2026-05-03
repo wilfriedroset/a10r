@@ -48,10 +48,9 @@ func TestNew_AppliesPrefixAndTenantHeader(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c, err := New(ClientConfig{
-		BaseURL:      srv.URL,
-		Prefix:       "/alertmanager",
-		TenantHeader: "X-Scope-OrgID",
-		Tenant:       "tenant-a",
+		BaseURL: srv.URL,
+		Prefix:  "/alertmanager",
+		Headers: map[string]string{"X-Scope-OrgID": "tenant-a"},
 	})
 	require.NoError(t, err)
 
@@ -65,11 +64,11 @@ func TestNew_AppliesPrefixAndTenantHeader(t *testing.T) {
 		"tenant header must reach the wire")
 }
 
-func TestNew_NoTenantHeaderDoesNotInject(t *testing.T) {
+func TestNew_NoHeadersDoesNotInject(t *testing.T) {
 	t.Parallel()
 
 	// Single-tenant Mimir (auth.multitenancy-enabled=false): empty
-	// TenantHeader means the request goes through without injection.
+	// Headers means the request goes through without injection.
 	h := &observingHandler{}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -83,7 +82,7 @@ func TestNew_NoTenantHeaderDoesNotInject(t *testing.T) {
 	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
 	require.NoError(t, err)
 	require.Empty(t, *h.tHead.Load(),
-		"empty TenantHeader must not inject anything")
+		"empty Headers must not inject anything")
 }
 
 func TestNew_AuthAndTenantCompose(t *testing.T) {
@@ -94,14 +93,10 @@ func TestNew_AuthAndTenantCompose(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	c, err := New(ClientConfig{
-		BaseURL:      srv.URL,
-		Prefix:       "/alertmanager",
-		TenantHeader: "X-Scope-OrgID",
-		Tenant:       "tenant-b",
-		Auth: &config.AuthSpec{
-			Type:   config.AuthTypeBearer,
-			Bearer: &config.BearerAuth{Token: "tok"},
-		},
+		BaseURL:     srv.URL,
+		Prefix:      "/alertmanager",
+		Headers:     map[string]string{"X-Scope-OrgID": "tenant-b"},
+		BearerToken: "tok",
 	})
 	require.NoError(t, err)
 
@@ -117,11 +112,8 @@ func TestNew_MalformedAuthSurfaces(t *testing.T) {
 	t.Parallel()
 
 	_, err := New(ClientConfig{
-		BaseURL: "http://x",
-		Auth: &config.AuthSpec{
-			Type:  config.AuthTypeBasic,
-			Basic: &config.BasicAuth{Username: "u"}, // missing password
-		},
+		BaseURL:   "http://x",
+		BasicAuth: &config.BasicAuth{Username: "u"}, // missing password
 	})
 	require.Error(t, err, "malformed auth must surface at construction time")
 }

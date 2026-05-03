@@ -3,7 +3,7 @@
 // Package wizard runs the first-run configuration capture flow.
 // Triggered when config.Loader returns ErrNotFound, the wizard
 // asks for the minimum-viable backend (URL + optional prefix /
-// tenant header / auth type) and writes a valid a10r.yaml under
+// tenant header / auth choice) and writes a valid a10r.yaml under
 // the resolved config dir. The result is the path of the file
 // written.
 package wizard
@@ -21,8 +21,10 @@ import (
 )
 
 // AuthChoice is one of the wizard's auth-type radio options. The
-// values match config.AuthSpec.Type so the rendered YAML round-
-// trips through the loader without translation.
+// values are descriptive; the captured input materialises into the
+// matching Prometheus-shaped fields on config.Backend (basic_auth,
+// bearer_token, headers map) so the rendered YAML round-trips
+// through the loader without translation.
 type AuthChoice string
 
 const (
@@ -33,6 +35,11 @@ const (
 )
 
 // Input bundles the values the user supplied. Drives Build().
+//
+// The AuthHeader choice is wizard sugar for a single-entry Headers
+// map in the rendered YAML — under the post-F4 schema there is no
+// dedicated single-header auth block; arbitrary headers are
+// expressed via `headers:`.
 type Input struct {
 	Name         string
 	URL          string
@@ -49,7 +56,7 @@ type Input struct {
 
 // Build constructs the config.Config that captures the user's
 // choices. Returns an error when the input is incomplete (empty
-// URL or empty name).
+// URL, empty name, or an auth choice missing its required fields).
 func Build(in Input) (*config.Config, error) {
 	if strings.TrimSpace(in.URL) == "" {
 		return nil, errors.New("URL is required")
@@ -64,46 +71,36 @@ func Build(in Input) (*config.Config, error) {
 		TenantHeader: in.TenantHeader,
 		Tenant:       in.TenantValue,
 	}
-	auth, err := buildAuth(in)
-	if err != nil {
+	if err := applyAuth(&be, in); err != nil {
 		return nil, err
-	}
-	if auth != nil {
-		be.Auth = auth
 	}
 	return &config.Config{Backends: []config.Backend{be}}, nil
 }
 
-func buildAuth(in Input) (*config.AuthSpec, error) {
+func applyAuth(be *config.Backend, in Input) error {
 	switch in.AuthType {
 	case AuthNone:
-		return nil, nil //nolint:nilnil // explicit "no auth chosen" — caller treats nil pointer as the absence of an auth block
+		return nil
 	case AuthBasic:
 		if in.BasicUser == "" || in.BasicPass == "" {
-			return nil, errors.New("basic auth requires both username and password")
+			return errors.New("basic auth requires both username and password")
 		}
-		return &config.AuthSpec{
-			Type:  string(AuthBasic),
-			Basic: &config.BasicAuth{Username: in.BasicUser, Password: in.BasicPass},
-		}, nil
+		be.BasicAuth = &config.BasicAuth{Username: in.BasicUser, Password: in.BasicPass}
+		return nil
 	case AuthBearer:
 		if in.BearerToken == "" {
-			return nil, errors.New("bearer auth requires a token")
+			return errors.New("bearer auth requires a token")
 		}
-		return &config.AuthSpec{
-			Type:   string(AuthBearer),
-			Bearer: &config.BearerAuth{Token: in.BearerToken},
-		}, nil
+		be.BearerToken = in.BearerToken
+		return nil
 	case AuthHeader:
 		if in.HeaderName == "" || in.HeaderValue == "" {
-			return nil, errors.New("header auth requires both name and value")
+			return errors.New("header auth requires both name and value")
 		}
-		return &config.AuthSpec{
-			Type:   string(AuthHeader),
-			Header: &config.HeaderAuth{Name: in.HeaderName, Value: in.HeaderValue},
-		}, nil
+		be.Headers = map[string]string{in.HeaderName: in.HeaderValue}
+		return nil
 	}
-	return nil, fmt.Errorf("unknown auth type: %q", in.AuthType)
+	return fmt.Errorf("unknown auth type: %q", in.AuthType)
 }
 
 // Write serialises cfg to YAML and writes it under configDir.

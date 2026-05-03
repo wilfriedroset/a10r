@@ -51,61 +51,39 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	var got Config
 	require.NoError(t, yaml.Unmarshal(body, &got))
 
-	want := Config{
-		Defaults: Defaults{
-			PollInterval: 30 * time.Second,
-			ReadOnly:     false,
-			LogFormat:    "json",
-		},
-		Theme: Theme{Name: "gruvbox-dark"},
-		Log: Log{
-			Path:  "/var/log/a10r/a10r.log",
-			Level: "info",
-		},
-		Backends: []Backend{
-			{
-				Name: "prod-vanilla",
-				URL:  "https://am-prod.internal",
-				Auth: &AuthSpec{
-					Type:   AuthTypeBearer,
-					Bearer: &BearerAuth{Token: "${A10R_PROD_TOKEN}"},
-				},
-			},
-			{
-				Name:         "staging-mimir",
-				URL:          "https://mimir-staging.internal",
-				Prefix:       "/alertmanager",
-				TenantHeader: "X-Scope-OrgID",
-				Tenant:       "tenant-a",
-				Capabilities: Capabilities{
-					ConfigAPI:   true,
-					TenantAdmin: true,
-					Ring:        false,
-				},
-				Auth: &AuthSpec{
-					Type: AuthTypeBasic,
-					Basic: &BasicAuth{
-						Username: "a10r-bot",
-						Password: "${A10R_STAGING_PASS}",
-					},
-				},
-				PollInterval: 10 * time.Second,
-				ReadOnly:     true,
-			},
-			{
-				Name: "gateway-headers",
-				URL:  "https://am-via-gateway.example",
-				Auth: &AuthSpec{
-					Type: AuthTypeHeader,
-					Header: &HeaderAuth{
-						Name:  "X-Gateway-Token",
-						Value: "${A10R_GW_TOKEN}",
-					},
-				},
-			},
-		},
-	}
-	require.Equal(t, want, got)
+	require.Len(t, got.Backends, 3)
+
+	// First backend: bearer_token shorthand.
+	require.Equal(t, "prod-vanilla", got.Backends[0].Name)
+	require.Equal(t, "${A10R_PROD_TOKEN}", got.Backends[0].BearerToken)
+	require.Nil(t, got.Backends[0].BasicAuth)
+	require.Nil(t, got.Backends[0].Authorization)
+
+	// Second backend: basic_auth + tenant + tls + proxy.
+	be := got.Backends[1]
+	require.Equal(t, "staging-mimir", be.Name)
+	require.Equal(t, "X-Scope-OrgID", be.TenantHeader)
+	require.Equal(t, "tenant-a", be.Tenant)
+	require.NotNil(t, be.BasicAuth)
+	require.Equal(t, "a10r-bot", be.BasicAuth.Username)
+	require.Equal(t, "${A10R_STAGING_PASS}", be.BasicAuth.Password)
+	require.NotNil(t, be.TLSConfig)
+	require.Contains(t, be.TLSConfig.CA, "BEGIN CERTIFICATE")
+	require.Equal(t, "mimir-staging.internal", be.TLSConfig.ServerName)
+	require.Equal(t, "TLS12", be.TLSConfig.MinVersion)
+	require.Equal(t, "http://proxy.internal:3128", be.ProxyURL)
+	require.Equal(t, "127.0.0.1,localhost,.svc.cluster.local", be.NoProxy)
+	require.Equal(t, 15*time.Second, be.RemoteTimeout)
+	require.Equal(t, 10*time.Second, be.PollInterval)
+	require.True(t, be.ReadOnly)
+	require.True(t, be.Capabilities.ConfigAPI)
+	require.True(t, be.Capabilities.TenantAdmin)
+	require.False(t, be.Capabilities.Ring)
+
+	// Third backend: arbitrary headers map.
+	require.Equal(t, "gateway-headers", got.Backends[2].Name)
+	require.Equal(t, "${A10R_GW_TOKEN}", got.Backends[2].Headers["X-Gateway-Token"])
+	require.Equal(t, "a10r", got.Backends[2].Headers["X-Trace-Id"])
 }
 
 func TestConfig_RoundTripPreservesEverything(t *testing.T) {
@@ -135,23 +113,16 @@ func TestDefaultsAreThePinnedConstants(t *testing.T) {
 	// open-questions.md alongside.
 	require.Equal(t, time.Minute, DefaultPollInterval, "I3 fixes the default poll interval at 1m")
 	require.Equal(t, "catppuccin-mocha", DefaultThemeName, "M1 fixes the default theme name")
-}
-
-func TestAuthTypeConstants(t *testing.T) {
-	t.Parallel()
-
-	// Auth type identifiers are the wire-level strings users put in
-	// `auth.type:`. Stability matters more than ergonomics — pin them.
-	require.Equal(t, "none", AuthTypeNone)
-	require.Equal(t, "basic", AuthTypeBasic)
-	require.Equal(t, "bearer", AuthTypeBearer)
-	require.Equal(t, "header", AuthTypeHeader)
+	require.Equal(t, 30*time.Second, DefaultRemoteTimeout,
+		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
+	require.Equal(t, "Bearer", DefaultAuthorizationType,
+		"DefaultAuthorizationType matches Prometheus's HTTPClientConfig.Authorization default")
 }
 
 func TestConfig_StrictModeRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 
-	// This test pins the contract that the #06 loader must enable
+	// This test pins the contract that the loader must enable
 	// yaml strict mode (`KnownFields(true)`). Without it, typos like
 	// `pollInterval` instead of `poll_interval` silently produce
 	// configs with the user-intended value missing — exactly the
@@ -164,6 +135,283 @@ func TestConfig_StrictModeRejectsUnknownFields(t *testing.T) {
 	var c Config
 	err := decoder.Decode(&c)
 	require.Error(t, err, "strict-mode decode must reject unknown fields")
+}
+
+func TestBackend_AuthMethodsAreMutuallyExclusive(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "basic_auth and bearer_token",
+			yaml: `name: x
+url: http://x
+basic_auth:
+  username: u
+  password: p
+bearer_token: tok
+`,
+		},
+		{
+			name: "basic_auth and authorization",
+			yaml: `name: x
+url: http://x
+basic_auth:
+  username: u
+  password: p
+authorization:
+  credentials: tok
+`,
+		},
+		{
+			name: "authorization and bearer_token",
+			yaml: `name: x
+url: http://x
+authorization:
+  credentials: tok
+bearer_token: tok2
+`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var be Backend
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &be))
+			err := be.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "at most one of basic_auth, authorization, bearer_token")
+		})
+	}
+}
+
+func TestBackend_AuthorizationDefaultsToBearer(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name: x
+url: http://x
+authorization:
+  credentials: tok
+`)
+	var be Backend
+	require.NoError(t, yaml.Unmarshal(body, &be))
+	require.NoError(t, be.Validate())
+	require.NotNil(t, be.Authorization)
+	require.Equal(t, "Bearer", be.Authorization.Type,
+		"omitted authorization.type must default to Bearer per Prometheus")
+}
+
+func TestBackend_BasicAuthRequiresBothFields(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`name: x
+url: http://x
+basic_auth:
+  username: u
+`,
+		`name: x
+url: http://x
+basic_auth:
+  password: p
+`,
+	}
+	for _, src := range cases {
+		var be Backend
+		require.NoError(t, yaml.Unmarshal([]byte(src), &be))
+		err := be.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "basic_auth requires both username and password")
+	}
+}
+
+func TestBackend_AuthorizationRequiresCredentials(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name: x
+url: http://x
+authorization:
+  type: Bearer
+`)
+	var be Backend
+	require.NoError(t, yaml.Unmarshal(body, &be))
+	err := be.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "authorization requires credentials")
+}
+
+func TestBackend_HeadersRejectsReservedKeys(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		key    string
+		reason string
+	}{
+		{name: "Authorization", key: "Authorization", reason: "use basic_auth"},
+		{name: "lower-case authorization", key: "authorization", reason: "use basic_auth"},
+		{name: "Host", key: "Host", reason: "URL host"},
+		{name: "Content-Type", key: "Content-Type", reason: "automatically"},
+		{name: "Content-Length", key: "Content-Length", reason: "automatically"},
+		{name: "Content-Encoding", key: "Content-Encoding", reason: "automatically"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := []byte("name: x\nurl: http://x\nheaders:\n  " + tc.key + ": value\n")
+			var be Backend
+			require.NoError(t, yaml.Unmarshal(body, &be))
+			err := be.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "is reserved")
+			require.Contains(t, err.Error(), tc.reason)
+		})
+	}
+}
+
+func TestBackend_TenantSugarRequiresBothFields(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		"name: x\nurl: http://x\ntenant: foo\n",
+		"name: x\nurl: http://x\ntenant_header: X-Scope-OrgID\n",
+	}
+	for _, src := range cases {
+		var be Backend
+		require.NoError(t, yaml.Unmarshal([]byte(src), &be))
+		err := be.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tenant_header and tenant must be set together")
+	}
+}
+
+func TestBackend_TenantHeaderCollisionWithHeadersMap(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name: x
+url: http://x
+tenant_header: X-Scope-OrgID
+tenant: foo
+headers:
+  X-Scope-Orgid: bar
+`)
+	var be Backend
+	require.NoError(t, yaml.Unmarshal(body, &be))
+	err := be.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "collides")
+}
+
+func TestBackend_TenantHeaderRejectsAuthorization(t *testing.T) {
+	t.Parallel()
+
+	body := []byte(`name: x
+url: http://x
+tenant_header: Authorization
+tenant: foo
+`)
+	var be Backend
+	require.NoError(t, yaml.Unmarshal(body, &be))
+	err := be.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "may not be Authorization")
+}
+
+func TestBackend_ProxyValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		yaml    string
+		wantSub string
+	}{
+		{
+			name: "no_proxy without proxy_url",
+			yaml: `name: x
+url: http://x
+no_proxy: 127.0.0.1
+`,
+			wantSub: "no_proxy requires proxy_url",
+		},
+		{
+			name: "proxy_from_environment with proxy_url",
+			yaml: `name: x
+url: http://x
+proxy_from_environment: true
+proxy_url: http://proxy
+`,
+			wantSub: "exclusive",
+		},
+		{
+			name: "proxy_from_environment with no_proxy",
+			yaml: `name: x
+url: http://x
+proxy_from_environment: true
+no_proxy: 127.0.0.1
+`,
+			wantSub: "exclusive",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var be Backend
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &be))
+			err := be.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantSub)
+		})
+	}
+}
+
+func TestTLSConfig_VersionStringValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{name: "valid TLS12", yaml: "min_version: TLS12\n", wantErr: false},
+		{name: "valid TLS10/TLS13", yaml: "min_version: TLS10\nmax_version: TLS13\n", wantErr: false},
+		{name: "empty", yaml: "ca: pem\n", wantErr: false},
+		{name: "wrong-case tls12", yaml: "min_version: tls12\n", wantErr: true},
+		{name: "garbage", yaml: "max_version: latest\n", wantErr: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var tls TLSConfig
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &tls))
+			err := tls.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestTLSConfig_CertKeyReservedForF2(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		"cert: |\n  -----BEGIN CERT-----\n",
+		"key: |\n  -----BEGIN KEY-----\n",
+	}
+	for _, src := range cases {
+		var tls TLSConfig
+		require.NoError(t, yaml.Unmarshal([]byte(src), &tls))
+		err := tls.Validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "F2")
+	}
 }
 
 func readFixture(t *testing.T, name string) []byte {
