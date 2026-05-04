@@ -131,16 +131,6 @@ func TestRedactedBackendYAML_RedactsHeadersMap(t *testing.T) {
 	require.NotContains(t, body, "very-secret-key")
 }
 
-func TestStyleYAMLLine_CommentPassesThroughUnstyled(t *testing.T) {
-	t.Parallel()
-	styles := loadStyles(t)
-	const line = "# resolved at: 2026-05-01"
-	got := styleYAMLLine(line, styles)
-	require.Equal(t, line, got,
-		"comment-only lines must pass through unstyled — the text after `#` "+
-			"is human prose, not a yaml key/value pair")
-}
-
 // yamlUnmarshal is a tiny helper around gopkg.in/yaml.v3 so the
 // redaction tests can read parsed values back from the rendered
 // body without each test wiring its own import alias.

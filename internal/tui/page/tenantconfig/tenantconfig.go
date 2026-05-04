@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
 // StatusFetcher is the small surface the page needs to resolve
@@ -245,7 +246,7 @@ func (p *Page) bodyLines() []string {
 		return p.styles.YAML.Key.Render(s)
 	}
 	out = append(out, header("# a10r config"))
-	out = append(out, splitLines(styleYAML(p.backendYAML, p.styles))...)
+	out = append(out, splitLines(yamlstyle.Body(p.backendYAML, p.styles))...)
 	out = append(out, "", header("# alertmanager config (config.original)"))
 	switch {
 	case p.fetcher == nil:
@@ -257,7 +258,7 @@ func (p *Page) bodyLines() []string {
 	case strings.TrimSpace(p.amConfig) == "":
 		out = append(out, "(empty)")
 	default:
-		out = append(out, splitLines(styleYAML(p.amConfig, p.styles))...)
+		out = append(out, splitLines(yamlstyle.Body(p.amConfig, p.styles))...)
 	}
 	return out
 }
@@ -270,65 +271,6 @@ func splitLines(s string) []string {
 		return nil
 	}
 	return strings.Split(s, "\n")
-}
-
-// styleYAML applies theme.YAML.Key / .Punct / .Value to the
-// "key: value" structure. Best-effort line-level: a `key:` prefix
-// on a line tints the key; trailing value gets the value style.
-// Lines that don't match the simple pattern (lists, multi-line
-// values) render with the default body fg so structure stays
-// legible without the renderer needing a full YAML AST walker.
-func styleYAML(body string, styles theme.Styles) string {
-	if body == "" {
-		return ""
-	}
-	out := make([]string, 0, strings.Count(body, "\n")+1)
-	for line := range strings.SplitSeq(body, "\n") {
-		out = append(out, styleYAMLLine(line, styles))
-	}
-	return strings.Join(out, "\n")
-}
-
-// styleYAMLLine applies skin colours to one YAML line. Pure so
-// it's easy to test in isolation. Best-effort: comment-only lines
-// pass through unstyled (otherwise the leading "# resolved at" of
-// "# resolved at: 2026-…" would tint as a key) and lines without
-// a `:` short-circuit too.
-func styleYAMLLine(line string, styles theme.Styles) string {
-	if isCommentLine(line) {
-		return line
-	}
-	idx := strings.IndexByte(line, ':')
-	if idx < 0 {
-		return line
-	}
-	prefixEnd := 0
-	for prefixEnd < idx && (line[prefixEnd] == ' ' || line[prefixEnd] == '-') {
-		prefixEnd++
-	}
-	indent := line[:prefixEnd]
-	key := line[prefixEnd:idx]
-	rest := line[idx:]
-	punctEnd := 1
-	if punctEnd < len(rest) && rest[punctEnd] == ' ' {
-		punctEnd++
-	}
-	punct := rest[:punctEnd]
-	value := rest[punctEnd:]
-	styled := indent + styles.YAML.Key.Render(key) + styles.YAML.Punct.Render(punct)
-	if value != "" {
-		styled += styles.YAML.Value.Render(value)
-	}
-	return styled
-}
-
-// isCommentLine reports whether the line's first non-whitespace
-// (or non-list-marker) character is `#`. Skips leading spaces and
-// `-` so list-element comments ("- # foo") and indented comments
-// pass through too.
-func isCommentLine(line string) bool {
-	trimmed := strings.TrimLeft(line, " -")
-	return strings.HasPrefix(trimmed, "#")
 }
 
 // redactionMarker is the placeholder rendered in place of every
