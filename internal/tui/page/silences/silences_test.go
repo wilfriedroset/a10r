@@ -1080,6 +1080,46 @@ func TestPage_NewKeyWithoutClientsFlashesHint(t *testing.T) {
 		"`n` with no clients must explain rather than push a broken form")
 }
 
+func TestPage_EnterOnEmptyViewFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := newPage(t) // no rows
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: ""})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "empty-view Enter must surface a flash, not crash")
+	require.Contains(t, msg.Text, "no silence under the cursor")
+}
+
+func TestPage_EnterPushesSilenceDetail(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 1)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: ""})
+	require.NotNil(t, cmd, "Enter on a populated row must produce a push cmd")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash,
+		"Enter with rows must push the detail page, not flash a hint")
+}
+
+func TestPage_BindingsSurfaceEnterDetail(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "Enter" {
+			found = true
+			require.Equal(t, "detail", b.Description,
+				"Enter must read as `detail` in the hint strip — drift here "+
+					"would mismatch the alerts page's binding")
+			require.False(t, b.Dangerous,
+				"Enter is read-only — flagging it Dangerous would hide it in "+
+					"read-only mode and break the only path to silence detail")
+		}
+	}
+	require.True(t, found, "Bindings() must surface Enter so the hint strip "+
+		"shows the affordance")
+}
+
 func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	t.Parallel()
 	p := New(Options{

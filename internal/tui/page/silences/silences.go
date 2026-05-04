@@ -38,6 +38,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -513,6 +514,7 @@ func (*Page) PollResources() []string { return []string{"silences"} }
 // single-binding rule is the whole point of this page's bulk UX.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
+		{Key: "Enter", Description: "detail", View: "silences"},
 		{Key: "n", Description: "new", View: "silences", Dangerous: true},
 		{Key: "e", Description: "edit", View: "silences", Dangerous: true},
 		{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
@@ -759,6 +761,9 @@ func defaultAsc(_ SortKey) bool { return true }
 
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
+	case "enter":
+		cmd := p.drillToDetail()
+		return p, cmd
 	case "n":
 		cmd := p.openNewSilenceForm()
 		return p, cmd
@@ -778,6 +783,24 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, cmd
 	}
 	return p, nil
+}
+
+// drillToDetail returns a Cmd that pushes the silence-detail page
+// for the row under the cursor. Empty view falls through to a soft
+// Info flash so the user sees a reason for the no-op.
+func (p *Page) drillToDetail() tea.Cmd {
+	if p.cursor >= len(p.view) {
+		return flashFn(footer.FlashInfo, "no silence under the cursor")
+	}
+	entry := p.view[p.cursor]
+	styles := p.styles
+	return app.PushPage(func() app.Page {
+		return silencepage.New(silencepage.Options{
+			Silence: entry.s,
+			Tenant:  entry.tenant,
+			Styles:  styles,
+		})
+	})
 }
 
 // openExpireConfirmUnified is the entry point for the `x` key.
