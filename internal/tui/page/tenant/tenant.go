@@ -205,7 +205,13 @@ func (p *Page) View(width, height int) string {
 		return ""
 	}
 	if len(p.rows) == 0 {
-		return p.styles.Body.Default.Width(width).Height(height).Render("no backends configured")
+		// Render bg-less so the empty state matches the regular
+		// table view's framing — both use the terminal default
+		// background. styles.Body.Default would paint the body
+		// palette behind the empty pane, which renders as a
+		// coloured patch the populated view doesn't have, breaking
+		// the visual parity between "loading" and "loaded" frames.
+		return lipgloss.NewStyle().Width(width).Height(height).Render("no backends configured")
 	}
 	headerLine := p.renderHeader(width)
 	bodyHeight := max(height-1, 0)

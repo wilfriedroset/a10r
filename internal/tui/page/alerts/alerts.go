@@ -1355,7 +1355,13 @@ func (p *Page) View(width, height int) string {
 	}
 	p.bodyHeight = height - 1 // header takes one line; the rest is table-row budget
 	if len(p.view) == 0 {
-		return p.styles.Body.Default.Width(width).Height(height).Render(p.emptyState())
+		// Render bg-less so the empty state matches the regular
+		// table view's framing — both use the terminal default
+		// background. styles.Body.Default would paint the body
+		// palette behind the empty pane, which renders as a
+		// coloured patch the populated view doesn't have, breaking
+		// the visual parity between "loading" and "loaded" frames.
+		return lipgloss.NewStyle().Width(width).Height(height).Render(p.emptyState())
 	}
 	headerLine := p.renderHeader(width)
 	rows := p.renderRows(width, height-1)
