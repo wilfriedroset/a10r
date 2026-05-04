@@ -785,6 +785,223 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 	}
 }
 
+// TestPage_HeaderColumnOrder pins the layout: when scope is
+// single-tenant the columns are UUID, BY, COMMENT, STARTS,
+// ENDS, STATE; when scope spans two backends a leading TENANT
+// column appears. Asserted on first-occurrence position so a
+// future widening of any cell can't fool the comparison.
+func TestPage_HeaderColumnOrder(t *testing.T) {
+	t.Parallel()
+
+	t.Run("single tenant — no TENANT column", func(t *testing.T) {
+		t.Parallel()
+		p := newPage(t)
+		_, _ = p.Update(poll.DataMsg{
+			Resource: []backend.Silence{{
+				ID: "sil-only", CreatedBy: "alice", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			}},
+			Tenant: "prod",
+		})
+		out := stripStyle(p.View(220, 5))
+		header := strings.Split(out, "\n")[0]
+		require.NotContains(t, header, "TENANT",
+			"single-tenant scope must not surface a TENANT column")
+		want := []string{"UUID", "BY", "COMMENT", "STARTS", "ENDS", "STATE"}
+		idxs := make([]int, len(want))
+		for i, label := range want {
+			idxs[i] = strings.Index(header, label)
+			require.GreaterOrEqual(t, idxs[i], 0, "missing %q in header %q", label, header)
+		}
+		for i := 1; i < len(idxs); i++ {
+			require.Less(t, idxs[i-1], idxs[i],
+				"header column order broke at %q (header=%q)", want[i], header)
+		}
+	})
+
+	t.Run("multi-tenant scope — TENANT first", func(t *testing.T) {
+		t.Parallel()
+		p := newPage(t)
+		_, _ = p.Update(poll.DataMsg{
+			Resource: []backend.Silence{{
+				ID: "a", CreatedBy: "alice", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			}},
+			Tenant: "prod",
+		})
+		_, _ = p.Update(poll.DataMsg{
+			Resource: []backend.Silence{{
+				ID: "b", CreatedBy: "bob", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			}},
+			Tenant: "staging",
+		})
+		out := stripStyle(p.View(220, 5))
+		header := strings.Split(out, "\n")[0]
+		tenantI := strings.Index(header, "TENANT")
+		uuidI := strings.Index(header, "UUID")
+		require.GreaterOrEqual(t, tenantI, 0, "expected TENANT in header %q", header)
+		require.Less(t, tenantI, uuidI, "TENANT must come before UUID")
+	})
+}
+
+// TestPage_RendersUUIDColumnClipped verifies the long UUID
+// rendering is trimmed to the column's first 8 chars so the row
+// stays scannable. The full UUID is kept reachable via the filter
+// prompt; that contract is pinned in TestPage_FilterMatchesSilenceID.
+func TestPage_RendersUUIDColumnClipped(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	long := "abcd1234-5678-90ef-1234-567890abcdef"
+	silences := []backend.Silence{{
+		ID:        long,
+		CreatedBy: "alice",
+		State:     backend.SilenceStateActive,
+		StartsAt:  fixedNow.Add(-time.Hour),
+		EndsAt:    fixedNow.Add(time.Hour),
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	out := stripStyle(p.View(220, 6))
+	require.Contains(t, out, long[:8],
+		"first 8 chars of the UUID must be visible in the row")
+	require.NotContains(t, out, long,
+		"full UUID must not be rendered — it would blow up the column budget")
+}
+
+// TestPage_RendersDescriptionFromComment surfaces the silence's
+// Comment field as the COMMENT column.
+func TestPage_RendersDescriptionFromComment(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := []backend.Silence{{
+		ID:       "sil",
+		State:    backend.SilenceStateActive,
+		Comment:  "maintenance window for db migration",
+		StartsAt: fixedNow.Add(-time.Hour),
+		EndsAt:   fixedNow.Add(time.Hour),
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	out := stripStyle(p.View(240, 6))
+	require.Contains(t, out, "maintenance window for db migration",
+		"COMMENT column must render the silence Comment field")
+}
+
+// TestPage_LongFieldsAreClipped guards the no-horizontal-scroll
+// rule: even pathological matchers and Comment values stay inside
+// the row's width budget.
+func TestPage_LongFieldsAreClipped(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	longComment := strings.Repeat("x", 500)
+	silences := []backend.Silence{{
+		ID:       "sil",
+		State:    backend.SilenceStateActive,
+		Comment:  longComment,
+		StartsAt: fixedNow.Add(-time.Hour),
+		EndsAt:   fixedNow.Add(time.Hour),
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	out := stripStyle(p.View(160, 5))
+	for line := range strings.SplitSeq(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 160,
+			"row width must not exceed terminal width even with a 500-char Comment (line=%q)", line)
+	}
+	require.NotContains(t, out, longComment, "long Comment must be clipped")
+}
+
+// TestPage_CommentWithNewlinesStaysSingleRow guards the alignment
+// fix: a Comment containing \n (operators love pasting URLs on
+// their own line) must render as a single body row so STARTS /
+// ENDS / STATE stay in their visual columns. Without the
+// flattening, the embedded newline shoved the trailing time and
+// state columns onto the next physical line, mid-URL.
+func TestPage_CommentWithNewlinesStaysSingleRow(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := []backend.Silence{{
+		ID:        "sil",
+		CreatedBy: "alice",
+		State:     backend.SilenceStateActive,
+		Comment:   "See: INC0122453\nhttps://onegate.example/incident/123",
+		StartsAt:  fixedNow.Add(-time.Hour),
+		EndsAt:    fixedNow.Add(time.Hour),
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	out := stripStyle(p.View(180, 6))
+
+	nonEmpty := 0
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.TrimSpace(line) != "" {
+			nonEmpty++
+		}
+	}
+	require.Equal(t, 2, nonEmpty,
+		"single silence with multi-line Comment must occupy exactly one body row (header + 1 row); got %d non-empty lines\noutput:\n%s",
+		nonEmpty, out)
+	require.Contains(t, out, "See: INC0122453 https://onegate.example/incident/123",
+		"newline between INC0122453 and the URL must be flattened to a space")
+}
+
+// TestPage_AdjacentColumnsKeepGap pins the rule that every cell
+// reserves at least one trailing whitespace col so adjacent
+// columns never visually merge. Reproduces both user-reported
+// overlap patterns:
+//   - a BY name that fills the column abutting the COMMENT cell
+//     (`juliette.oraincreated 2026-…`)
+//   - an overflowing Comment abutting the STARTS cell
+//     (`…sys_id=02e61a0f8c24ea102d4cf108f8619h ago`).
+func TestPage_AdjacentColumnsKeepGap(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := []backend.Silence{{
+		ID:        "sil-overlap",
+		CreatedBy: "juliette.orain", // 14 chars — typical longest human name
+		State:     backend.SilenceStateActive,
+		Comment:   "See: INC0122453 " + strings.Repeat("z", 400),
+		StartsAt:  fixedNow.Add(-time.Hour),
+		EndsAt:    fixedNow.Add(time.Hour),
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	out := stripStyle(p.View(180, 5))
+
+	require.NotContains(t, out, "juliette.orainSee:",
+		"BY content must not abut COMMENT — every cell must reserve a trailing whitespace gap")
+	require.NotContains(t, out, "z1h ago",
+		"COMMENT overflow must not abut STARTS — truncation must reserve a trailing whitespace gap")
+}
+
+// TestPage_FilterMatchesSilenceID lets the operator paste a UUID
+// prefix to find the row even when the visible column is clipped.
+// Filter walks the unclipped ID — the column rendering is purely
+// presentational.
+func TestPage_FilterMatchesSilenceID(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	long := "abcd1234-5678-90ef-1234-567890abcdef"
+	silences := []backend.Silence{
+		{
+			ID: long, CreatedBy: "alice", State: backend.SilenceStateActive,
+			StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+		},
+		{
+			ID: "wxyz9999", CreatedBy: "bob", State: backend.SilenceStateActive,
+			StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(2 * time.Hour),
+		},
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	require.Len(t, p.view, 2)
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "abcd1234"})
+	require.Len(t, p.view, 1, "ID prefix must filter the view down to the matching row")
+	require.Equal(t, long, p.view[0].s.ID)
+}
+
 func TestPage_FilterPromptIsLive(t *testing.T) {
 	t.Parallel()
 

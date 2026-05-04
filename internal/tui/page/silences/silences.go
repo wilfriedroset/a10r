@@ -1423,27 +1423,42 @@ func (p *Page) emptyState() string {
 // applies the k9s-style yellow header colour. When the active
 // scope spans more than one tenant, a leading TENANT column is
 // inserted so the user knows which backend each row came from.
+// Sort markers ride only on the four sortable columns (BY,
+// STARTS, ENDS, STATE) — UUID and COMMENT are display-only.
 //
 // The leading whitespace mirrors the per-row prefix so column
 // titles line up with their data: always two cols for the cursor
 // slot ("▸ " / "  "), plus another two for the mark glyph
 // ("✓ " / "  ") when any row is marked.
 func (p *Page) renderHeader(width int) string {
-	titles := []SortKey{SortByEndsAt, SortByStartsAt, SortByCreatedBy, SortByState}
-	parts := make([]string, 0, len(titles)+1)
-	if p.showTenantColumn() {
-		parts = append(parts, "TENANT")
+	type col struct {
+		label    string
+		sortKey  SortKey
+		sortable bool
 	}
-	for _, k := range titles {
-		label := strings.ToUpper(k.String())
-		if k == p.sort {
+	cols := make([]col, 0, 7)
+	if p.showTenantColumn() {
+		cols = append(cols, col{label: "TENANT"})
+	}
+	cols = append(cols,
+		col{label: "UUID"},
+		col{label: "BY", sortKey: SortByCreatedBy, sortable: true},
+		col{label: "COMMENT"},
+		col{label: "STARTS", sortKey: SortByStartsAt, sortable: true},
+		col{label: "ENDS", sortKey: SortByEndsAt, sortable: true},
+		col{label: "STATE", sortKey: SortByState, sortable: true},
+	)
+	parts := make([]string, len(cols))
+	for i, c := range cols {
+		label := c.label
+		if c.sortable && c.sortKey == p.sort {
 			arrow := "↓"
 			if p.sortAsc {
 				arrow = "↑"
 			}
 			label = label + " " + arrow
 		}
-		parts = append(parts, label)
+		parts[i] = label
 	}
 	leading := "  "
 	if p.hasMarks() {
@@ -1472,14 +1487,16 @@ func (p *Page) renderRows(width, maxRows int) string {
 	var b strings.Builder
 	for i := p.topRow; i < end; i++ {
 		e := p.view[i]
-		row := make([]string, 0, 5)
+		row := make([]string, 0, 7)
 		if p.showTenantColumn() {
 			row = append(row, e.tenant)
 		}
 		row = append(row,
-			p.formatTime(e.s.EndsAt),
-			p.formatTime(e.s.StartsAt),
+			clipSilenceID(e.s.ID),
 			e.s.CreatedBy,
+			singleLine(e.s.Comment),
+			p.formatTime(e.s.StartsAt),
+			p.formatTime(e.s.EndsAt),
 			string(e.s.State),
 		)
 		prefix := "  "
@@ -1548,37 +1565,61 @@ func (p *Page) reconcileScroll(maxRows int) {
 	}
 }
 
-// padColumns lays out a row across fixed-width columns. The
-// optional leading TENANT column shrinks the flex CreatedBy
-// column so the totals still fit. ENDS / STARTS widen in
-// absolute time mode so the ISO local timestamp fits without
-// truncation per Q7.4.
+// padColumns lays out a row across fixed-width columns. UUID,
+// BY, STARTS, ENDS, and STATE are fixed; COMMENT takes the
+// remaining flex so a long Silence.Comment gets the full
+// breathing room instead of competing with another text column.
+// STARTS / ENDS widen in absolute time mode so the ISO local
+// timestamp fits without truncation per Q7.4.
 func (p *Page) padColumns(parts []string, width int) string {
 	const (
 		tenantW = 16
+		uuidW   = 10
+		byW     = 16 // fits typical 14-char human user names with a 2-col gap
 		stateW  = 12
-		minBy   = 10
+		minDesc = 12
 	)
-	endsW, startsW := 14, 14
+	startsW, endsW := 14, 14
 	if p.timeFormat == app.TimeFormatAbsolute {
-		endsW, startsW = 20, 20
+		startsW, endsW = 20, 20
 	}
-	used := endsW + startsW + stateW + 2
-	cols := make([]int, 0, 5)
+	fixed := uuidW + byW + startsW + endsW + stateW
+	cols := make([]int, 0, 7)
 	if p.showTenantColumn() {
 		cols = append(cols, tenantW)
-		used += tenantW
+		fixed += tenantW
 	}
-	flex := max(width-used, minBy)
-	cols = append(cols, endsW, startsW, flex, stateW)
+	descW := max(width-fixed, minDesc)
+	cols = append(cols, uuidW, byW, descW, startsW, endsW, stateW)
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {
 			break
 		}
-		b.WriteString(padRight(v, cols[i]))
+		b.WriteString(padCell(v, cols[i]))
 	}
 	return b.String()
+}
+
+// padCell pads s to exactly w display cols and guarantees at
+// least one trailing whitespace col so adjacent cells never
+// visually merge. Content that meets or exceeds the budget is
+// clipped to w-2 with an ellipsis + space appended so the user
+// sees both that the cell was truncated and where it ends. The
+// gap rule is what fixes `juliette.oraincreated…` and
+// `…sys_id=02e61a8619h ago` overlap reports.
+func padCell(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	sw := lipgloss.Width(s)
+	if sw <= w-1 {
+		return s + strings.Repeat(" ", w-sw)
+	}
+	if w == 1 {
+		return " "
+	}
+	return truncate(s, w-2) + "… "
 }
 
 // formatTime renders ts according to the page's active time
@@ -1588,6 +1629,28 @@ func (p *Page) formatTime(ts time.Time) string {
 		return header.FormatAbsolute(ts)
 	}
 	return header.FormatAge(p.now(), ts)
+}
+
+// clipSilenceID returns the leading 8 chars of id so the UUID
+// column stays compact. Full IDs remain searchable through the
+// filter prompt — silenceMatches scans the unclipped value, so
+// an operator can paste any prefix they remember and still find
+// the row.
+func clipSilenceID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
+}
+
+// singleLine flattens any newline / carriage-return / tab inside
+// s into a regular space so a multi-line Silence.Comment doesn't
+// break the table row alignment. Operators routinely paste URLs
+// or runbook excerpts on their own line; without this the COMMENT
+// cell's embedded \n shoves STARTS / ENDS / STATE onto the next
+// physical line, mid-URL.
+func singleLine(s string) string {
+	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
 }
 
 func padRight(s string, w int) string {
@@ -1667,9 +1730,12 @@ func filterSilences(in []silenceEntry, query string) []silenceEntry {
 }
 
 // silenceMatches walks the user-visible text fields. The query
-// caller must already be lowercased.
+// caller must already be lowercased. ID is included so a UUID
+// prefix typed into the filter prompt finds the row whose UUID
+// column is clipped to 8 chars.
 func silenceMatches(s backend.Silence, q string) bool {
-	if strings.Contains(strings.ToLower(s.CreatedBy), q) ||
+	if strings.Contains(strings.ToLower(s.ID), q) ||
+		strings.Contains(strings.ToLower(s.CreatedBy), q) ||
 		strings.Contains(strings.ToLower(s.Comment), q) ||
 		strings.Contains(strings.ToLower(string(s.State)), q) {
 		return true
