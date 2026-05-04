@@ -41,9 +41,11 @@ A modern, fast, intuitive TUI for [Prometheus Alertmanager][am] and
 go install github.com/wilfriedroset/a10r@v0.1.0
 ```
 
-Binary releases (Linux / macOS / Windows × amd64 / arm64) plus
-deb / rpm / apk packages land on the [GitHub release page][rel]
-once the v0.1.0 tag is pushed.
+Binary releases land on the [GitHub release page][rel] once the
+v0.1.0 tag is pushed: Linux (amd64, arm64, armv7), FreeBSD (amd64,
+arm64), Windows (amd64, arm64), and a single Darwin universal
+tarball (amd64+arm64 merged), plus deb / rpm / apk packages for
+linux amd64 / arm64 / arm.
 
 ## Quickstart
 
