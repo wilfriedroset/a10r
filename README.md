@@ -87,6 +87,7 @@ backend list with capability flags.
 | `j`/`k` or `Down`/`Up` | Cursor walk |
 | `gg` / `G` | First / last row |
 | `Ctrl+D` / `Ctrl+U` | Half page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full page down / up (vim siblings of `Ctrl+D` / `Ctrl+U`) |
 | `Space` | Mark / unmark a row (multi-select) |
 | `s` | Silence (alerts page; Dangerous, hidden in read-only) |
 | `t` | Cycle state filter (alerts page) |

@@ -4,7 +4,7 @@
 // the TUI per A1 / k9s-look-and-feel.md §3. v0.1 ships a minimal
 // table:
 //
-//   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U) plus arrow keys.
+//   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes
 //     PromptSubmittedMsg{PromptFilter} to the page).
 //   - Severity / alertname / instance / age columns.
@@ -693,6 +693,12 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 		p.snapshotFocus()
 	case "ctrl+u":
 		p.cursor = max(p.cursor-10, 0)
+		p.snapshotFocus()
+	case "ctrl+f":
+		p.cursor = min(p.cursor+20, max(len(p.view)-1, 0))
+		p.snapshotFocus()
+	case "ctrl+b":
+		p.cursor = max(p.cursor-20, 0)
 		p.snapshotFocus()
 	default:
 		return false

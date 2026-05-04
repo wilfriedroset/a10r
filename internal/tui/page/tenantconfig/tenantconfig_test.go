@@ -243,3 +243,15 @@ func TestPage_VimMotionsScroll(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	require.Equal(t, 0, p.scroll, "scroll clamps at 0")
 }
+
+func TestPage_FullPageMotionsScroll(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: loadStyles(t)})
+	require.Equal(t, 0, p.scroll)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll, "Ctrl+F is full page, twice the Ctrl+D step")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0")
+}

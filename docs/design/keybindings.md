@@ -115,6 +115,8 @@ Apply on every view whose body is a table (alerts, silences, receivers, tenant t
 | `Shift+G` / `End` | Last row | Vim motion |
 | `Ctrl+D` / `PageDown` | Half page down | Both half-page on purpose; vim convention takes precedence over the terminal "full page" default for `PageDown`. |
 | `Ctrl+U` / `PageUp` | Half page up | Both half-page (mirrors `Ctrl+D`). |
+| `Ctrl+F` | Full page down | Vim full-page forward, the sibling of `Ctrl+D`. |
+| `Ctrl+B` | Full page up | Vim full-page back, the sibling of `Ctrl+U`. |
 | `h` / `Left` | Previous sortable column | Walk per E2 |
 | `l` / `Right` | Next sortable column | Walk per E2 |
 | `Enter` | Drill | View-defined target |
@@ -173,7 +175,7 @@ Navigation to the groups view goes through the command bar (`:gr` / `:groups`), 
 
 | Key | Action | Notes |
 | --- | --- | --- |
-| `j` / `k` / `Ctrl+D` / `Ctrl+U` | Scroll viewport | Vim |
+| `j` / `k` / `Ctrl+D` / `Ctrl+U` / `Ctrl+F` / `Ctrl+B` | Scroll viewport | Vim |
 | `c` | Focus the config block | Scroll-to anchor |
 | `p` | Focus the peers list | Scroll-to anchor |
 | `v` | Focus the version block | Scroll-to anchor |
@@ -255,6 +257,6 @@ Per C4, when the active backend (or the global override) sets `read_only: true`:
 
 Plugins (deferred past v0.1; k9s pattern) must not bind these keys, since they are load-bearing TUI controls:
 
-`:`, `/`, `?`, `Esc`, `Ctrl+C`, `Ctrl+T`, `Ctrl+E`, `Ctrl+N`, `Ctrl+\`, `0`–`9`, vim motions (`j` `k` `h` `l` `gg` `Shift+G`), `Ctrl+D`, `Ctrl+U`, `Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`, `Shift+Tab`.
+`:`, `/`, `?`, `Esc`, `Ctrl+C`, `Ctrl+T`, `Ctrl+E`, `Ctrl+N`, `Ctrl+\`, `0`–`9`, vim motions (`j` `k` `h` `l` `gg` `Shift+G`), `Ctrl+D`, `Ctrl+U`, `Ctrl+F`, `Ctrl+B`, `Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`, `Shift+Tab`.
 
 `Ctrl+N` is reserved (not yet bound) for a future "compose new silence as YAML" companion to `Ctrl+E` (per L1).

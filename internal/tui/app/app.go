@@ -299,8 +299,10 @@ func tableMotionsCatalog() []action.Action {
 		{Key: "l", Description: "next column"},
 		{Key: "gg", Description: "top"},
 		{Key: "G", Description: "bottom"},
-		{Key: "Ctrl+D", Description: "page down"},
-		{Key: "Ctrl+U", Description: "page up"},
+		{Key: "Ctrl+D", Description: "half page down"},
+		{Key: "Ctrl+U", Description: "half page up"},
+		{Key: "Ctrl+F", Description: "page down"},
+		{Key: "Ctrl+B", Description: "page up"},
 		{Key: "Enter", Description: "drill"},
 		{Key: "Space", Description: "mark"},
 	}

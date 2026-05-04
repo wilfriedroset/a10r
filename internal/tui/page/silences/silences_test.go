@@ -175,6 +175,27 @@ func TestPage_VimMotions(t *testing.T) {
 	require.Equal(t, 0, p.cursor)
 }
 
+func TestPage_FullPageMotions(t *testing.T) {
+	t.Parallel()
+
+	// Enough rows that Ctrl+F (20) lands inside the table without
+	// clamping immediately.
+	p := newPage(t)
+	silences := make([]backend.Silence, 25)
+	for i := range silences {
+		silences[i] = sil("id"+string(rune('a'+i%26)), "creator", backend.SilenceStateActive, time.Hour)
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+
+	require.Equal(t, 0, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+F is the full-page sibling of Ctrl+D")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+B clamps at 0; never goes negative")
+}
+
 func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
 	t.Parallel()
 

@@ -82,6 +82,28 @@ func TestPage_VimMotions(t *testing.T) {
 	require.Equal(t, 0, p.scroll)
 }
 
+func TestPage_FullPageMotions(t *testing.T) {
+	t.Parallel()
+	// sampleStatus + a long Config gives enough lines for one full
+	// page hop (20) without clamping.
+	st := sampleStatus()
+	long := make([]string, 0, 40)
+	for i := range 40 {
+		long = append(long, "  line-"+string(rune('a'+i%26)))
+	}
+	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
+	p := New(loadStyles(t), "prod")
+	_, _ = p.Update(poll.DataMsg{Resource: st})
+
+	require.Equal(t, 0, p.scroll)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll, "Ctrl+F is full page (20), the sibling of Ctrl+D")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0; never goes negative")
+}
+
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 	t.Parallel()
 	p := New(loadStyles(t), "prod")

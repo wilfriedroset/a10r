@@ -433,6 +433,19 @@ func TestPage_ScrollsViewport(t *testing.T) {
 		"after G the bottom of the body must be visible")
 }
 
+func TestPage_FullPageMotionsScrollViewport(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	require.Equal(t, 0, p.scroll)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll, "Ctrl+F is full page (20), the sibling of Ctrl+D")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0")
+}
+
 func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
 

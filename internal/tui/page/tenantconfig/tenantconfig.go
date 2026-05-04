@@ -176,6 +176,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.scroll += 10
 	case "ctrl+u":
 		p.scroll = max(p.scroll-10, 0)
+	case "ctrl+f":
+		p.scroll += 20
+	case "ctrl+b":
+		p.scroll = max(p.scroll-20, 0)
 	case "G":
 		p.scroll = 1 << 30 // renderer clamps against body length
 	}

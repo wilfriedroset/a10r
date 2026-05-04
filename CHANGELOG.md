@@ -113,6 +113,10 @@ shell.
   typing rebuilds it from scratch — the pre-prompt value is
   snapshotted, so Esc still rolls back. Enter on an empty
   prompt clears the filter; Enter on a typed value commits it.
+- `Ctrl+F` / `Ctrl+B` round out the vim viewport-motion set on
+  every scrollable page (alerts, silences, alert detail, status,
+  tenant config) — full page down / up siblings of `Ctrl+D` /
+  `Ctrl+U`.
 
 ### Silence write surface
 

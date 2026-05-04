@@ -701,6 +701,12 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	case "ctrl+u":
 		p.cursor = max(p.cursor-10, 0)
 		p.snapshotFocus()
+	case "ctrl+f":
+		p.cursor = min(p.cursor+20, max(len(p.view)-1, 0))
+		p.snapshotFocus()
+	case "ctrl+b":
+		p.cursor = max(p.cursor-20, 0)
+		p.snapshotFocus()
 	default:
 		return false
 	}

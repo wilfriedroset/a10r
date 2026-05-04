@@ -298,6 +298,33 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 	require.Equal(t, 2, p.cursor, "G must jump to the last visible row")
 }
 
+func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
+	t.Parallel()
+
+	// Build enough rows that Ctrl+F / Ctrl+B can step a full page
+	// without immediately clamping at the edges. 30 rows gives room
+	// for one full-page hop (20) plus headroom on either side.
+	p := newPage(t)
+	alerts := make([]backend.Alert, 30)
+	for i := range alerts {
+		name := "A" + string(rune('a'+i%26))
+		alerts[i] = mkAlert(name, "info", backend.AlertStateActive)
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+
+	require.Equal(t, 0, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+F is full page (20) — twice the Ctrl+D half page")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
+
+	// Clamps at the edges — Ctrl+F at the bottom stays put.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	require.Equal(t, 29, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 29, p.cursor, "Ctrl+F at the last row clamps; never overshoots")
+}
+
 func TestPage_CursorClampsOnEmptyView(t *testing.T) {
 	t.Parallel()
 

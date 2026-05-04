@@ -12,7 +12,7 @@
 //	  - GENERAL is the curated globals catalogue (`:` `/` `?` `Esc`
 //	    `q` `Ctrl+C` `Ctrl+T` `r`).
 //	  - NAVIGATION is the table-context vim motions (`j` `k` `gg`
-//	    `G` `Ctrl+D` `Ctrl+U` `h` `l`).
+//	    `G` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` `h` `l`).
 //	  - HOTKEYS holds page-specific sort and filter shortcuts when
 //	    the active page exposes them; empty when the page doesn't.
 //

@@ -30,6 +30,8 @@ The numeric keys (`0`-`9`) work from any page. Pressing `2` on the alerts list i
 | `Shift+G` / `End` | Last row |
 | `Ctrl+D` / `PageDown` | Half page down |
 | `Ctrl+U` / `PageUp` | Half page up |
+| `Ctrl+F` | Full page down (vim sibling of `Ctrl+D`) |
+| `Ctrl+B` | Full page up (vim sibling of `Ctrl+U`) |
 | `h` / `←` | Previous sortable column |
 | `l` / `→` | Next sortable column |
 | `Enter` | Drill into the cursor row |
@@ -90,7 +92,7 @@ Switching to a new column resets to that column's *default* direction. Severity 
 
 | Key | What |
 | --- | --- |
-| `j` `k` `Ctrl+D` `Ctrl+U` | Scroll the viewport |
+| `j` `k` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` | Scroll the viewport |
 | `c` | Jump to the cluster section |
 | `v` | Jump to the version block |
 | `p` | Jump to the raw config block |
