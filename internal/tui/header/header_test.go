@@ -193,6 +193,38 @@ func TestRender_NarrowWidthDropsMiddle(t *testing.T) {
 		"narrow width must drop the middle zone entirely rather than render `…`")
 }
 
+func TestRender_NoBackgroundFill(t *testing.T) {
+	t.Parallel()
+
+	// The header strip sits inside the same unstyled chrome as the
+	// `:` / `/` prompt. If we paint Header.Default's palette bg
+	// behind the line it shows up as a coloured stripe on an
+	// otherwise transparent canvas — the same regression that hit
+	// the prompt before. Lock in: no SGR background parameter
+	// (48;) appears in the rendered output, and the foreground
+	// (38;) is still emitted.
+	styles := loadDefaultStyles(t)
+	out := Render(State{
+		Tenants: "prod",
+		Conn:    ConnConnected,
+		Count:   "142 alerts",
+		Age:     "5s ago",
+		Content: "filter: severity=critical",
+		Hints: []action.Action{
+			{Key: "s", Description: "silence", View: "alerts"},
+			{Key: "?", Description: "help", View: ""},
+		},
+		Width: 120,
+	}, styles)
+
+	require.Contains(t, out, "\x1b[38;",
+		"header must still paint its foreground colour")
+	require.NotContains(t, out, "\x1b[48;",
+		"header must not paint a background colour — the surrounding chrome is unstyled")
+	require.NotContains(t, out, ";48;",
+		"header must not paint a background colour even when chained with fg in one SGR")
+}
+
 func TestRender_PadsToFullWidth(t *testing.T) {
 	t.Parallel()
 

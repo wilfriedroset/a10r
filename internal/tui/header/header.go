@@ -111,6 +111,12 @@ const MinSensibleWidth = 50
 // widths the right zone shrinks (dropping trailing hints, never
 // the left zone), so output may exceed state.Width when the left
 // zone's required content alone is wider.
+//
+// All zones render foreground-only so the strip stays flush with
+// the surrounding chrome (which lets the terminal default bg show
+// through). Painting `Header.Default`'s palette bg behind the line
+// would draw a coloured stripe inside an otherwise transparent
+// frame — same trap that bit the `:` / `/` prompt before.
 func Render(state State, styles theme.Styles) string {
 	left := renderLeft(state, styles)
 	leftWidth := lipgloss.Width(left)
@@ -130,7 +136,15 @@ func Render(state State, styles theme.Styles) string {
 	gap := max(state.Width-leftWidth-middleWidth-rightWidth, 0)
 	spacer := strings.Repeat(" ", gap)
 
-	return styles.Header.Default.Render(left + middle + spacer + right)
+	return left + middle + spacer + right
+}
+
+// headerFg returns a foreground-only style derived from
+// Header.Default. The header.Default palette role carries fg+bg
+// for hypothetical full-bg compositing, but the live app frames
+// the strip without a painted bg — see the package doc.
+func headerFg(styles theme.Styles) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(styles.Header.Default.GetForeground())
 }
 
 // renderHintsWithBudget formats the hint strip and drops trailing
@@ -155,8 +169,9 @@ func renderHintsWithBudget(hints []action.Action, budget int, styles theme.Style
 // renderLeft formats the tenant indicator + glyph + count + age.
 func renderLeft(state State, styles theme.Styles) string {
 	var b strings.Builder
+	fg := headerFg(styles)
 
-	b.WriteString(styles.Header.Default.Render("tenants: "))
+	b.WriteString(fg.Render("tenants: "))
 	if state.Tenants != "" {
 		b.WriteString(styles.Header.Accent.Render(state.Tenants))
 	}
@@ -164,17 +179,20 @@ func renderLeft(state State, styles theme.Styles) string {
 	b.WriteString(connStyle(state.Conn, styles).Render(state.Conn.String()))
 
 	if state.Count != "" {
-		b.WriteString(styles.Header.Default.Render(" · "))
-		b.WriteString(styles.Header.Default.Render(state.Count))
+		b.WriteString(fg.Render(" · "))
+		b.WriteString(fg.Render(state.Count))
 	}
 	if state.Age != "" {
-		b.WriteString(styles.Header.Default.Render(" · "))
-		b.WriteString(styles.Header.Default.Render(state.Age))
+		b.WriteString(fg.Render(" · "))
+		b.WriteString(fg.Render(state.Age))
 	}
 	return b.String()
 }
 
 // connStyle picks the lipgloss style matching the connection state.
+// All four branches return foreground-only styles: OK / Warn /
+// Error are fgOnly per the theme spec, and the Default fall-through
+// is downgraded to fg-only here so it doesn't paint a palette bg.
 func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
 	switch c {
 	case ConnConnected:
@@ -184,7 +202,7 @@ func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
 	case ConnUnreachable:
 		return styles.Header.Error
 	}
-	return styles.Header.Default
+	return headerFg(styles)
 }
 
 // renderMiddle truncates content to fit budget columns. Returns
@@ -193,12 +211,13 @@ func renderMiddle(content string, budget int, styles theme.Styles) string {
 	if content == "" || budget < minMiddleWidth {
 		return ""
 	}
+	fg := headerFg(styles)
 	if lipgloss.Width(content) <= budget {
-		return styles.Header.Default.Render(content)
+		return fg.Render(content)
 	}
 	// Truncate to budget-1 columns and append the marker.
 	truncated := truncate(content, budget-lipgloss.Width(truncationMarker))
-	return styles.Header.Default.Render(truncated + truncationMarker)
+	return fg.Render(truncated + truncationMarker)
 }
 
 // truncate cuts s to at most n columns. Lipgloss-aware width so a
@@ -226,11 +245,14 @@ func truncate(s string, n int) string {
 
 // renderHints formats the right-aligned hint strip from the
 // supplied actions. The `?` help action gets the help_key colour;
-// other shortcuts get the regular key colour.
+// other shortcuts get the regular key colour. Descriptions are
+// foreground-only (Hint.Default carries fg+bg, but the strip sits
+// in unstyled chrome — see Render's docstring).
 func renderHints(hints []action.Action, styles theme.Styles) string {
 	if len(hints) == 0 {
 		return ""
 	}
+	descStyle := lipgloss.NewStyle().Foreground(styles.Hint.Default.GetForeground())
 	var b strings.Builder
 	for i, a := range hints {
 		if i > 0 {
@@ -243,7 +265,7 @@ func renderHints(hints []action.Action, styles theme.Styles) string {
 		b.WriteString(keyStyle.Render("[" + a.Key + "]"))
 		if a.Description != "" {
 			b.WriteString(" ")
-			b.WriteString(styles.Hint.Default.Render(a.Description))
+			b.WriteString(descStyle.Render(a.Description))
 		}
 	}
 	return b.String()
