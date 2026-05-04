@@ -313,9 +313,14 @@ make build
 # Spin a local Alertmanager
 make am-up                    # docker run prom/alertmanager:v0.28.1
 
+# Backend smoke harness against the local Alertmanager
+make smoke
+#  → status / receivers / alerts / silences / alert_groups all
+#    queried; silence created → fetched (active) → expired
+
 # Walk the TUI
-./a10r --config-dir testdata
-#  → loader picks up testdata/a10r.yaml; alerts list renders
+./a10r -c examples/local-am.yaml
+#  → loader picks up the local backend; alerts list renders
 #  → / "high" filters
 #  → s on a row flashes the silence-form placeholder
 #  → :silences pushes the silences page
@@ -324,12 +329,18 @@ make am-up                    # docker run prom/alertmanager:v0.28.1
 #  → :q quits cleanly
 
 # Validate read-only mode hides Dangerous bindings
-./a10r --read-only --config-dir testdata
+./a10r --read-only -c examples/local-am.yaml
 #  → ? overlay must NOT list `[s]` silence
 
 # Snapshot release artefacts
 goreleaser release --snapshot --clean
-#  → archives + nfpms produced under ./dist/
+#  → archives + nfpms produced under ./dist/ — Linux amd64/arm64/
+#    armv7, FreeBSD amd64/arm64, Windows amd64/arm64, plus a single
+#    Darwin universal tarball (amd64+arm64 merged via goreleaser's
+#    universal_binaries) and deb/rpm/apk for linux amd64/arm64/arm
+
+# Tear down
+make am-down
 ```
 
 [kac]: https://keepachangelog.com/en/1.1.0/
