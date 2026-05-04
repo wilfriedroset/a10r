@@ -93,6 +93,12 @@ type Page struct {
 	// walk it; the renderer reconciles against the body height
 	// every frame so the user can never scroll past the bottom.
 	scroll int
+
+	// bodyHeight is the viewport size snapshotted on the most
+	// recent View call. Ctrl+D/U step half it; Ctrl+F/B step
+	// body-2. Zero before the first render — handlers fall back to
+	// 10 / 20.
+	bodyHeight int
 }
 
 // New constructs an alert-detail page.
@@ -195,13 +201,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.scroll--
 		}
 	case "ctrl+d":
-		p.scroll += 10
+		p.scroll += p.halfPageStep()
 	case "ctrl+u":
-		p.scroll = max(p.scroll-10, 0)
+		p.scroll = max(p.scroll-p.halfPageStep(), 0)
 	case "ctrl+f":
-		p.scroll += 20
+		p.scroll += p.fullPageStep()
 	case "ctrl+b":
-		p.scroll = max(p.scroll-20, 0)
+		p.scroll = max(p.scroll-p.fullPageStep(), 0)
 	case "G":
 		// Pin the last line; the renderer clamps against the
 		// actual body length on the next frame.
@@ -292,6 +298,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	p.bodyHeight = height
 	lines := p.bodyLines(width)
 	p.reconcileScroll(len(lines), height)
 	end := min(p.scroll+height, len(lines))
@@ -300,6 +307,28 @@ func (p *Page) View(width, height int) string {
 	}
 	visible := lines[p.scroll:end]
 	return strings.Join(visible, "\n")
+}
+
+// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
+// rendered viewport, with a 10-line cold-start fallback. Floored
+// at 1 so a future narrowing of the cold-start guard cannot turn
+// the binding into a no-op.
+func (p *Page) halfPageStep() int {
+	if p.bodyHeight < 2 {
+		return 10
+	}
+	return max(p.bodyHeight/2, 1)
+}
+
+// fullPageStep returns the Ctrl+F / Ctrl+B distance: viewport
+// minus two lines of context (vim's CTRL-F convention), with a
+// 20-line cold-start fallback. Floored at 1 for the same reason
+// as halfPageStep.
+func (p *Page) fullPageStep() int {
+	if p.bodyHeight < 4 {
+		return 20
+	}
+	return max(p.bodyHeight-2, 1)
 }
 
 // bodyLines builds the full list of rendered lines (one display

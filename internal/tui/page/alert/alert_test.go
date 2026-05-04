@@ -5,6 +5,7 @@ package alert
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -435,15 +436,37 @@ func TestPage_ScrollsViewport(t *testing.T) {
 
 func TestPage_FullPageMotionsScrollViewport(t *testing.T) {
 	t.Parallel()
-
+	// Cold-start: no View call yet → 20-line fallback.
 	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "Ctrl+F is full page (20), the sibling of Ctrl+D")
+	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0")
+}
+
+func TestPage_ViewportAwareScrollSteps(t *testing.T) {
+	t.Parallel()
+	// Pad annotations so the body has plenty of lines for the test
+	// to walk a viewport-aware step without immediately clamping.
+	a := sample()
+	a.Annotations = map[string]string{}
+	for i := range 200 {
+		a.Annotations[fmt.Sprintf("k%03d", i)] = fmt.Sprintf("v%03d", i)
+	}
+	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	_ = p.View(120, 40) // 40-line viewport — half=20, full=body-2=38
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll, "Ctrl+D walks half the rendered body (40 / 2)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 58, p.scroll, "Ctrl+F walks body-2 (20 + 38)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll)
 }
 
 func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {

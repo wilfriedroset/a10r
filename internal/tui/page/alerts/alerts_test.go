@@ -301,28 +301,56 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 	t.Parallel()
 
-	// Build enough rows that Ctrl+F / Ctrl+B can step a full page
-	// without immediately clamping at the edges. 30 rows gives room
-	// for one full-page hop (20) plus headroom on either side.
+	// Build enough rows that the cold-start fallback (20) lands
+	// inside the table without clamping. The viewport-aware path
+	// is exercised by TestPage_ViewportAwareScrollSteps.
 	p := newPage(t)
-	alerts := make([]backend.Alert, 30)
+	alerts := make([]backend.Alert, 60)
 	for i := range alerts {
-		name := "A" + string(rune('a'+i%26))
+		name := fmt.Sprintf("A%02d", i)
 		alerts[i] = mkAlert(name, "info", backend.AlertStateActive)
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
+	// Cold-start (no View call yet) — the page falls back to 20 so a
+	// keystroke arriving before the first render still moves a
+	// reasonable distance.
 	require.Equal(t, 0, p.cursor)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+F is full page (20) — twice the Ctrl+D half page")
+	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
 
 	// Clamps at the edges — Ctrl+F at the bottom stays put.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, 29, p.cursor)
+	require.Equal(t, 59, p.cursor)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 29, p.cursor, "Ctrl+F at the last row clamps; never overshoots")
+	require.Equal(t, 59, p.cursor, "Ctrl+F at the last row clamps; never overshoots")
+}
+
+func TestPage_ViewportAwareScrollSteps(t *testing.T) {
+	t.Parallel()
+
+	// After a render the page has snapshotted its body-row budget
+	// (height - 1 to account for the column-header line). Ctrl+D
+	// must walk half that, Ctrl+F a full window minus two — vim's
+	// 'scroll' default and the standard CTRL-F overlap.
+	p := newPage(t)
+	alerts := make([]backend.Alert, 100)
+	for i := range alerts {
+		alerts[i] = mkAlert(fmt.Sprintf("A%02d", i), "info", backend.AlertStateActive)
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	_ = p.View(120, 41) // 41 - 1 header line = 40-row body
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 from the new cursor (20 + 38)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
 }
 
 func TestPage_CursorClampsOnEmptyView(t *testing.T) {

@@ -116,7 +116,11 @@ shell.
 - `Ctrl+F` / `Ctrl+B` round out the vim viewport-motion set on
   every scrollable page (alerts, silences, alert detail, status,
   tenant config) — full page down / up siblings of `Ctrl+D` /
-  `Ctrl+U`.
+  `Ctrl+U`. All four steps are now viewport-aware: each page
+  snapshots its rendered body height so `Ctrl+D` / `Ctrl+U` walk
+  half the actual window and `Ctrl+F` / `Ctrl+B` walk a window
+  minus two lines (vim's CTRL-F context overlap), instead of the
+  prior hard-coded 10 / 20.
 
 ### Silence write surface
 

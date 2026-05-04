@@ -84,11 +84,12 @@ func TestPage_VimMotions(t *testing.T) {
 
 func TestPage_FullPageMotions(t *testing.T) {
 	t.Parallel()
-	// sampleStatus + a long Config gives enough lines for one full
-	// page hop (20) without clamping.
+	// Cold-start path (no View call yet): keystrokes fall back to
+	// the 20-row step so the very first input still moves a sane
+	// distance before bubbletea has ticked a render.
 	st := sampleStatus()
-	long := make([]string, 0, 40)
-	for i := range 40 {
+	long := make([]string, 0, 100)
+	for i := range 100 {
 		long = append(long, "  line-"+string(rune('a'+i%26)))
 	}
 	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
@@ -97,11 +98,33 @@ func TestPage_FullPageMotions(t *testing.T) {
 
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "Ctrl+F is full page (20), the sibling of Ctrl+D")
+	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0; never goes negative")
+}
+
+func TestPage_ViewportAwareScrollSteps(t *testing.T) {
+	t.Parallel()
+	st := sampleStatus()
+	long := make([]string, 0, 200)
+	for i := range 200 {
+		long = append(long, "  line-"+string(rune('a'+i%26)))
+	}
+	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
+	p := New(loadStyles(t), "prod")
+	_, _ = p.Update(poll.DataMsg{Resource: st})
+	_ = p.View(120, 40) // 40-line viewport — vim's full-page = 40-2 = 38, half = 20
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll, "Ctrl+D walks half the rendered body (40 / 2)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 58, p.scroll, "Ctrl+F walks body-2 (20 + 38)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.scroll)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.scroll)
 }
 
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {

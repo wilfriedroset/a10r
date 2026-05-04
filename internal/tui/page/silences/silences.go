@@ -111,6 +111,13 @@ type Page struct {
 	// render time.
 	topRow int
 
+	// bodyHeight is the table-row capacity snapshotted on the most
+	// recent View — body height minus the column-header line.
+	// Powers viewport-aware Ctrl+D/U/F/B steps; zero before the
+	// first render so handlers fall back to 10 / 20 for the very
+	// first keystroke. See alerts.Page for the rationale.
+	bodyHeight int
+
 	sort    SortKey
 	sortAsc bool
 	focusID string
@@ -696,16 +703,16 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 		p.cursor = max(len(p.view)-1, 0)
 		p.snapshotFocus()
 	case "ctrl+d":
-		p.cursor = min(p.cursor+10, max(len(p.view)-1, 0))
+		p.cursor = min(p.cursor+p.halfPageStep(), max(len(p.view)-1, 0))
 		p.snapshotFocus()
 	case "ctrl+u":
-		p.cursor = max(p.cursor-10, 0)
+		p.cursor = max(p.cursor-p.halfPageStep(), 0)
 		p.snapshotFocus()
 	case "ctrl+f":
-		p.cursor = min(p.cursor+20, max(len(p.view)-1, 0))
+		p.cursor = min(p.cursor+p.fullPageStep(), max(len(p.view)-1, 0))
 		p.snapshotFocus()
 	case "ctrl+b":
-		p.cursor = max(p.cursor-20, 0)
+		p.cursor = max(p.cursor-p.fullPageStep(), 0)
 		p.snapshotFocus()
 	default:
 		return false
@@ -1355,6 +1362,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	p.bodyHeight = height - 1 // header takes one line; the rest is table-row budget
 	if len(p.view) == 0 {
 		// Render bg-less so the empty state matches the regular
 		// table view's framing — both use the terminal default
@@ -1368,6 +1376,28 @@ func (p *Page) View(width, height int) string {
 	rows := p.renderRows(width, height-1)
 	body := headerLine + "\n" + rows
 	return lipgloss.NewStyle().Width(width).Render(body)
+}
+
+// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
+// rendered body height, with a 10-row cold-start fallback. Floored
+// at 1 so a future narrowing of the cold-start guard cannot turn
+// the binding into a no-op.
+func (p *Page) halfPageStep() int {
+	if p.bodyHeight < 2 {
+		return 10
+	}
+	return max(p.bodyHeight/2, 1)
+}
+
+// fullPageStep returns the Ctrl+F / Ctrl+B distance: body minus
+// two lines of context (vim's CTRL-F convention), with a 20-row
+// cold-start fallback. Floored at 1 for the same reason as
+// halfPageStep.
+func (p *Page) fullPageStep() int {
+	if p.bodyHeight < 4 {
+		return 20
+	}
+	return max(p.bodyHeight-2, 1)
 }
 
 // emptyState picks the right body for an empty list. The cold-

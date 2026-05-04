@@ -60,6 +60,12 @@ type Page struct {
 	fetchTimeout time.Duration
 
 	scroll int
+
+	// bodyHeight is the viewport size snapshotted on the most
+	// recent View call. Ctrl+D/U step half it; Ctrl+F/B step
+	// body-2. Zero before the first render — handlers fall back to
+	// 10 / 20.
+	bodyHeight int
 }
 
 // statusFetchedMsg carries the result of the lazy /api/v2/status
@@ -173,13 +179,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.scroll--
 		}
 	case "ctrl+d":
-		p.scroll += 10
+		p.scroll += p.halfPageStep()
 	case "ctrl+u":
-		p.scroll = max(p.scroll-10, 0)
+		p.scroll = max(p.scroll-p.halfPageStep(), 0)
 	case "ctrl+f":
-		p.scroll += 20
+		p.scroll += p.fullPageStep()
 	case "ctrl+b":
-		p.scroll = max(p.scroll-20, 0)
+		p.scroll = max(p.scroll-p.fullPageStep(), 0)
 	case "G":
 		p.scroll = 1 << 30 // renderer clamps against body length
 	}
@@ -193,6 +199,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	p.bodyHeight = height
 	lines := p.bodyLines()
 	if p.scroll < 0 {
 		p.scroll = 0
@@ -204,6 +211,28 @@ func (p *Page) View(width, height int) string {
 	end := min(p.scroll+height, len(lines))
 	visible := lines[p.scroll:end]
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
+}
+
+// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
+// rendered viewport, with a 10-line cold-start fallback. Floored
+// at 1 so a future narrowing of the cold-start guard cannot turn
+// the binding into a no-op.
+func (p *Page) halfPageStep() int {
+	if p.bodyHeight < 2 {
+		return 10
+	}
+	return max(p.bodyHeight/2, 1)
+}
+
+// fullPageStep returns the Ctrl+F / Ctrl+B distance: viewport
+// minus two lines of context (vim's CTRL-F convention), with a
+// 20-line cold-start fallback. Floored at 1 for the same reason
+// as halfPageStep.
+func (p *Page) fullPageStep() int {
+	if p.bodyHeight < 4 {
+		return 20
+	}
+	return max(p.bodyHeight-2, 1)
 }
 
 // bodyLines composes the two sections into a flat line list.

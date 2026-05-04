@@ -178,22 +178,44 @@ func TestPage_VimMotions(t *testing.T) {
 func TestPage_FullPageMotions(t *testing.T) {
 	t.Parallel()
 
-	// Enough rows that Ctrl+F (20) lands inside the table without
-	// clamping immediately.
+	// Cold-start path: no View call yet → the page falls back to a
+	// 20-row step so the very first keystroke still moves a sane
+	// distance before bubbletea has ticked a render.
 	p := newPage(t)
-	silences := make([]backend.Silence, 25)
+	silences := make([]backend.Silence, 60)
 	for i := range silences {
-		silences[i] = sil("id"+string(rune('a'+i%26)), "creator", backend.SilenceStateActive, time.Hour)
+		silences[i] = sil(fmt.Sprintf("id%02d", i), "creator", backend.SilenceStateActive, time.Hour)
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 
 	require.Equal(t, 0, p.cursor)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+F is the full-page sibling of Ctrl+D")
+	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+B clamps at 0; never goes negative")
+}
+
+func TestPage_ViewportAwareScrollSteps(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := make([]backend.Silence, 100)
+	for i := range silences {
+		silences[i] = sil(fmt.Sprintf("id%02d", i), "creator", backend.SilenceStateActive, time.Hour)
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	_ = p.View(120, 41) // 40-row table body once the column header is taken out
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 (20 + 38)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor)
 }
 
 func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
