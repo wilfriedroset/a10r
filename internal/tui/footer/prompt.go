@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -203,11 +204,18 @@ func (p Prompt) changedCmd() tea.Cmd {
 // The line is just the body — the App wraps it in a bordered panel
 // at render time (see panel.RenderFrame) so the prompt sits above
 // the body in the same frame style as the body panel.
+//
+// Foreground-only on purpose: the surrounding panel.RenderFrame is
+// unstyled and the rest of the chrome lets the terminal default bg
+// show through, so painting the prompt's palette bg behind the
+// glyph + buffer would render as a coloured stripe inside the
+// otherwise transparent frame.
 func (p Prompt) Render(styles theme.Styles) string {
 	if !p.open {
 		return ""
 	}
-	return styles.Prompt.Default.Render(" " + p.mode.prefixGlyph() + p.value + cursorMark)
+	style := lipgloss.NewStyle().Foreground(styles.Prompt.Default.GetForeground())
+	return style.Render(" " + p.mode.prefixGlyph() + p.value + cursorMark)
 }
 
 // cursorMark is the visible cursor character. Underscore reads as a

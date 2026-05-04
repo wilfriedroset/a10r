@@ -332,6 +332,29 @@ func TestPrompt_RenderClosedIsEmpty(t *testing.T) {
 	require.Empty(t, NewPrompt().Render(loadStyles(t)))
 }
 
+func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
+	t.Parallel()
+
+	// The prompt sits inside an unstyled panel.RenderFrame above the
+	// body. If we paint the prompt's palette bg behind the glyph it
+	// renders as a coloured stripe in an otherwise transparent
+	// frame — see the regression report. Lock it in: the rendered
+	// SGR sequence must carry a foreground (38;) but no background
+	// (48;) parameter.
+	styles := loadStyles(t)
+
+	for _, mode := range []PromptMode{PromptCommand, PromptFilter} {
+		p := NewPrompt().Open(mode)
+		out := p.Render(styles)
+		require.Contains(t, out, "\x1b[38;",
+			"prompt must still paint its foreground colour")
+		require.NotContains(t, out, "\x1b[48;",
+			"prompt must not paint a background colour — the surrounding frame is unstyled")
+		require.NotContains(t, out, ";48;",
+			"prompt must not paint a background colour even when chained with fg in one SGR")
+	}
+}
+
 // ----- flash -----
 
 func TestFlash_NewIsInactive(t *testing.T) {
