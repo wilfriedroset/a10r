@@ -133,6 +133,33 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 		"absolute mode must surface the ISO local date prefix on the age line")
 }
 
+func TestPage_RenderAppliesYAMLKeyAndValueStyles(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: styles,
+		Now:    func() time.Time { return fixedNow },
+	})
+	raw := p.View(120, 30)
+
+	// Sanity: stripped output keeps the underlying YAML-shaped lines.
+	require.Contains(t, stripStyle(raw), "alertname:")
+	require.Contains(t, stripStyle(raw), "severity:")
+
+	// The "Labels:" and "Annotations:" section headers — and every
+	// "key: value" pair underneath — must paint the foreground via
+	// the skin's YAML.Key role. Easiest portable proof: the rendered
+	// substring for a known key ("alertname") matches what
+	// styles.YAML.Key.Render produces when called in isolation.
+	require.Contains(t, raw, styles.YAML.Key.Render("alertname"),
+		"alert detail must colour `alertname` with the skin's YAML.Key foreground")
+	require.Contains(t, raw, styles.YAML.Key.Render("Labels"),
+		"section headers must paint the foreground via YAML.Key")
+}
+
 func TestPage_RenderShowsAllSections(t *testing.T) {
 	t.Parallel()
 
@@ -152,7 +179,7 @@ func TestPage_RenderShowsAllSections(t *testing.T) {
 	}
 }
 
-func TestPage_HeaderContent(t *testing.T) {
+func TestPage_HeaderContentIsEmpty(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
@@ -160,9 +187,9 @@ func TestPage_HeaderContent(t *testing.T) {
 		Tenant: "prod",
 		Styles: loadStyles(t),
 	})
-	require.Contains(t, p.HeaderContent(), "HighCPU")
-	require.Contains(t, p.HeaderContent(), "active")
-	require.Contains(t, p.HeaderContent(), "prod")
+	require.Empty(t, p.HeaderContent(),
+		"title shows <tenant>/<alertname> and the summary surfaces state + "+
+			"tenant on their own lines — a header subtitle would duplicate both")
 }
 
 func TestPage_CopyFingerprintSuccess(t *testing.T) {

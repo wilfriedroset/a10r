@@ -22,6 +22,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
 // Clipboard is the small surface the page needs to copy strings.
@@ -139,16 +140,11 @@ func (p *Page) Title() string {
 	return "Describe(" + scope + "/" + p.a.Labels["alertname"] + ")"
 }
 
-// HeaderContent implements app.Page. Shows alertname + state +
-// source backend so the header strip identifies the active alert
-// at a glance.
-func (p *Page) HeaderContent() string {
-	parts := []string{p.a.Labels["alertname"], string(p.a.State)}
-	if p.tenant != "" {
-		parts = append(parts, p.tenant)
-	}
-	return strings.Join(parts, " · ")
-}
+// HeaderContent implements app.Page. The title already shows
+// `<tenant>/<alertname>` and the summary block surfaces state and
+// tenant on their own lines — anything else here would duplicate
+// what's a glance away.
+func (*Page) HeaderContent() string { return "" }
 
 // Footer implements app.Page. Alert detail doesn't surface
 // ambient state in the bottom border.
@@ -306,7 +302,18 @@ func (p *Page) View(width, height int) string {
 		p.scroll = end
 	}
 	visible := lines[p.scroll:end]
-	return strings.Join(visible, "\n")
+	// Apply skin's YAML.Key / .Value / .Punct foreground roles per
+	// line. yamlstyle short-circuits anything that doesn't look
+	// like a real `key: value` row — comment-only lines, blank
+	// separators, "(none)" placeholders, and (crucially) wrap
+	// continuations + \n-split annotation segments whose pre-`:`
+	// portion contains brackets/equals. Width-clamp matches the
+	// other list / detail pages so the bordered body never sees
+	// jagged-width content.
+	for i, line := range visible {
+		visible[i] = yamlstyle.Line(line, p.styles)
+	}
+	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
 }
 
 // halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
