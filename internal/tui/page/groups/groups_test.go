@@ -237,8 +237,75 @@ func TestPage_VimMotions(t *testing.T) {
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
 	require.Equal(t, len(p.rows())-1, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	// `gg` is the chord — the dispatcher consumes the first `g`,
+	// then resolves to GoToFirstRowMsg on the second. Tests inject
+	// the resolved message directly so the assertion is independent
+	// of the chord buffer.
+	_, _ = p.Update(app.GoToFirstRowMsg{})
 	require.Equal(t, 0, p.cursor)
+}
+
+func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
+	t.Parallel()
+
+	// Build enough rows that the cold-start fallback (20) lands inside
+	// the row list without clamping. Each group is collapsed by default
+	// → one row per group.
+	p := New(Options{Styles: loadStyles(t)})
+	gs := make([]backend.AlertGroup, 60)
+	for i := range gs {
+		gs[i] = backend.AlertGroup{
+			Labels: map[string]string{"team": "t" + string(rune('a'+(i%26)))},
+			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
+		}
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: gs})
+
+	require.Equal(t, 0, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
+
+	// Ctrl+D / Ctrl+U mirror with the half-step fallback.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 10, p.cursor, "cold-start Ctrl+D falls back to 10 rows")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D")
+
+	// Clamps at edges — Ctrl+F at the bottom stays put.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	require.Equal(t, len(p.rows())-1, p.cursor)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, len(p.rows())-1, p.cursor,
+		"Ctrl+F at the last row clamps; never overshoots")
+}
+
+func TestPage_ViewportAwareScrollSteps(t *testing.T) {
+	t.Parallel()
+
+	// After a render the page snapshots its body-row budget. Ctrl+D
+	// must walk half the viewport, Ctrl+F a full window minus two —
+	// vim's CTRL-F overlap convention.
+	p := New(Options{Styles: loadStyles(t)})
+	gs := make([]backend.AlertGroup, 100)
+	for i := range gs {
+		gs[i] = backend.AlertGroup{
+			Labels: map[string]string{"team": "t" + string(rune('a'+(i%26))), "i": string(rune('0' + (i % 10)))},
+			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
+		}
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: gs})
+	_ = p.View(120, 40) // 40-row body; no header line in groups
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 from the new cursor (20 + 38)")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
 }
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {

@@ -79,6 +79,13 @@ type Page struct {
 	cursor   int    // index into the visible row list
 	topRow   int    // first visible row; reconciled in renderRows
 
+	// bodyHeight is the row capacity snapshotted on the most recent
+	// View. Ctrl+D / Ctrl+U step half this; Ctrl+F / Ctrl+B step
+	// body-2 (vim's CTRL-F two-line overlap convention). Zero before
+	// the first render — handlers fall back to 10 / 20 so a keystroke
+	// that beats the initial WindowSizeMsg still moves a sane distance.
+	bodyHeight int
+
 	// filter is the active substring filter applied to a group's
 	// label-set (k=v pairs joined). preFilter is the snapshot the
 	// page restores on PromptCancelledMsg per the shared
@@ -462,10 +469,20 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		if p.cursor > 0 {
 			p.cursor--
 		}
-	case "g":
-		p.cursor = 0
+	// `g` alone is dead code — the dispatcher's chord buffer at
+	// LayerTable consumes the first `g` waiting for the second. The
+	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
+	// handled in Update.
 	case "G":
 		p.cursor = max(len(rows)-1, 0)
+	case "ctrl+d":
+		p.cursor = min(p.cursor+p.halfPageStep(), max(len(rows)-1, 0))
+	case "ctrl+u":
+		p.cursor = max(p.cursor-p.halfPageStep(), 0)
+	case "ctrl+f":
+		p.cursor = min(p.cursor+p.fullPageStep(), max(len(rows)-1, 0))
+	case "ctrl+b":
+		p.cursor = max(p.cursor-p.fullPageStep(), 0)
 	case "tab":
 		p.toggleExpandAll()
 	case "enter":
@@ -477,6 +494,28 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, cmd
 	}
 	return p, nil
+}
+
+// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
+// rendered body height, with a 10-row cold-start fallback. Floored
+// at 1 so a future narrowing of the cold-start guard cannot turn
+// the binding into a no-op.
+func (p *Page) halfPageStep() int {
+	if p.bodyHeight < 2 {
+		return 10
+	}
+	return max(p.bodyHeight/2, 1)
+}
+
+// fullPageStep returns the Ctrl+F / Ctrl+B distance: a full body
+// minus two lines of context (vim's CTRL-F convention), with a
+// 20-row cold-start fallback. Floored at 1 for the same reason as
+// halfPageStep.
+func (p *Page) fullPageStep() int {
+	if p.bodyHeight < 4 {
+		return 20
+	}
+	return max(p.bodyHeight-2, 1)
 }
 
 // requestRefresh emits RefreshRequestedMsg and re-arms the
@@ -618,6 +657,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	p.bodyHeight = height
 	rows := p.rows()
 	if len(rows) == 0 {
 		// Render bg-less so the empty state matches the regular

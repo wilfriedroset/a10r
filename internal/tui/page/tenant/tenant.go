@@ -60,6 +60,14 @@ type Page struct {
 	cursor int
 	topRow int // first visible row; reconciled in View
 
+	// bodyHeight is the row capacity (excluding the column-header
+	// line) snapshotted on the most recent View. Ctrl+D / Ctrl+U
+	// step half this; Ctrl+F / Ctrl+B step body-2 (vim's CTRL-F
+	// two-line overlap convention). Zero before the first render —
+	// handlers fall back to 10 / 20 so a keystroke that beats the
+	// initial WindowSizeMsg still moves a sane distance.
+	bodyHeight int
+
 	// scope tracks the active tenant scope as observed from
 	// app.ScopeChangedMsg — "all" includes every row; a single
 	// name flags exactly that row as in-scope; comma-joined names
@@ -136,7 +144,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.scope = m.Scope
 		return p, nil
 	}
-	keyMsg, ok := msg.(tea.KeyMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
@@ -149,10 +157,20 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if p.cursor > 0 {
 			p.cursor--
 		}
-	case "g":
-		p.cursor = 0
+	// `g` alone is dead code — the dispatcher's chord buffer at
+	// LayerTable consumes the first `g` waiting for the second. The
+	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
+	// handled in Update.
 	case "G":
 		p.cursor = max(len(p.rows)-1, 0)
+	case "ctrl+d":
+		p.cursor = min(p.cursor+p.halfPageStep(), max(len(p.rows)-1, 0))
+	case "ctrl+u":
+		p.cursor = max(p.cursor-p.halfPageStep(), 0)
+	case "ctrl+f":
+		p.cursor = min(p.cursor+p.fullPageStep(), max(len(p.rows)-1, 0))
+	case "ctrl+b":
+		p.cursor = max(p.cursor-p.fullPageStep(), 0)
 	case "enter":
 		cmd := p.drillToConfig()
 		return p, cmd
@@ -163,6 +181,28 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	// The tenant page therefore does NOT bind the digits locally;
 	// the dispatcher consumes them before forwardToTop runs.
 	return p, nil
+}
+
+// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
+// rendered body height, with a 10-row cold-start fallback. Floored
+// at 1 so a future narrowing of the cold-start guard cannot turn
+// the binding into a no-op.
+func (p *Page) halfPageStep() int {
+	if p.bodyHeight < 2 {
+		return 10
+	}
+	return max(p.bodyHeight/2, 1)
+}
+
+// fullPageStep returns the Ctrl+F / Ctrl+B distance: a full body
+// minus two lines of context (vim's CTRL-F convention), with a
+// 20-row cold-start fallback. Floored at 1 for the same reason as
+// halfPageStep.
+func (p *Page) fullPageStep() int {
+	if p.bodyHeight < 4 {
+		return 20
+	}
+	return max(p.bodyHeight-2, 1)
 }
 
 // drillToConfig pushes the tenantconfig page produced by the
@@ -215,6 +255,7 @@ func (p *Page) View(width, height int) string {
 	}
 	headerLine := p.renderHeader(width)
 	bodyHeight := max(height-1, 0)
+	p.bodyHeight = bodyHeight
 	maxRows := min(bodyHeight, len(p.rows))
 	p.reconcileScroll(maxRows)
 	end := min(p.topRow+maxRows, len(p.rows))
