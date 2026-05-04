@@ -65,12 +65,13 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `s` | Silence this alert |
 | `y` | Copy fingerprint to clipboard |
 | `o` | Open `generatorURL` in the default browser |
-| `Esc` / `q` | Back |
+| `Esc` | Back |
 
 ### Silences list
 
 | Key | What |
 | --- | --- |
+| `Enter` | Open silence detail (read-only YAML) |
 | `n` | New silence (empty form) |
 | `e` | Edit silence (form prefilled) |
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
@@ -79,6 +80,16 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `Shift+S` | Sort by state |
 | `Shift+C` | Sort by creator |
 | `Shift+T` | Sort by `startsAt` |
+
+### Silence detail
+
+| Key | What |
+| --- | --- |
+| `j` / `k` | Scroll down / up one line |
+| `Ctrl+D` / `Ctrl+U` | Half-page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full-page down / up |
+| `G` / `gg` | Jump to last / first line |
+| `Esc` | Back |
 
 ### Silence form
 
