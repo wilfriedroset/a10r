@@ -18,6 +18,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -28,23 +29,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // fakeClipboard records every Copy call. Nil err on success;
@@ -105,7 +89,7 @@ func TestPage_OpensInPushTimeFormat(t *testing.T) {
 		Now:        func() time.Time { return fixedNow },
 		TimeFormat: app.TimeFormatAbsolute,
 	})
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "started:",
 		"absolute mode swaps the age label to started")
 	require.Contains(t, out, "2026-",
@@ -121,13 +105,13 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 		Styles: loadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "5m ago")
 	require.NotContains(t, out, "2026-",
 		"relative mode must not surface the absolute date")
 
 	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
-	out = stripStyle(p.View(120, 30))
+	out = testutil.StripStyle(p.View(120, 30))
 	require.NotContains(t, out, "5m ago")
 	require.Contains(t, out, "2026-",
 		"absolute mode must surface the ISO local date prefix on the age line")
@@ -146,8 +130,8 @@ func TestPage_RenderAppliesYAMLKeyAndValueStyles(t *testing.T) {
 	raw := p.View(120, 30)
 
 	// Sanity: stripped output keeps the underlying YAML-shaped lines.
-	require.Contains(t, stripStyle(raw), "alertname:")
-	require.Contains(t, stripStyle(raw), "severity:")
+	require.Contains(t, testutil.StripStyle(raw), "alertname:")
+	require.Contains(t, testutil.StripStyle(raw), "severity:")
 
 	// The "Labels:" and "Annotations:" section headers — and every
 	// "key: value" pair underneath — must paint the foreground via
@@ -169,7 +153,7 @@ func TestPage_RenderShowsAllSections(t *testing.T) {
 		Styles: loadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	for _, want := range []string{
 		"HighCPU", "active", "critical", "abc123",
 		"5m ago", "host-1", "CPU is hot",
@@ -386,7 +370,7 @@ func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
 		"description": "VALUE = 0\nLABELS = map[__name__:up cluster:EU]",
 	}
 	p := New(Options{Alert: a, Styles: loadStyles(t)})
-	out := stripStyle(p.View(120, 50))
+	out := testutil.StripStyle(p.View(120, 50))
 	lines := strings.Split(out, "\n")
 
 	// Find the description line and the next line after.
@@ -418,7 +402,7 @@ func TestPage_WrapsLongAnnotationWithHangingIndent(t *testing.T) {
 		"description": "This is an alert meant to ensure that the entire alerting pipeline is functional. This alert is always firing.",
 	}
 	p := New(Options{Alert: a, Styles: loadStyles(t)})
-	out := stripStyle(p.View(80, 50))
+	out := testutil.StripStyle(p.View(80, 50))
 	lines := strings.Split(out, "\n")
 
 	// Find the line that begins the description annotation.
@@ -450,13 +434,13 @@ func TestPage_ScrollsViewport(t *testing.T) {
 	}
 	p := New(Options{Alert: a, Styles: loadStyles(t)})
 	// Render at a tiny height that won't show the full body.
-	out := stripStyle(p.View(80, 10))
+	out := testutil.StripStyle(p.View(80, 10))
 	require.NotContains(t, out, "kt: vt",
 		"with a small viewport the bottom annotations must NOT appear yet")
 
 	// G jumps to the bottom; the last keys must come into view.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	out = stripStyle(p.View(80, 10))
+	out = testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "kt: vt",
 		"after G the bottom of the body must be visible")
 }
@@ -504,7 +488,7 @@ func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 		State:  backend.AlertStateActive,
 	}
 	p := New(Options{Alert: a, Styles: loadStyles(t)})
-	out := stripStyle(p.View(80, 20))
+	out := testutil.StripStyle(p.View(80, 20))
 	require.Contains(t, out, "Bare")
 	require.Contains(t, out, "(none)",
 		"empty annotations must render as (none) so the section is not blank")
@@ -525,7 +509,7 @@ func suppressedSample(silencedBy, inhibitedBy, mutedBy []string) backend.Alert {
 func renderSuppressed(t *testing.T, a backend.Alert, width int) string {
 	t.Helper()
 	p := New(Options{Alert: a, Styles: loadStyles(t), Now: func() time.Time { return fixedNow }})
-	return stripStyle(p.View(width, 30))
+	return testutil.StripStyle(p.View(width, 30))
 }
 
 func TestPage_SuppressionBlockOnlyForSuppressed(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -23,28 +24,6 @@ func loadDefaultStyles(t *testing.T) theme.Styles {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *styles
-}
-
-// stripStyle returns the visible text from a lipgloss-rendered
-// string by walking and dropping ANSI escape sequences. Tests
-// assert on the visible content so we don't pin the exact ANSI
-// byte sequence (which can change across lipgloss versions).
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-			// drop
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func TestRender_AllZonesAppear(t *testing.T) {
@@ -66,7 +45,7 @@ func TestRender_AllZonesAppear(t *testing.T) {
 		Width:   120,
 	}, styles)
 
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	require.Contains(t, visible, "tenants:")
 	require.Contains(t, visible, "prod")
 	require.Contains(t, visible, "●", "connected indicator")
@@ -96,7 +75,7 @@ func TestRender_ConnStateGlyphs(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out := stripStyle(Render(State{
+			out := testutil.StripStyle(Render(State{
 				Tenants: "prod",
 				Conn:    tc.state,
 				Width:   80,
@@ -119,7 +98,7 @@ func TestRender_OmitsEmptyOptionalFields(t *testing.T) {
 		Width:   60,
 	}, styles)
 
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	require.Contains(t, visible, "tenants: prod")
 	require.NotContains(t, visible, "·",
 		"middle-dot separator must NOT appear when count and age are empty")
@@ -158,7 +137,7 @@ func TestRender_ContentTruncation(t *testing.T) {
 	styles := loadDefaultStyles(t)
 	long := strings.Repeat("filter:foo=bar ", 40) // way longer than 80 columns
 
-	out := stripStyle(Render(State{
+	out := testutil.StripStyle(Render(State{
 		Tenants: "prod",
 		Conn:    ConnConnected,
 		Content: long,
@@ -179,7 +158,7 @@ func TestRender_NarrowWidthDropsMiddle(t *testing.T) {
 	// 30 columns: left zone + right zone eat almost everything,
 	// leaving the middle below the minMiddleWidth floor. Content
 	// must be dropped entirely (no `…` orphan).
-	out := stripStyle(Render(State{
+	out := testutil.StripStyle(Render(State{
 		Tenants: "prod",
 		Conn:    ConnConnected,
 		Content: "filter: stuff",
@@ -286,14 +265,14 @@ func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
 
 	// Generous budget keeps everything.
 	full := renderHintsWithBudget(hints, 200, styles)
-	require.Contains(t, stripStyle(full), "[s]")
-	require.Contains(t, stripStyle(full), "[Space]")
-	require.Contains(t, stripStyle(full), "[?]")
+	require.Contains(t, testutil.StripStyle(full), "[s]")
+	require.Contains(t, testutil.StripStyle(full), "[Space]")
+	require.Contains(t, testutil.StripStyle(full), "[?]")
 
 	// Tight budget drops trailing entries — `[s]` (registered first)
 	// should survive longer than `[?]` (registered last).
 	tight := renderHintsWithBudget(hints, 12, styles)
-	require.Contains(t, stripStyle(tight), "[s]",
+	require.Contains(t, testutil.StripStyle(tight), "[s]",
 		"the first-registered hint must survive at the tightest budget")
 
 	// Zero budget renders nothing.

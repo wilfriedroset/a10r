@@ -3,7 +3,6 @@
 package silence
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -23,24 +23,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func sample() backend.Silence {
@@ -82,7 +64,7 @@ func TestPage_HeaderContentIsEmpty(t *testing.T) {
 func TestPage_BodyRendersYAMLWithSilenceFields(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Tenant: "prod", Styles: loadStyles(t)})
-	out := stripStyle(p.View(120, 40))
+	out := testutil.StripStyle(p.View(120, 40))
 	require.Contains(t, out, "id: sil-1")
 	require.Contains(t, out, "createdBy: alice")
 	require.Contains(t, out, "comment: scheduled maintenance")
@@ -95,7 +77,7 @@ func TestPage_BodyRendersYAMLWithSilenceFields(t *testing.T) {
 func TestPage_BodySurfacesRegexMatcherFlags(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
-	out := stripStyle(p.View(160, 40))
+	out := testutil.StripStyle(p.View(160, 40))
 	// Regex matchers ride alongside ident matchers; the boolean
 	// flags must surface so an operator inspecting the silence can
 	// tell `=~` from `=` without re-reading the form.
@@ -119,7 +101,7 @@ func TestPage_BodySurfacesNonActiveStates(t *testing.T) {
 			s := sample()
 			s.State = tc.state
 			p := New(Options{Silence: s, Styles: loadStyles(t)})
-			out := stripStyle(p.View(120, 40))
+			out := testutil.StripStyle(p.View(120, 40))
 			require.Contains(t, out, "state: "+string(tc.state),
 				"non-active states must reach the body so the operator "+
 					"sees why a silence isn't suppressing alerts")
@@ -130,7 +112,7 @@ func TestPage_BodySurfacesNonActiveStates(t *testing.T) {
 func TestPage_BodyRendersTimestampsRFC3339UTC(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
-	out := stripStyle(p.View(120, 40))
+	out := testutil.StripStyle(p.View(120, 40))
 	// startsAt is fixedNow - 1h = 2026-04-25T11:00:00Z. yaml.v3 quotes
 	// scalars containing `:` so the rendered form keeps the quotes —
 	// the assertion mirrors that exactly.
@@ -147,8 +129,8 @@ func TestPage_BodyAppliesYAMLKeyAndValueStyles(t *testing.T) {
 	// The unstyled text must match the YAML body content; the
 	// styled output must include SGR escapes (proof the YAML.Key /
 	// YAML.Value foreground roles were applied).
-	require.Contains(t, stripStyle(raw), "id: sil-1")
-	require.NotEqual(t, stripStyle(raw), raw,
+	require.Contains(t, testutil.StripStyle(raw), "id: sil-1")
+	require.NotEqual(t, testutil.StripStyle(raw), raw,
 		"a populated detail body must be styled — YAML.Key / YAML.Value "+
 			"must paint the foreground rather than rendering as plain text")
 

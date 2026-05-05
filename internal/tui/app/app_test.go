@@ -13,6 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -28,25 +29,6 @@ func newTestApp(t *testing.T) *App {
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 	})
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-			// drop
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func TestApp_InitNoCmd(t *testing.T) {
@@ -79,7 +61,7 @@ func TestApp_ResizePropagates(t *testing.T) {
 	require.True(t, v.AltScreen)
 	require.NotEmpty(t, v.Content)
 
-	visible := stripStyle(v.Content)
+	visible := testutil.StripStyle(v.Content)
 	require.Contains(t, visible, "tenants:",
 		"header must render after resize")
 }
@@ -387,7 +369,7 @@ func TestApp_FlashShowAndClear(t *testing.T) {
 	require.True(t, a.flash.IsActive())
 	require.NotNil(t, cmd, "Show must schedule the auto-clear tick")
 
-	visible := stripStyle(a.View().Content)
+	visible := testutil.StripStyle(a.View().Content)
 	require.Contains(t, visible, "oops")
 }
 
@@ -404,7 +386,7 @@ func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
 
 	// Closed prompt — no extra bordered box appears between the
 	// top panel and the body.
-	out := stripStyle(a.View().Content)
+	out := testutil.StripStyle(a.View().Content)
 	closedFrames := strings.Count(out, "┌")
 	require.Equal(t, 1, closedFrames,
 		"closed prompt: only the body's bordered frame is visible")
@@ -416,7 +398,7 @@ func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
 	a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
 
-	out = stripStyle(a.View().Content)
+	out = testutil.StripStyle(a.View().Content)
 	require.Equal(t, 2, strings.Count(out, "┌"),
 		"open prompt adds its own bordered panel above the body")
 	require.Contains(t, out, "🐩>",
@@ -430,7 +412,7 @@ func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
 	for _, r := range "sil" {
 		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	out = stripStyle(a.View().Content)
+	out = testutil.StripStyle(a.View().Content)
 	require.Contains(t, out, "🐶>",
 		"command mode renders the dog emoji prefix")
 	require.NotContains(t, out, "</sil>",

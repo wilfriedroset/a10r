@@ -5,7 +5,6 @@ package tenantconfig
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -23,24 +23,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // fakeFetcher captures the call and replies with a fixed
@@ -168,7 +150,7 @@ func TestPage_BodyShowsRedactedBackendImmediately(t *testing.T) {
 		},
 		Styles: loadStyles(t),
 	})
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "url: http://am")
 	require.Contains(t, out, "***")
 	require.NotContains(t, out, "supersecret")
@@ -189,7 +171,7 @@ func TestPage_FetchSucceedsRendersAMConfig(t *testing.T) {
 	require.NotNil(t, cmd)
 	_, _ = p.Update(cmd())
 	require.False(t, p.loading)
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "global:")
 	require.Contains(t, out, "resolve_timeout: 5m")
 }
@@ -204,7 +186,7 @@ func TestPage_FetchFailureSurfacesError(t *testing.T) {
 	})
 	cmd := p.Init()
 	_, _ = p.Update(cmd())
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "fetch failed:")
 	require.Contains(t, out, "backend unreachable")
 }
@@ -218,7 +200,7 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 	})
 	require.False(t, p.loading)
 	require.Nil(t, p.Init())
-	out := stripStyle(p.View(120, 30))
+	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "(no client available)")
 }
 

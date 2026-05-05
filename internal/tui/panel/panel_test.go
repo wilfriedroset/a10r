@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -19,25 +20,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences so substring assertions
-// don't pin colour values.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func TestRenderTop_AllColumnsAppear(t *testing.T) {
@@ -55,7 +37,7 @@ func TestRenderTop_AllColumnsAppear(t *testing.T) {
 		},
 		Logo: Logo,
 	}, styles)
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	require.Contains(t, visible, "tenants:")
 	require.Contains(t, visible, "prod")
 	require.Contains(t, visible, "<s>")
@@ -75,7 +57,7 @@ func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 		Hints: []action.Action{{Key: "s", Description: "silence"}},
 		Logo:  Logo,
 	}, styles)
-	require.NotContains(t, stripStyle(out), "a10r-logo-marker",
+	require.NotContains(t, testutil.StripStyle(out), "a10r-logo-marker",
 		"logo column must drop when width is tight (no specific glyph required)")
 }
 
@@ -87,7 +69,7 @@ func TestRenderTop_TenantsClipToLogoHeight(t *testing.T) {
 		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%02d", i+1)}
 	}
 	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	// 3 cols × 5 rows (logo height) = 15 cells. Item 16 must clip.
 	require.Contains(t, visible, "t15")
 	require.NotContains(t, visible, "t16",
@@ -108,7 +90,7 @@ func TestRenderTop_TenantsColumnMajorFill(t *testing.T) {
 		{Key: "6", Name: "foxtrot"},
 	}
 	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
-	lines := strings.Split(stripStyle(out), "\n")
+	lines := strings.Split(testutil.StripStyle(out), "\n")
 	require.GreaterOrEqual(t, len(lines), 5)
 	require.Contains(t, lines[0], "<1>")
 	require.Contains(t, lines[0], "alpha")
@@ -130,7 +112,7 @@ func TestRenderTop_HintsClipAndLayoutMatchTenants(t *testing.T) {
 		}
 	}
 	out := RenderTop(State{Width: 240, Hints: hints, Logo: Logo}, styles)
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	require.Contains(t, visible, "desc15")
 	require.NotContains(t, visible, "desc16",
 		"the 16th hint must clip — same 3×5 budget as tenants")
@@ -151,7 +133,7 @@ func TestRenderTop_HintsColumnMajorFill(t *testing.T) {
 		{Key: "g", Description: "act-g"},
 	}
 	out := RenderTop(State{Width: 240, Hints: hints, Logo: Logo}, styles)
-	lines := strings.Split(stripStyle(out), "\n")
+	lines := strings.Split(testutil.StripStyle(out), "\n")
 	require.GreaterOrEqual(t, len(lines), 5)
 	require.Contains(t, lines[0], "act-a")
 	require.Contains(t, lines[0], "act-f")
@@ -172,7 +154,7 @@ func TestRenderTop_TenantsExactlyAtCapacity(t *testing.T) {
 		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%02d", i+1)}
 	}
 	out := RenderTop(State{Width: 240, Tenants: tenants, Logo: Logo}, styles)
-	visible := stripStyle(out)
+	visible := testutil.StripStyle(out)
 	for i := 1; i <= 15; i++ {
 		require.Contains(t, visible, fmt.Sprintf("t%02d", i),
 			"every cell of an exactly-full grid must render")

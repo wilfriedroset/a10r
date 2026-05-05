@@ -5,7 +5,6 @@ package tenant
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,27 +13,9 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-			// drop
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
 
 func loadStyles(t *testing.T) theme.Styles {
 	t.Helper()
@@ -128,7 +109,7 @@ func TestPage_RenderShowsURLAndVersion(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
-	out := stripStyle(p.View(140, 10))
+	out := testutil.StripStyle(p.View(140, 10))
 	require.Contains(t, out, "http://am-prod:9093")
 	require.Contains(t, out, "0.27.0")
 	require.Contains(t, out, "—",
@@ -139,7 +120,7 @@ func TestPage_RenderHeaderRowCarriesColumnTitles(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
 	p.SetRows(sampleRows())
-	out := stripStyle(p.View(160, 10))
+	out := testutil.StripStyle(p.View(160, 10))
 	for _, want := range []string{"NAME", "URL", "VERSION"} {
 		require.Contains(t, out, want, "header row must carry %q", want)
 	}
@@ -184,7 +165,7 @@ func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 	_, _ = p.Update(app.ScopeChangedMsg{Scope: "prod"})
 	require.Equal(t, "tenants(prod)[3]", p.Title())
 
-	out := stripStyle(p.View(80, 10))
+	out := testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "● ",
 		"the in-scope row carries a `●` glyph so the user can spot "+
 			"which backend is fanned-out without leaving the page")

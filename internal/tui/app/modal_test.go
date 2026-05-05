@@ -13,6 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -153,7 +154,7 @@ func TestModal_RendersInBodySlot(t *testing.T) {
 	picker := modal.NewPicker("pick a tenant", []string{"prod"}, modal.PickerSingle)
 	drive(t, a, OpenModal(func() modal.Modal { return picker }))
 
-	visible := stripStyle(a.View().Content)
+	visible := testutil.StripStyle(a.View().Content)
 	require.Contains(t, visible, "pick a tenant",
 		"open modal must replace the body slot")
 	require.NotContains(t, visible, "alerts body",

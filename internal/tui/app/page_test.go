@@ -13,6 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // fakePage is a minimal Page implementation for stack-mechanics
@@ -261,7 +262,7 @@ func TestStack_HeaderContentFromTopPage(t *testing.T) {
 	}
 	drive(t, a, PushPage(func() Page { return page }))
 
-	visible := stripStyle(a.View().Content)
+	visible := testutil.StripStyle(a.View().Content)
 	require.Contains(t, visible, "filter: severity=critical",
 		"top-of-stack page's HeaderContent must surface as a body subtitle")
 	require.Contains(t, visible, "<s>",

@@ -3,7 +3,6 @@
 package footer
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -19,25 +19,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-			// drop
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // ----- crumbs -----
@@ -56,7 +37,7 @@ func TestCrumbs_PushPopRender(t *testing.T) {
 	require.Equal(t, 2, c.Len())
 	require.Equal(t, "detail", c.Top())
 
-	out := stripStyle(c.Render(styles))
+	out := testutil.StripStyle(c.Render(styles))
 	require.Contains(t, out, "<alerts>")
 	require.Contains(t, out, "<detail>")
 	require.Contains(t, out, crumbSeparator)
@@ -65,7 +46,7 @@ func TestCrumbs_PushPopRender(t *testing.T) {
 	require.Equal(t, 1, c.Len())
 	require.Equal(t, "alerts", c.Top())
 
-	out = stripStyle(c.Render(styles))
+	out = testutil.StripStyle(c.Render(styles))
 	require.Contains(t, out, "<alerts>")
 	require.NotContains(t, out, "<detail>")
 	require.NotContains(t, out, crumbSeparator,
@@ -315,13 +296,13 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 	p := NewPrompt().Open(PromptCommand)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 
-	out := stripStyle(p.Render(styles))
+	out := testutil.StripStyle(p.Render(styles))
 	require.Contains(t, out, "🐶>",
 		"command mode renders the dog emoji + chevron, mirroring k9s")
 	require.Contains(t, out, "s")
 
 	p2 := NewPrompt().Open(PromptFilter)
-	out2 := stripStyle(p2.Render(styles))
+	out2 := testutil.StripStyle(p2.Render(styles))
 	require.Contains(t, out2, "🐩>",
 		"filter mode renders the poodle emoji + chevron, mirroring k9s")
 }
@@ -398,7 +379,7 @@ func TestFlash_StaleClearIgnored(t *testing.T) {
 	require.True(t, f.IsActive(),
 		"stale clear (id=1) must not clear a newer flash (id=2)")
 	require.Equal(t, "second", f.Text())
-	require.Contains(t, stripStyle(f.Render(loadStyles(t))), "second",
+	require.Contains(t, testutil.StripStyle(f.Render(loadStyles(t))), "second",
 		"render must reflect the newer flash text, not the stale one")
 
 	// Matching clear (gen 2) does clear it.
@@ -427,7 +408,7 @@ func TestFlash_RenderUsesLevelStyle(t *testing.T) {
 			f, _ = f.Update(FlashShowMsg{Level: tc.level, Text: "msg"})
 			out := f.Render(styles)
 			require.NotEmpty(t, out)
-			require.Contains(t, stripStyle(out), "msg")
+			require.Contains(t, testutil.StripStyle(out), "msg")
 		})
 	}
 }

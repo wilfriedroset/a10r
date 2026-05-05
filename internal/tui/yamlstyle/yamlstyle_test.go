@@ -3,11 +3,11 @@
 package yamlstyle
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -16,24 +16,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func TestLine_CommentPassesThroughUnstyled(t *testing.T) {
@@ -66,7 +48,7 @@ func TestLine_KeyValueIsStyled(t *testing.T) {
 	styles := loadStyles(t)
 	out := Line("comment: scheduled maintenance", styles)
 	// Must keep the underlying text intact so :%s-style scanning works.
-	require.Equal(t, "comment: scheduled maintenance", stripStyle(out))
+	require.Equal(t, "comment: scheduled maintenance", testutil.StripStyle(out))
 	// And must apply the YAML.Key / Value styles — easiest portable
 	// check is that the rendered output is *different* from the raw
 	// line (i.e. SGR escapes were emitted).
@@ -78,7 +60,7 @@ func TestLine_KeyOnlyStillStylesKeyAndPunct(t *testing.T) {
 	t.Parallel()
 	styles := loadStyles(t)
 	out := Line("matchers:", styles)
-	require.Equal(t, "matchers:", stripStyle(out))
+	require.Equal(t, "matchers:", testutil.StripStyle(out))
 	require.NotEqual(t, "matchers:", out)
 }
 
@@ -88,7 +70,7 @@ func TestLine_ListElementKeyValueStyled(t *testing.T) {
 	// "- name: foo" — leading "- " is treated as part of the indent
 	// so the key (`name`) still gets the YAML.Key role.
 	out := Line("- name: foo", styles)
-	require.Equal(t, "- name: foo", stripStyle(out))
+	require.Equal(t, "- name: foo", testutil.StripStyle(out))
 	require.NotEqual(t, "- name: foo", out)
 }
 
@@ -120,7 +102,7 @@ func TestLine_MultiWordKeyStillStyled(t *testing.T) {
 	// but they are *labels* the alert detail page builds. They
 	// must still receive the YAML.Key role.
 	out := Line("Generator URL: https://example.test/g?q=1", styles)
-	require.Equal(t, "Generator URL: https://example.test/g?q=1", stripStyle(out))
+	require.Equal(t, "Generator URL: https://example.test/g?q=1", testutil.StripStyle(out))
 	require.NotEqual(t, "Generator URL: https://example.test/g?q=1", out,
 		"multi-word labels with only letters and spaces must keep styling")
 }
@@ -136,5 +118,5 @@ func TestBody_PreservesLineCount(t *testing.T) {
 	styles := loadStyles(t)
 	in := "id: abc\ncomment: hi\nmatchers:\n  - name: alertname\n    value: HighCPU\n"
 	out := Body(in, styles)
-	require.Equal(t, in, stripStyle(out))
+	require.Equal(t, in, testutil.StripStyle(out))
 }

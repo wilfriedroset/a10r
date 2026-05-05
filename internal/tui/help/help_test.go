@@ -3,7 +3,6 @@
 package help
 
 import (
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -20,25 +20,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-			// drop
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func sampleOpts(t *testing.T) Options {
@@ -81,7 +62,7 @@ func TestHelp_TitleIsHelp(t *testing.T) {
 func TestHelp_ColumnsRender(t *testing.T) {
 	t.Parallel()
 	h := New(sampleOpts(t))
-	out := stripStyle(h.View(160, 30))
+	out := testutil.StripStyle(h.View(160, 30))
 	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "HOTKEYS"} {
 		require.Containsf(t, out, col, "column heading %q must appear", col)
 	}
@@ -90,7 +71,7 @@ func TestHelp_ColumnsRender(t *testing.T) {
 func TestHelp_ResourceColumnListsTenantsAndPageVerbs(t *testing.T) {
 	t.Parallel()
 	h := New(sampleOpts(t))
-	out := stripStyle(h.View(160, 30))
+	out := testutil.StripStyle(h.View(160, 30))
 
 	// Numeric quick-switch comes from the global App layer; the
 	// help renders it inside RESOURCE because it changes the
@@ -114,7 +95,7 @@ func TestHelp_ReadOnlyHidesDangerous(t *testing.T) {
 	opts := sampleOpts(t)
 	opts.ReadOnly = true
 	h := New(opts)
-	out := stripStyle(h.View(160, 30))
+	out := testutil.StripStyle(h.View(160, 30))
 
 	require.NotContains(t, out, "silence",
 		"`s silence` is Dangerous and must be hidden in read-only mode")
@@ -125,7 +106,7 @@ func TestHelp_ReadOnlyHidesDangerous(t *testing.T) {
 func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
 	t.Parallel()
 	h := New(sampleOpts(t))
-	out := stripStyle(h.View(160, 30))
+	out := testutil.StripStyle(h.View(160, 30))
 
 	for _, want := range []string{"<:>", "command", "<?>", "help", "<Esc>", "back"} {
 		require.Containsf(t, out, want, "GENERAL column must surface %q", want)
@@ -170,7 +151,7 @@ func TestHelp_NumericListClampsAtNine(t *testing.T) {
 		"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
 	}
 	h := New(opts)
-	out := stripStyle(h.View(200, 40))
+	out := testutil.StripStyle(h.View(200, 40))
 
 	require.Contains(t, out, "<9>")
 	require.NotContains(t, out, "<10>",
@@ -182,7 +163,7 @@ func TestHelp_NoTenantsDropsNumericBlock(t *testing.T) {
 	opts := sampleOpts(t)
 	opts.Tenants = nil
 	h := New(opts)
-	out := stripStyle(h.View(160, 30))
+	out := testutil.StripStyle(h.View(160, 30))
 
 	require.NotContains(t, out, "<0>",
 		"empty tenant list drops the numeric block entirely — "+

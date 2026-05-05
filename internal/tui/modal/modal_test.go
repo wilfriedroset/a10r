@@ -3,32 +3,14 @@
 package modal
 
 import (
-	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stretchr/testify/require"
-)
 
-// stripStyle drops ANSI SGR sequences so substring assertions are
-// resilient to lipgloss colour changes.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+)
 
 // ----- picker -----
 
@@ -189,7 +171,7 @@ func TestPicker_ViewIncludesItems(t *testing.T) {
 	require.Equal(t, "tenants", p.Title(),
 		"the title is owned by Modal.Title and rendered by the App's "+
 			"outer panel border — not the picker body")
-	out := stripStyle(p.View(40, 20))
+	out := testutil.StripStyle(p.View(40, 20))
 	require.NotContains(t, out, "tenants",
 		"the body must NOT print the title or it would duplicate "+
 			"the panel border label")
