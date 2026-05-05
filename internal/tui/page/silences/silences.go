@@ -520,6 +520,15 @@ func (*Page) Bindings() []action.Action {
 		{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
 		{Key: "Space", Description: "mark", View: "silences"},
 		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
+		// Sort shortcuts. Routed into the help overlay's HOTKEYS
+		// column via the "Shift+" prefix in splitVerbsHotkeys.
+		// Listed in visual header column order (BY → STARTS →
+		// ENDS → STATE) so the help reads in the same scan
+		// direction as the table.
+		{Key: "Shift+C", Description: "sort by creator", View: "silences"},
+		{Key: "Shift+S", Description: "sort by startsAt", View: "silences"},
+		{Key: "Shift+E", Description: "sort by endsAt", View: "silences"},
+		{Key: "Shift+T", Description: "sort by state", View: "silences"},
 		// `r` is documented in the global help catalog; the page
 		// hint strip surfaces it here so the affordance also shows
 		// up next to the page-specific verbs the user is reading
@@ -722,11 +731,20 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	return true
 }
 
-// handleSort processes sort-column shortcuts. Same column twice
-// flips ASC↔DESC; switching to a new column resets direction to
-// that column's default — matching the spreadsheet-style UX.
+// handleSort processes sort-column shortcuts (h/l walk plus
+// Shift+letter direct shortcuts). Returns true when the key was a
+// sort change.
+//
+// Direction semantics mirror the alerts page: pressing the active
+// column's shortcut again flips ASC/DESC; pressing a different
+// column's shortcut resets to that column's default direction. h/l
+// walk also resets to default for the new column.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	switch m.String() {
+	case "h", "left":
+		p.applySort(prevSort(p.sort))
+	case "l", "right":
+		p.applySort(nextSort(p.sort))
 	case "shift+e", "E":
 		p.applySort(SortByEndsAt)
 	case "shift+s", "S":
@@ -739,6 +757,41 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 		return false
 	}
 	return true
+}
+
+// columnCycle is the visual left-to-right order of sortable
+// columns in renderHeader: BY → STARTS → ENDS → STATE. h/l walks
+// through this slice so the user's "right one column" intuition
+// matches what they see; the SortKey iota order doesn't, because
+// SortByEndsAt is the iota zero (it's the page default) while it
+// renders in the third visual slot.
+var columnCycle = []SortKey{
+	SortByCreatedBy,
+	SortByStartsAt,
+	SortByEndsAt,
+	SortByState,
+}
+
+// nextSort returns the column to the right of k in the visual
+// header order, wrapping from STATE back to BY.
+func nextSort(k SortKey) SortKey {
+	for i, c := range columnCycle {
+		if c == k {
+			return columnCycle[(i+1)%len(columnCycle)]
+		}
+	}
+	return columnCycle[0]
+}
+
+// prevSort returns the column to the left of k in the visual
+// header order, wrapping from BY back to STATE.
+func prevSort(k SortKey) SortKey {
+	for i, c := range columnCycle {
+		if c == k {
+			return columnCycle[(i-1+len(columnCycle))%len(columnCycle)]
+		}
+	}
+	return columnCycle[0]
 }
 
 // applySort updates sort key and direction. Same key twice flips

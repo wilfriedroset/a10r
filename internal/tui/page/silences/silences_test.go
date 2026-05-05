@@ -26,6 +26,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -36,23 +37,6 @@ func loadStyles(t *testing.T) theme.Styles {
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return *s
-}
-
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 func newPage(t *testing.T) *Page {
@@ -90,14 +74,14 @@ func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 		Tenant:   "",
 	})
 
-	out := stripStyle(p.View(160, 20))
+	out := testutil.StripStyle(p.View(160, 20))
 	require.Contains(t, out, "1h ago",
 		"relative mode renders StartsAt one hour earlier as `1h ago`")
 	require.Contains(t, out, "1h",
 		"relative mode renders EndsAt one hour later as `1h`")
 
 	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
-	out = stripStyle(p.View(180, 20))
+	out = testutil.StripStyle(p.View(180, 20))
 	require.Contains(t, out, "2026-",
 		"absolute mode must surface the ISO local date prefix on both columns")
 	// Per post-batch UX call, time mode is intentionally absent
@@ -143,6 +127,56 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	// And then toggles on repeat.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
 	require.False(t, p.sortAsc)
+}
+
+func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	want := map[string]string{
+		"Shift+E": "sort by endsAt",
+		"Shift+S": "sort by startsAt",
+		"Shift+C": "sort by creator",
+		"Shift+T": "sort by state",
+	}
+	got := map[string]string{}
+	for _, b := range p.Bindings() {
+		if strings.HasPrefix(b.Key, "Shift+") {
+			got[b.Key] = b.Description
+		}
+	}
+	for k, desc := range want {
+		require.Contains(t, got, k,
+			"Bindings() must surface %s so the `?` overlay's HOTKEYS column lists it", k)
+		require.Equal(t, desc, got[k],
+			"sort description for %s must match the keybindings.md table", k)
+	}
+}
+
+func TestPage_SortColumnWalk(t *testing.T) {
+	t.Parallel()
+
+	// The walk must follow the visual header column order
+	// (BY → STARTS → ENDS → STATE), not the SortKey iota order —
+	// the user's "next column to the right" intuition is built
+	// off what they see, not the enum's internal numbering.
+	p := newPage(t)
+	require.Equal(t, SortByEndsAt, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByState, p.sort, "ENDS → STATE is one column right")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByCreatedBy, p.sort, "STATE wraps right to BY")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByStartsAt, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByEndsAt, p.sort)
+
+	// h walks left through the same visual order.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.Equal(t, SortByStartsAt, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.Equal(t, SortByCreatedBy, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.Equal(t, SortByState, p.sort, "BY wraps left to STATE (rightmost column)")
 }
 
 func TestPage_SortByCreatedBy(t *testing.T) {
@@ -399,7 +433,7 @@ func TestPage_TitleColdStartReadsLoading(t *testing.T) {
 	require.Contains(t, p.Title(), "loading silences…")
 	require.NotContains(t, p.Title(), "silences(",
 		"cold start title must not show a count form")
-	body := stripStyle(p.View(80, 5))
+	body := testutil.StripStyle(p.View(80, 5))
 	require.NotContains(t, body, "loading silences",
 		"loading hint lives in the title now — body must not echo it")
 	require.NotContains(t, body, "no silences",
@@ -415,7 +449,7 @@ func TestPage_TitleSwitchesBackAfterPoll(t *testing.T) {
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{}, Tenant: "prod"})
 	require.Equal(t, "silences(all)[0]", p.Title())
-	body := stripStyle(p.View(80, 5))
+	body := testutil.StripStyle(p.View(80, 5))
 	require.Contains(t, body, "no silences (yet)")
 }
 
@@ -464,7 +498,7 @@ func TestPage_OutOfScopeDataMsgDoesNotEndLoading(t *testing.T) {
 	})
 	require.Contains(t, p.Title(), "loading silences…",
 		"out-of-scope DataMsg must not end the loading window")
-	body := stripStyle(p.View(80, 5))
+	body := testutil.StripStyle(p.View(80, 5))
 	require.NotContains(t, body, "no silences (yet)",
 		"body must not flash the empty-list copy while the in-scope tenant is still pending")
 
@@ -688,7 +722,7 @@ func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	var expiredLine, activeLine string
 	for _, line := range lines {
-		stripped := stripStyle(line)
+		stripped := testutil.StripStyle(line)
 		switch {
 		case strings.Contains(stripped, "bob"):
 			expiredLine = line
@@ -731,7 +765,7 @@ func TestPage_RenderShowsCreatorAndState(t *testing.T) {
 		sil("a", "alice@example", backend.SilenceStateActive, time.Hour),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(120, 10))
+	out := testutil.StripStyle(p.View(120, 10))
 	require.Contains(t, out, "alice@example")
 	require.Contains(t, out, "active")
 }
@@ -766,7 +800,7 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 			if tc.mark {
 				_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 			}
-			out := stripStyle(p.View(160, 5))
+			out := testutil.StripStyle(p.View(160, 5))
 			lines := strings.Split(out, "\n")
 			require.GreaterOrEqual(t, len(lines), 2,
 				"need a header line and at least one data row")
@@ -803,7 +837,7 @@ func TestPage_HeaderColumnOrder(t *testing.T) {
 			}},
 			Tenant: "prod",
 		})
-		out := stripStyle(p.View(220, 5))
+		out := testutil.StripStyle(p.View(220, 5))
 		header := strings.Split(out, "\n")[0]
 		require.NotContains(t, header, "TENANT",
 			"single-tenant scope must not surface a TENANT column")
@@ -836,7 +870,7 @@ func TestPage_HeaderColumnOrder(t *testing.T) {
 			}},
 			Tenant: "staging",
 		})
-		out := stripStyle(p.View(220, 5))
+		out := testutil.StripStyle(p.View(220, 5))
 		header := strings.Split(out, "\n")[0]
 		tenantI := strings.Index(header, "TENANT")
 		uuidI := strings.Index(header, "UUID")
@@ -862,7 +896,7 @@ func TestPage_RendersUUIDColumnClipped(t *testing.T) {
 		EndsAt:    fixedNow.Add(time.Hour),
 	}}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(220, 6))
+	out := testutil.StripStyle(p.View(220, 6))
 	require.Contains(t, out, long[:8],
 		"first 8 chars of the UUID must be visible in the row")
 	require.NotContains(t, out, long,
@@ -883,7 +917,7 @@ func TestPage_RendersDescriptionFromComment(t *testing.T) {
 		EndsAt:   fixedNow.Add(time.Hour),
 	}}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(240, 6))
+	out := testutil.StripStyle(p.View(240, 6))
 	require.Contains(t, out, "maintenance window for db migration",
 		"COMMENT column must render the silence Comment field")
 }
@@ -904,7 +938,7 @@ func TestPage_LongFieldsAreClipped(t *testing.T) {
 		EndsAt:   fixedNow.Add(time.Hour),
 	}}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(160, 5))
+	out := testutil.StripStyle(p.View(160, 5))
 	for line := range strings.SplitSeq(out, "\n") {
 		require.LessOrEqual(t, lipgloss.Width(line), 160,
 			"row width must not exceed terminal width even with a 500-char Comment (line=%q)", line)
@@ -931,7 +965,7 @@ func TestPage_CommentWithNewlinesStaysSingleRow(t *testing.T) {
 		EndsAt:    fixedNow.Add(time.Hour),
 	}}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(180, 6))
+	out := testutil.StripStyle(p.View(180, 6))
 
 	nonEmpty := 0
 	for line := range strings.SplitSeq(out, "\n") {
@@ -967,7 +1001,7 @@ func TestPage_AdjacentColumnsKeepGap(t *testing.T) {
 		EndsAt:    fixedNow.Add(time.Hour),
 	}}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	out := stripStyle(p.View(180, 5))
+	out := testutil.StripStyle(p.View(180, 5))
 
 	require.NotContains(t, out, "juliette.orainSee:",
 		"BY content must not abut COMMENT — every cell must reserve a trailing whitespace gap")
@@ -1389,7 +1423,7 @@ func TestPage_RenderShowsMarkGlyphOnMarkedRow(t *testing.T) {
 	p := pageWithRows(t, &fakeSilenceClient{}, 2)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → row 1
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})   // mark row 1
-	out := stripStyle(p.View(120, 10))
+	out := testutil.StripStyle(p.View(120, 10))
 	require.Contains(t, out, "✓",
 		"marked row must render a visible mark glyph so the bulk-expire confirm has a row-level reference")
 }
