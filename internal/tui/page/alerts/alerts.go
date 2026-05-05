@@ -520,6 +520,14 @@ func (*Page) Bindings() []action.Action {
 		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		{Key: "/", Description: "filter", View: "alerts"},
 		{Key: "Shift+F", Description: "state filter", View: "alerts"},
+		// Sort shortcuts. Surfaced as Shift+ keys so the help-overlay
+		// HOTKEYS column picks them up (splitVerbsHotkeys partitions
+		// on the "Shift+" prefix). h/l column walk lives on every
+		// table view via TableMotions and isn't repeated here.
+		{Key: "Shift+S", Description: "sort by severity", View: "alerts"},
+		{Key: "Shift+N", Description: "sort by alertname", View: "alerts"},
+		{Key: "Shift+T", Description: "sort by state", View: "alerts"},
+		{Key: "Shift+A", Description: "sort by age", View: "alerts"},
 		// `r` is a global binding too; surface it on the alerts hint
 		// strip so the affordance reads at a glance alongside the
 		// page-specific verbs. Same shape as silences.
@@ -1751,25 +1759,9 @@ func lessFor(key SortKey) func(a, b alertEntry) bool {
 		return func(a, b alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) }
 	default: // SortBySeverity
 		return func(a, b alertEntry) bool {
-			return severityRank(a.a) < severityRank(b.a)
+			return backend.SeverityRank(a.a) < backend.SeverityRank(b.a)
 		}
 	}
-}
-
-// severityRank assigns a numeric weight so descending sort puts
-// critical first, then warning, info, then anything unknown.
-// Higher rank = "more severe" so the ↓ arrow on the column header
-// reads naturally as "most-severe-first".
-func severityRank(a backend.Alert) int {
-	switch strings.ToLower(a.Labels["severity"]) {
-	case "critical":
-		return 3
-	case "warning":
-		return 2
-	case "info":
-		return 1
-	}
-	return 0
 }
 
 // severityOf returns the printable severity label, falling back

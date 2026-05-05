@@ -23,29 +23,12 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // fixedNow returns a deterministic clock for the age column tests.
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-// stripStyle drops ANSI SGR sequences for substring assertions.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
 
 // loadStyles returns a populated theme.Styles for body width
 // rendering. Most assertions strip styles before comparing, so the
@@ -170,7 +153,7 @@ func TestPage_DataMsgPopulatesView(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts, Tenant: "prod"})
 
-	out := stripStyle(p.View(120, 20))
+	out := testutil.StripStyle(p.View(120, 20))
 	require.Contains(t, out, "HighCPU")
 	require.Contains(t, out, "critical")
 }
@@ -410,6 +393,31 @@ func TestPage_TKeyDoesNotCycleStateFilter(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	require.Empty(t, p.stateFilter,
 		"`t` is owned by the app-global time-format toggle; the page must not bind it")
+}
+
+func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	want := map[string]string{
+		"Shift+S": "sort by severity",
+		"Shift+N": "sort by alertname",
+		"Shift+T": "sort by state",
+		"Shift+A": "sort by age",
+	}
+	got := map[string]string{}
+	for _, b := range p.Bindings() {
+		if strings.HasPrefix(b.Key, "Shift+") {
+			got[b.Key] = b.Description
+		}
+	}
+	for k, desc := range want {
+		require.Contains(t, got, k,
+			"Bindings() must surface %s so the `?` overlay's HOTKEYS column lists it", k)
+		require.Contains(t, got[k], "sort",
+			"sort entry %s must read as a sort action in the help overlay", k)
+		require.Equal(t, desc, got[k],
+			"sort description for %s must match the keybindings.md table", k)
+	}
 }
 
 func TestPage_SortColumnWalk(t *testing.T) {
@@ -709,7 +717,7 @@ func TestPage_MarkedRowCarriesMarkedStyle(t *testing.T) {
 		"a marked non-cursor row must carry ANSI styling")
 	require.NotContains(t, row0, "\x1b[48;",
 		"marked rows must NOT change the background — only the foreground")
-	require.Contains(t, stripStyle(row0), "✓",
+	require.Contains(t, testutil.StripStyle(row0), "✓",
 		"the marker column must show the check glyph on marked rows")
 }
 
@@ -728,7 +736,7 @@ func TestPage_MarksRenderedNextToCursor(t *testing.T) {
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 
-	out := stripStyle(p.View(120, 20))
+	out := testutil.StripStyle(p.View(120, 20))
 	require.Contains(t, out, "✓",
 		"marked rows must show a check glyph in the marker column")
 }
@@ -779,14 +787,14 @@ func TestPage_ViewportFollowsCursor(t *testing.T) {
 
 	// Render at width=80, height=10 (≈7-8 rows visible after the
 	// header and footer). The cursor row's alertname must appear.
-	out := stripStyle(p.View(80, 10))
+	out := testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, p.view[p.cursor].a.Labels["alertname"],
 		"viewport must scroll so the cursor row stays visible")
 
 	// G jumps to the last row; the bottom of the list must be in
 	// view (the page scrolled all the way down).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	out = stripStyle(p.View(80, 10))
+	out = testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "Alert29",
 		"G must scroll the viewport to the last row")
 
@@ -794,7 +802,7 @@ func TestPage_ViewportFollowsCursor(t *testing.T) {
 	for range 30 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	}
-	out = stripStyle(p.View(80, 10))
+	out = testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "Alert00",
 		"walking back up must scroll the viewport to the top")
 }
@@ -815,7 +823,7 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 	// change), but the cursor row MUST carry an ANSI escape — and
 	// MUST NOT carry the per-cell severity ANSI (Q1.2: row-level
 	// style wins over per-cell colouring).
-	lines := strings.Split(stripStyle(out), "\n")
+	lines := strings.Split(testutil.StripStyle(out), "\n")
 	require.GreaterOrEqual(t, len(lines), 2)
 	cursorLine := strings.SplitN(out, "\n", 4)[1] // header → row 0 (cursor) → ...
 	otherLine := strings.SplitN(out, "\n", 4)[2]
@@ -927,7 +935,7 @@ func TestPage_TenantColumnAppearsForAllScope(t *testing.T) {
 		Tenant:   "staging",
 	})
 
-	out := stripStyle(p.View(140, 20))
+	out := testutil.StripStyle(p.View(140, 20))
 	require.Contains(t, out, "TENANT")
 	require.Contains(t, out, "prod")
 	require.Contains(t, out, "staging")
@@ -946,7 +954,7 @@ func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
 		Tenant:   "prod",
 	})
 
-	out := stripStyle(p.View(140, 20))
+	out := testutil.StripStyle(p.View(140, 20))
 	require.NotContains(t, out, "TENANT",
 		"single-backend setups must NOT show the tenant column")
 }
@@ -980,7 +988,7 @@ func TestPage_TitleColdStartShowsLoading(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	out := stripStyle(p.Title())
+	out := testutil.StripStyle(p.Title())
 	require.Contains(t, out, "loading alerts",
 		"cold-start title must read as loading until the first DataMsg lands")
 }
@@ -1046,7 +1054,7 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}, Tenant: ""})
 
 	// Default mode is relative — body shows "1m ago".
-	out := stripStyle(p.View(140, 20))
+	out := testutil.StripStyle(p.View(140, 20))
 	require.Contains(t, out, "1m ago")
 	require.NotContains(t, out, "2026-",
 		"relative mode must not surface the absolute date")
@@ -1056,7 +1064,7 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	// surfaced in HeaderContent; the toggle's flash is the
 	// affordance signal and the cell content speaks for itself.
 	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
-	out = stripStyle(p.View(140, 20))
+	out = testutil.StripStyle(p.View(140, 20))
 	require.NotContains(t, out, "1m ago")
 	require.Contains(t, out, "2026-",
 		"absolute mode must surface the ISO local date prefix")
@@ -1112,7 +1120,7 @@ func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 	})
 
 	require.Equal(t, "alerts(all)[2]", p.Title())
-	out := stripStyle(p.View(140, 20))
+	out := testutil.StripStyle(p.View(140, 20))
 	require.Contains(t, out, "A", "all-scope view shows both alerts")
 	require.Contains(t, out, "B")
 	require.Contains(t, out, "TENANT",
@@ -1122,7 +1130,7 @@ func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 	_, _ = p.Update(app.ScopeChangedMsg{Scope: "prod"})
 	require.Equal(t, "alerts(prod)[1]", p.Title(),
 		"scope change must rescope the [N] count, not just the label")
-	out = stripStyle(p.View(140, 20))
+	out = testutil.StripStyle(p.View(140, 20))
 	require.Contains(t, out, "A",
 		"prod's alert stays visible after the scope switch")
 	require.NotContains(t, out, "B",
@@ -1134,7 +1142,7 @@ func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 	// `<0>` returns to all-tenants — count and column reappear.
 	_, _ = p.Update(app.ScopeChangedMsg{Scope: "all"})
 	require.Equal(t, "alerts(all)[2]", p.Title())
-	out = stripStyle(p.View(140, 20))
+	out = testutil.StripStyle(p.View(140, 20))
 	require.Contains(t, out, "TENANT")
 }
 
@@ -1173,12 +1181,12 @@ func TestPage_EmptyStateMessages(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	out := stripStyle(p.View(80, 5))
+	out := testutil.StripStyle(p.View(80, 5))
 	require.Contains(t, out, "no alerts (yet)",
 		"with no data and no filter the empty state explains polling")
 
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "nope"})
-	out = stripStyle(p.View(80, 5))
+	out = testutil.StripStyle(p.View(80, 5))
 	require.Contains(t, out, "no alerts match",
 		"with a non-matching filter the empty state hints at clearing it")
 }
@@ -1197,10 +1205,10 @@ func stylePrefix(t *testing.T, rendered string) string {
 
 // TestPage_SuppressedRowsRenderDimmed exercises the third arm of
 // the row-style switch (cursor > marked > dimmed). The existing
-// stripStyle path erases SGR sequences, so the assertion compares
-// against a freshly-rendered probe through the same Dimmed style:
-// if the row contains the probe's SGR prefix, the dimmed branch
-// fired.
+// testutil.StripStyle path erases SGR sequences, so the assertion
+// compares against a freshly-rendered probe through the same
+// Dimmed style: if the row contains the probe's SGR prefix, the
+// dimmed branch fired.
 func TestPage_SuppressedRowsRenderDimmed(t *testing.T) {
 	t.Parallel()
 	// One active row at row 0 (holds the cursor) and one suppressed
@@ -1212,7 +1220,7 @@ func TestPage_SuppressedRowsRenderDimmed(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
 
 	out := p.View(120, 10)
-	require.Contains(t, stripStyle(out), "Silenced",
+	require.Contains(t, testutil.StripStyle(out), "Silenced",
 		"sanity: the suppressed row still renders its label")
 
 	// The renderer extracts only the foreground from
