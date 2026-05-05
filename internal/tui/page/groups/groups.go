@@ -33,12 +33,53 @@ type DrillAlertMsg struct {
 	Alert backend.Alert
 }
 
+// SortKey enumerates the sortable axes of the groups view. Groups
+// don't render a tabular column structure, so the header line acts
+// as a sort-axis selector strip — same Shift+letter / h-l idioms
+// the alerts page exposes, regardless of whether the axis maps to
+// a visible cell.
+type SortKey int
+
+const (
+	// SortByName sorts by label-set summary alphabetically. Default
+	// ASC: matches the historical implicit ordering plus the
+	// "name → top alphabetical" reading of the column header.
+	SortByName SortKey = iota
+	// SortByCount sorts by alert count per group. Default DESC so
+	// the noisiest groups bubble to the top — that's the operator
+	// priority when triaging a wide list.
+	SortByCount
+	// SortBySeverity sorts by the worst-severity alert in each
+	// group. Default DESC so critical-heavy groups land first,
+	// matching the alerts page's severity convention.
+	SortBySeverity
+)
+
+// String returns the column-header label for the active sort.
+func (s SortKey) String() string {
+	switch s {
+	case SortByName:
+		return "name"
+	case SortByCount:
+		return "count"
+	case SortBySeverity:
+		return "severity"
+	}
+	return "?"
+}
+
 // groupEntry pairs an alert group with the tenant tag it was
 // polled under so the renderer can show which backend each group
 // belongs to when the active scope spans more than one tenant.
+//
+// severityRank caches the worst-severity rank across the group's
+// alerts so the SortBySeverity comparator doesn't walk the alert
+// slice on every comparison; recompute populates it once per
+// poll. Zero is the natural rest value (no severity → unknown).
 type groupEntry struct {
-	g      backend.AlertGroup
-	tenant string
+	g            backend.AlertGroup
+	tenant       string
+	severityRank int
 }
 
 // Options bundles the page's constructor inputs. Clients is the
@@ -99,6 +140,22 @@ type Page struct {
 	// scope mirrors the active tenant scope.
 	scope string
 
+	// sort / sortAsc track the active sort axis and direction.
+	// Defaults: SortByName ASC — alphabetical label-set, matching
+	// the historical implicit ordering. Mirrors the alerts /
+	// silences page state shape so handleSort / applySort can be
+	// the same shape across the three list pages.
+	sort    SortKey
+	sortAsc bool
+
+	// focusKey is the identity of the row the cursor was on before
+	// the most recent recompute — used to restore the cursor onto
+	// the same logical row after a re-sort, scope change, or poll
+	// refresh. Without it, pressing Shift+C would jump to whatever
+	// group lands at the cursor's numeric index. Mirrors
+	// focusFingerprint / focusID on alerts / silences.
+	focusKey string
+
 	// polledTenants / nextRefresh / refreshing / spinner mirror the
 	// alerts and silences pages' polling UX so the three list pages
 	// frame identically. See alerts.Page for the design notes.
@@ -131,6 +188,8 @@ func New(opts Options) *Page {
 		polledTenants: map[string]struct{}{},
 		nextRefresh:   map[string]time.Time{},
 		spinner:       sp,
+		sort:          SortByName,
+		sortAsc:       defaultAsc(SortByName),
 	}
 }
 
@@ -277,6 +336,14 @@ func (*Page) Bindings() []action.Action {
 		{Key: "Enter", Description: "expand / drill", View: "groups"},
 		{Key: "s", Description: "silence group", View: "groups", Dangerous: true},
 		{Key: "Tab", Description: "expand all", View: "groups"},
+		// Sort shortcuts. Surfaced via the "Shift+" prefix so the
+		// help-overlay HOTKEYS column picks them up. `s` is the
+		// silence verb on this page so severity uses Shift+V to
+		// avoid the collision; the doc comment on handleSort
+		// explains the trade-off.
+		{Key: "Shift+N", Description: "sort by name", View: "groups"},
+		{Key: "Shift+C", Description: "sort by alert count", View: "groups"},
+		{Key: "Shift+V", Description: "sort by severity", View: "groups"},
 		{Key: "r", Description: "refresh", View: "groups"},
 	}
 }
@@ -312,6 +379,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		p.snapshotFocus()
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash so the user sees
@@ -332,7 +400,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // recompute rebuilds p.flat from byTenant + scope, preserving any
 // in-place expanded flags by group identity (label-set + tenant)
 // across refresh ticks. New groups land collapsed; vanished
-// groups simply drop out.
+// groups simply drop out. Sort is applied after the slice is
+// rebuilt so the active SortKey + direction govern row order.
 func (p *Page) recompute() {
 	prev := make(map[string]bool, len(p.flat))
 	for i, e := range p.flat {
@@ -344,16 +413,167 @@ func (p *Page) recompute() {
 			continue
 		}
 		for _, g := range gs {
-			p.flat = append(p.flat, groupEntry{g: g, tenant: tenant})
+			p.flat = append(p.flat, groupEntry{
+				g:            g,
+				tenant:       tenant,
+				severityRank: groupSeverityRank(g),
+			})
 		}
 	}
+	sortGroups(p.flat, p.sort, p.sortAsc)
 	p.expanded = make([]bool, len(p.flat))
 	for i, e := range p.flat {
 		if prev[groupKey(e)] {
 			p.expanded[i] = true
 		}
 	}
+	// Resolve cursor by focusKey when we have one to follow so the
+	// user stays on the same logical row across re-sort / scope /
+	// poll. Falls through to the clamp + re-snapshot path when
+	// focus is empty or the focused row vanished.
+	if p.focusKey != "" {
+		rows := p.rows()
+		for i, r := range rows {
+			if rowKey(p.flat, r) == p.focusKey {
+				p.cursor = i
+				return
+			}
+		}
+	}
 	p.clampCursor()
+	p.snapshotFocus()
+}
+
+// rowKey builds the focus identity for r. Group headers use the
+// stable groupKey; leaf rows append the alertname so the cursor
+// can ride a specific alert across refreshes even when its
+// position inside the group changes.
+func rowKey(flat []groupEntry, r row) string {
+	if r.groupIdx < 0 || r.groupIdx >= len(flat) {
+		return ""
+	}
+	g := flat[r.groupIdx]
+	if r.alertIdx < 0 {
+		return groupKey(g)
+	}
+	if r.alertIdx >= len(g.g.Alerts) {
+		return groupKey(g)
+	}
+	return groupKey(g) + "\x00" + g.g.Alerts[r.alertIdx].Labels["alertname"]
+}
+
+// snapshotFocus captures the rowKey of the row currently under
+// the cursor so the next recompute can re-resolve it. Empty
+// view leaves focus empty.
+func (p *Page) snapshotFocus() {
+	rows := p.rows()
+	if p.cursor < 0 || p.cursor >= len(rows) {
+		p.focusKey = ""
+		return
+	}
+	p.focusKey = rowKey(p.flat, rows[p.cursor])
+}
+
+// sortGroups orders entries by the active SortKey + direction.
+// Stable so equal-rank groups keep their relative order across
+// refreshes — the user's mental "this group sat next to that
+// one" reads consistently between polls.
+func sortGroups(entries []groupEntry, key SortKey, asc bool) {
+	less := lessFor(key)
+	sort.SliceStable(entries, func(i, j int) bool {
+		if asc {
+			return less(entries[i], entries[j])
+		}
+		return less(entries[j], entries[i])
+	})
+}
+
+// lessFor returns the ascending-order comparator for the given
+// SortKey. Ties fall back to label-set summary so the ordering
+// stays deterministic across refreshes when, e.g., two groups
+// carry the same alert count.
+func lessFor(key SortKey) func(a, b groupEntry) bool {
+	nameLess := func(a, b groupEntry) bool {
+		return labelSummary(a.g.Labels) < labelSummary(b.g.Labels)
+	}
+	switch key {
+	case SortByCount:
+		return func(a, b groupEntry) bool {
+			ai, bi := len(a.g.Alerts), len(b.g.Alerts)
+			if ai != bi {
+				return ai < bi
+			}
+			return nameLess(a, b)
+		}
+	case SortBySeverity:
+		return func(a, b groupEntry) bool {
+			if a.severityRank != b.severityRank {
+				return a.severityRank < b.severityRank
+			}
+			return nameLess(a, b)
+		}
+	default: // SortByName
+		return nameLess
+	}
+}
+
+// groupSeverityRank returns the worst severity in g, encoded so
+// higher = more severe. Reuses backend.SeverityRank so the
+// alerts page and the groups page agree on what "worst" means.
+func groupSeverityRank(g backend.AlertGroup) int {
+	worst := 0
+	for _, a := range g.Alerts {
+		if r := backend.SeverityRank(a); r > worst {
+			worst = r
+		}
+	}
+	return worst
+}
+
+// applySort updates the sort axis and direction. Same key twice
+// flips ASC↔DESC; switching to a new key resets to that key's
+// default direction. Calls recompute so the view reflects the
+// change immediately.
+func (p *Page) applySort(k SortKey) {
+	if p.sort == k {
+		p.sortAsc = !p.sortAsc
+	} else {
+		p.sort = k
+		p.sortAsc = defaultAsc(k)
+	}
+	p.recompute()
+}
+
+// defaultAsc returns the direction the column reads naturally
+// when first activated. Name is ASC (alphabetical); Count and
+// Severity are DESC so the noisiest / worst groups land at the
+// top — matching the alerts-page severity convention.
+func defaultAsc(k SortKey) bool {
+	switch k {
+	case SortByCount, SortBySeverity:
+		return false
+	default:
+		return true
+	}
+}
+
+// nextSort returns the next sort axis in cycle order, wrapping
+// from SortBySeverity back to SortByName. Cycle order matches
+// the header strip rendered in renderHeader.
+func nextSort(k SortKey) SortKey {
+	if k == SortBySeverity {
+		return SortByName
+	}
+	return k + 1
+}
+
+// prevSort returns the previous sort axis, wrapping from
+// SortByName back to SortBySeverity.
+func prevSort(k SortKey) SortKey {
+	if k == SortByName {
+		return SortBySeverity
+	}
+	return k - 1
 }
 
 // groupKey uniquely identifies a group across refreshes: tenant +
@@ -459,30 +679,40 @@ func (p *Page) visibleGroups() []backend.AlertGroup {
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
+	if p.handleSort(m) {
+		return p, nil
+	}
 	rows := p.rows()
 	switch m.String() {
 	case "j", "down":
 		if p.cursor < len(rows)-1 {
 			p.cursor++
 		}
+		p.snapshotFocus()
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--
 		}
+		p.snapshotFocus()
 	// `g` alone is dead code — the dispatcher's chord buffer at
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
 	case "G":
 		p.cursor = max(len(rows)-1, 0)
+		p.snapshotFocus()
 	case "ctrl+d":
 		p.cursor = min(p.cursor+p.halfPageStep(), max(len(rows)-1, 0))
+		p.snapshotFocus()
 	case "ctrl+u":
 		p.cursor = max(p.cursor-p.halfPageStep(), 0)
+		p.snapshotFocus()
 	case "ctrl+f":
 		p.cursor = min(p.cursor+p.fullPageStep(), max(len(rows)-1, 0))
+		p.snapshotFocus()
 	case "ctrl+b":
 		p.cursor = max(p.cursor-p.fullPageStep(), 0)
+		p.snapshotFocus()
 	case "tab":
 		p.toggleExpandAll()
 	case "enter":
@@ -494,6 +724,32 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, cmd
 	}
 	return p, nil
+}
+
+// handleSort processes sort-axis shortcuts (h/l walk plus
+// Shift+letter direct shortcuts). Returns true when the key was a
+// sort change so the caller skips its other branches. Same shape
+// as alerts / silences so the three list pages stay aligned.
+//
+// `s` is the silence verb on this page, so the severity sort
+// uses Shift+V (mnemonic for "severity"), avoiding a collision
+// with the existing `s` action handler.
+func (p *Page) handleSort(m tea.KeyPressMsg) bool {
+	switch m.String() {
+	case "h", "left":
+		p.applySort(prevSort(p.sort))
+	case "l", "right":
+		p.applySort(nextSort(p.sort))
+	case "shift+n", "N":
+		p.applySort(SortByName)
+	case "shift+c", "C":
+		p.applySort(SortByCount)
+	case "shift+v", "V":
+		p.applySort(SortBySeverity)
+	default:
+		return false
+	}
+	return true
 }
 
 // halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
@@ -657,7 +913,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height
+	p.bodyHeight = height - 1 // header takes one line; the rest is row budget
 	rows := p.rows()
 	if len(rows) == 0 {
 		// Render bg-less so the empty state matches the regular
@@ -668,15 +924,50 @@ func (p *Page) View(width, height int) string {
 		// the visual parity between "loading" and "loaded" frames.
 		return lipgloss.NewStyle().Width(width).Height(height).Render(p.emptyState())
 	}
-	maxRows := min(height, len(rows))
+	maxRows := min(height-1, len(rows))
 	p.reconcileScroll(maxRows, len(rows))
 	end := min(p.topRow+maxRows, len(rows))
-	out := make([]string, 0, end-p.topRow)
+	out := make([]string, 0, end-p.topRow+1)
+	out = append(out, p.renderHeader(width))
 	for i := p.topRow; i < end; i++ {
 		r := rows[i]
 		out = append(out, p.renderRow(r, i == p.cursor, width))
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+}
+
+// renderHeader emits the sort-axis selector strip at the top of
+// the page. The active axis carries an `↑` (ASC) or `↓` (DESC)
+// arrow — the source of truth for which way the list is sorted,
+// matching the alerts / silences pages' header convention.
+//
+// Groups don't render a tabular column structure under this
+// header (rows are tree lines with variable-width content) so the
+// strip is a sort-axis indicator rather than aligned column
+// titles. That trade-off is intentional: the sort interactions
+// stay identical across all three list pages, even though the
+// row layout doesn't tabulate.
+func (p *Page) renderHeader(width int) string {
+	titles := []SortKey{SortByName, SortByCount, SortBySeverity}
+	parts := make([]string, 0, len(titles))
+	for _, k := range titles {
+		label := strings.ToUpper(k.String())
+		if k == p.sort {
+			arrow := "↓"
+			if p.sortAsc {
+				arrow = "↑"
+			}
+			label = label + " " + arrow
+		}
+		parts = append(parts, label)
+	}
+	line := "  " + strings.Join(parts, "   ")
+	line = padRight(line, width)
+	// Foreground-only render so the header keeps the terminal
+	// default background — same rationale as the alerts page.
+	return lipgloss.NewStyle().
+		Foreground(p.styles.Table.Header.GetForeground()).
+		Render(line)
 }
 
 func (p *Page) renderRow(r row, focused bool, width int) string {

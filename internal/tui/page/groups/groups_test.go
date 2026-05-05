@@ -17,6 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -45,6 +46,160 @@ func sampleGroups() []backend.AlertGroup {
 	}
 }
 
+func TestPage_DefaultsToNameAscending(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	require.Equal(t, SortByName, p.sort)
+	require.True(t, p.sortAsc, "alphabetical name read-order is the default")
+}
+
+func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	// sampleGroups has team=platform first and team=data second
+	// in source order; Name ASC must reorder to data, platform.
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	require.Equal(t, "data", p.flat[0].g.Labels["team"])
+	require.Equal(t, "platform", p.flat[1].g.Labels["team"])
+}
+
+func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	// Default: ascending by name → data (1 alert), platform (2 alerts).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	require.Equal(t, SortByCount, p.sort)
+	require.False(t, p.sortAsc, "Count default is DESC — biggest groups first")
+	require.Len(t, p.flat[0].g.Alerts, 2,
+		"DESC count puts the platform group (2 alerts) above data (1)")
+}
+
+func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	require.Equal(t, SortBySeverity, p.sort)
+	require.False(t, p.sortAsc, "Severity default is DESC — critical first")
+	require.Equal(t, "platform", p.flat[0].g.Labels["team"],
+		"platform carries a critical alert; data has none → platform first")
+}
+
+func TestPage_SortShortcutTogglesDirection(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	require.Equal(t, SortByName, p.sort)
+	require.True(t, p.sortAsc)
+
+	// Same column shortcut flips direction.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.False(t, p.sortAsc)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.True(t, p.sortAsc)
+
+	// Different column resets to that column's default direction.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	require.Equal(t, SortByCount, p.sort)
+	require.False(t, p.sortAsc, "Count default is DESC")
+}
+
+func TestPage_SortColumnWalk(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	require.Equal(t, SortByName, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByCount, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortBySeverity, p.sort)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.Equal(t, SortByName, p.sort, "right walk wraps from Severity back to Name")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.Equal(t, SortBySeverity, p.sort, "left walk wraps to the rightmost axis")
+}
+
+func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	want := map[string]string{
+		"Shift+N": "sort by name",
+		"Shift+C": "sort by alert count",
+		"Shift+V": "sort by severity",
+	}
+	got := map[string]string{}
+	for _, b := range p.Bindings() {
+		if strings.HasPrefix(b.Key, "Shift+") {
+			got[b.Key] = b.Description
+		}
+	}
+	for k, desc := range want {
+		require.Contains(t, got, k,
+			"Bindings() must surface %s so the `?` overlay's HOTKEYS column lists it", k)
+		require.Equal(t, desc, got[k],
+			"sort description for %s must match the keybindings.md table", k)
+	}
+}
+
+func TestPage_SortPreservesCursorOnFocusedGroup(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	// Default Name ASC: row 0 = data, row 1 = platform. Walk the
+	// cursor onto platform, then re-sort by count (DESC). Platform
+	// (2 alerts) lands at row 0, data at row 1 — the cursor must
+	// follow platform to row 0, not stay on the now-data row 1.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, "platform", p.flat[p.cursor].g.Labels["team"])
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	require.Equal(t, "platform", p.flat[p.cursor].g.Labels["team"],
+		"Shift+C must re-sort but keep the cursor on the platform group")
+	require.Equal(t, 0, p.cursor, "platform now sits at row 0 under Count DESC")
+}
+
+func TestPage_SortPreservesCursorOnFocusedLeaf(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	// Walk to platform, expand, walk to leaf B. Re-sort by count;
+	// platform moves to row 0, its leaves shift with it. Cursor
+	// must still be on leaf B (at row 2 under the new ordering).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → platform
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})   // expand platform
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → leaf A
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → leaf B
+
+	rowsBefore := p.rows()
+	leafBIdx := p.cursor
+	require.Equal(t, "B",
+		p.flat[rowsBefore[leafBIdx].groupIdx].
+			g.Alerts[rowsBefore[leafBIdx].alertIdx].Labels["alertname"])
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	rowsAfter := p.rows()
+	require.Equal(t, "B",
+		p.flat[rowsAfter[p.cursor].groupIdx].
+			g.Alerts[rowsAfter[p.cursor].alertIdx].Labels["alertname"],
+		"re-sort must keep the cursor on the same leaf alert")
+}
+
+func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	out := testutil.StripStyle(p.View(120, 10))
+	require.Contains(t, out, "NAME ↑",
+		"default ASC sort must surface an ↑ arrow next to the active axis label")
+	require.Contains(t, out, "COUNT")
+	require.Contains(t, out, "SEVERITY")
+
+	// Toggle to DESC — arrow flips.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	out = testutil.StripStyle(p.View(120, 10))
+	require.Contains(t, out, "NAME ↓",
+		"DESC must surface a ↓ arrow on the same active axis")
+}
+
 func TestPage_StartsCollapsed(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
@@ -58,12 +213,16 @@ func TestPage_EnterTogglesExpand(t *testing.T) {
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
+	// Default Name ASC puts data (1 alert) first, platform (2 alerts)
+	// second. Move the cursor to platform so the expand check picks
+	// up the two-leaf row count.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.True(t, p.expanded[0])
-	require.Len(t, p.rows(), 4, "expanded first group adds 2 leaf rows")
+	require.True(t, p.expanded[1])
+	require.Len(t, p.rows(), 4, "expanded platform group adds 2 leaf rows")
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.False(t, p.expanded[0])
+	require.False(t, p.expanded[1])
 	require.Len(t, p.rows(), 2)
 }
 
@@ -87,7 +246,10 @@ func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // expand group 0
+	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
+	// platform, expand it, then drill the first leaf (A).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // expand platform
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -143,29 +305,10 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	require.Contains(t, msg.Text, "no group under the cursor")
 }
 
-// stripStyle drops ANSI SGR sequences for substring assertions
-// against rendered output.
-func stripStyle(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-		case inEsc && r == 'm':
-			inEsc = false
-		case inEsc:
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 func TestPage_TitleColdStartShowsLoading(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
-	require.Contains(t, stripStyle(p.Title()), "loading groups",
+	require.Contains(t, testutil.StripStyle(p.Title()), "loading groups",
 		"cold-start title must read as loading until the first DataMsg lands")
 }
 
@@ -296,14 +439,14 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 		}
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: gs})
-	_ = p.View(120, 40) // 40-row body; no header line in groups
+	_ = p.View(120, 40) // 40-row body; one line goes to the sort header → 39 row budget
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
+	require.Equal(t, 19, p.cursor, "Ctrl+D walks half the row budget (39 / 2)")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 from the new cursor (20 + 38)")
+	require.Equal(t, 56, p.cursor, "Ctrl+F walks budget-2 from the new cursor (19 + 37)")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
+	require.Equal(t, 19, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
 }
@@ -317,8 +460,8 @@ func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	// colouring the next test asserts on.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	out := p.View(80, 10)
-	require.Contains(t, stripStyle(out), "team=platform")
-	require.Contains(t, stripStyle(out), "(2 alerts)")
+	require.Contains(t, testutil.StripStyle(out), "team=platform")
+	require.Contains(t, testutil.StripStyle(out), "(2 alerts)")
 }
 
 func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
@@ -326,9 +469,14 @@ func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 	styles := loadStyles(t)
 	p := New(Options{Styles: styles})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	// Move cursor off row 0 → row 0 stays plain so per-cell colouring
-	// is observable in the rendered string.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	// Walk the cursor onto whichever row is NOT the platform group
+	// so the platform row is guaranteed plain regardless of which
+	// default sort lands platform at row 0 vs row 1. The assertion
+	// below requires platform to render through the per-cell style,
+	// not the cursor-row wrap.
+	for p.flat[p.cursor].g.Labels["team"] == "platform" {
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
 
 	out := p.View(120, 10)
 	wantKey := styles.YAML.Key.Render("team")
@@ -344,11 +492,13 @@ func TestPage_LeafRowsColourAlertnameAndState(t *testing.T) {
 	styles := loadStyles(t)
 	p := New(Options{Styles: styles})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter}) // expand row 0
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	// Cursor now sits on the second leaf alert (B). The first leaf
-	// ("A") is plain and should carry per-cell colouring.
+	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
+	// platform, expand it, then advance to leaf B so leaf A stays
+	// plain and per-cell colouring is observable.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → platform
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})   // expand platform
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → A
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → B
 	out := p.View(120, 10)
 	wantName := styles.YAML.Key.Render("A")
 	require.Contains(t, out, wantName,
@@ -373,7 +523,7 @@ func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
 		Tenant: "staging",
 	})
 
-	out := stripStyle(p.View(140, 10))
+	out := testutil.StripStyle(p.View(140, 10))
 	require.Contains(t, out, "prod",
 		"two in-scope tenants must surface a TENANT prefix on group headers")
 	require.Contains(t, out, "staging")
@@ -389,7 +539,7 @@ func TestPage_TenantColumnHiddenOnSingleTenantScope(t *testing.T) {
 		}},
 		Tenant: "prod",
 	})
-	out := stripStyle(p.View(140, 10))
+	out := testutil.StripStyle(p.View(140, 10))
 	require.NotContains(t, out, "prod ",
 		"single-tenant scope hides the TENANT column even though "+
 			"the tenant tag is in byTenant")
