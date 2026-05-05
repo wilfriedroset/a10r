@@ -1232,6 +1232,148 @@ func TestPage_EditKeyPushesEditForm(t *testing.T) {
 	require.False(t, isFlash, "e with cursor + clients must push the form, not flash")
 }
 
+func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no silence under the cursor",
+		"Ctrl+N on an empty view must hint, not push a broken form")
+}
+
+func TestPage_RecreateKeyWithoutClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := newPage(t) // no clients configured
+	silences := []backend.Silence{sil("sil-1", "alice", backend.SilenceStateExpired, -time.Hour)}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend",
+		"Ctrl+N with no clients must explain rather than push a broken form")
+}
+
+func TestPage_RecreateKeyOnActiveSilenceFlashesHint(t *testing.T) {
+	t.Parallel()
+	// Recreate is the expired-row affordance; on an active silence
+	// the user almost certainly wants `e` (extend / edit). Refusing
+	// here keeps the two paths conceptually separate and avoids
+	// surprising "I have two near-identical silences now" outcomes.
+	p := pageWithRows(t, &fakeSilenceClient{}, 1) // single active row
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "expired",
+		"Ctrl+N on a non-expired row must say so")
+}
+
+func TestPage_RecreateKeyOnPendingSilenceFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-pending", "alice", backend.SilenceStatePending, time.Hour)},
+		Tenant:   "prod",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "expired",
+		"Ctrl+N on a pending row is also a no-op (only expired silences recreate)")
+}
+
+func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-expired", "alice", backend.SilenceStateExpired, -time.Hour)},
+		Tenant:   "prod",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd, "Ctrl+N on an expired row must produce a push Cmd")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "Ctrl+N on an expired row must push the form, not flash")
+}
+
+func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
+	t.Parallel()
+	// Page-level wiring test: the matchers / comment of the source
+	// silence flow into the form's Options verbatim, the creator is
+	// the page's current user (NOT the original silence's creator —
+	// recreate is a brand-new silence), and BlankEnds + FocusEnds
+	// are set so the user lands on Ends with no "2h" footgun.
+	matchers := []backend.Matcher{
+		{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		{Name: "severity", Value: "critical", IsEqual: true},
+	}
+	source := backend.Silence{
+		ID:        "sil-expired",
+		CreatedBy: "alice@example",
+		State:     backend.SilenceStateExpired,
+		StartsAt:  fixedNow.Add(-3 * time.Hour),
+		EndsAt:    fixedNow.Add(-time.Hour),
+		Comment:   "ack while patching prod",
+		Matchers:  matchers,
+	}
+	fake := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:  loadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": fake},
+		Creator: "wilfried",
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{source}, Tenant: "prod"})
+
+	opts, refusal, ok := p.recreateFormOptions()
+	require.True(t, ok, "expired row + writeable backend must yield ok=true")
+	require.Nil(t, refusal, "recreatable row must not produce a refusal Cmd")
+	require.Equal(t, fake, opts.Client, "recreate must pin the cursor row's tenant client")
+	require.Equal(t, matchers, opts.Matchers, "matchers must round-trip from the source silence")
+	require.Equal(t, "ack while patching prod", opts.Comment, "comment must be verbatim")
+	require.Equal(t, "wilfried", opts.Creator,
+		"creator is the page's current user, not the source silence's CreatedBy")
+	require.Empty(t, opts.EditID, "recreate emits CreateSilence — no EditID")
+	require.True(t, opts.BlankEnds, "recreate must skip the 2h default so the user types fresh")
+	require.True(t, opts.FocusEnds, "recreate lands focus on Ends")
+	require.True(t, opts.EndsAt.IsZero(),
+		"recreate must NOT prefill the original EndsAt (it would be in the past)")
+}
+
+func TestPage_BindingsSurfaceCtrlNRecreate(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key != "Ctrl+N" {
+			continue
+		}
+		found = true
+		require.Equal(t, "silences", b.View,
+			"Ctrl+N must scope to the silences view so a future global Ctrl+N "+
+				"can't shadow it without warning")
+		require.NotEmpty(t, b.Description, "Ctrl+N must surface a description in the help")
+		require.Contains(t, strings.ToLower(b.Description), "recreate",
+			"Ctrl+N hint must read as a recreate affordance, not a generic 'new'")
+		require.True(t, b.Dangerous,
+			"Ctrl+N is a write action — read-only mode (C4) must hide it")
+	}
+	require.True(t, found, "Bindings() must surface Ctrl+N so the help overlay shows the affordance")
+}
+
 func TestPage_FormSubmittedUpdatedFlashesUpdated(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)

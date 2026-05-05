@@ -184,6 +184,18 @@ type Options struct {
 	// 5 alerts across 2 tenants — each silenced with its own
 	// labels"). Ignored when Bulk is false.
 	BulkBanner string
+
+	// BlankEnds skips the "2h" default in the Ends field, leaving
+	// it empty so the user must type a fresh duration. Used by the
+	// recreate-expired entry point so a stray Ctrl+S does not
+	// resurrect the silence with a placeholder duration.
+	BlankEnds bool
+
+	// FocusEnds lands initial focus on the Ends field instead of
+	// the default Matchers field. Used by the recreate-expired
+	// entry point where Matchers / Comment are already prefilled
+	// and the only field the user still has to set is Ends.
+	FocusEnds bool
 }
 
 // matchersHeight is the number of visible rows reserved for the
@@ -215,9 +227,16 @@ func New(opts Options) *Form {
 
 	starts := newInput("now")
 	ends := newInput("2h")
-	if !opts.EndsAt.IsZero() {
+	switch {
+	case opts.BlankEnds:
+		// Leave value empty — recreate path forces the user to
+		// type a fresh duration. Placeholder still hints "2h" so
+		// the shape is discoverable; parseEndsAt rejects empty at
+		// submit time to make this an actual guard, not a hint.
+		_ = ends
+	case !opts.EndsAt.IsZero():
 		ends.SetValue(opts.EndsAt.UTC().Format(time.RFC3339))
-	} else {
+	default:
 		ends.SetValue("2h")
 	}
 	creator := newInput("$USER")
@@ -244,8 +263,14 @@ func New(opts Options) *Form {
 	}
 	// Bulk mode never lands on the (hidden) matchers field; start
 	// focus on Starts so the first Tab walks the metadata fields.
+	// The FocusEnds knob layers on top — independent of Bulk —
+	// because Ends is a real field in both modes; setting both is
+	// well-defined and lands focus on Ends.
 	if f.bulk {
 		f.focus = fieldStarts
+	}
+	if opts.FocusEnds {
+		f.focus = fieldEnds
 	}
 	_ = f.activeFocus()
 	return f
@@ -687,12 +712,15 @@ func parseTimeOrNow(in string, now time.Time) (time.Time, error) {
 }
 
 // parseEndsAt accepts either a duration shorthand ("2h", "30m")
-// relative to base, or an RFC3339 timestamp. Empty falls back to
-// base + 2h.
+// relative to base, or an RFC3339 timestamp. Empty input is a
+// validation error so the BlankEnds entry point (recreate-expired)
+// can't be Ctrl+S'd through with no duration typed — the field's
+// "2h" placeholder is a hint, not a default. The legacy `n` and
+// `e` flows pre-fill a non-empty value, so they never hit this path.
 func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
-		return base.Add(2 * time.Hour), nil
+		return time.Time{}, errors.New("ends is required")
 	}
 	if d, err := time.ParseDuration(in); err == nil {
 		return base.Add(d), nil

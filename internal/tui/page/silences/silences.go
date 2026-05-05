@@ -520,6 +520,7 @@ func (*Page) Bindings() []action.Action {
 		{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
 		{Key: "Space", Description: "mark", View: "silences"},
 		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
+		{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
 		// Sort shortcuts. Routed into the help overlay's HOTKEYS
 		// column via the "Shift+" prefix in splitVerbsHotkeys.
 		// Listed in visual header column order (BY → STARTS →
@@ -831,6 +832,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "ctrl+e":
 		cmd := p.openEditorForCursor()
 		return p, cmd
+	case "ctrl+n":
+		cmd := p.openRecreateSilenceForm()
+		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
 		return p, cmd
@@ -979,6 +983,60 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 			EditID:   s.ID,
 		})
 	})
+}
+
+// recreateFormOptions assembles the silenceform.Options for a
+// recreate-expired flow against the cursor row. On a recreatable
+// row it returns (opts, nil, true); on every refusal it returns
+// (zero, flash, false) — flash is the Cmd the caller surfaces.
+// Funnelling the refusal flashes through the same helper that owns
+// the guards keeps the handler from drifting: a new refusal added
+// here surfaces in openRecreateSilenceForm without further wiring.
+//
+// The returned Options pin Matchers + Comment from the source
+// silence verbatim, set Creator from the page (current user, NOT the
+// original silence's CreatedBy — recreate is a new silence with new
+// authorship), set BlankEnds + FocusEnds so the user lands on Ends
+// with no "2h" footgun, and leave EditID empty so submit fires
+// CreateSilence rather than UpdateSilence.
+func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
+	if p.cursor >= len(p.view) {
+		return silenceform.Options{}, flashFn(footer.FlashInfo, "no silence under the cursor"), false
+	}
+	if len(p.clients) == 0 {
+		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
+	}
+	entry := p.view[p.cursor]
+	if entry.s.State != backend.SilenceStateExpired {
+		return silenceform.Options{}, flashFn(footer.FlashInfo,
+			"only expired silences can be recreated — use `e` to edit a live silence"), false
+	}
+	client, ok := p.clients[entry.tenant]
+	if !ok {
+		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
+	}
+	return silenceform.Options{
+		Client:    client,
+		Styles:    p.styles,
+		Now:       p.now,
+		Creator:   p.defaultCreator(),
+		Matchers:  entry.s.Matchers,
+		Comment:   entry.s.Comment,
+		BlankEnds: true,
+		FocusEnds: true,
+	}, nil, true
+}
+
+// openRecreateSilenceForm pushes the silence form prefilled from an
+// expired cursor row, or surfaces the matching refusal flash. Each
+// refusal's wording is owned by recreateFormOptions so the two
+// callers (handler + tests) read the same source of truth.
+func (p *Page) openRecreateSilenceForm() tea.Cmd {
+	opts, refusal, ok := p.recreateFormOptions()
+	if !ok {
+		return refusal
+	}
+	return app.PushPage(func() app.Page { return silenceform.New(opts) })
 }
 
 // openExpireConfirm queues the cursor silence for expiration and
@@ -1389,10 +1447,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	if !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	creator := p.creator
-	if creator == "" {
-		creator = "a10r"
-	}
+	creator := p.defaultCreator()
 	now := p.now
 	styles := p.styles
 	_ = tenant // captured by client; reserved for a future title
@@ -1404,6 +1459,18 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 			Creator: creator,
 		})
 	})
+}
+
+// defaultCreator returns the page's configured creator, falling back
+// to "a10r" when nothing is configured. Shared by the `n` and Ctrl+N
+// openers so the fallback rule lives in one place. The `e` opener
+// has its own logic (it prefers the source silence's CreatedBy)
+// and intentionally does not route through here.
+func (p *Page) defaultCreator() string {
+	if p.creator != "" {
+		return p.creator
+	}
+	return "a10r"
 }
 
 // pickWriteTarget returns the tenant + client to send a write to.

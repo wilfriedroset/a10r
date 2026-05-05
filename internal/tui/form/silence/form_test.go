@@ -5,6 +5,7 @@ package silence
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,102 @@ func TestForm_DefaultEnds(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
 	require.Equal(t, "2h", f.ends.Value(), "default endsAt is +2h shorthand")
+}
+
+func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
+	t.Parallel()
+	// Recreate-expired entry point wants the user to type a fresh
+	// duration; the "2h" default would be a footgun (one tap of
+	// Ctrl+S and the silence comes back with the placeholder).
+	f := New(Options{
+		Client:    &fakeClient{},
+		Styles:    loadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		BlankEnds: true,
+	})
+	require.Empty(t, f.ends.Value(), "BlankEnds skips the 2h default")
+}
+
+func TestForm_BlankEndsBeatsExplicitEndsAt(t *testing.T) {
+	t.Parallel()
+	// BlankEnds is a deliberate "force the user to type"; an
+	// EndsAt that happens to be set on the same Options must not
+	// override it (the recreate path passes the original silence
+	// untouched, but only the matchers/comment fields should land).
+	f := New(Options{
+		Client:    &fakeClient{},
+		Styles:    loadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		EndsAt:    fixedNow.Add(time.Hour),
+		BlankEnds: true,
+	})
+	require.Empty(t, f.ends.Value(), "BlankEnds wins over EndsAt prefill")
+}
+
+func TestForm_LegacyNFlowClearedEndsErrors(t *testing.T) {
+	t.Parallel()
+	// The parseEndsAt tightening (empty input → error) is a side
+	// benefit for the regular `n` and `e` flows: a user who clears
+	// the prefilled "2h" with backspace and presses Ctrl+S used to
+	// silently get a base+2h fallback. Locking this so the silent
+	// fallback stays gone if parseEndsAt is ever loosened again.
+	client := &fakeClient{}
+	f := newForm(t, client)
+	type_(f, "alertname=A")
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})            // starts
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})            // ends (prefilled "2h")
+	_, _ = f.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}) // clear
+	require.Empty(t, f.ends.Value(), "Ctrl+U must clear the ends field for the test setup")
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, strings.ToLower(msg.Text), "ends",
+		"cleared ends must error, not silently fall back to base+2h")
+	require.Equal(t, 0, client.calls(),
+		"form must not call the backend with a cleared ends value")
+}
+
+func TestForm_BlankEndsSubmitWithoutTypingErrors(t *testing.T) {
+	t.Parallel()
+	// BlankEnds is only useful as a footgun guard if the submit
+	// path actually refuses an empty ends — otherwise the user
+	// could press Ctrl+S right away and silently get the legacy
+	// 2h fallback. Lock the validation: empty ends must surface a
+	// flash and keep the form open so the user types a duration.
+	client := &fakeClient{}
+	f := New(Options{
+		Client:    client,
+		Styles:    loadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		Matchers:  []backend.Matcher{{Name: "alertname", Value: "X", IsEqual: true}},
+		Comment:   "ack",
+		BlankEnds: true,
+	})
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd, "submit must produce a flash Cmd, not silently succeed")
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, strings.ToLower(msg.Text), "ends",
+		"validation error must mention the ends field so the user knows where to look")
+	require.Equal(t, 0, client.calls(), "form must not call the backend with an empty ends")
+}
+
+func TestForm_FocusEndsLandsOnEndsField(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Client:    &fakeClient{},
+		Styles:    loadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		FocusEnds: true,
+	})
+	require.Equal(t, fieldEnds, f.focus, "FocusEnds lands focus on Ends")
+	require.True(t, f.ends.Focused(), "FocusEnds focuses the ends input")
+	require.False(t, f.matchers.Focused(), "FocusEnds blurs the default matchers field")
 }
 
 func TestForm_CreatorDefaultedFromOpts(t *testing.T) {

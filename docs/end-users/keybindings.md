@@ -74,6 +74,7 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `n` | New silence (empty form) |
 | `e` | Edit silence (form prefilled) |
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
+| `Ctrl+N` | Recreate the cursor silence (only on expired rows). The form lands prefilled with the matchers and comment from the source silence; creator is your current user, start defaults to now, and the cursor focuses the `Ends` line so you can type a fresh duration. Submits as a new silence (new ID); the original expired silence is left untouched. Refuses on active or pending rows — use `e` to extend a live silence. |
 | `x` / `Delete` | Expire. With no marks: expires the cursor silence after a default-No confirm. With one or more marks: bulk expire — confirm wording counts the queued silences and breaks them down per tenant (`(tenant prod=12, staging=3)`); fanout retries failed targets only. |
 | `Shift+E` | Sort by `endsAt` |
 | `Shift+S` | Sort by `startsAt` |
