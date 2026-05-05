@@ -7,7 +7,7 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q`, etc. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q`, etc. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — substring or matcher token over the visible rows. |
 | `Esc` | Dismiss prompt / modal first; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |

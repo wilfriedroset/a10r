@@ -139,7 +139,7 @@ func NewApp(opts Options) *App {
 		tenants:    opts.Tenants,
 		refresh:    opts.Refresh,
 		crumbs:     footer.NewCrumbs(),
-		prompt:     footer.NewPrompt(nil),
+		prompt:     footer.NewPrompt(resolver.Suggest),
 		flash:      footer.NewFlash(),
 		pollCache:  map[string]map[string]poll.DataMsg{},
 	}

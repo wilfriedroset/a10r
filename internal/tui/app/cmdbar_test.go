@@ -311,6 +311,62 @@ func TestCmdBar_EmptyCommandIsSilent(t *testing.T) {
 		"empty `:` Enter must be silent — no flash about an unsubmitted command")
 }
 
+func TestCmdBar_TabAcceptsGhostCompletion(t *testing.T) {
+	t.Parallel()
+	a, page := newAppWithCmdbar(t)
+
+	// Open `:`, type a unique-prefix `a` (matches only `alerts`).
+	// The prompt should ghost the rest. Pressing Tab promotes the
+	// ghost to the buffer; Enter then resolves and pushes the page.
+	updated, _ := a.Update(tea.KeyPressMsg{Code: ':', Text: ":"})
+	a = updated.(*App)
+	updated, _ = a.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	a = updated.(*App)
+	require.Equal(t, "alerts", a.prompt.Suggestion(),
+		"`:a` matches only `alerts`; the resolver must surface it as a ghost")
+
+	updated, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	a = updated.(*App)
+	require.Equal(t, "alerts ", a.prompt.Value(),
+		"Tab promotes the full alias to the buffer with a trailing space")
+	require.Empty(t, a.prompt.Suggestion(),
+		"Tab clears the ghost; the resuggester returns \"\" for the post-Tab buffer")
+
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.Same(t, page, a.topPage(),
+		"submit after Tab acceptance must resolve and push the same page as a manual `:alerts`")
+}
+
+func TestCmdBar_TabInFilterModeIsNoOp(t *testing.T) {
+	t.Parallel()
+	a, page := newAppWithCmdbar(t)
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// `/` filter mode has no completion source in this iteration;
+	// Tab must be a silent no-op — neither corrupting the buffer
+	// nor leaking through to the page (which would risk page-
+	// specific Tab handling firing while the prompt is open).
+	updated, _ := a.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	a = updated.(*App)
+	updated, _ = a.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	a = updated.(*App)
+	before := a.prompt.Value()
+	logLenBefore := len(*page.updateLog)
+
+	updated, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	a = updated.(*App)
+	require.Equal(t, before, a.prompt.Value(),
+		"filter-mode Tab must not mutate the buffer")
+	require.Empty(t, a.prompt.Suggestion())
+	for _, msg := range (*page.updateLog)[logLenBefore:] {
+		_, isKey := msg.(tea.KeyPressMsg)
+		require.False(t, isKey,
+			"filter-mode Tab must NOT be forwarded to the page")
+	}
+}
+
 func TestCmdBar_CommandCancelDoesNotReachPage(t *testing.T) {
 	t.Parallel()
 	a, page := newAppWithCmdbar(t)
