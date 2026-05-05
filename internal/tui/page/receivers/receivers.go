@@ -31,6 +31,27 @@ type DrillRequestMsg struct {
 	Receiver string
 }
 
+// SortKey enumerates the sortable axes of the receivers list. The
+// AM-side data model only carries a name per receiver, so the
+// only sort axis is the name itself; direction (ASC ↔ DESC)
+// remains user-toggleable for parity with the alerts / silences
+// page sort idiom.
+type SortKey int
+
+const (
+	// SortByName sorts by receiver name. Default ASC — alphabetical
+	// reading order.
+	SortByName SortKey = iota
+)
+
+// String returns the column-header label for the active sort.
+func (s SortKey) String() string {
+	if s == SortByName {
+		return "name"
+	}
+	return "?"
+}
+
 // Page is the receivers list view.
 //
 // Receivers are flat strings on the AM side; the only multi-
@@ -66,6 +87,20 @@ type Page struct {
 	// scope mirrors the active tenant scope ("all" / single name
 	// / comma-joined subset). Updated by app.ScopeChangedMsg.
 	scope string
+
+	// sort / sortAsc track the active sort axis and direction.
+	// Receivers expose a single sortable axis (Name) so the
+	// "press the active column to flip ASC↔DESC" idiom from
+	// alerts / silences becomes a one-axis ASC/DESC toggle.
+	sort    SortKey
+	sortAsc bool
+
+	// focusName is the name of the row the cursor was on before
+	// the most recent recompute — used to restore the cursor onto
+	// the same receiver after a re-sort, scope change, or poll
+	// refresh. Mirrors focusFingerprint / focusID / focusKey on
+	// the alerts / silences / groups pages.
+	focusName string
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -77,6 +112,8 @@ func New(styles theme.Styles) *Page {
 		styles:   styles,
 		byTenant: map[string][]string{},
 		scope:    scopeAll,
+		sort:     SortByName,
+		sortAsc:  true,
 	}
 }
 
@@ -162,6 +199,10 @@ func (*Page) PollResources() []string { return []string{"receivers"} }
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "Enter", Description: "drill", View: "receivers"},
+		// Single sortable axis (Name); Shift+N flips ASC↔DESC.
+		// Surfaced via the "Shift+" prefix so the help-overlay
+		// HOTKEYS column picks it up.
+		{Key: "Shift+N", Description: "sort by name", View: "receivers"},
 	}
 }
 
@@ -187,6 +228,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
+		p.snapshotFocus()
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
@@ -236,7 +278,9 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 }
 
 // recompute rebuilds the filtered view from byTenant + p.scope +
-// p.filter and clamps the cursor to the new range.
+// p.filter and clamps the cursor to the new range. The active
+// sort direction is applied last so the visible order reflects
+// the user's toggle.
 func (p *Page) recompute() {
 	scoped := p.unionScoped()
 	if p.filter == "" {
@@ -250,35 +294,117 @@ func (p *Page) recompute() {
 			}
 		}
 	}
+	// unionScoped emits names in ASC order; reverse in place when
+	// the user has toggled the sort to DESC.
+	if !p.sortAsc {
+		for i, j := 0, len(p.view)-1; i < j; i, j = i+1, j-1 {
+			p.view[i], p.view[j] = p.view[j], p.view[i]
+		}
+	}
+	// Resolve cursor by focusName when we have one to follow so
+	// the user stays on the same receiver across re-sort / scope /
+	// poll. Falls through to the clamp + re-snapshot path when
+	// focus is empty or the focused name vanished.
+	if p.focusName != "" {
+		for i, name := range p.view {
+			if name == p.focusName {
+				p.cursor = i
+				return
+			}
+		}
+	}
 	if p.cursor >= len(p.view) {
 		p.cursor = max(len(p.view)-1, 0)
 	}
+	p.snapshotFocus()
+}
+
+// snapshotFocus captures the name of the row currently under the
+// cursor so the next recompute can re-resolve it. Empty view
+// leaves focus empty.
+func (p *Page) snapshotFocus() {
+	if p.cursor < 0 || p.cursor >= len(p.view) {
+		p.focusName = ""
+		return
+	}
+	p.focusName = p.view[p.cursor]
+}
+
+// applySort updates the sort axis and direction. Same key twice
+// flips ASC↔DESC; switching to a new key resets direction to
+// that key's default. The receivers page only exposes one axis
+// (Name) today, so applySort effectively becomes a direction
+// toggle — the shape stays aligned with alerts / silences for
+// future axes.
+func (p *Page) applySort(k SortKey) {
+	if p.sort == k {
+		p.sortAsc = !p.sortAsc
+	} else {
+		p.sort = k
+		p.sortAsc = defaultAsc(k)
+	}
+	p.recompute()
+}
+
+// defaultAsc returns the direction the column reads naturally
+// when first activated. Name is ASC (alphabetical reading order).
+// Stays a function so a future second sort axis lands here with
+// the right shape rather than a hardcoded `true`.
+func defaultAsc(_ SortKey) bool { return true }
+
+// handleSort processes sort-axis shortcuts (h/l walk plus
+// Shift+letter direct shortcuts). Returns true when the key was a
+// sort change. h/l are no-ops here: with a single sortable axis,
+// "previous / next sortable column" has nowhere to walk; the
+// direction is the only thing the user can change, via Shift+N.
+func (p *Page) handleSort(m tea.KeyPressMsg) bool {
+	switch m.String() {
+	case "h", "left", "l", "right":
+		// Single-axis page: walk targets the same axis. Documented
+		// no-op so the global "h/l = sort column" promise reads as
+		// "no walking to do here" rather than a silent toggle.
+		return true
+	case "shift+n", "N":
+		p.applySort(SortByName)
+		return true
+	}
+	return false
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
+	if p.handleSort(m) {
+		return p, nil
+	}
 	switch m.String() {
 	case "j", "down":
 		if p.cursor < len(p.view)-1 {
 			p.cursor++
 		}
+		p.snapshotFocus()
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--
 		}
+		p.snapshotFocus()
 	case "G":
 		p.cursor = max(len(p.view)-1, 0)
+		p.snapshotFocus()
 	// `g` alone is dead code — the dispatcher's chord buffer at
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
 	case "ctrl+d":
 		p.cursor = min(p.cursor+p.halfPageStep(), max(len(p.view)-1, 0))
+		p.snapshotFocus()
 	case "ctrl+u":
 		p.cursor = max(p.cursor-p.halfPageStep(), 0)
+		p.snapshotFocus()
 	case "ctrl+f":
 		p.cursor = min(p.cursor+p.fullPageStep(), max(len(p.view)-1, 0))
+		p.snapshotFocus()
 	case "ctrl+b":
 		p.cursor = max(p.cursor-p.fullPageStep(), 0)
+		p.snapshotFocus()
 	case "enter":
 		if p.cursor < len(p.view) {
 			rec := p.view[p.cursor]
@@ -346,7 +472,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height
+	p.bodyHeight = height - 1 // header takes one line; the rest is row budget
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
 		if len(p.unionScoped()) > 0 && p.filter != "" {
@@ -360,10 +486,11 @@ func (p *Page) View(width, height int) string {
 		// the visual parity between "loading" and "loaded" frames.
 		return lipgloss.NewStyle().Width(width).Height(height).Render(msg)
 	}
-	maxRows := min(height, len(p.view))
+	maxRows := min(height-1, len(p.view))
 	p.reconcileScroll(maxRows)
 	end := min(p.topRow+maxRows, len(p.view))
-	rows := make([]string, 0, end-p.topRow)
+	rows := make([]string, 0, end-p.topRow+1)
+	rows = append(rows, p.renderHeader(width))
 	for i := p.topRow; i < end; i++ {
 		text := p.view[i]
 		prefix := "  "
@@ -379,4 +506,22 @@ func (p *Page) View(width, height int) string {
 		rows = append(rows, row)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(rows, "\n"))
+}
+
+// renderHeader emits the column-title strip with the active sort
+// arrow. Receivers carry a single sortable axis (Name) so the
+// header always shows one label; the arrow flips ASC↔DESC on
+// Shift+N. Mirrors the alerts / silences header convention.
+func (p *Page) renderHeader(width int) string {
+	label := strings.ToUpper(p.sort.String())
+	arrow := "↓"
+	if p.sortAsc {
+		arrow = "↑"
+	}
+	line := padRight("  "+label+" "+arrow, width)
+	// Foreground-only render so the header keeps the terminal
+	// default background — same rationale as alerts / silences.
+	return lipgloss.NewStyle().
+		Foreground(p.styles.Table.Header.GetForeground()).
+		Render(line)
 }

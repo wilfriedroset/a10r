@@ -4,6 +4,7 @@ package receivers
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -109,14 +111,14 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%03d", i)}
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: recs})
-	_ = p.View(120, 40) // 40-row body; no header line in receivers
+	_ = p.View(120, 40) // 40-row body; one line goes to the sort header → 39 row budget
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
+	require.Equal(t, 19, p.cursor, "Ctrl+D walks half the row budget (39 / 2)")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 from the new cursor (20 + 38)")
+	require.Equal(t, 56, p.cursor, "Ctrl+F walks budget-2 from the new cursor (19 + 37)")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
+	require.Equal(t, 19, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
 }
@@ -138,6 +140,94 @@ func TestPage_RenderShowsRows(t *testing.T) {
 	out := p.View(40, 10)
 	require.Contains(t, out, "ops")
 	require.Contains(t, out, "web")
+}
+
+func TestPage_DefaultsToNameAscending(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	require.Equal(t, SortByName, p.sort)
+	require.True(t, p.sortAsc, "alphabetical reading order is the default")
+}
+
+func TestPage_SortShortcutTogglesDirection(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+		{Name: "web"}, {Name: "ops"}, {Name: "default"},
+	}})
+	require.Equal(t, []string{"default", "ops", "web"}, p.view)
+
+	// Same-axis shortcut flips direction; the view flips with it.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.False(t, p.sortAsc)
+	require.Equal(t, []string{"web", "ops", "default"}, p.view,
+		"toggling to DESC reverses the alphabetical view")
+
+	// And toggles back on repeat.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.True(t, p.sortAsc)
+	require.Equal(t, []string{"default", "ops", "web"}, p.view)
+}
+
+func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+		{Name: "web"}, {Name: "ops"}, {Name: "default"},
+	}})
+	require.Equal(t, []string{"default", "ops", "web"}, p.view)
+	// Walk the cursor onto "ops" then flip to DESC. After the flip
+	// the order is web, ops, default — the cursor must follow ops
+	// to row 1, not stay on whatever row 1 contained before.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, "ops", p.view[p.cursor])
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.Equal(t, []string{"web", "ops", "default"}, p.view)
+	require.Equal(t, "ops", p.view[p.cursor],
+		"DESC must keep the cursor on the same receiver, not the same index")
+}
+
+func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+		{Name: "a"}, {Name: "b"}, {Name: "c"},
+	}})
+	// Single sortable axis → h/l have nowhere to walk; consume the
+	// key but leave direction alone so users don't get a surprise
+	// flip from a "previous column" press.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	require.True(t, p.sortAsc, "l on a single-axis page must NOT flip direction")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
+	require.True(t, p.sortAsc, "h on a single-axis page must NOT flip direction")
+}
+
+func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	got := map[string]string{}
+	for _, b := range p.Bindings() {
+		if strings.HasPrefix(b.Key, "Shift+") {
+			got[b.Key] = b.Description
+		}
+	}
+	require.Contains(t, got, "Shift+N",
+		"Bindings() must surface Shift+N so the `?` overlay's HOTKEYS column lists it")
+	require.Equal(t, "sort by name", got["Shift+N"])
+}
+
+func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
+	t.Parallel()
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}}})
+	out := testutil.StripStyle(p.View(80, 10))
+	require.Contains(t, out, "NAME ↑",
+		"default ASC sort must surface an ↑ arrow next to the active axis label")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	out = testutil.StripStyle(p.View(80, 10))
+	require.Contains(t, out, "NAME ↓",
+		"DESC must surface a ↓ arrow on the same active axis")
 }
 
 func TestPage_FilterPromptIsLive(t *testing.T) {
