@@ -3,6 +3,7 @@
 package footer
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -84,7 +85,7 @@ func TestCrumbs_SetIsDefensiveCopy(t *testing.T) {
 func TestPrompt_OpenAcceptsKeystrokes(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	require.True(t, p.IsOpen())
 	require.Equal(t, PromptCommand, p.Mode())
 	require.Empty(t, p.Value())
@@ -99,7 +100,7 @@ func TestPrompt_OpenAcceptsKeystrokes(t *testing.T) {
 func TestPrompt_BackspaceRemovesLastRune(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	for _, r := range "alerts" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -112,7 +113,7 @@ func TestPrompt_BackspaceMultiByteRune(t *testing.T) {
 	t.Parallel()
 
 	// Regression: a byte-slicing implementation would corrupt this.
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	for _, r := range "caféñ" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -126,7 +127,7 @@ func TestPrompt_BackspaceMultiByteRune(t *testing.T) {
 func TestPrompt_BackspaceOnEmptyIsNoOp(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.True(t, p.IsOpen(), "backspace on empty must NOT close the prompt")
 	require.Empty(t, p.Value())
@@ -138,7 +139,7 @@ func TestPrompt_NonPrintableKeysIgnored(t *testing.T) {
 
 	// Arrow keys, F-keys, and modifier-only events leave Text empty
 	// and have non-printable Codes — they must not corrupt the buffer.
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	for _, code := range []rune{tea.KeyUp, tea.KeyDown, tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd} {
 		p, _ = p.Update(tea.KeyPressMsg{Code: code})
 	}
@@ -151,7 +152,7 @@ func TestPrompt_PasteAppendsContent(t *testing.T) {
 
 	// Bracketed paste should append the pasted content as a single
 	// chunk so users can paste a UID / labelset into the command bar.
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	p, cmd := p.Update(tea.PasteMsg{Content: "alertname=High_CPU"})
 	require.Equal(t, "alertname=High_CPU", p.Value())
 	require.NotNil(t, cmd, "paste mutates the buffer; live-filter pages need a Changed broadcast")
@@ -166,7 +167,7 @@ func TestPrompt_CodeFallbackForEmptyText(t *testing.T) {
 
 	// Some terminals report a printable rune via Code without
 	// populating Text. The prompt must still accept it.
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 'a'})
 	require.Equal(t, "a", p.Value())
 }
@@ -174,7 +175,7 @@ func TestPrompt_CodeFallbackForEmptyText(t *testing.T) {
 func TestPrompt_CtrlUClearsBuffer(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	for _, r := range "high cpu" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -187,7 +188,7 @@ func TestPrompt_CtrlUClearsBuffer(t *testing.T) {
 func TestPrompt_EnterEmitsSubmittedAndCloses(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	for _, r := range "sil" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -207,7 +208,7 @@ func TestPrompt_EnterEmitsSubmittedAndCloses(t *testing.T) {
 func TestPrompt_EscEmitsCancelledAndCloses(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	for _, r := range "stuff" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -223,7 +224,7 @@ func TestPrompt_EscEmitsCancelledAndCloses(t *testing.T) {
 func TestPrompt_ClosedIgnoresKeys(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt()
+	p := NewPrompt(nil)
 	require.False(t, p.IsOpen())
 	p, cmd := p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	require.Nil(t, cmd)
@@ -234,7 +235,7 @@ func TestPrompt_ClosedIgnoresKeys(t *testing.T) {
 func TestPrompt_BackspaceEmitsChanged(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	for _, r := range "hi" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -253,7 +254,7 @@ func TestPrompt_BackspaceOnEmptyDoesNotEmitChanged(t *testing.T) {
 	// No-op edits don't emit Changed — pages would otherwise see
 	// spurious recomputes for keystrokes that didn't move the
 	// buffer.
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.Nil(t, cmd, "no-op backspace must not broadcast Changed")
 }
@@ -261,7 +262,7 @@ func TestPrompt_BackspaceOnEmptyDoesNotEmitChanged(t *testing.T) {
 func TestPrompt_CtrlUEmitsChangedOnce(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	for _, r := range "junk" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -281,7 +282,7 @@ func TestPrompt_CtrlUEmitsChangedOnce(t *testing.T) {
 func TestPrompt_PrintableKeyEmitsChanged(t *testing.T) {
 	t.Parallel()
 
-	p := NewPrompt().Open(PromptFilter)
+	p := NewPrompt(nil).Open(PromptFilter)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
 	require.NotNil(t, cmd)
 	require.Equal(t,
@@ -293,7 +294,7 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 	t.Parallel()
 
 	styles := loadStyles(t)
-	p := NewPrompt().Open(PromptCommand)
+	p := NewPrompt(nil).Open(PromptCommand)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 
 	out := testutil.StripStyle(p.Render(styles))
@@ -301,7 +302,7 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 		"command mode renders the dog emoji + chevron, mirroring k9s")
 	require.Contains(t, out, "s")
 
-	p2 := NewPrompt().Open(PromptFilter)
+	p2 := NewPrompt(nil).Open(PromptFilter)
 	out2 := testutil.StripStyle(p2.Render(styles))
 	require.Contains(t, out2, "🐩>",
 		"filter mode renders the poodle emoji + chevron, mirroring k9s")
@@ -310,7 +311,7 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 func TestPrompt_RenderClosedIsEmpty(t *testing.T) {
 	t.Parallel()
 
-	require.Empty(t, NewPrompt().Render(loadStyles(t)))
+	require.Empty(t, NewPrompt(nil).Render(loadStyles(t)))
 }
 
 func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
@@ -321,19 +322,263 @@ func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
 	// renders as a coloured stripe in an otherwise transparent
 	// frame — see the regression report. Lock it in: the rendered
 	// SGR sequence must carry a foreground (38;) but no background
-	// (48;) parameter.
+	// (48;) parameter. Bold (1;) on the typed segment may precede
+	// the fg in the chained SGR — accept either standalone or
+	// chained fg openings.
 	styles := loadStyles(t)
 
 	for _, mode := range []PromptMode{PromptCommand, PromptFilter} {
-		p := NewPrompt().Open(mode)
+		p := NewPrompt(nil).Open(mode)
 		out := p.Render(styles)
-		require.Contains(t, out, "\x1b[38;",
+		fgChained := strings.Contains(out, "\x1b[38;") ||
+			strings.Contains(out, ";38;")
+		require.True(t, fgChained,
 			"prompt must still paint its foreground colour")
 		require.NotContains(t, out, "\x1b[48;",
 			"prompt must not paint a background colour — the surrounding frame is unstyled")
 		require.NotContains(t, out, ";48;",
 			"prompt must not paint a background colour even when chained with fg in one SGR")
 	}
+}
+
+// ----- prompt: ghost-text completion -----
+
+// stubSuggester returns a function that maps an exact input to a
+// canned suggestion. Anything not in the map returns "" — matches
+// the cmdbar.Resolver.Suggest contract.
+func stubSuggester(t *testing.T, m map[string]string) func(string) string {
+	t.Helper()
+	return func(in string) string { return m[in] }
+}
+
+func TestPrompt_SuggestionOnCommandTextChange(t *testing.T) {
+	t.Parallel()
+
+	sug := stubSuggester(t, map[string]string{
+		"s":  "sil",
+		"si": "sil",
+	})
+	p := NewPrompt(sug).Open(PromptCommand)
+	require.Empty(t, p.Suggestion(), "fresh prompt has no suggestion")
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Equal(t, "sil", p.Suggestion(),
+		"command-mode keystroke recomputes the suggestion")
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	require.Equal(t, "sil", p.Suggestion())
+}
+
+func TestPrompt_SuggestionSkipsFilterMode(t *testing.T) {
+	t.Parallel()
+
+	// Filter mode doesn't surface ghost text in this iteration; the
+	// suggester is not consulted regardless of what it would return.
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptFilter)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Empty(t, p.Suggestion(),
+		"filter mode must not invoke the command-mode suggester")
+}
+
+func TestPrompt_NilSuggesterIsSafe(t *testing.T) {
+	t.Parallel()
+
+	// Wizard / headless flows construct Prompt with no suggester.
+	// A nil dep must degrade gracefully to "no ghost ever".
+	p := NewPrompt(nil).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Empty(t, p.Suggestion())
+}
+
+func TestPrompt_BackspaceRecomputesSuggestion(t *testing.T) {
+	t.Parallel()
+
+	sug := stubSuggester(t, map[string]string{
+		"s":   "sil",
+		"si":  "sil",
+		"sil": "",
+	})
+	p := NewPrompt(sug).Open(PromptCommand)
+	for _, r := range "sil" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	require.Empty(t, p.Suggestion(),
+		"exact alias match leaves no ghost (cmdbar.Suggest contract)")
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	require.Equal(t, "sil", p.Suggestion(),
+		"backspace must recompute the suggestion against the new buffer")
+}
+
+func TestPrompt_PasteRecomputesSuggestion(t *testing.T) {
+	t.Parallel()
+
+	sug := stubSuggester(t, map[string]string{"silen": "silences"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.PasteMsg{Content: "silen"})
+	require.Equal(t, "silences", p.Suggestion(),
+		"paste must recompute the suggestion against the post-paste buffer")
+}
+
+func TestPrompt_CtrlUClearsSuggestion(t *testing.T) {
+	t.Parallel()
+
+	sug := stubSuggester(t, map[string]string{"silen": "silences"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	for _, r := range "silen" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	require.Equal(t, "silences", p.Suggestion())
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	require.Empty(t, p.Suggestion(),
+		"Ctrl+U clears the buffer; the empty buffer has no suggestion")
+}
+
+func TestPrompt_OpenClearsPriorSuggestion(t *testing.T) {
+	t.Parallel()
+
+	// Re-opening the prompt after a previous session must reset
+	// state; a stale ghost from the prior open would mislead.
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Equal(t, "sil", p.Suggestion())
+
+	p = p.Close().Open(PromptCommand)
+	require.Empty(t, p.Suggestion())
+}
+
+func TestPrompt_TabAcceptsSuggestion(t *testing.T) {
+	t.Parallel()
+
+	// Post-Tab buffer is "sil " (trailing space). The stub's default
+	// zero-value return mirrors cmdbar.Suggest's "no alias starts
+	// with 'sil '" behaviour, so the entry is left out deliberately.
+	sug := stubSuggester(t, map[string]string{
+		"s":   "sil",
+		"sil": "",
+	})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Equal(t, "sil", p.Suggestion())
+
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, "sil ", p.Value(),
+		"Tab replaces the buffer with the full alias plus a trailing space")
+	require.Empty(t, p.Suggestion(),
+		"Tab clears the suggestion; the suggester reruns against the new buffer")
+	require.True(t, p.IsOpen(), "Tab does NOT auto-submit")
+
+	require.NotNil(t, cmd, "Tab acceptance broadcasts a Changed message")
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptCommand, Value: "sil "},
+		cmd())
+}
+
+func TestPrompt_CtrlFAcceptsSuggestion(t *testing.T) {
+	t.Parallel()
+
+	// Ctrl+F mirrors Tab so users coming from k9s keep the muscle
+	// memory; both keys are otherwise unbound while the prompt is
+	// open (the dispatcher's table-context Ctrl+F = page-down only
+	// fires when the prompt is closed).
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+
+	p, cmd := p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	require.Equal(t, "sil ", p.Value())
+	require.NotNil(t, cmd)
+}
+
+func TestPrompt_TabNoOpWithoutSuggestion(t *testing.T) {
+	t.Parallel()
+
+	// No suggestion → Tab is silent. We don't insert a literal `\t`
+	// (would pollute the buffer) and we don't emit a Changed (would
+	// trigger spurious downstream work for keystrokes that didn't
+	// move the buffer, mirroring the existing no-op-backspace rule).
+	sug := stubSuggester(t, map[string]string{})
+	p := NewPrompt(sug).Open(PromptCommand)
+	for _, r := range "xyz" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	require.Empty(t, p.Suggestion())
+
+	before := p.Value()
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, before, p.Value(),
+		"Tab without ghost must not mutate the buffer")
+	require.Nil(t, cmd, "Tab without ghost must not broadcast Changed")
+}
+
+func TestPrompt_TabInFilterModeIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	// Filter mode never has a ghost (Q7a), so Tab is silent.
+	// Forwarding Tab to the page from here would risk page-specific
+	// surprises; the prompt swallows the key cleanly.
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptFilter)
+	for _, r := range "high" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	before := p.Value()
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, before, p.Value())
+	require.Nil(t, cmd)
+}
+
+func TestPrompt_SuggesterContractViolationDropped(t *testing.T) {
+	t.Parallel()
+
+	// A misbehaving suggester that returns a string which doesn't
+	// start with the buffer would render as a garbled overlay.
+	// Defensively drop it — better no ghost than the wrong ghost.
+	bad := func(_ string) string { return "nope" }
+	p := NewPrompt(bad).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Empty(t, p.Suggestion(),
+		"suggester returns must have the buffer as a prefix; bogus returns are dropped")
+}
+
+func TestPrompt_RenderShowsGhost(t *testing.T) {
+	t.Parallel()
+
+	styles := loadStyles(t)
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+
+	out := p.Render(styles)
+	plain := testutil.StripStyle(out)
+	require.Contains(t, plain, "sil",
+		"ghost suffix renders directly after the typed value")
+	require.NotContains(t, plain, "_",
+		"underscore cursor mark is gone — bold-vs-plain is the boundary now")
+	require.Contains(t, out, "\x1b[1",
+		"typed segment must carry the bold SGR attribute (k9s parity)")
+}
+
+func TestPrompt_RenderHasNoBackgroundFillWithGhost(t *testing.T) {
+	t.Parallel()
+
+	// The ghost must obey the same fg-only rule as the rest of the
+	// prompt: the surrounding panel.RenderFrame is unstyled, so a
+	// painted bg behind the ghost would render as a coloured stripe.
+	styles := loadStyles(t)
+	sug := stubSuggester(t, map[string]string{"s": "sil"})
+	p := NewPrompt(sug).Open(PromptCommand)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+
+	out := p.Render(styles)
+	require.NotContains(t, out, "\x1b[48;",
+		"ghost must not paint a background colour")
+	require.NotContains(t, out, ";48;",
+		"ghost must not paint a background colour even when chained with fg")
 }
 
 // ----- flash -----

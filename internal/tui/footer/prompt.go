@@ -3,6 +3,7 @@
 package footer
 
 import (
+	"strings"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,25 +80,40 @@ type PromptChangedMsg struct {
 	Value string
 }
 
-// Prompt is the bottom-strip input line. v0.1 ships a minimal
-// keystroke handler (Backspace / Ctrl+U clear / Enter submit / Esc
-// cancel / regular runes append) — adequate for `:command` /
-// `/filter` typing without pulling in bubbles/textinput. Once
-// suggestions land in #26 this might grow into a wrapper around
-// bubbles/textinput; for now the surface is small enough to
-// hand-roll.
+// Prompt is the bottom-strip input line. Hand-rolled keystroke
+// handler — Backspace / Ctrl+U clear / Enter submit / Esc cancel /
+// regular runes append, plus Tab / Ctrl+F to accept a ghost-text
+// completion suggestion in command mode. Adequate for `:command` /
+// `/filter` typing without pulling in bubbles/textinput.
 //
-// Prompt knows nothing about routing or alias resolution. It just
-// emits PromptSubmittedMsg / PromptCancelledMsg and lets #26 wire
-// them.
+// Prompt knows nothing about routing or alias resolution. The
+// `suggester` dep is the single seam between the alias registry
+// and the prompt's render; everything else (PromptSubmittedMsg /
+// Cancelled / Changed) flows through messages the App routes.
 type Prompt struct {
 	open  bool
 	mode  PromptMode
 	value string
+
+	// suggester returns the alphabetically-first registered alias
+	// that has the buffer as a prefix, or "" for empty / nomatch /
+	// exact-match. nil is a graceful no-op so wizard / headless
+	// flows can construct a Prompt without wiring the cmdbar.
+	// Invoked only in command mode — filter mode has no completion
+	// source in this iteration.
+	suggester func(string) string
+	// suggestion caches the last suggester output, recomputed on
+	// every text-changing branch in Update so Render is purely a
+	// function of cached state.
+	suggestion string
 }
 
-// NewPrompt constructs a closed Prompt.
-func NewPrompt() Prompt { return Prompt{} }
+// NewPrompt constructs a closed Prompt with the given suggester.
+// Pass nil to disable ghost-text completion (filter-only flows,
+// tests that don't care about suggestions).
+func NewPrompt(suggester func(string) string) Prompt {
+	return Prompt{suggester: suggester}
+}
 
 // Open opens the prompt in the given mode with an empty value.
 // Returns the new state; callers should reassign because Prompt is
@@ -106,6 +122,7 @@ func (p Prompt) Open(mode PromptMode) Prompt {
 	p.open = true
 	p.mode = mode
 	p.value = ""
+	p.suggestion = ""
 	return p
 }
 
@@ -115,6 +132,7 @@ func (p Prompt) Open(mode PromptMode) Prompt {
 func (p Prompt) Close() Prompt {
 	p.open = false
 	p.value = ""
+	p.suggestion = ""
 	return p
 }
 
@@ -126,6 +144,11 @@ func (p Prompt) Mode() PromptMode { return p.mode }
 
 // Value returns the current input buffer.
 func (p Prompt) Value() string { return p.value }
+
+// Suggestion returns the current ghost-text completion candidate,
+// or "" when there is no ghost (filter mode, no suggester wired,
+// or the buffer has no matching alias).
+func (p Prompt) Suggestion() string { return p.suggestion }
 
 // Update is the keystroke handler. Returns a derivative Prompt and
 // an optional tea.Cmd that emits PromptSubmittedMsg / Cancelled, or
@@ -140,6 +163,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	}
 	if paste, ok := msg.(tea.PasteMsg); ok {
 		p.value += paste.Content
+		p.recomputeSuggestion()
 		return p, p.changedCmd()
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -153,16 +177,19 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		mode := p.mode
 		p.open = false
 		p.value = ""
+		p.suggestion = ""
 		return p, func() tea.Msg { return PromptSubmittedMsg{Mode: mode, Value: submitted} }
 	case "esc":
 		mode := p.mode
 		p.open = false
 		p.value = ""
+		p.suggestion = ""
 		return p, func() tea.Msg { return PromptCancelledMsg{Mode: mode} }
 	case "backspace":
 		if p.value != "" {
 			r := []rune(p.value)
 			p.value = string(r[:len(r)-1])
+			p.recomputeSuggestion()
 			return p, p.changedCmd()
 		}
 		return p, nil
@@ -171,6 +198,19 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 			return p, nil
 		}
 		p.value = ""
+		p.recomputeSuggestion()
+		return p, p.changedCmd()
+	case "tab", "ctrl+f":
+		// Accept the ghost-text completion. The mode guard is
+		// belt-and-braces with recomputeSuggestion (which clears
+		// the cache outside command mode) — keeps Tab consumption
+		// safe even if a future code path mutates p.mode without
+		// going through Open/Close.
+		if p.mode != PromptCommand || p.suggestion == "" {
+			return p, nil
+		}
+		p.value = p.suggestion + " "
+		p.recomputeSuggestion()
 		return p, p.changedCmd()
 	}
 	// Append the printable character. Prefer Text (the actual entered
@@ -189,7 +229,28 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if p.value == prev {
 		return p, nil
 	}
+	p.recomputeSuggestion()
 	return p, p.changedCmd()
+}
+
+// recomputeSuggestion refreshes the ghost-text candidate against
+// the current buffer. Filter mode and a nil suggester both clear
+// it — the seam exists only for command-mode alias completion.
+//
+// Defensive: a suggester that returns a string which doesn't have
+// the buffer as a prefix would render as garbled overlay (the
+// trim in Render would no-op and the full suggestion would glue
+// after the cursor). Drop the result rather than render it.
+func (p *Prompt) recomputeSuggestion() {
+	if p.mode != PromptCommand || p.suggester == nil {
+		p.suggestion = ""
+		return
+	}
+	s := p.suggester(p.value)
+	if s != "" && !strings.HasPrefix(s, p.value) {
+		s = ""
+	}
+	p.suggestion = s
 }
 
 // changedCmd builds the per-keystroke broadcast Cmd. Captures the
@@ -205,21 +266,28 @@ func (p Prompt) changedCmd() tea.Cmd {
 // at render time (see panel.RenderFrame) so the prompt sits above
 // the body in the same frame style as the body panel.
 //
+// The typed segment is bolded (Prompt.Default fg) and the ghost is
+// plain weight (Prompt.Suggestion fg). The bold-vs-plain boundary
+// is the cue that separates "what the user typed" from "what the
+// ghost would complete to" — k9s renders the same way.
+//
 // Foreground-only on purpose: the surrounding panel.RenderFrame is
 // unstyled and the rest of the chrome lets the terminal default bg
 // show through, so painting the prompt's palette bg behind the
 // glyph + buffer would render as a coloured stripe inside the
-// otherwise transparent frame.
+// otherwise transparent frame. The ghost segment obeys the same
+// rule — fg only via styles.Prompt.Suggestion.
 func (p Prompt) Render(styles theme.Styles) string {
 	if !p.open {
 		return ""
 	}
-	style := lipgloss.NewStyle().Foreground(styles.Prompt.Default.GetForeground())
-	return style.Render(" " + p.mode.prefixGlyph() + p.value + cursorMark)
+	main := lipgloss.NewStyle().
+		Foreground(styles.Prompt.Default.GetForeground()).
+		Bold(true)
+	out := main.Render(" " + p.mode.prefixGlyph() + p.value)
+	if p.suggestion != "" {
+		ghost := lipgloss.NewStyle().Foreground(styles.Prompt.Suggestion.GetForeground())
+		out += ghost.Render(strings.TrimPrefix(p.suggestion, p.value))
+	}
+	return out
 }
-
-// cursorMark is the visible cursor character. Underscore reads as a
-// cursor on most terminal fonts without needing real cursor
-// positioning (which bubbletea v2 manages but is overkill for the
-// minimal v0.1 prompt).
-const cursorMark = "_"
