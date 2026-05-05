@@ -53,10 +53,9 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `s` | Silence. With no marks: silences the cursor alert (single form). With one or more marks (toggled via `Space`): bulk silence — the form opens once, then `a10r` fans out one CreateSilence per marked alert (per-alert labels, uniform comment / start / end). |
 | `t` | Cycle state filter: active → silenced → inhibited → all |
 | `Shift+S` | Sort by severity |
-| `Shift+T` | Sort by start time |
 | `Shift+N` | Sort by alertname |
-| `Shift+R` | Sort by receiver |
-| `Shift+I` | Sort by instance |
+| `Shift+T` | Sort by state |
+| `Shift+A` | Sort by age |
 
 ### Alert detail
 
@@ -77,9 +76,9 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
 | `x` / `Delete` | Expire. With no marks: expires the cursor silence after a default-No confirm. With one or more marks: bulk expire — confirm wording counts the queued silences and breaks them down per tenant (`(tenant prod=12, staging=3)`); fanout retries failed targets only. |
 | `Shift+E` | Sort by `endsAt` |
-| `Shift+S` | Sort by state |
+| `Shift+S` | Sort by `startsAt` |
 | `Shift+C` | Sort by creator |
-| `Shift+T` | Sort by `startsAt` |
+| `Shift+T` | Sort by state |
 
 ### Silence detail
 
@@ -116,9 +115,13 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 | View | Key | What |
 | --- | --- | --- |
 | Receivers | `Enter` | Drill to alerts filtered by this receiver |
+| Receivers | `Shift+N` | Toggle the name sort ASC↔DESC (single sortable axis; `h`/`l` are no-ops here) |
 | Groups | `Enter` | Expand/collapse the group, or drill into a leaf alert |
 | Groups | `Tab` | Force-expand / collapse the active group |
 | Groups | `s` | Silence the group by its common-labels intersection |
+| Groups | `Shift+N` | Sort by group name (label-set) |
+| Groups | `Shift+C` | Sort by alert count |
+| Groups | `Shift+V` | Sort by worst severity in the group |
 | Tenant | `Enter` | Single-select the cursor row |
 | Tenant | `Space` | Toggle the cursor row in the selection |
 | Tenant | `a` / `Ctrl+A` | Select every tenant |
