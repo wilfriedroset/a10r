@@ -177,6 +177,61 @@ func TestResolver_RegisterPanicsOnNilHandler(t *testing.T) {
 	})
 }
 
+func TestResolver_Suggest(t *testing.T) {
+	t.Parallel()
+
+	// Fixture mirrors the registered-alias shape in cmd/tui.go:
+	// long forms alongside short abbreviations so the alphabetical-
+	// first policy is exercised on prefixes that match more than one
+	// alias.
+	r := New()
+	for _, a := range []string{
+		"alerts", "gr", "groups", "q", "rec", "receivers",
+		"sil", "silences", "status", "tenant", "tenants",
+	} {
+		r.Register(a, func(_ []string) tea.Cmd { return nil })
+	}
+
+	cases := []struct {
+		name   string
+		prefix string
+		want   string
+	}{
+		{"empty input returns no ghost", "", ""},
+		{"no match returns no ghost", "xyz", ""},
+
+		// Single-match prefixes return the full alias so the caller
+		// can show the trailing chars as ghost text.
+		{"single match short prefix", "a", "alerts"},
+		{"single match longer prefix", "silen", "silences"},
+		{"single match prefix of receivers", "rece", "receivers"},
+
+		// Multi-match prefixes return the alphabetically-first match.
+		{"multi match s returns sil", "s", "sil"},
+		{"multi match si returns sil", "si", "sil"},
+		{"multi match g returns gr", "g", "gr"},
+		{"multi match r returns rec", "r", "rec"},
+
+		// Exact match — even when a longer alias shares the prefix,
+		// no ghost is shown so users who deliberately typed the
+		// short form aren't auto-completed past it.
+		{"exact match short alias with longer alias sharing prefix", "sil", ""},
+		{"exact match tenant with longer tenants", "tenant", ""},
+		{"exact match single only alias", "alerts", ""},
+		{"exact match longest in family", "tenants", ""},
+		{"exact match single char alias", "q", ""},
+
+		// Case sensitivity matches Resolve's policy.
+		{"case sensitive", "ALERT", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, r.Suggest(tc.prefix))
+		})
+	}
+}
+
 // errorWraps is a sanity check that callers using errors.Is /
 // errors.As against the sentinels still work after we wrapped the
 // candidate list into the Ambiguous error.
