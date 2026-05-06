@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -525,9 +527,15 @@ func TestPage_SuppressionBlockOnlyForSuppressed(t *testing.T) {
 
 func TestPage_SuppressionBlockSilencedByOnly(t *testing.T) {
 	t.Parallel()
+	// Cache miss path (no silences ingested) — the section header
+	// renders, IDs appear one per row under it with the
+	// not-in-snapshot marker. Enriched-row coverage lives in its
+	// own test that feeds a poll.DataMsg.
 	out := renderSuppressed(t, suppressedSample([]string{"s1", "s2"}, nil, nil), 120)
 	require.Contains(t, out, "Suppression:")
-	require.Contains(t, out, "silenced by:  s1, s2")
+	require.Contains(t, out, "silenced by:")
+	require.Contains(t, out, "    s1  (silence not in snapshot)")
+	require.Contains(t, out, "    s2  (silence not in snapshot)")
 	require.NotContains(t, out, "inhibited by:")
 	require.NotContains(t, out, "muted by:")
 }
@@ -579,28 +587,389 @@ func TestPage_SuppressionBlockEmptyFallback(t *testing.T) {
 	require.Contains(t, out, "(no reason reported by Alertmanager)")
 }
 
-func TestPage_SuppressionBlockWrapsLongList(t *testing.T) {
-	t.Parallel()
-	// A wide-enough comma list at narrow width should wrap with
-	// hanging indent — second line starts with the same column
-	// width as the prefix (`  silenced by:  ` = 16 columns).
-	long := []string{
-		"silence-id-aaaaaaaaaaaaaaaaaaa",
-		"silence-id-bbbbbbbbbbbbbbbbbbb",
+// silenceDataMsg builds a poll.DataMsg the alert page accepts as a
+// silences-resource snapshot for the given tenant. Used by tests
+// that need the suppression block to render enriched rows.
+func silenceDataMsg(tenant string, sils []backend.Silence) poll.DataMsg {
+	return poll.DataMsg{
+		ResourceLabel: "silences",
+		Tenant:        tenant,
+		Resource:      sils,
 	}
-	out := renderSuppressed(t, suppressedSample(long, nil, nil), 40)
-	// Find the silenced-by line and the line directly after it;
-	// the continuation must start with the hanging indent.
+}
+
+func TestPage_SilencedByEnrichedFromCache(t *testing.T) {
+	t.Parallel()
+	// The polled silences snapshot for p.tenant must enrich the
+	// silenced-by row with expiry / by / comment. Comment is the
+	// last column so a quick scan lands on the human reason.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(2*time.Hour + 13*time.Minute),
+		CreatedBy: "alice",
+		Comment:   "investigating spike",
+		State:     backend.SilenceStateActive,
+	}}))
+	out := testutil.StripStyle(p.View(120, 30))
+
+	require.Contains(t, out, "    sil-1  expires in 2h13m  by alice  — investigating spike",
+		"enriched row must inline id, expiry, creator, and comment with — separator")
+	require.NotContains(t, out, "(silence not in snapshot)",
+		"cache hit must not surface the degraded marker")
+}
+
+func TestPage_SilencedByOnlyTenantTrustedFromCache(t *testing.T) {
+	t.Parallel()
+	// A silences snapshot for a *different* tenant must NOT enrich
+	// the row — silenced-by IDs are not cross-tenant, and trusting
+	// a stranger tenant's snapshot would surface incorrect details.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// Same ID, but ingested under a different tenant tag.
+	_, _ = p.Update(silenceDataMsg("staging", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "mallory",
+		Comment:   "wrong-tenant payload",
+	}}))
+	out := testutil.StripStyle(p.View(120, 30))
+
+	require.Contains(t, out, "(silence not in snapshot)",
+		"the page must drop foreign-tenant payloads — they could attribute the wrong reason to a silence")
+	require.NotContains(t, out, "wrong-tenant payload")
+}
+
+func TestPage_SilencedByDegradedRowOnCacheMiss(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"missing-id"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// Ingest a snapshot that doesn't contain the alert's silenced-by
+	// ID — represents a cold start, recently-expired silence still
+	// referenced by the alert, or backend asymmetry.
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{ID: "other-id"}}))
+	out := testutil.StripStyle(p.View(120, 30))
+	require.Contains(t, out, "    missing-id  (silence not in snapshot)")
+}
+
+func TestPage_SilencedByCommentClippedNoWrap(t *testing.T) {
+	t.Parallel()
+	// At a narrow width a long comment must clip with "…" rather
+	// than wrap onto a second line — wrapping would push the next
+	// silence row out of column alignment, exactly the UI mess the
+	// design explicitly avoids.
+	a := suppressedSample([]string{"sil-long"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-long",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   strings.Repeat("X", 500),
+	}}))
+	// Render with a generous height so we always see the row plus
+	// the line after it; without this guard a small viewport could
+	// place the silenced-by row at the visible bottom and there'd
+	// be no "next line" to inspect.
+	out := testutil.StripStyle(p.View(80, 200))
 	lines := strings.Split(out, "\n")
+
+	var rowIdx int
 	for i, l := range lines {
-		if strings.Contains(l, "silenced by:") && i+1 < len(lines) {
-			next := lines[i+1]
-			require.True(t, strings.HasPrefix(next, "                "),
-				"continuation line must start with the 16-col hanging "+
-					"indent so wrapped IDs align under the value column "+
-					"(got %q)", next)
-			return
+		if strings.Contains(l, "sil-long") {
+			rowIdx = i
+			break
 		}
 	}
-	t.Fatal("did not find a silenced-by line followed by a continuation")
+	require.Positive(t, rowIdx, "silenced-by row must appear in render")
+	row := lines[rowIdx]
+	require.Contains(t, row, "…",
+		"clipped comment must end with the ellipsis marker")
+	require.LessOrEqual(t, lipgloss.Width(row), 80,
+		"clipped row must fit within the rendered width — wrapping the comment is the bug we're guarding against")
+	// No subsequent line may carry the clipped comment payload.
+	// Walking every following line catches a hang-wrap regardless
+	// of whether the row happens to be the last one in the body.
+	for i := rowIdx + 1; i < len(lines); i++ {
+		require.NotContains(t, lines[i], "X",
+			"clipped comment must not bleed into a later line, got %q", lines[i])
+	}
+}
+
+func TestPage_SilencedByCommentTruncatedAtFirstNewline(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-multi"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-multi",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "headline\nfollow-up detail nobody needs in the row",
+	}}))
+	out := testutil.StripStyle(p.View(160, 30))
+	require.Contains(t, out, "— headline…",
+		"first line must surface with ellipsis indicating hidden continuation")
+	require.NotContains(t, out, "follow-up detail",
+		"second-line content must NOT appear in the row")
+}
+
+func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:      a,
+		Tenant:     "prod",
+		Styles:     loadStyles(t),
+		Now:        func() time.Time { return fixedNow },
+		TimeFormat: app.TimeFormatAbsolute,
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "x",
+	}}))
+	out := testutil.StripStyle(p.View(160, 30))
+	require.Contains(t, out, "ends ",
+		"absolute mode must label the column 'ends '")
+	require.NotContains(t, out, "expires in",
+		"absolute mode must drop the relative-mode label")
+}
+
+func TestPage_PollResourcesIncludesSilences(t *testing.T) {
+	t.Parallel()
+	// The page must opt in to the silences feed so the App's cache
+	// replay hydrates a freshly-pushed detail view immediately.
+	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	require.Equal(t, []string{"silences"}, p.PollResources())
+}
+
+func TestPage_OpenSilenceFlashesWhenNoSilencedBy(t *testing.T) {
+	t.Parallel()
+	// Active alert with no silenced-by IDs: `S` is a soft no-op.
+	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "no silences")
+}
+
+func TestPage_OpenSilenceN1PushesDetail(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+	}}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	// pushPageMsg is unexported in the app package, so we assert on
+	// the type *name* rather than direct match. Stronger than a
+	// "not flash" check: a regression that swapped the N=1 / N>1
+	// branches would emit openModalMsg here and slip past the
+	// looser assertion.
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "pushPageMsg",
+		"single silence must push silence detail, not open a modal or flash")
+}
+
+func TestPage_OpenSilenceCacheMissFlashesInfo(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"missing-id"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// No DataMsg ingested — cache miss.
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "missing-id")
+	require.Contains(t, msg.Text, ":silences",
+		"hint must point the user at the silences page so the affordance reads consistently with the rendered degraded row")
+}
+
+func TestPage_OpenSilenceN2OpensModal(t *testing.T) {
+	t.Parallel()
+	// Two silenced-by entries: `S` opens the disambiguation modal
+	// (app.OpenModal emits an openModalMsg the App handles).
+	// openModalMsg is unexported, so we assert on the type name.
+	// Pinning the exact emitter type catches a regression that
+	// swaps the N=1 / N>1 branches — the looser "not flash" check
+	// would have happily accepted a misrouted pushPageMsg.
+	a := suppressedSample([]string{"sil-1", "sil-2"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{
+		{ID: "sil-1", EndsAt: fixedNow.Add(time.Hour), CreatedBy: "alice"},
+		{ID: "sil-2", EndsAt: fixedNow.Add(2 * time.Hour), CreatedBy: "bob"},
+	}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "openModalMsg",
+		"N>1 must open the disambiguation modal, not push or flash")
+}
+
+func TestPage_SilencedByNarrowWidthDropsEmDashSeparator(t *testing.T) {
+	t.Parallel()
+	// At a width too tight to fit any comment after the prefix, the
+	// row must drop the "  — " separator entirely rather than render
+	// "  — " followed by nothing — a dangling em-dash reads as a
+	// rendering bug.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "a comment that does not fit at all",
+	}}))
+	// 40 cols is wide enough for the prefix ("    sil-1  expires in 1h
+	// by alice") but not for the separator + meaningful comment.
+	out := testutil.StripStyle(p.View(40, 30))
+	require.NotRegexp(t, `—\s*$`, out,
+		"no row may end in a dangling em-dash")
+	require.NotContains(t, out, "—  \n",
+		"no row may render the em-dash separator with empty content")
+}
+
+func TestPage_SilencedByDedupesDuplicateIDs(t *testing.T) {
+	t.Parallel()
+	// A non-conforming upstream that emits the same silence ID twice
+	// in SilencedBy must not produce two visually-identical picker
+	// rows that both drill to the same silence — confusing UX. The
+	// page de-duplicates at the boundary, so two-of-the-same-id
+	// degrades to the single-silence direct-push path.
+	a := suppressedSample([]string{"sil-1", "sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: loadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "x",
+	}}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash,
+		"duplicate IDs collapsing to one must follow the single-silence direct-push path, not flash")
+}
+
+func TestClipComment_NeverExceedsBudget(t *testing.T) {
+	t.Parallel()
+	// Boundary table: every output must satisfy lipgloss.Width(out)
+	// ≤ budget. Multiline at the budget boundary used to overflow
+	// by one column (the "…" was appended without making room for
+	// it); this test pins the corrected contract.
+	cases := []struct {
+		name    string
+		s       string
+		budget  int
+		wantMax int
+	}{
+		{"single-line short fits", "ok", 10, 10},
+		{"single-line at budget", "abcde", 5, 5},
+		{"single-line over budget cuts", "abcdefgh", 5, 5},
+		{"multiline short adds ellipsis", "ok\nmore", 10, 10},
+		{"multiline at budget cuts to leave room for ellipsis", "abcde\nmore", 5, 5},
+		{"multiline over budget cuts", "abcdefgh\nmore", 5, 5},
+		{"budget 1 returns ellipsis", "abc", 1, 1},
+		{"budget 0 returns empty", "abc", 0, 0},
+		{"budget negative returns empty", "abc", -3, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := clipComment(tc.s, tc.budget)
+			require.LessOrEqual(t, lipgloss.Width(got), tc.wantMax,
+				"clipComment(%q, %d) returned %q (width %d) — must not exceed budget",
+				tc.s, tc.budget, got, lipgloss.Width(got))
+		})
+	}
+}
+
+func TestPage_BindingsIncludeOpenSilence(t *testing.T) {
+	t.Parallel()
+	// Capital `S` is a separate binding from lower-case `s`
+	// (silence form). Both must surface in `?` help so the user can
+	// discover the read-only navigation alongside the write one.
+	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	keys := map[string]bool{}
+	for _, b := range p.Bindings() {
+		keys[b.Key] = true
+	}
+	require.True(t, keys["S"], "missing capital-S binding for open-silence drilldown")
+}
+
+func TestFormatRemaining(t *testing.T) {
+	t.Parallel()
+	now := fixedNow
+	cases := []struct {
+		name string
+		when time.Duration
+		want string
+	}{
+		{"past collapses to expired", -time.Hour, "expired"},
+		{"zero is expired", 0, "expired"},
+		{"sub-minute renders seconds", 30 * time.Second, "30s"},
+		{"sub-hour renders minutes", 45 * time.Minute, "45m"},
+		{"hours and minutes", 2*time.Hour + 13*time.Minute, "2h13m"},
+		{"whole hours drop the m suffix", 3 * time.Hour, "3h"},
+		{"days swallow hours and minutes", 49 * time.Hour, "2d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := formatRemaining(now, now.Add(tc.when))
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

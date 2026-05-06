@@ -8,6 +8,7 @@
 package alert
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
@@ -73,12 +77,20 @@ type Options struct {
 
 // Page is the alert-detail view. Implements app.Page.
 type Page struct {
-	a       backend.Alert
-	tenant  string
-	styles  theme.Styles
-	clip    Clipboard
-	browser Browser
-	now     func() time.Time
+	a backend.Alert
+	// silencedBy is the de-duplicated, order-preserving SilencedBy
+	// list. Stored separately from a.SilencedBy so a non-conforming
+	// upstream that emits the same ID twice cannot make the body
+	// (which walks this list) and the picker (which resolves IDs
+	// for `S`) disagree on how many distinct silences exist —
+	// dedup at one boundary keeps both renderers in lockstep
+	// without mutating the cached Alert.
+	silencedBy []string
+	tenant     string
+	styles     theme.Styles
+	clip       Clipboard
+	browser    Browser
+	now        func() time.Time
 
 	// clients is the per-tenant write surface for `s`. See Options.
 	clients map[string]silenceform.Client
@@ -100,6 +112,14 @@ type Page struct {
 	// body-2. Zero before the first render — handlers fall back to
 	// 10 / 20.
 	bodyHeight int
+
+	// silences caches the polled snapshot for p.tenant only, keyed
+	// by silence ID. Populated from poll.DataMsg{ResourceLabel:
+	// "silences"} arriving via the App's cache replay (on push) or
+	// a live tick. Per-tenant filtering happens at ingest so the
+	// per-page state stays minimal — silenced-by IDs in
+	// backend.Alert are not cross-tenant.
+	silences map[string]backend.Silence
 }
 
 // New constructs an alert-detail page.
@@ -110,6 +130,7 @@ func New(opts Options) *Page {
 	}
 	return &Page{
 		a:          opts.Alert,
+		silencedBy: dedupStrings(opts.Alert.SilencedBy),
 		tenant:     opts.Tenant,
 		styles:     opts.Styles,
 		clip:       opts.Clipboard,
@@ -118,8 +139,17 @@ func New(opts Options) *Page {
 		clients:    opts.Clients,
 		creator:    opts.Creator,
 		timeFormat: opts.TimeFormat,
+		silences:   map[string]backend.Silence{},
 	}
 }
+
+// PollResources implements app.PollAwarePage. The detail page only
+// reacts to the silences feed — silenced-by UUIDs in the alert are
+// resolved against this snapshot to enrich the suppression block.
+// Listing the label here lets the App's cache replay hydrate the
+// page on push so a freshly-drilled detail view shows enriched
+// rows immediately, without waiting for the next poll tick.
+func (*Page) PollResources() []string { return []string{"silences"} }
 
 // Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
@@ -154,6 +184,7 @@ func (*Page) Footer() string { return "" }
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
+		{Key: "S", Description: "open silence", View: "alert"},
 		{Key: "y", Description: "copy fp", View: "alert"},
 		{Key: "o", Description: "open URL", View: "alert"},
 	}
@@ -170,6 +201,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.TimeFormatChangedMsg:
 		p.timeFormat = m.Format
 		return p, nil
+	case poll.DataMsg:
+		p.ingestSilences(m)
+		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped; flash the new silence ID so the user
 		// sees confirmation. Same shape the alerts list / silences
@@ -177,6 +211,15 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.
+		return p, nil
+	case SilenceSelectedMsg:
+		// User picked one row from the disambiguation modal. Drill
+		// in via the cache; an unresolved ID flashes the same hint
+		// the rendered degraded row already advertises.
+		cmd := p.openSilenceDetail(m.ID)
+		return p, cmd
+	case SilenceCancelledMsg:
+		// Modal Esc'd. No flash — nothing happened.
 		return p, nil
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
@@ -211,8 +254,32 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case "s":
 		cmd := p.openSilenceForm()
 		return p, cmd
+	case "S":
+		cmd := p.openSilencedByDetail()
+		return p, cmd
 	}
 	return p, nil
+}
+
+// ingestSilences caches the silences poll snapshot for p.tenant.
+// Out-of-resource and out-of-tenant payloads are ignored — the
+// suppression renderer only resolves IDs that came from the
+// alert's own backend, and dropping the rest keeps the page's
+// state proportional to one tenant's silence count rather than the
+// whole multi-tenant fan-out.
+func (p *Page) ingestSilences(m poll.DataMsg) {
+	if m.ResourceLabel != "silences" || m.Tenant != p.tenant {
+		return
+	}
+	sils, ok := m.Resource.([]backend.Silence)
+	if !ok {
+		return
+	}
+	next := make(map[string]backend.Silence, len(sils))
+	for _, s := range sils {
+		next[s.ID] = s
+	}
+	p.silences = next
 }
 
 // openSilenceForm pushes the silence form prefilled with this
@@ -356,17 +423,21 @@ func (p *Page) bodyLines(width int) []string {
 	}
 	if p.a.State == backend.AlertStateSuppressed {
 		out = append(out, "", "Suppression:")
-		out = append(out, suppressionLines(p.a, width)...)
+		out = append(out, p.suppressionLines(width)...)
 	}
 	return out
 }
 
 // suppressionLines renders the silenced-by / inhibited-by /
-// muted-by lists for a suppressed alert. v0-strict: raw IDs and
-// fingerprints, no resolution against the silence list or the
-// alert snapshot. The order is fixed (silenced → inhibited →
-// muted) so the same suppressed alert renders identically across
-// refreshes.
+// muted-by lists for a suppressed alert. The silenced-by section
+// resolves UUIDs against the polled silences snapshot to surface
+// expiry / createdBy / comment alongside each ID, so the user can
+// triage without round-tripping to the silences page.
+// Inhibited-by and muted-by remain raw lists per the original
+// shape — fingerprint resolution and time-interval enrichment are
+// intentional non-goals here. The fixed section order
+// (silenced → inhibited → muted) is preserved so the same
+// suppressed alert renders identically across refreshes.
 //
 // Defensive empty-state: a suppressed alert with all three lists
 // empty shouldn't happen against vanilla Alertmanager, but a
@@ -374,28 +445,241 @@ func (p *Page) bodyLines(width int) []string {
 // `(no reason reported by Alertmanager)` so the section header
 // has at least one line under it instead of looking like a
 // render glitch.
-func suppressionLines(a backend.Alert, width int) []string {
-	rows := [...]struct {
-		label string
-		ids   []string
-	}{
-		{"silenced by:  ", a.SilencedBy},
-		{"inhibited by: ", a.InhibitedBy},
-		{"muted by:     ", a.MutedBy},
-	}
-	out := make([]string, 0, 3)
-	for _, r := range rows {
-		if len(r.ids) == 0 {
-			continue
+func (p *Page) suppressionLines(width int) []string {
+	out := make([]string, 0, 8)
+	if len(p.silencedBy) > 0 {
+		out = append(out, "  silenced by:")
+		for _, id := range p.silencedBy {
+			out = append(out, p.silencedByRow(id, width))
 		}
-		prefix := "  " + r.label
+	}
+	if len(p.a.InhibitedBy) > 0 {
+		prefix := "  inhibited by: "
 		hangCols := lipgloss.Width(prefix)
-		out = append(out, wrapHanging(prefix+strings.Join(r.ids, ", "), width, hangCols)...)
+		out = append(out, wrapHanging(prefix+strings.Join(p.a.InhibitedBy, ", "), width, hangCols)...)
+	}
+	if len(p.a.MutedBy) > 0 {
+		prefix := "  muted by:     "
+		hangCols := lipgloss.Width(prefix)
+		out = append(out, wrapHanging(prefix+strings.Join(p.a.MutedBy, ", "), width, hangCols)...)
 	}
 	if len(out) == 0 {
 		return []string{"  (no reason reported by Alertmanager)"}
 	}
 	return out
+}
+
+// silenceRowIndent is the leading indent for each silenced-by row
+// under the "  silenced by:" sub-header. Two cols past the section
+// indent so the rows visually nest under their header.
+const silenceRowIndent = "    "
+
+// silencedByRow renders one row for a silenced-by ID. Cache hit
+// produces the dense single-line summary; cache miss produces the
+// degraded marker row. The comment is clipped (width-aware) so a
+// long incident note never wraps the row and breaks the column
+// alignment of subsequent rows in the block.
+//
+// Whitespace-only and effectively-empty comments drop the "— "
+// separator so the row never reads with a dangling em-dash, and
+// terminals so narrow that the prefix already fills the width
+// also drop the separator (rather than render "— " followed by
+// nothing).
+func (p *Page) silencedByRow(id string, width int) string {
+	s, ok := p.silences[id]
+	if !ok {
+		return silenceRowIndent + id + "  (silence not in snapshot)"
+	}
+	prefix := silenceRowIndent + id + "  " + p.expiryField(s.EndsAt) + "  by " + s.CreatedBy
+	comment := strings.TrimSpace(s.Comment)
+	if comment == "" {
+		return prefix
+	}
+	const sep = "  — "
+	clip := clipComment(comment, width-lipgloss.Width(prefix+sep))
+	if clip == "" {
+		return prefix
+	}
+	return prefix + sep + clip
+}
+
+// silencePickerLine renders the unclipped per-silence summary used
+// by the disambiguation modal. The modal's own width handling
+// truncates if needed; we deliberately don't clip here so the
+// picker shows the full comment when there's room. Whitespace-
+// only comments drop the "  — " separator for the same reason
+// silencedByRow does — a row that ends in a dangling em-dash
+// reads as a render bug.
+func (p *Page) silencePickerLine(id string) string {
+	s, ok := p.silences[id]
+	if !ok {
+		return id + "  (silence not in snapshot)"
+	}
+	line := id + "  " + p.expiryField(s.EndsAt) + "  by " + s.CreatedBy
+	comment := strings.TrimSpace(collapseFirstLine(s.Comment))
+	if comment != "" {
+		line += "  — " + comment
+	}
+	return line
+}
+
+// expiryField renders the "<label> <value>" middle column. Label
+// flips with the app-global TimeFormat — "expires in" reads as a
+// duration, "ends" reads as a wall-clock — so the row stays
+// semantically honest in either mode and matches the summary-block
+// pattern at renderSummary's age/started flip.
+func (p *Page) expiryField(ts time.Time) string {
+	if p.timeFormat == app.TimeFormatAbsolute {
+		return "ends " + header.FormatAbsolute(ts)
+	}
+	return "expires in " + formatRemaining(p.now(), ts)
+}
+
+// formatRemaining renders the duration from now until future as a
+// short forward-looking string ("2h13m", "4d", "expired"). The
+// existing header.FormatAge collapses every future timestamp to
+// "now" — fine for past-leaning columns like alert age, useless
+// for "expires in", which is the whole point of this helper.
+//
+// Granularity matches what an operator wants to see at a glance:
+// days when ≥1d, hours+minutes when ≥1h, minutes when ≥1m, seconds
+// otherwise. No mixed h/m/s rendering — the third unit rarely
+// changes the operator's decision and adds visual noise.
+func formatRemaining(now, future time.Time) string {
+	d := future.Sub(now)
+	if d <= 0 {
+		return "expired"
+	}
+	if d >= 24*time.Hour {
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
+	if d >= time.Hour {
+		hours := int(d / time.Hour)
+		mins := int((d - time.Duration(hours)*time.Hour) / time.Minute)
+		if mins == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh%dm", hours, mins)
+	}
+	if d >= time.Minute {
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%ds", int(d/time.Second))
+}
+
+// clipComment truncates s so it fits within budget columns (never
+// exceeds — the multiline branch used to overflow by one column at
+// the boundary), appending an ellipsis ("…", one column) whenever
+// content was hidden. A multiline comment ALWAYS ends in "…" even
+// when the first line fits, because the user otherwise has no
+// signal that more text exists below the rendered row.
+//
+// budget ≤ 0 returns "" so the caller can drop the row's "— "
+// separator and avoid a dangling em-dash; budget 1 returns just
+// the ellipsis, since we can't fit even one comment rune plus the
+// marker.
+func clipComment(s string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	first, _, multiline := strings.Cut(s, "\n")
+	s = first
+	width := lipgloss.Width(s)
+	needsEllipsis := multiline || width > budget
+	if !needsEllipsis {
+		return s
+	}
+	if budget == 1 {
+		return "…"
+	}
+	if width+1 <= budget {
+		return s + "…"
+	}
+	cut := hardCutAt(s, budget-1)
+	return s[:cut] + "…"
+}
+
+// collapseFirstLine returns the substring of s up to the first
+// newline. Used by the picker line where width clipping is the
+// modal's responsibility but the multi-line collapse is still ours
+// (literal "\n" runs would render as box-drawing artefacts inside
+// the picker's plain-text body).
+func collapseFirstLine(s string) string {
+	first, _, _ := strings.Cut(s, "\n")
+	return first
+}
+
+// openSilencedByDetail handles the `S` binding. No silenced-by
+// entries (defensive: an active alert with `S` pressed, or a
+// non-conforming proxy) flashes a soft Info hint so the binding
+// reads as "no-op with explanation" rather than dead. One entry
+// drills directly into silence detail; many open the typed-wrapper
+// modal so the user picks one. Cache miss on direct push falls
+// through to a flash via openSilenceDetail. The list walked here
+// is the constructor-deduped p.silencedBy so the picker matches
+// what the body shows.
+func (p *Page) openSilencedByDetail() tea.Cmd {
+	if len(p.silencedBy) == 0 {
+		return flashFn(footer.FlashInfo, "no silences attached to this alert")
+	}
+	if len(p.silencedBy) == 1 {
+		return p.openSilenceDetail(p.silencedBy[0])
+	}
+	rows := make([]silencePickerRow, 0, len(p.silencedBy))
+	for _, id := range p.silencedBy {
+		rows = append(rows, silencePickerRow{
+			id:   id,
+			line: p.silencePickerLine(id),
+		})
+	}
+	return app.OpenModal(func() modal.Modal {
+		return newSilencePicker(rows)
+	})
+}
+
+// dedupStrings preserves first-occurrence order. Pulled out so the
+// `S` binding's ingest matches whatever ordering choice we made
+// elsewhere — first-seen-first matches the stable section order
+// already enforced for silenced/inhibited/muted in the body.
+func dedupStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// openSilenceDetail pushes the silence detail page for the given
+// ID, sourced from the polled snapshot. Cache miss flashes an
+// Info hint pointing the user at `:silences` — the rendered
+// degraded row in the body is space-constrained and only carries
+// "(silence not in snapshot)", so the recovery path lives in this
+// flash, fired the moment the user actually presses `S`.
+//
+// Note on TimeFormat: silence detail (internal/tui/page/silence)
+// renders RFC3339 timestamps unconditionally and does not honour
+// the app-global TimeFormat toggle, so there's nothing to forward
+// here. If that page ever grows a relative-mode renderer, thread
+// p.timeFormat through silencepage.Options at that time.
+func (p *Page) openSilenceDetail(id string) tea.Cmd {
+	s, ok := p.silences[id]
+	if !ok {
+		return flashFn(footer.FlashInfo, "silence "+id+" not in snapshot — try :silences")
+	}
+	tenant := p.tenant
+	styles := p.styles
+	return app.PushPage(func() app.Page {
+		return silencepage.New(silencepage.Options{
+			Silence: s,
+			Tenant:  tenant,
+			Styles:  styles,
+		})
+	})
 }
 
 // reconcileScroll clamps p.scroll so the visible window stays
