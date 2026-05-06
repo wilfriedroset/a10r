@@ -40,37 +40,50 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// SortKey enumerates the sortable columns for the silences table.
-type SortKey int
-
+// Sort column keys. Stable identifiers passed to the tablesort
+// helper. Order does not matter at the constant level — visual
+// h/l walk order comes from the silenceSortColumns slice (BY,
+// STARTS, ENDS, STATE) since BY is leftmost on the rendered table
+// while ENDS is the page default.
 const (
-	// SortByEndsAt is the default — silences expiring soonest at
-	// the top (E2).
-	SortByEndsAt SortKey = iota
-	// SortByStartsAt sorts by start time.
-	SortByStartsAt
-	// SortByCreatedBy sorts alphabetically by creator.
-	SortByCreatedBy
-	// SortByState sorts by silence state (active, pending, expired).
-	SortByState
+	sortKeyEndsAt    = "ends"
+	sortKeyStartsAt  = "starts"
+	sortKeyCreatedBy = "by"
+	sortKeyState     = "state"
 )
 
-// String returns the column-header label.
-func (s SortKey) String() string {
-	switch s {
-	case SortByEndsAt:
-		return "ends"
-	case SortByStartsAt:
-		return "starts"
-	case SortByCreatedBy:
-		return "by"
-	case SortByState:
-		return "state"
+// silenceSortColumns returns the page's sortable axes in visual
+// header order (BY → STARTS → ENDS → STATE). h/l walks through
+// this order so "right one column" matches what the user sees;
+// ENDS is the default sort key — silences expiring soonest at
+// the top per E2 — but that lives separately from registration
+// order. All defaults are ASC.
+func silenceSortColumns() []tablesort.Column[silenceEntry] {
+	return []tablesort.Column[silenceEntry]{
+		{
+			Key: sortKeyCreatedBy, Title: "BY", Hotkey: 'C', DefaultAsc: true,
+			Description: "sort by creator",
+			Less:        func(a, b silenceEntry) bool { return a.s.CreatedBy < b.s.CreatedBy },
+		},
+		{
+			Key: sortKeyStartsAt, Title: "STARTS", Hotkey: 'S', DefaultAsc: true,
+			Description: "sort by startsAt",
+			Less:        func(a, b silenceEntry) bool { return a.s.StartsAt.Before(b.s.StartsAt) },
+		},
+		{
+			Key: sortKeyEndsAt, Title: "ENDS", Hotkey: 'E', DefaultAsc: true,
+			Description: "sort by endsAt",
+			Less:        func(a, b silenceEntry) bool { return a.s.EndsAt.Before(b.s.EndsAt) },
+		},
+		{
+			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
+			Less: func(a, b silenceEntry) bool { return a.s.State < b.s.State },
+		},
 	}
-	return "?"
 }
 
 // Client is the write surface the silences page needs: it pushes
@@ -119,8 +132,10 @@ type Page struct {
 	// first keystroke. See alerts.Page for the rationale.
 	bodyHeight int
 
-	sort    SortKey
-	sortAsc bool
+	// sorter owns the active sort column + direction. Comparators
+	// and column metadata come from silenceSortColumns; the helper
+	// applies the cycle / flip / walk convention.
+	sorter  *tablesort.Sorter[silenceEntry]
 	focusID string
 
 	// filter is the active substring filter (creator / matcher
@@ -306,8 +321,7 @@ func New(opts Options) *Page {
 		timeFormat:      opts.TimeFormat,
 		byTenant:        map[string][]backend.Silence{},
 		marks:           map[string]struct{}{},
-		sort:            SortByEndsAt,
-		sortAsc:         true, // soonest-expiring first
+		sorter:          tablesort.New(silenceSortColumns(), sortKeyEndsAt),
 		scope:           scopeAll,
 		nextRefresh:     map[string]time.Time{},
 		polledTenants:   map[string]struct{}{},
@@ -512,30 +526,24 @@ func (*Page) PollResources() []string { return []string{"silences"} }
 // "bulk expire all marked rows" (one or more marks) — k9s-style
 // same-key-different-N. Ctrl+X is intentionally absent; the
 // single-binding rule is the whole point of this page's bulk UX.
-func (*Page) Bindings() []action.Action {
-	return []action.Action{
-		{Key: "Enter", Description: "detail", View: "silences"},
-		{Key: "n", Description: "new", View: "silences", Dangerous: true},
-		{Key: "e", Description: "edit", View: "silences", Dangerous: true},
-		{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
-		{Key: "Space", Description: "mark", View: "silences"},
-		{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
-		{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
-		// Sort shortcuts. Routed into the help overlay's HOTKEYS
-		// column via the "Shift+" prefix in splitVerbsHotkeys.
-		// Listed in visual header column order (BY → STARTS →
-		// ENDS → STATE) so the help reads in the same scan
-		// direction as the table.
-		{Key: "Shift+C", Description: "sort by creator", View: "silences"},
-		{Key: "Shift+S", Description: "sort by startsAt", View: "silences"},
-		{Key: "Shift+E", Description: "sort by endsAt", View: "silences"},
-		{Key: "Shift+T", Description: "sort by state", View: "silences"},
-		// `r` is documented in the global help catalog; the page
-		// hint strip surfaces it here so the affordance also shows
-		// up next to the page-specific verbs the user is reading
-		// while looking at the silences list.
-		{Key: "r", Description: "refresh", View: "silences"},
-	}
+func (p *Page) Bindings() []action.Action {
+	sortBindings := p.sorter.Bindings("silences")
+	out := make([]action.Action, 0, 8+len(sortBindings))
+	out = append(out,
+		action.Action{Key: "Enter", Description: "detail", View: "silences"},
+		action.Action{Key: "n", Description: "new", View: "silences", Dangerous: true},
+		action.Action{Key: "e", Description: "edit", View: "silences", Dangerous: true},
+		action.Action{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
+		action.Action{Key: "Space", Description: "mark", View: "silences"},
+		action.Action{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
+		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
+	)
+	out = append(out, sortBindings...)
+	// `r` is documented in the global help catalog; the page hint
+	// strip surfaces it here so the affordance also shows up next
+	// to the page-specific verbs.
+	out = append(out, action.Action{Key: "r", Description: "refresh", View: "silences"})
+	return out
 }
 
 // Update implements app.Page.
@@ -741,77 +749,19 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 // column's shortcut resets to that column's default direction. h/l
 // walk also resets to default for the new column.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
-	switch m.String() {
-	case "h", "left":
-		p.applySort(prevSort(p.sort))
-	case "l", "right":
-		p.applySort(nextSort(p.sort))
-	case "shift+e", "E":
-		p.applySort(SortByEndsAt)
-	case "shift+s", "S":
-		p.applySort(SortByStartsAt)
-	case "shift+c", "C":
-		p.applySort(SortByCreatedBy)
-	case "shift+t", "T":
-		p.applySort(SortByState)
-	default:
+	if !p.sorter.HandleKey(m.String()) {
 		return false
 	}
+	// User-initiated re-sort is k9s-positional: cursor stays at the
+	// same row index, whichever silence lands under it becomes the
+	// new focus. Clearing focusID before recompute bypasses the
+	// find-by-ID branch; snapshotFocus then re-captures the new
+	// focus so subsequent poll / scope / filter recomputes still
+	// follow it content-stably.
+	p.focusID = ""
+	p.recompute()
 	return true
 }
-
-// columnCycle is the visual left-to-right order of sortable
-// columns in renderHeader: BY → STARTS → ENDS → STATE. h/l walks
-// through this slice so the user's "right one column" intuition
-// matches what they see; the SortKey iota order doesn't, because
-// SortByEndsAt is the iota zero (it's the page default) while it
-// renders in the third visual slot.
-var columnCycle = []SortKey{
-	SortByCreatedBy,
-	SortByStartsAt,
-	SortByEndsAt,
-	SortByState,
-}
-
-// nextSort returns the column to the right of k in the visual
-// header order, wrapping from STATE back to BY.
-func nextSort(k SortKey) SortKey {
-	for i, c := range columnCycle {
-		if c == k {
-			return columnCycle[(i+1)%len(columnCycle)]
-		}
-	}
-	return columnCycle[0]
-}
-
-// prevSort returns the column to the left of k in the visual
-// header order, wrapping from BY back to STATE.
-func prevSort(k SortKey) SortKey {
-	for i, c := range columnCycle {
-		if c == k {
-			return columnCycle[(i-1+len(columnCycle))%len(columnCycle)]
-		}
-	}
-	return columnCycle[0]
-}
-
-// applySort updates sort key and direction. Same key twice flips
-// ASC↔DESC; new key resets to that column's default direction.
-func (p *Page) applySort(k SortKey) {
-	if p.sort == k {
-		p.sortAsc = !p.sortAsc
-	} else {
-		p.sort = k
-		p.sortAsc = defaultAsc(k)
-	}
-	p.recompute()
-}
-
-// defaultAsc returns the direction the column reads naturally
-// when first activated. EndsAt is ASC so soonest-expiring shows
-// first (the operator-priority "what's about to come back");
-// everything else is also ASC for consistency.
-func defaultAsc(_ SortKey) bool { return true }
 
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
@@ -1575,9 +1525,8 @@ func (p *Page) emptyState() string {
 // ("✓ " / "  ") when any row is marked.
 func (p *Page) renderHeader(width int) string {
 	type col struct {
-		label    string
-		sortKey  SortKey
-		sortable bool
+		label   string
+		sortKey string // "" when the column is display-only (UUID, COMMENT, TENANT)
 	}
 	cols := make([]col, 0, 7)
 	if p.showTenantColumn() {
@@ -1585,34 +1534,40 @@ func (p *Page) renderHeader(width int) string {
 	}
 	cols = append(cols,
 		col{label: "UUID"},
-		col{label: "BY", sortKey: SortByCreatedBy, sortable: true},
+		col{label: "BY", sortKey: sortKeyCreatedBy},
 		col{label: "COMMENT"},
-		col{label: "STARTS", sortKey: SortByStartsAt, sortable: true},
-		col{label: "ENDS", sortKey: SortByEndsAt, sortable: true},
-		col{label: "STATE", sortKey: SortByState, sortable: true},
+		col{label: "STARTS", sortKey: sortKeyStartsAt},
+		col{label: "ENDS", sortKey: sortKeyEndsAt},
+		col{label: "STATE", sortKey: sortKeyState},
 	)
+	// fg-only so the header keeps the terminal default background
+	// — painted palette bg in the unstyled body frame creates a
+	// coloured stripe.
+	headerFg := lipgloss.NewStyle().Foreground(p.styles.Table.Header.GetForeground())
+	activeFg := lipgloss.NewStyle().Foreground(p.styles.Table.HeaderActive.GetForeground())
 	parts := make([]string, len(cols))
 	for i, c := range cols {
 		label := c.label
-		if c.sortable && c.sortKey == p.sort {
-			arrow := "↓"
-			if p.sortAsc {
-				arrow = "↑"
+		if c.sortKey != "" {
+			if arrow := p.sorter.ArrowFor(c.sortKey); arrow != "" {
+				label = label + " " + arrow
 			}
-			label = label + " " + arrow
 		}
-		parts[i] = label
+		// Active sort column gets HeaderActive; everything else
+		// (sortable-but-inactive plus display-only) gets the regular
+		// Header foreground — both cues (column tint + arrow) point
+		// at the same axis.
+		if c.sortKey != "" && p.sorter.IsActive(c.sortKey) {
+			parts[i] = activeFg.Render(label)
+		} else {
+			parts[i] = headerFg.Render(label)
+		}
 	}
 	leading := "  "
 	if p.hasMarks() {
 		leading = "    "
 	}
-	// Foreground-only render so the header row keeps the body
-	// background — flush with the data rows underneath rather
-	// than a coloured stripe.
-	return lipgloss.NewStyle().
-		Foreground(p.styles.Table.Header.GetForeground()).
-		Render(leading + p.padColumns(parts, width))
+	return leading + p.padColumns(parts, width)
 }
 
 // hasMarks reports whether any silence ID is currently marked.
@@ -1840,7 +1795,7 @@ func (p *Page) recompute() {
 		}
 	}
 	p.view = filterSilences(flat, p.filter)
-	sortSilences(p.view, p.sort, p.sortAsc)
+	p.sorter.Apply(p.view)
 	if p.focusID != "" {
 		for i, e := range p.view {
 			if e.s.ID == p.focusID {
@@ -1900,28 +1855,6 @@ func (p *Page) snapshotFocus() {
 	p.focusID = ""
 }
 
-func sortSilences(out []silenceEntry, key SortKey, asc bool) {
-	less := lessFor(key)
-	sort.SliceStable(out, func(i, j int) bool {
-		if asc {
-			return less(out[i].s, out[j].s)
-		}
-		return less(out[j].s, out[i].s)
-	})
-}
-
-func lessFor(key SortKey) func(a, b backend.Silence) bool {
-	switch key {
-	case SortByStartsAt:
-		return func(a, b backend.Silence) bool { return a.StartsAt.Before(b.StartsAt) }
-	case SortByCreatedBy:
-		return func(a, b backend.Silence) bool { return a.CreatedBy < b.CreatedBy }
-	case SortByState:
-		return func(a, b backend.Silence) bool { return a.State < b.State }
-	default: // SortByEndsAt
-		return func(a, b backend.Silence) bool { return a.EndsAt.Before(b.EndsAt) }
-	}
-}
 
 // flashFn returns a Cmd that emits a FlashShowMsg with the
 // supplied level and text. Tiny indirection so the page's

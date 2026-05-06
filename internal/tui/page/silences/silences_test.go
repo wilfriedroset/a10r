@@ -61,8 +61,8 @@ func TestPage_DefaultsToEndsAtAscending(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	require.Equal(t, SortByEndsAt, p.sort)
-	require.True(t, p.sortAsc, "soonest-expiring first matches operator priority")
+	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc(), "soonest-expiring first matches operator priority")
 }
 
 func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
@@ -110,23 +110,23 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	require.Equal(t, SortByEndsAt, p.sort)
-	require.True(t, p.sortAsc)
+	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc())
 
 	// Same column shortcut flips direction.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
-	require.Equal(t, SortByEndsAt, p.sort)
-	require.False(t, p.sortAsc)
+	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
-	require.True(t, p.sortAsc)
+	require.True(t, p.sorter.Asc())
 
 	// Different column resets to default direction.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
-	require.Equal(t, SortByCreatedBy, p.sort)
-	require.True(t, p.sortAsc)
+	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc())
 	// And then toggles on repeat.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
-	require.False(t, p.sortAsc)
+	require.False(t, p.sorter.Asc())
 }
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
@@ -160,23 +160,23 @@ func TestPage_SortColumnWalk(t *testing.T) {
 	// the user's "next column to the right" intuition is built
 	// off what they see, not the enum's internal numbering.
 	p := newPage(t)
-	require.Equal(t, SortByEndsAt, p.sort)
+	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByState, p.sort, "ENDS → STATE is one column right")
+	require.Equal(t, sortKeyState, p.sorter.ActiveKey(), "ENDS → STATE is one column right")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByCreatedBy, p.sort, "STATE wraps right to BY")
+	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey(), "STATE wraps right to BY")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByStartsAt, p.sort)
+	require.Equal(t, sortKeyStartsAt, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByEndsAt, p.sort)
+	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
 
 	// h walks left through the same visual order.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortByStartsAt, p.sort)
+	require.Equal(t, sortKeyStartsAt, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortByCreatedBy, p.sort)
+	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortByState, p.sort, "BY wraps left to STATE (rightmost column)")
+	require.Equal(t, sortKeyState, p.sorter.ActiveKey(), "BY wraps left to STATE (rightmost column)")
 }
 
 func TestPage_SortByCreatedBy(t *testing.T) {
@@ -419,6 +419,49 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: second})
 	require.Equal(t, "beta", p.view[p.cursor].s.ID,
 		"cursor must follow the focused silence by ID across refreshes")
+}
+
+func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// TUI chrome stays on terminal default background — painting
+	// palette bg inside the unstyled body frame creates a coloured
+	// stripe. Asserts the header line carries no SGR background
+	// code.
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
+		sil("a", "x", backend.SilenceStateActive, time.Hour),
+	}})
+	headerLine, _, _ := strings.Cut(p.View(160, 10), "\n")
+	require.NotContains(t, headerLine, "\x1b[48",
+		"header must not paint a palette background — chrome stays on terminal default bg")
+}
+
+func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
+	t.Parallel()
+	// User-initiated re-sort is k9s-positional: cursor stays at
+	// the same row index, whichever silence lands under it
+	// becomes the new focus. Pairs with TestPage_CursorPreservedByID:
+	// poll refreshes follow content; sort keystrokes follow position.
+	p := newPage(t)
+	silences := []backend.Silence{
+		sil("alpha", "carol", backend.SilenceStateActive, time.Hour),
+		sil("beta", "alice", backend.SilenceStateActive, 2*time.Hour),
+		sil("gamma", "bob", backend.SilenceStateActive, 30*time.Minute),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	// Default ENDS ASC: gamma (30m), alpha (1h), beta (2h).
+	// Walk to row 1 (alpha).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, 1, p.cursor)
+	require.Equal(t, "alpha", p.view[p.cursor].s.ID)
+
+	// Shift+C: sort by creator ASC → alice (beta), bob (gamma),
+	// carol (alpha). Cursor must stay at row 1 (now bob/gamma),
+	// NOT chase alpha.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
+	require.Equal(t, "gamma", p.view[p.cursor].s.ID,
+		"the silence landing at the held index becomes the new focus")
 }
 
 func TestPage_TitleColdStartReadsLoading(t *testing.T) {
