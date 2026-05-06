@@ -420,17 +420,33 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	}
 }
 
+func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// TUI chrome stays on terminal default background — painting
+	// palette bg inside the unstyled body frame creates a coloured
+	// stripe. Asserts the header line carries no SGR background
+	// code, preventing the regression where Table.Header / Table.
+	// HeaderActive were rendered via .Render (which carries bg).
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+	}})
+	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
+	require.NotContains(t, headerLine, "\x1b[48",
+		"header must not paint a palette background — chrome stays on terminal default bg")
+}
+
 func TestPage_SortColumnWalk(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	require.Equal(t, SortBySeverity, p.sort)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByName, p.sort)
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortBySeverity, p.sort)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortByAge, p.sort, "left walk wraps to the rightmost column")
+	require.Equal(t, sortKeyAge, p.sorter.ActiveKey(), "left walk wraps to the rightmost column")
 }
 
 func TestPage_SilenceKeyOnEmptyViewFlashesHint(t *testing.T) {
@@ -601,6 +617,53 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: second})
 	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
 		"cursor must follow the focused alert across poll refreshes")
+}
+
+func TestPage_UserResortKeepsCursorAtIndex(t *testing.T) {
+	t.Parallel()
+
+	// User-initiated re-sort is k9s-positional: the cursor stays at
+	// the same row index, whatever alert lands under it becomes the
+	// new focus. This pairs with TestPage_CursorPreservedAcrossDataRefresh:
+	// poll refreshes follow the alert content; sort keystrokes follow
+	// the row position.
+	p := newPage(t)
+	withFP := func(name, severity, fp string) backend.Alert {
+		a := mkAlert(name, severity, backend.AlertStateActive)
+		a.Fingerprint = fp
+		return a
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		withFP("A", "info", "fp-a"),
+		withFP("B", "critical", "fp-b"),
+		withFP("C", "warning", "fp-c"),
+	}})
+	// Default sort is severity DESC: critical, warning, info →
+	// fp-b, fp-c, fp-a. Move cursor to row 1 (fp-c).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, 1, p.cursor)
+	require.Equal(t, "fp-c", p.view[p.cursor].a.Fingerprint)
+
+	// Re-sort by alertname ASC → A, B, C → fp-a, fp-b, fp-c.
+	// Cursor must stay at row index 1 (fp-b), NOT follow fp-c
+	// to row 2.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+	require.Equal(t, 1, p.cursor, "cursor must stay at row index on user re-sort")
+	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
+		"the alert under the cursor at the new index becomes the new focus")
+
+	// A subsequent poll refresh must now track fp-b (the new focus
+	// captured after the re-sort), confirming snapshotFocus re-armed
+	// the find-by-fingerprint path for non-sort recomputes.
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		withFP("Z", "info", "fp-z"),
+		withFP("A", "info", "fp-a"),
+		withFP("B", "critical", "fp-b"),
+	}})
+	// New sort order (by alertname ASC): A, B, Z → fp-a, fp-b, fp-z.
+	// Cursor follows fp-b to row index 1.
+	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
+		"after a sort, subsequent poll refreshes must follow the new focus")
 }
 
 func TestPage_CursorClampsWhenFocusedAlertGone(t *testing.T) {
@@ -858,12 +921,12 @@ func TestPage_DirectSortShortcuts(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.Equal(t, SortByName, p.sort,
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey(),
 		"Shift+N must sort by alertname directly (no walk)")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'A', Text: "A", Mod: tea.ModShift})
-	require.Equal(t, SortByAge, p.sort)
+	require.Equal(t, sortKeyAge, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S", Mod: tea.ModShift})
-	require.Equal(t, SortBySeverity, p.sort)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
 }
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
@@ -871,27 +934,27 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 
 	p := newPage(t)
 	// Severity starts active, descending (critical first).
-	require.Equal(t, SortBySeverity, p.sort)
-	require.False(t, p.sortAsc)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc())
 
 	// Pressing the active column's shortcut flips the direction.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
-	require.Equal(t, SortBySeverity, p.sort)
-	require.True(t, p.sortAsc, "second Shift+S must flip to ascending")
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc(), "second Shift+S must flip to ascending")
 
 	// A third press flips back to descending.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
-	require.False(t, p.sortAsc, "third Shift+S must flip back to descending")
+	require.False(t, p.sorter.Asc(), "third Shift+S must flip back to descending")
 
 	// Switching to a different column resets to that column's
 	// default direction (ascending for non-severity columns).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
-	require.Equal(t, SortByName, p.sort)
-	require.True(t, p.sortAsc, "switching column resets to default direction")
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc(), "switching column resets to default direction")
 
 	// Pressing the new column's shortcut flips it.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
-	require.False(t, p.sortAsc, "second Shift+N must flip alertname to descending")
+	require.False(t, p.sorter.Asc(), "second Shift+N must flip alertname to descending")
 }
 
 func TestPage_HLWalkResetsDirection(t *testing.T) {
@@ -900,19 +963,19 @@ func TestPage_HLWalkResetsDirection(t *testing.T) {
 	p := newPage(t)
 	// Flip severity to ascending first.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
-	require.True(t, p.sortAsc)
+	require.True(t, p.sorter.Asc())
 
 	// l walks to the next column (Name) — must reset direction
 	// to the new column's default (ascending), regardless of
 	// what the previous column's direction was.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByName, p.sort)
-	require.True(t, p.sortAsc)
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc())
 
 	// h walks back. Severity's default is descending.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortBySeverity, p.sort)
-	require.False(t, p.sortAsc,
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc(),
 		"walking back to severity must reset to its default (descending)")
 }
 
@@ -1247,7 +1310,7 @@ func TestPage_MarkedSuppressedRowKeepsMarkedStyle(t *testing.T) {
 	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
 	suppressed.Fingerprint = "fp-supp"
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
-	// SortBySeverity desc: critical at row 0, warning at row 1.
+	// sortKeySeverity desc: critical at row 0, warning at row 1.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → row 1
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "}) // mark suppressed
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"}) // cursor → row 0

@@ -47,24 +47,21 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// SortKey enumerates the table's sortable columns. The order of
-// constants is the cycle order for `h`/`l` walking per E2.
-type SortKey int
-
+// Sort column keys. Stable identifiers passed to the tablesort
+// helper — used as both the canonical Key (for ArrowFor / IsActive
+// lookups) and the lower-cased description text in the help
+// overlay (the helper derives "sort by <title>" from each Column's
+// Title, which lower-cases to these strings). Order matches the
+// cycle order for h/l walk per E2.
 const (
-	// SortBySeverity is the default — critical first, then warning,
-	// then info, then unknown.
-	SortBySeverity SortKey = iota
-	// SortByName sorts by `alertname` label, ascending.
-	SortByName
-	// SortByState sorts by AlertState (active > suppressed >
-	// unprocessed).
-	SortByState
-	// SortByAge sorts by StartsAt, oldest first.
-	SortByAge
+	sortKeySeverity = "severity"
+	sortKeyName     = "alertname"
+	sortKeyState    = "state"
+	sortKeyAge      = "age"
 )
 
 // scopeAll is the canonical label for the "every configured
@@ -73,19 +70,32 @@ const (
 // the wiring layer and the page in lockstep.
 const scopeAll = "all"
 
-// String returns the column-header label for a sort key.
-func (s SortKey) String() string {
-	switch s {
-	case SortBySeverity:
-		return "severity"
-	case SortByName:
-		return "alertname"
-	case SortByState:
-		return "state"
-	case SortByAge:
-		return "age"
+// alertSortColumns returns the page's sortable column set. Severity
+// defaults DESC (critical first) — every other column reads naturally
+// ascending. Comparators mirror the prior lessFor table verbatim.
+func alertSortColumns() []tablesort.Column[alertEntry] {
+	return []tablesort.Column[alertEntry]{
+		{
+			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
+			Less: func(a, b alertEntry) bool {
+				return backend.SeverityRank(a.a) < backend.SeverityRank(b.a)
+			},
+		},
+		{
+			Key: sortKeyName, Title: "ALERTNAME", Hotkey: 'N', DefaultAsc: true,
+			Less: func(a, b alertEntry) bool {
+				return a.a.Labels["alertname"] < b.a.Labels["alertname"]
+			},
+		},
+		{
+			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
+			Less: func(a, b alertEntry) bool { return a.a.State < b.a.State },
+		},
+		{
+			Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
+			Less: func(a, b alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) },
+		},
 	}
-	return "?"
 }
 
 // Options bundles the per-page constructor inputs.
@@ -237,8 +247,10 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
-	sort        SortKey
-	sortAsc     bool
+	// sorter owns the active sort column + direction. Comparators
+	// and column metadata come from alertSortColumns; the helper
+	// applies the cycle / flip / walk convention.
+	sorter      *tablesort.Sorter[alertEntry]
 	stateFilter string // "" = all, otherwise an AlertState value
 
 	// timeFormat mirrors the app-global toggle. Defaults to
@@ -291,8 +303,7 @@ func New(opts Options) *Page {
 		creator:         opts.Creator,
 		timeFormat:      opts.TimeFormat,
 		byTenant:        map[string][]backend.Alert{},
-		sort:            SortBySeverity,
-		sortAsc:         false,
+		sorter:          tablesort.New(alertSortColumns(), sortKeySeverity),
 		marks:           map[string]struct{}{},
 		polledTenants:   map[string]struct{}{},
 		nextRefresh:     map[string]time.Time{},
@@ -512,27 +523,27 @@ func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 func (*Page) PollResources() []string { return []string{"alerts"} }
 
 // Bindings implements app.Page. Returns the per-view bindings
-// surfaced in the header's right-zone hint strip.
-func (*Page) Bindings() []action.Action {
-	return []action.Action{
-		{Key: "Enter", Description: "detail", View: "alerts"},
-		{Key: "Space", Description: "mark", View: "alerts"},
-		{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
-		{Key: "/", Description: "filter", View: "alerts"},
-		{Key: "Shift+F", Description: "state filter", View: "alerts"},
-		// Sort shortcuts. Surfaced as Shift+ keys so the help-overlay
-		// HOTKEYS column picks them up (splitVerbsHotkeys partitions
-		// on the "Shift+" prefix). h/l column walk lives on every
-		// table view via TableMotions and isn't repeated here.
-		{Key: "Shift+S", Description: "sort by severity", View: "alerts"},
-		{Key: "Shift+N", Description: "sort by alertname", View: "alerts"},
-		{Key: "Shift+T", Description: "sort by state", View: "alerts"},
-		{Key: "Shift+A", Description: "sort by age", View: "alerts"},
-		// `r` is a global binding too; surface it on the alerts hint
-		// strip so the affordance reads at a glance alongside the
-		// page-specific verbs. Same shape as silences.
-		{Key: "r", Description: "refresh", View: "alerts"},
-	}
+// surfaced in the header's right-zone hint strip. Sort shortcuts
+// come from the tablesort helper so every list page surfaces the
+// same convention without each page hand-rolling the strings;
+// h/l column walk lives on every table view via TableMotions and
+// isn't repeated here.
+func (p *Page) Bindings() []action.Action {
+	sortBindings := p.sorter.Bindings("alerts")
+	out := make([]action.Action, 0, 6+len(sortBindings))
+	out = append(out,
+		action.Action{Key: "Enter", Description: "detail", View: "alerts"},
+		action.Action{Key: "Space", Description: "mark", View: "alerts"},
+		action.Action{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
+		action.Action{Key: "/", Description: "filter", View: "alerts"},
+		action.Action{Key: "Shift+F", Description: "state filter", View: "alerts"},
+	)
+	out = append(out, sortBindings...)
+	// `r` is a global binding too; surface it on the alerts hint
+	// strip so the affordance reads at a glance alongside the
+	// page-specific verbs. Same shape as silences.
+	out = append(out, action.Action{Key: "r", Description: "refresh", View: "alerts"})
+	return out
 }
 
 // Update implements app.Page.
@@ -733,48 +744,20 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 // resets to default for the new column. This matches the spreadsheet-
 // style "click again to invert" UX users expect.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
-	switch m.String() {
-	case "h", "left":
-		p.applySort(prevSort(p.sort))
-	case "l", "right":
-		p.applySort(nextSort(p.sort))
-	case "shift+s", "S":
-		p.applySort(SortBySeverity)
-	case "shift+n", "N":
-		p.applySort(SortByName)
-	case "shift+t", "T":
-		p.applySort(SortByState)
-	case "shift+a", "A":
-		// `Shift+A` sorts by age. keybindings.md uses Shift+R for
-		// receivers (a column we don't ship in v0.1) — the Age
-		// column gets Shift+A as the unambiguous shortcut so the
-		// alphabet stays mnemonic.
-		p.applySort(SortByAge)
-	default:
+	if !p.sorter.HandleKey(m.String()) {
 		return false
 	}
+	// User-initiated re-sort is k9s-positional: the cursor stays at
+	// the same index; whatever alert lands under it becomes the new
+	// focus. Clearing focusFingerprint here bypasses the find-by-
+	// fingerprint branch in recompute so the cursor is index-stable
+	// for this one call. snapshotFocus then re-captures the new
+	// alert so subsequent poll / scope / filter recomputes still
+	// follow it (content-stable on data churn).
+	p.focusFingerprint = ""
+	p.recompute()
 	return true
 }
-
-// applySort updates the sort key and direction. Same key twice
-// flips ASC↔DESC; switching to a new key resets direction to
-// that column's default. Calls recompute so the view reflects
-// the change immediately.
-func (p *Page) applySort(k SortKey) {
-	if p.sort == k {
-		p.sortAsc = !p.sortAsc
-	} else {
-		p.sort = k
-		p.sortAsc = defaultAsc(k)
-	}
-	p.recompute()
-}
-
-// defaultAsc returns the direction the column reads naturally as
-// when first activated. Severity defaults to descending so
-// critical (the highest rank) shows first; everything else is
-// ascending (alphabetical / oldest-first).
-func defaultAsc(k SortKey) bool { return k != SortBySeverity }
 
 // handleAction processes the page's per-view action keys
 // (Enter drill, Space mark, state-filter cycle, silence).
@@ -1338,24 +1321,6 @@ func (p *Page) drillToDetail() tea.Cmd {
 	})
 }
 
-// nextSort returns the next sort key in cycle order. Wraps from
-// SortByAge to SortBySeverity.
-func nextSort(k SortKey) SortKey {
-	if k == SortByAge {
-		return SortBySeverity
-	}
-	return k + 1
-}
-
-// prevSort returns the previous sort key. Wraps from SortBySeverity
-// to SortByAge.
-func prevSort(k SortKey) SortKey {
-	if k == SortBySeverity {
-		return SortByAge
-	}
-	return k - 1
-}
-
 // View implements app.Page.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
@@ -1419,29 +1384,43 @@ func (p *Page) emptyState() string {
 // they stand apart from the data rows. A leading TENANT column
 // appears when the active scope spans multiple backends.
 func (p *Page) renderHeader(width int) string {
-	titles := []SortKey{SortBySeverity, SortByName, SortByState, SortByAge}
-	parts := make([]string, 0, len(titles)+1)
-	if p.showTenantColumn() {
-		parts = append(parts, "TENANT")
+	cols := []string{sortKeySeverity, sortKeyName, sortKeyState, sortKeyAge}
+	widths := p.columnWidths(width)
+	// fg-only renderers so the header keeps the terminal default
+	// background — painting palette bg inside the unstyled body
+	// frame creates a coloured stripe (see feedback memory on
+	// chrome rendering).
+	headerFg := lipgloss.NewStyle().Foreground(p.styles.Table.Header.GetForeground())
+	activeFg := lipgloss.NewStyle().Foreground(p.styles.Table.HeaderActive.GetForeground())
+
+	var b strings.Builder
+	b.WriteString(strings.Repeat(" ", rowPrefixCols))
+	idx := 0
+	if p.showTenantColumn() && idx < len(widths) {
+		b.WriteString(headerFg.Render(padRight("TENANT", widths[idx])))
+		idx++
 	}
-	for _, k := range titles {
-		label := strings.ToUpper(k.String())
-		if k == p.sort {
-			arrow := "↓"
-			if p.sortAsc {
-				arrow = "↑"
-			}
+	for _, k := range cols {
+		if idx >= len(widths) {
+			break
+		}
+		label := strings.ToUpper(k)
+		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
 		}
-		parts = append(parts, label)
+		padded := padRight(label, widths[idx])
+		// Active column gets HeaderActive; the rest get the regular
+		// Header foreground. The two tints plus the arrow glyph give
+		// two distinct cues for "which sort is live" — one for the
+		// eye scanning columns, one for the eye reading the arrow.
+		if p.sorter.IsActive(k) {
+			b.WriteString(activeFg.Render(padded))
+		} else {
+			b.WriteString(headerFg.Render(padded))
+		}
+		idx++
 	}
-	line := strings.Repeat(" ", rowPrefixCols) + p.padColumns(parts, width)
-	// Foreground-only render so the header row keeps the body
-	// background — the user wants it visually flush with the data
-	// rows underneath, not a coloured stripe.
-	return lipgloss.NewStyle().
-		Foreground(p.styles.Table.Header.GetForeground()).
-		Render(line)
+	return b.String()
 }
 
 // renderRows returns the visible window of data rows. The window
@@ -1565,6 +1544,24 @@ const rowPrefixCols = 4
 // the ISO local timestamp ("2026-05-01 13:45:00", 19 cols) fits
 // without truncation per Q7.4.
 func (p *Page) padColumns(parts []string, width int) string {
+	cols := p.columnWidths(width)
+	var b strings.Builder
+	for i, v := range parts {
+		if i >= len(cols) {
+			break
+		}
+		b.WriteString(padRight(v, cols[i]))
+	}
+	return b.String()
+}
+
+// columnWidths returns the per-column widths (TENANT optional,
+// then SEVERITY, ALERTNAME flex, STATE, AGE). Extracted so the
+// header renderer can pad each label to its own column width
+// before applying per-cell styling — padColumns concatenates the
+// raw padded strings, but per-cell styling needs each cell's
+// width separately.
+func (p *Page) columnWidths(width int) []int {
 	tenantCol := 0
 	if p.showTenantColumn() {
 		tenantCol = 16
@@ -1576,20 +1573,12 @@ func (p *Page) padColumns(parts []string, width int) string {
 	}
 	flex := max(width-tenantCol-sevCol-stateCol-ageCol-rowPrefixCols, 10)
 
-	cols := []int{}
+	cols := make([]int, 0, 5)
 	if tenantCol > 0 {
 		cols = append(cols, tenantCol)
 	}
 	cols = append(cols, sevCol, flex, stateCol, ageCol)
-
-	var b strings.Builder
-	for i, v := range parts {
-		if i >= len(cols) {
-			break
-		}
-		b.WriteString(padRight(v, cols[i]))
-	}
-	return b.String()
+	return cols
 }
 
 // formatTime renders ts according to the page's active time
@@ -1653,7 +1642,7 @@ func (p *Page) recompute() {
 		}
 	}
 	p.view = filterEntries(flat, p.filter, p.stateFilter)
-	sortEntries(p.view, p.sort, p.sortAsc)
+	p.sorter.Apply(p.view)
 
 	// Resolve cursor by fingerprint when we have one to follow.
 	if p.focusFingerprint != "" {
@@ -1735,33 +1724,6 @@ func alertMatchesSubstr(a backend.Alert, needle string) bool {
 		}
 	}
 	return false
-}
-
-// sortEntries sorts in place by the given key.
-func sortEntries(out []alertEntry, key SortKey, asc bool) {
-	less := lessFor(key)
-	sort.SliceStable(out, func(i, j int) bool {
-		if asc {
-			return less(out[i], out[j])
-		}
-		return less(out[j], out[i])
-	})
-}
-
-// lessFor returns the ascending less-than for the given sort key.
-func lessFor(key SortKey) func(a, b alertEntry) bool {
-	switch key {
-	case SortByName:
-		return func(a, b alertEntry) bool { return a.a.Labels["alertname"] < b.a.Labels["alertname"] }
-	case SortByState:
-		return func(a, b alertEntry) bool { return a.a.State < b.a.State }
-	case SortByAge:
-		return func(a, b alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) }
-	default: // SortBySeverity
-		return func(a, b alertEntry) bool {
-			return backend.SeverityRank(a.a) < backend.SeverityRank(b.a)
-		}
-	}
 }
 
 // severityOf returns the printable severity label, falling back
