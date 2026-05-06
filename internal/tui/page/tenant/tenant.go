@@ -11,6 +11,7 @@ package tenant
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -262,15 +263,23 @@ func (p *Page) View(width, height int) string {
 	out := make([]string, 0, end-p.topRow+1)
 	out = append(out, headerLine)
 	rows := p.rowsSorted()
+	canonical := canonicalDigits(rows)
 	for i := p.topRow; i < end; i++ {
 		row := rows[i]
-		// Glyph indicates whether the row is part of the active
-		// global scope (the numeric quick-switch state). `●` reads
-		// at a glance against the row body.
+		// Scope glyph indicates whether the row is part of the
+		// active global scope (the numeric quick-switch state).
+		// `●` reads at a glance against the row body.
 		scopeGlyph := " "
 		if p.scopeIncludes(row.Name) {
 			scopeGlyph = "●"
 		}
+		// Canonical-digit annotation for the first 9 backends in
+		// alphabetical order — the same order the global numeric
+		// quick-switch <1>-<9> binds to. Lets the user read the
+		// digit a backend is reachable by without counting rows.
+		// Always 4 cols wide ("[N] " or "    ") so row alignment
+		// is stable whether or not a digit is shown.
+		digitGlyph := p.styles.Table.Dimmed.Render(canonical[row.Name])
 		version := row.Version
 		if version == "" {
 			version = "—"
@@ -284,7 +293,7 @@ func (p *Page) View(width, height int) string {
 		if i == p.cursor {
 			prefix = "▸ "
 		}
-		body := scopeGlyph + " " + p.padTenantColumns(columns, width)
+		body := digitGlyph + scopeGlyph + " " + p.padTenantColumns(columns, width)
 		line := padRight(prefix+body, width)
 		switch {
 		case i == p.cursor:
@@ -303,13 +312,31 @@ func (p *Page) View(width, height int) string {
 // alerts / silences pages' uppercased fg-only header.
 func (p *Page) renderHeader(width int) string {
 	titles := []string{"NAME", "URL", "VERSION"}
-	// Match the per-row prefix ("▸ "/"  " + scope glyph + " ") so
-	// columns align with their headers.
-	const prefix = "    "
+	// Match the per-row prefix ("▸ "/"  " + canonical digit "[N] "
+	// + scope glyph + " ") so columns align with their headers.
+	const prefix = "        "
 	line := prefix + p.padTenantColumns(titles, width)
 	return lipgloss.NewStyle().
 		Foreground(p.styles.Table.Header.GetForeground()).
 		Render(line)
+}
+
+// canonicalDigits returns a name → "[N] " glyph map for the first
+// 9 backends in the supplied (alphabetical-by-name) row slice;
+// rows past index 8 map to "    " so the per-row layout stays
+// constant width. Computed once per render — small enough that a
+// single allocation per redraw beats threading more state through
+// the renderer.
+func canonicalDigits(rows []Row) map[string]string {
+	out := make(map[string]string, len(rows))
+	for i, r := range rows {
+		if i < 9 {
+			out[r.Name] = "[" + strconv.Itoa(i+1) + "] "
+		} else {
+			out[r.Name] = "    "
+		}
+	}
+	return out
 }
 
 // tenant column widths. URL gets the flex column since the visible
@@ -326,7 +353,7 @@ func (p *Page) padTenantColumns(parts []string, width int) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	const prefixCols = 4 // "▸ " + scope glyph + " "
+	const prefixCols = 8 // "▸ " + "[N] " + scope glyph + " "
 	used := tenantColName + tenantColVersion + prefixCols
 	flex := max(width-used, 16)
 	cols := []int{tenantColName, flex, tenantColVersion}

@@ -126,6 +126,64 @@ func TestPage_RenderHeaderRowCarriesColumnTitles(t *testing.T) {
 	}
 }
 
+func TestPage_CanonicalDigitGlyphAnnotatesFirstNine(t *testing.T) {
+	t.Parallel()
+	// The canonical-digit glyph "[N] " annotates the first 9
+	// backends in alphabetical order — the same order the global
+	// numeric quick-switch <1>-<9> binds to. The user reads off
+	// the digit a row is reachable by without counting positions.
+	rows := []Row{
+		{Name: "alpha"},
+		{Name: "bravo"},
+		{Name: "charlie"},
+	}
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows(rows)
+	out := testutil.StripStyle(p.View(120, 10))
+	// Each row's prefix region ends with `[N] ● ` (digit + scope
+	// glyph + separator) before the NAME column; pin the glyph
+	// next to its name to assert the digit attaches to the right
+	// canonical row.
+	require.Contains(t, out, "[1] ● alpha")
+	require.Contains(t, out, "[2] ● bravo")
+	require.Contains(t, out, "[3] ● charlie")
+}
+
+func TestPage_CanonicalDigitGlyphSkipsRowsPastNine(t *testing.T) {
+	t.Parallel()
+	// Backends past index 8 (10th row onwards) get a 4-space
+	// placeholder so row alignment stays constant; they have no
+	// digit binding from the global quick-switch.
+	rows := make([]Row, 12)
+	for i := range rows {
+		rows[i] = Row{Name: fmt.Sprintf("t%02d", i)}
+	}
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows(rows)
+	out := testutil.StripStyle(p.View(160, 14))
+	require.Contains(t, out, "[9] ● t08", "9th row in alphabetical order gets [9]")
+	require.NotContains(t, out, "[10]", "rows past the 9th must not carry a digit annotation")
+	require.NotContains(t, out, "[11]")
+	require.NotContains(t, out, "[12]")
+}
+
+func TestPage_CanonicalDigitFollowsAlphabeticalOrderRegardlessOfInsertOrder(t *testing.T) {
+	t.Parallel()
+	// Insertion order is reversed (charlie, bravo, alpha); render
+	// must still annotate alpha=[1], bravo=[2], charlie=[3] —
+	// canonical = alphabetical, not insertion order.
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "charlie"},
+		{Name: "bravo"},
+		{Name: "alpha"},
+	})
+	out := testutil.StripStyle(p.View(120, 10))
+	require.Contains(t, out, "[1] ● alpha")
+	require.Contains(t, out, "[2] ● bravo")
+	require.Contains(t, out, "[3] ● charlie")
+}
+
 func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 	t.Parallel()
 	// `0`, `1`-`9` are owned by the App's LayerGlobal binding so
