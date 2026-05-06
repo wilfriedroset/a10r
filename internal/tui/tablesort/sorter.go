@@ -40,6 +40,14 @@ type Column[T any] struct {
 	Hotkey     rune
 	DefaultAsc bool
 	Less       func(a, b T) bool
+	// Description overrides the help-overlay text for this column's
+	// hotkey. Empty falls back to "sort by <lowercased title>" —
+	// most pages get the right description for free, but a column
+	// whose header label and natural English name diverge (e.g.,
+	// header "COUNT" but description "sort by alert count") can
+	// supply both without forcing the title to spell out the
+	// description.
+	Description string
 }
 
 // Sorter is the per-page sort-state machine. Construct via New;
@@ -215,9 +223,13 @@ func (s *Sorter[T]) Bindings(view string) []action.Action {
 		if c.Hotkey == 0 {
 			continue
 		}
+		desc := c.Description
+		if desc == "" {
+			desc = "sort by " + strings.ToLower(c.Title)
+		}
 		out = append(out, action.Action{
 			Key:         "Shift+" + string(c.Hotkey),
-			Description: "sort by " + strings.ToLower(c.Title),
+			Description: desc,
 			View:        view,
 		})
 	}

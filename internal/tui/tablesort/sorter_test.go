@@ -368,6 +368,29 @@ func TestBindingsEmitsShiftLetterPerColumn(t *testing.T) {
 	}
 }
 
+func TestBindingsRespectsDescriptionOverride(t *testing.T) {
+	t.Parallel()
+	cols := []tablesort.Column[row]{
+		{
+			Key: keyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true,
+			Less: nameLess,
+		},
+		{
+			Key: keyScore, Title: "SCORE", Hotkey: 'C', DefaultAsc: false,
+			Less:        scoreLess,
+			Description: "sort by alert count",
+		},
+	}
+	s := tablesort.New(cols, keyName)
+	got := s.Bindings("p")
+	if got[0].Description != "sort by name" {
+		t.Fatalf("auto description = %q, want %q", got[0].Description, "sort by name")
+	}
+	if got[1].Description != "sort by alert count" {
+		t.Fatalf("override description = %q, want %q", got[1].Description, "sort by alert count")
+	}
+}
+
 func TestBindingsSkipsZeroHotkeyColumns(t *testing.T) {
 	t.Parallel()
 	cols := []tablesort.Column[row]{
