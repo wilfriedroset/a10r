@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -31,25 +32,24 @@ type DrillRequestMsg struct {
 	Receiver string
 }
 
-// SortKey enumerates the sortable axes of the receivers list. The
-// AM-side data model only carries a name per receiver, so the
-// only sort axis is the name itself; direction (ASC ↔ DESC)
-// remains user-toggleable for parity with the alerts / silences
-// page sort idiom.
-type SortKey int
+// sortKeyName is the single sortable axis. Receivers carry only a
+// name on the AM side, so the page exposes one column; the helper's
+// degenerate len(cols)==1 path handles h/l as no-op while Shift+N
+// flips ASC↔DESC for parity with the alerts / silences page sort
+// idiom.
+const sortKeyName = "name"
 
-const (
-	// SortByName sorts by receiver name. Default ASC — alphabetical
-	// reading order.
-	SortByName SortKey = iota
-)
-
-// String returns the column-header label for the active sort.
-func (s SortKey) String() string {
-	if s == SortByName {
-		return "name"
+// receiverSortColumns returns the page's single sortable axis. The
+// helper still applies the same "press the active column to flip
+// direction" idiom — flipping ASC↔DESC is the only state change
+// possible on a single-axis page.
+func receiverSortColumns() []tablesort.Column[string] {
+	return []tablesort.Column[string]{
+		{
+			Key: sortKeyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true,
+			Less: func(a, b string) bool { return a < b },
+		},
 	}
-	return "?"
 }
 
 // Page is the receivers list view.
@@ -88,12 +88,10 @@ type Page struct {
 	// / comma-joined subset). Updated by app.ScopeChangedMsg.
 	scope string
 
-	// sort / sortAsc track the active sort axis and direction.
-	// Receivers expose a single sortable axis (Name) so the
-	// "press the active column to flip ASC↔DESC" idiom from
-	// alerts / silences becomes a one-axis ASC/DESC toggle.
-	sort    SortKey
-	sortAsc bool
+	// sorter owns the active sort state. Receivers expose a single
+	// sortable axis (Name) so the helper's degenerate single-column
+	// path handles h/l as no-op; Shift+N flips ASC↔DESC.
+	sorter *tablesort.Sorter[string]
 
 	// focusName is the name of the row the cursor was on before
 	// the most recent recompute — used to restore the cursor onto
@@ -112,8 +110,7 @@ func New(styles theme.Styles) *Page {
 		styles:   styles,
 		byTenant: map[string][]string{},
 		scope:    scopeAll,
-		sort:     SortByName,
-		sortAsc:  true,
+		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
 	}
 }
 
@@ -195,15 +192,16 @@ func (*Page) Footer() string { return "" }
 // page on push.
 func (*Page) PollResources() []string { return []string{"receivers"} }
 
-// Bindings implements app.Page.
-func (*Page) Bindings() []action.Action {
-	return []action.Action{
-		{Key: "Enter", Description: "drill", View: "receivers"},
-		// Single sortable axis (Name); Shift+N flips ASC↔DESC.
-		// Surfaced via the "Shift+" prefix so the help-overlay
-		// HOTKEYS column picks it up.
-		{Key: "Shift+N", Description: "sort by name", View: "receivers"},
-	}
+// Bindings implements app.Page. Sort shortcut comes from the
+// tablesort helper; the helper's single-column setup emits exactly
+// one Shift+N entry so the help overlay's HOTKEYS column picks it
+// up identically to the multi-axis pages.
+func (p *Page) Bindings() []action.Action {
+	sortBindings := p.sorter.Bindings("receivers")
+	out := make([]action.Action, 0, 1+len(sortBindings))
+	out = append(out, action.Action{Key: "Enter", Description: "drill", View: "receivers"})
+	out = append(out, sortBindings...)
+	return out
 }
 
 // Update implements app.Page.
@@ -294,13 +292,11 @@ func (p *Page) recompute() {
 			}
 		}
 	}
-	// unionScoped emits names in ASC order; reverse in place when
-	// the user has toggled the sort to DESC.
-	if !p.sortAsc {
-		for i, j := 0, len(p.view)-1; i < j; i, j = i+1, j-1 {
-			p.view[i], p.view[j] = p.view[j], p.view[i]
-		}
-	}
+	// Apply through the helper so all list pages use the same sort
+	// machinery. unionScoped already emits names in ASC order, so
+	// the ASC case is a no-op stable resort; the DESC case reverses
+	// per the helper's flipped-arg comparator.
+	p.sorter.Apply(p.view)
 	// Resolve cursor by focusName when we have one to follow so
 	// the user stays on the same receiver across re-sort / scope /
 	// poll. Falls through to the clamp + re-snapshot path when
@@ -330,45 +326,30 @@ func (p *Page) snapshotFocus() {
 	p.focusName = p.view[p.cursor]
 }
 
-// applySort updates the sort axis and direction. Same key twice
-// flips ASC↔DESC; switching to a new key resets direction to
-// that key's default. The receivers page only exposes one axis
-// (Name) today, so applySort effectively becomes a direction
-// toggle — the shape stays aligned with alerts / silences for
-// future axes.
-func (p *Page) applySort(k SortKey) {
-	if p.sort == k {
-		p.sortAsc = !p.sortAsc
-	} else {
-		p.sort = k
-		p.sortAsc = defaultAsc(k)
-	}
-	p.recompute()
-}
-
-// defaultAsc returns the direction the column reads naturally
-// when first activated. Name is ASC (alphabetical reading order).
-// Stays a function so a future second sort axis lands here with
-// the right shape rather than a hardcoded `true`.
-func defaultAsc(_ SortKey) bool { return true }
-
-// handleSort processes sort-axis shortcuts (h/l walk plus
-// Shift+letter direct shortcuts). Returns true when the key was a
-// sort change. h/l are no-ops here: with a single sortable axis,
-// "previous / next sortable column" has nowhere to walk; the
-// direction is the only thing the user can change, via Shift+N.
+// handleSort processes sort-axis shortcuts. The tablesort helper's
+// degenerate single-column path makes h/l a documented no-op (no
+// other column to walk to); Shift+N flips ASC↔DESC via the same
+// flip-on-repeat rule the multi-axis pages use. Returns true when
+// the key was a sort interaction so the caller skips its other
+// branches.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	switch m.String() {
 	case "h", "left", "l", "right":
-		// Single-axis page: walk targets the same axis. Documented
-		// no-op so the global "h/l = sort column" promise reads as
-		// "no walking to do here" rather than a silent toggle.
-		return true
-	case "shift+n", "N":
-		p.applySort(SortByName)
+		// Single-axis page: walk has nowhere to go. Eat the key so
+		// the global "h/l = sort column" promise reads as "no
+		// walking to do here" rather than falling through.
 		return true
 	}
-	return false
+	if !p.sorter.HandleKey(m.String()) {
+		return false
+	}
+	// User-initiated re-sort is k9s-positional. Clear focusName so
+	// the find-by-name branch in recompute is bypassed; the cursor
+	// stays at its index and snapshotFocus re-captures the receiver
+	// landing under it.
+	p.focusName = ""
+	p.recompute()
+	return true
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
@@ -511,17 +492,20 @@ func (p *Page) View(width, height int) string {
 // renderHeader emits the column-title strip with the active sort
 // arrow. Receivers carry a single sortable axis (Name) so the
 // header always shows one label; the arrow flips ASC↔DESC on
-// Shift+N. Mirrors the alerts / silences header convention.
+// Shift+N. Active-column foreground (theme.Table.HeaderActive)
+// applies because the sole column is by definition the active one
+// — mirrors the multi-axis pages so the convention is uniform.
+//
+// fg-only render so the header keeps the terminal default
+// background — painted palette bg in the unstyled body frame
+// creates a coloured stripe.
 func (p *Page) renderHeader(width int) string {
-	label := strings.ToUpper(p.sort.String())
-	arrow := "↓"
-	if p.sortAsc {
-		arrow = "↑"
+	label := strings.ToUpper("name")
+	if arrow := p.sorter.ArrowFor(sortKeyName); arrow != "" {
+		label = label + " " + arrow
 	}
-	line := padRight("  "+label+" "+arrow, width)
-	// Foreground-only render so the header keeps the terminal
-	// default background — same rationale as alerts / silences.
+	body := padRight("  "+label, width)
 	return lipgloss.NewStyle().
-		Foreground(p.styles.Table.Header.GetForeground()).
-		Render(line)
+		Foreground(p.styles.Table.HeaderActive.GetForeground()).
+		Render(body)
 }

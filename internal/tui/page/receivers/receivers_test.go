@@ -142,11 +142,24 @@ func TestPage_RenderShowsRows(t *testing.T) {
 	require.Contains(t, out, "web")
 }
 
+func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// TUI chrome stays on terminal default background — painting
+	// palette bg inside the unstyled body frame creates a coloured
+	// stripe. Asserts the header line carries no SGR background
+	// code.
+	p := New(loadStyles(t))
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}}})
+	headerLine, _, _ := strings.Cut(p.View(40, 10), "\n")
+	require.NotContains(t, headerLine, "\x1b[48",
+		"header must not paint a palette background — chrome stays on terminal default bg")
+}
+
 func TestPage_DefaultsToNameAscending(t *testing.T) {
 	t.Parallel()
 	p := New(loadStyles(t))
-	require.Equal(t, SortByName, p.sort)
-	require.True(t, p.sortAsc, "alphabetical reading order is the default")
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc(), "alphabetical reading order is the default")
 }
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
@@ -159,13 +172,13 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 
 	// Same-axis shortcut flips direction; the view flips with it.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.False(t, p.sortAsc)
+	require.False(t, p.sorter.Asc())
 	require.Equal(t, []string{"web", "ops", "default"}, p.view,
 		"toggling to DESC reverses the alphabetical view")
 
 	// And toggles back on repeat.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.True(t, p.sortAsc)
+	require.True(t, p.sorter.Asc())
 	require.Equal(t, []string{"default", "ops", "web"}, p.view)
 }
 
@@ -197,9 +210,9 @@ func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 	// key but leave direction alone so users don't get a surprise
 	// flip from a "previous column" press.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.True(t, p.sortAsc, "l on a single-axis page must NOT flip direction")
+	require.True(t, p.sorter.Asc(), "l on a single-axis page must NOT flip direction")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.True(t, p.sortAsc, "h on a single-axis page must NOT flip direction")
+	require.True(t, p.sorter.Asc(), "h on a single-axis page must NOT flip direction")
 }
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
