@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,10 +92,16 @@ func groupSortColumns() []tablesort.Column[groupEntry] {
 // alerts so the severity comparator doesn't walk the alert slice
 // on every comparison; recompute populates it once per poll. Zero
 // is the natural rest value (no severity → unknown).
+//
+// common caches the labels shared by every alert in the group so
+// leaf rendering can compute distinguishing labels in O(alert) per
+// frame rather than O(alert × group) by re-deriving the
+// intersection on every render.
 type groupEntry struct {
 	g            backend.AlertGroup
 	tenant       string
 	severityRank int
+	common       map[string]string
 }
 
 // Options bundles the page's constructor inputs. Clients is the
@@ -429,6 +436,7 @@ func (p *Page) recompute() {
 				g:            g,
 				tenant:       tenant,
 				severityRank: groupSeverityRank(g),
+				common:       commonLabels(g.Alerts),
 			})
 		}
 	}
@@ -807,6 +815,23 @@ func (p *Page) emptyState() string {
 	return "no groups (yet)"
 }
 
+// distinguishingLabels returns the labels in a that aren't shared
+// across every sibling — i.e. the keys whose value diverges from
+// the group's commonLabels intersection. Renders on leaf rows so
+// each leaf identifies the actual instance (instance / pod /
+// host / …) rather than echoing the labels already painted in the
+// group header.
+func distinguishingLabels(a backend.Alert, common map[string]string) map[string]string {
+	out := make(map[string]string, len(a.Labels))
+	for k, v := range a.Labels {
+		if cv, ok := common[k]; ok && cv == v {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
 // commonLabels returns the labels that appear with the same value
 // in every alert. Used by the group-silence flow so the silence
 // form opens with matchers covering exactly the alerts in this
@@ -856,64 +881,66 @@ func (p *Page) View(width, height int) string {
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
 }
 
-// renderHeader emits the sort-axis selector strip at the top of
-// the page. The active axis carries an `↑` (ASC) or `↓` (DESC)
-// arrow — the source of truth for which way the list is sorted,
-// matching the alerts / silences pages' header convention.
-//
-// Groups don't render a tabular column structure under this
-// header (rows are tree lines with variable-width content) so the
-// strip is a sort-axis indicator rather than aligned column
-// titles. That trade-off is intentional: the sort interactions
-// stay identical across all three list pages, even though the
-// row layout doesn't tabulate.
+// renderHeader emits the column-title row. NAME / COUNT /
+// SEVERITY sit above their respective data columns; the active
+// axis carries an `↑` (ASC) or `↓` (DESC) arrow per the alerts /
+// silences convention. A leading TENANT slot appears when scope
+// spans multiple in-scope backends.
 func (p *Page) renderHeader(width int) string {
-	cols := []string{sortKeyName, sortKeyCount, sortKeySeverity}
+	tenantW, nameW, countW, sevW := p.columnWidths(width)
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a
 	// coloured stripe.
 	headerFg := lipgloss.NewStyle().Foreground(p.styles.Table.Header.GetForeground())
 	activeFg := lipgloss.NewStyle().Foreground(p.styles.Table.HeaderActive.GetForeground())
 
-	parts := make([]string, 0, len(cols))
-	for _, k := range cols {
-		label := strings.ToUpper(k)
-		if arrow := p.sorter.ArrowFor(k); arrow != "" {
+	render := func(label, key string, w int) string {
+		if arrow := p.sorter.ArrowFor(key); arrow != "" {
 			label = label + " " + arrow
 		}
-		// Active axis gets HeaderActive; the rest get the regular
-		// Header foreground — two cues for "which sort is live"
-		// (column tint + arrow), matching the alerts page.
-		if p.sorter.IsActive(k) {
-			parts = append(parts, activeFg.Render(label))
-		} else {
-			parts = append(parts, headerFg.Render(label))
+		if p.sorter.IsActive(key) {
+			return activeFg.Render(padRight(label, w))
 		}
+		return headerFg.Render(padRight(label, w))
 	}
-	line := "  " + strings.Join(parts, "   ")
-	return padRight(line, width)
+
+	var b strings.Builder
+	if tenantW > 0 {
+		b.WriteString(headerFg.Render(padRight("TENANT", tenantW)))
+	}
+	// Tree-marker column has no header label — it carries ▸/▾ on
+	// data rows only.
+	b.WriteString(strings.Repeat(" ", treeColWidth))
+	b.WriteString(render("NAME", sortKeyName, nameW))
+	b.WriteString(render("COUNT", sortKeyCount, countW))
+	b.WriteString(render("SEVERITY", sortKeySeverity, sevW))
+	return padRight(b.String(), width)
 }
 
 func (p *Page) renderRow(r row, focused bool, width int) string {
 	entry := p.flat[r.groupIdx]
-	prefix := "  "
-	if focused {
-		prefix = "▸ "
+	tenantW, nameW, countW, sevW := p.columnWidths(width)
+
+	var b strings.Builder
+	// Leading TENANT slot: present on every row when the scope
+	// spans multiple tenants so columns line up regardless of
+	// row kind. Group rows fill it; leaf rows leave it blank
+	// since the parent header already names the source backend.
+	if tenantW > 0 {
+		if r.alertIdx == -1 {
+			b.WriteString(padRight(entry.tenant, tenantW))
+		} else {
+			b.WriteString(strings.Repeat(" ", tenantW))
+		}
 	}
-	// Per Q5.3: leading TENANT column on group header rows only,
-	// when scope==all and at least two in-scope tenants are present.
-	// Leaf rows skip the column — the parent header already names
-	// the source backend.
-	tenantPrefix := ""
-	if p.showTenantColumn() && r.alertIdx == -1 {
-		tenantPrefix = padRight(entry.tenant, tenantColWidth) + "  "
-	}
-	var body string
+
 	if r.alertIdx == -1 {
 		marker := "▸"
 		if p.expanded[r.groupIdx] {
 			marker = "▾"
 		}
+		b.WriteString(marker + " ")
+
 		summary := labelSummary(entry.g.Labels)
 		if !focused {
 			// Cursor row wraps the whole line in fg+bg per Q5.4 / the
@@ -922,30 +949,120 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 			// cursor row.
 			summary = styledLabelSummary(entry.g.Labels, p.styles)
 		}
-		body = prefix + tenantPrefix + marker + " " + summary +
-			fmt.Sprintf(" (%d alerts)", len(entry.g.Alerts))
+		b.WriteString(padRight(summary, nameW))
+
+		count := strconv.Itoa(len(entry.g.Alerts))
+		b.WriteString(padRight(count, countW))
+
+		sev := severityLabelByRank(entry.severityRank)
+		if !focused {
+			sev = severityStyleByRank(entry.severityRank, p.styles).Render(sev)
+		}
+		b.WriteString(padRight(sev, sevW))
 	} else {
+		// Leaf row: empty tree slot, then the labels that
+		// distinguish this leaf from its siblings (instance, pod,
+		// host, …) plus its state. The group header already shows
+		// the labels common to every alert; echoing them on every
+		// leaf is dead pixels and hides the field that actually
+		// identifies the instance. Falls back to the alertname
+		// when distinguishing labels are empty (true duplicates)
+		// so the row never reads as blank.
+		b.WriteString(strings.Repeat(" ", treeColWidth))
 		a := entry.g.Alerts[r.alertIdx]
-		alertname := a.Labels["alertname"]
+		diff := distinguishingLabels(a, entry.common)
+		var labelText string
+		if len(diff) > 0 {
+			if focused {
+				labelText = labelSummary(diff)
+			} else {
+				labelText = styledLabelSummary(diff, p.styles)
+			}
+		} else {
+			labelText = a.Labels["alertname"]
+			if !focused {
+				labelText = p.styles.YAML.Key.Render(labelText)
+			}
+		}
 		state := string(a.State)
 		if !focused {
-			alertname = p.styles.YAML.Key.Render(alertname)
 			state = p.styles.YAML.Value.Render(state)
 		}
-		body = prefix + "    " + alertname + " — " + state
+		// Leaves collapse the NAME / COUNT / SEVERITY columns into
+		// one wide cell on purpose: a leaf has no group-level count
+		// and its severity is already rolled into the parent's
+		// SEVERITY cell, so per-leaf alignment under those columns
+		// would be padding around dead air. Drilling via Enter is
+		// where per-alert detail belongs.
+		leaf := "  " + labelText + " — " + state
+		b.WriteString(padRight(leaf, nameW+countW+sevW))
 	}
-	body = padRight(body, width)
+
+	body := padRight(b.String(), width)
 	if focused {
 		return p.styles.Table.Cursor.Render(body)
 	}
 	return body
 }
 
-// tenantColWidth is the fixed width of the leading TENANT column
-// on group header rows in multi-tenant scope. Mirrors the alerts
-// / silences pages so the three list views align visually when
-// the user switches between them.
-const tenantColWidth = 16
+// Column geometry. tenantColWidth mirrors the alerts / silences
+// pages so the three views align across page switches.
+// treeColWidth reserves space for the ▸/▾ marker plus a trailing
+// space; countColWidth fits up to a 9-digit count, severityColWidth
+// fits the longest severity label ("critical") with breathing room.
+const (
+	tenantColWidth   = 16
+	treeColWidth     = 2
+	countColWidth    = 10
+	severityColWidth = 12
+)
+
+// columnWidths returns the rendered widths for the optional TENANT
+// column, then NAME (flex), COUNT, and SEVERITY. NAME absorbs the
+// remainder so the layout fills the body width without truncating
+// the fixed cells. Floored at 10 so a narrow terminal still leaves
+// the labels readable rather than collapsing the NAME column to
+// zero.
+func (p *Page) columnWidths(width int) (tenant, name, count, sev int) {
+	if p.showTenantColumn() {
+		tenant = tenantColWidth
+	}
+	count = countColWidth
+	sev = severityColWidth
+	name = max(width-tenant-treeColWidth-count-sev, 10)
+	return tenant, name, count, sev
+}
+
+// severityLabelByRank inverts backend.SeverityRank to the printable
+// label so the SEVERITY column reads consistently with the alerts
+// page's per-row severity cell. Unknown rank renders as `—` to
+// match alerts.severityOf.
+func severityLabelByRank(rank int) string {
+	switch rank {
+	case 3:
+		return "critical"
+	case 2:
+		return "warning"
+	case 1:
+		return "info"
+	}
+	return "—"
+}
+
+// severityStyleByRank picks the lipgloss style for the SEVERITY
+// cell, mirroring alerts.severityStyle so a "critical" cell tints
+// the same on both pages.
+func severityStyleByRank(rank int, styles theme.Styles) lipgloss.Style {
+	switch rank {
+	case 3:
+		return styles.Severity.Critical
+	case 2:
+		return styles.Severity.Warning
+	case 1:
+		return styles.Severity.Info
+	}
+	return styles.Severity.Unknown
+}
 
 // showTenantColumn reports whether the renderer should prefix
 // group header rows with the TENANT column. True when scope
@@ -984,16 +1101,40 @@ func (p *Page) reconcileScroll(maxRows, totalRows int) {
 	}
 }
 
-// padRight pads s with trailing spaces to w columns so the
-// cursor's background extends across the whole row.
+// padRight truncates / right-pads s to exactly w columns so the
+// cursor's background extends across the whole row and an over-
+// wide cell can't push later columns out of alignment. Mirrors
+// the alerts page's helper of the same name.
 func padRight(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
 	if lipgloss.Width(s) >= w {
-		return s
+		return truncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-lipgloss.Width(s))
+}
+
+// truncate cuts s to at most w columns, counting visual width so
+// SGR escapes don't burn budget. Mirrors alerts.truncate.
+func truncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	var b strings.Builder
+	used := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			break
+		}
+		b.WriteRune(r)
+		used += rw
+	}
+	return b.String()
 }
 
 // labelSummary renders a "k=v, k=v" preview of a label-set so the

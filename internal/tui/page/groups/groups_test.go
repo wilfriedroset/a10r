@@ -473,9 +473,45 @@ func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	// row-level Cursor style — that would supersede the per-cell
 	// colouring the next test asserts on.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	out := p.View(80, 10)
-	require.Contains(t, testutil.StripStyle(out), "team=platform")
-	require.Contains(t, testutil.StripStyle(out), "(2 alerts)")
+	out := p.View(120, 10)
+	plain := testutil.StripStyle(out)
+	require.Contains(t, plain, "team=platform")
+	// Count lives in its own column now — bare number, not the
+	// legacy inline "(2 alerts)" form jammed into the NAME body.
+	require.NotContains(t, plain, "(2 alerts)",
+		"count moved out of the NAME body into the COUNT column")
+	require.Regexp(t, `team=platform\s+2\b`, plain,
+		"the COUNT column shows the per-group alert count next to the labels")
+}
+
+func TestPage_RenderShowsSeverityLabel(t *testing.T) {
+	t.Parallel()
+	// platform group carries a critical alert; data group has no
+	// severity → renders as the unknown placeholder. The SEVERITY
+	// column surfaces the worst-rank label so the user can triage
+	// without expanding.
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	out := testutil.StripStyle(p.View(120, 10))
+	require.Contains(t, out, "critical",
+		"SEVERITY column shows the worst severity in the group")
+}
+
+func TestPage_FocusedGroupShowsSingleTreeMarker(t *testing.T) {
+	t.Parallel()
+	// The cursor signal is the row's background tint; the tree
+	// marker (▸/▾) is reserved for collapsed/expanded state. They
+	// must not double up — a focused collapsed group used to render
+	// "▸ ▸ team=…" because the cursor and tree marker shared the
+	// same glyph.
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	out := testutil.StripStyle(p.View(120, 10))
+	require.NotContains(t, out, "▸ ▸",
+		"cursor row must not double up the tree marker")
+	require.Contains(t, out, "▸",
+		"collapsed groups still surface a tree marker")
 }
 
 func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
@@ -501,22 +537,118 @@ func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 		"non-cursor group header must render label value in YAML.Value style")
 }
 
-func TestPage_LeafRowsColourAlertnameAndState(t *testing.T) {
+func TestPage_LeafRowsColourLabelsAndState(t *testing.T) {
 	t.Parallel()
+	// Leaves render the labels that differ between siblings (the
+	// inverse of commonLabels) so each row identifies the actual
+	// instance, not the labels already in the group header. The
+	// per-cell colouring follows the YAML viewer's palette so a
+	// k=v pair reads consistently across the TUI.
 	styles := loadStyles(t)
 	p := New(Options{Styles: styles})
-	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
-	// platform, expand it, then advance to leaf B so leaf A stays
-	// plain and per-cell colouring is observable.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → platform
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})   // expand platform
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → A
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // cursor → B
+	gs := []backend.AlertGroup{{
+		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
+		Alerts: []backend.Alert{
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform", "instance": "host-a"}, State: backend.AlertStateActive},
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform", "instance": "host-b"}, State: backend.AlertStateActive},
+		},
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: gs})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // expand
+	// Walk past the cursor (group header at row 0) so per-cell
+	// colouring on a leaf is observable.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	out := p.View(120, 10)
-	wantName := styles.YAML.Key.Render("A")
-	require.Contains(t, out, wantName,
-		"non-cursor leaf row must render alertname in YAML.Key style")
+	require.Contains(t, out, styles.YAML.Key.Render("instance"),
+		"non-cursor leaf row must render label keys in YAML.Key style")
+	require.Contains(t, out, styles.YAML.Value.Render("active"),
+		"non-cursor leaf row must render state in YAML.Value style")
+}
+
+func TestPage_LeafRowsShowDistinguishingLabels(t *testing.T) {
+	t.Parallel()
+	// Group's grouping labels include alertname; leaves are only
+	// distinguishable by `instance`. The leaf must surface
+	// instance=… so the user can tell siblings apart and decide
+	// which one to drill into. alertname is already in the group
+	// header — echoing it on every leaf is dead pixels.
+	p := New(Options{Styles: loadStyles(t)})
+	gs := []backend.AlertGroup{{
+		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
+		Alerts: []backend.Alert{
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform", "instance": "host-a"}, State: backend.AlertStateActive},
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform", "instance": "host-b"}, State: backend.AlertStateActive},
+		},
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: gs})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // expand all
+	out := testutil.StripStyle(p.View(160, 10))
+	require.Contains(t, out, "instance=host-a")
+	require.Contains(t, out, "instance=host-b")
+	// The alertname is in commonLabels → the leaf must not echo it.
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.Contains(line, "instance=") {
+			require.NotContains(t, line, "alertname=DiskFull",
+				"leaves drop labels common across siblings; alertname stays in the group header")
+		}
+	}
+}
+
+func TestPage_LeafRowsFallbackToAlertnameWhenIdentical(t *testing.T) {
+	t.Parallel()
+	// Two alerts with identical label sets — distinguishing labels
+	// is empty, so the leaf falls back to the alertname so the row
+	// still carries something the user can read. Edge case (a real
+	// duplicate), but the fallback prevents a blank leaf.
+	p := New(Options{Styles: loadStyles(t)})
+	gs := []backend.AlertGroup{{
+		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
+		Alerts: []backend.Alert{
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform"}, State: backend.AlertStateActive},
+			{Labels: map[string]string{"alertname": "DiskFull", "team": "platform"}, State: backend.AlertStateActive},
+		},
+	}}
+	_, _ = p.Update(poll.DataMsg{Resource: gs})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	plain := testutil.StripStyle(p.View(160, 10))
+	// The group header reads `▾ alertname=DiskFull,team=platform …`
+	// — DiskFull is followed immediately by `,team=…`, not by an
+	// em-dash. So a regex requiring whitespace + em-dash + active
+	// after DiskFull matches leaf rows only, never the header.
+	require.Regexp(t, `DiskFull\s+—\s+active`, plain,
+		"leaf must render the alertname inline with state when distinguishing labels are empty")
+	leafLines := 0
+	for line := range strings.SplitSeq(plain, "\n") {
+		if strings.Contains(line, "DiskFull") && strings.Contains(line, "—") &&
+			strings.Contains(line, "active") {
+			leafLines++
+		}
+	}
+	require.Equal(t, 2, leafLines,
+		"both duplicate alerts must surface as their own leaf row")
+}
+
+func TestDistinguishingLabels_EmptyWhenIdentical(t *testing.T) {
+	t.Parallel()
+	common := map[string]string{"alertname": "A", "team": "platform"}
+	a := backend.Alert{Labels: map[string]string{"alertname": "A", "team": "platform"}}
+	require.Empty(t, distinguishingLabels(a, common))
+}
+
+func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
+	t.Parallel()
+	common := map[string]string{"alertname": "DiskFull", "team": "platform"}
+	a := backend.Alert{Labels: map[string]string{
+		"alertname": "DiskFull",
+		"team":      "platform",
+		"instance":  "host-a",
+		"severity":  "critical",
+	}}
+	require.Equal(t, map[string]string{
+		"instance": "host-a",
+		"severity": "critical",
+	}, distinguishingLabels(a, common))
 }
 
 func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
