@@ -11,11 +11,12 @@ import (
 
 // Styles is the compiled, view-facing surface of a skin. Every TUI
 // component reads through it (`styles.Table.Cursor`, `styles.Severity
-// .Critical`, …) rather than touching the raw palette — that
+// .Critical`, …) rather than touching the raw skin file — that
 // indirection is what makes a theme swap cheap.
 type Styles struct {
 	Body         BodyStyle
 	Header       HeaderStyle
+	Frame        FrameStyle
 	Table        TableStyle
 	Severity     SeverityStyle
 	SilenceState SilenceStateStyle
@@ -28,9 +29,26 @@ type Styles struct {
 }
 
 // BodyStyle covers the default body fg/bg used everywhere not
-// overridden by a more specific role.
+// overridden by a more specific role. Logo is the foreground tint
+// used for the panel's ASCII logo, mirroring k9s's `body.logoColor`.
 type BodyStyle struct {
 	Default lipgloss.Style
+	Logo    lipgloss.Style
+}
+
+// FrameStyle covers the page frame: the border characters around
+// the body box and the title strip rendered into the top edge.
+// Title is the body title text colour (k9s `frame.title.fgColor`).
+// TitleHighlight, TitleCounter and TitleFilter colour the scope
+// inside `(...)`, the `[N]` count, and the active filter inside
+// the title respectively — see k9s's `NSTitleFmt` /
+// `[fg:bg:b]%s([hilite:bg:b]%s…[count:bg:b]%s…]` template.
+type FrameStyle struct {
+	Border         lipgloss.Style
+	Title          lipgloss.Style
+	TitleHighlight lipgloss.Style
+	TitleCounter   lipgloss.Style
+	TitleFilter    lipgloss.Style
 }
 
 // HeaderStyle drives the J1 three-zone header: Default carries the
@@ -45,17 +63,33 @@ type HeaderStyle struct {
 }
 
 // TableStyle covers every table-row state: the column header, the
-// active (sorted) header column, regular rows, alternating-stripe
-// rows, the cursor row, marked rows (Space-selected for bulk
-// actions), and dimmed rows (read-only mode + stale data per C2).
+// active (sorted) header column, regular rows, the cursor row,
+// marked rows (Space-selected for bulk actions), and dimmed rows
+// (read-only mode + stale data per C2). Note: there is no RowAlt
+// — the previous schema had one but no view consumed it; k9s skins
+// have no analog and the role was dead code.
 type TableStyle struct {
 	Header       lipgloss.Style
 	HeaderActive lipgloss.Style
 	Row          lipgloss.Style
-	RowAlt       lipgloss.Style
 	Cursor       lipgloss.Style
 	Marked       lipgloss.Style
 	Dimmed       lipgloss.Style
+}
+
+// CursorOver returns the cursor style with bg overridden to the
+// given colour. Mirrors k9s's runtime recompute of the selected
+// style (`internal/ui/select_table.go:128`): k9s ignores the
+// static `cursorBgColor` after the first render and uses the
+// row's per-row semantic colour (severity for alerts, state for
+// silences, StdColor for non-semantic pages) as the selected-row
+// bg. Passing nil falls through to the static Cursor — useful as
+// a guard when the page has no row colour available.
+func (t TableStyle) CursorOver(bg color.Color) lipgloss.Style {
+	if bg == nil {
+		return t.Cursor
+	}
+	return t.Cursor.Background(bg)
 }
 
 // SeverityStyle colours alert rows by their severity label.
@@ -118,290 +152,469 @@ type YAMLStyle struct {
 	Punct lipgloss.Style
 }
 
-// compile resolves a parsed skinFile into a fully-populated *Styles.
-// Palette refs that cannot be resolved surface as a structured error
-// naming the role and the offending palette key.
-func compile(s skinFile) (*Styles, error) {
+// firstSet returns the first non-empty string in candidates, or ""
+// if all are empty. The cascading-fallback chains in compile() are
+// just `firstSet(...) → resolve` followed by a body.fg/body.bg floor.
+func firstSet(candidates ...string) string {
+	for _, c := range candidates {
+		if c != "" {
+			return c
+		}
+	}
+	return ""
+}
+
+// fgStyle builds a foreground-only Style. The terminal-default
+// sentinel skips the Foreground call so the terminal's native fg
+// shows through unchanged.
+func fgStyle(c color.Color) lipgloss.Style {
+	s := lipgloss.NewStyle()
+	if !isDefaultColor(c) {
+		s = s.Foreground(c)
+	}
+	return s
+}
+
+// fgBgStyle builds a fg+bg Style; default sentinels on either axis
+// skip the corresponding setter so terminal-native styling carries
+// through. This is the engine behind the `-transparent` variants.
+func fgBgStyle(fg, bg color.Color) lipgloss.Style {
+	s := lipgloss.NewStyle()
+	if !isDefaultColor(fg) {
+		s = s.Foreground(fg)
+	}
+	if !isDefaultColor(bg) {
+		s = s.Background(bg)
+	}
+	return s
+}
+
+// resolveFgChain parses the first non-empty candidate from chain. If
+// all candidates are empty, falls back to body.fgColor — the
+// universal floor that compile() guarantees exists. role is woven
+// into the parse error so a malformed value points back at the
+// role it broke, not just at the colour parser.
+func (f *k9sSkinFile) resolveFgChain(role string, chain ...string) (color.Color, error) {
+	v := firstSet(chain...)
+	if v == "" {
+		v = f.K9s.Body.FgColor
+	}
+	c, err := parseColor(v)
+	if err != nil {
+		return nil, fmt.Errorf("role %q: %w", role, err)
+	}
+	return c, nil
+}
+
+// resolveBgChain mirrors resolveFgChain with body.bgColor as the
+// universal floor.
+func (f *k9sSkinFile) resolveBgChain(role string, chain ...string) (color.Color, error) {
+	v := firstSet(chain...)
+	if v == "" {
+		v = f.K9s.Body.BgColor
+	}
+	c, err := parseColor(v)
+	if err != nil {
+		return nil, fmt.Errorf("role %q: %w", role, err)
+	}
+	return c, nil
+}
+
+// resolveStatus parses one of the post-fallback frame.status fields.
+// applyStockFallback runs before compile, so these are always
+// non-empty by the time we get here — but we still error if the
+// value fails to parse, which catches a bad SVG name in a user
+// skin or a typo in our own stockStatus table.
+func (f *k9sSkinFile) resolveStatus(role, value string) (color.Color, error) {
+	c, err := parseColor(value)
+	if err != nil {
+		return nil, fmt.Errorf("role %q: %w", role, err)
+	}
+	return c, nil
+}
+
+// compile resolves a parsed (and stock-filled) skinFile into a
+// fully-populated *Styles. The order tracks the role-mapping table
+// in docs/design/k9s-skins-dropin.md ("Role mapping (full)") so
+// reviewers can read the two side-by-side.
+func compile(f *k9sSkinFile) (*Styles, error) {
 	out := &Styles{}
 	var err error
 
-	if out.Body, err = compileBody(s); err != nil {
+	if out.Body, err = compileBody(f); err != nil {
 		return nil, err
 	}
-	if out.Header, err = compileHeader(s); err != nil {
+	if out.Header, err = compileHeader(f); err != nil {
 		return nil, err
 	}
-	if out.Table, err = compileTable(s); err != nil {
+	if out.Frame, err = compileFrame(f); err != nil {
 		return nil, err
 	}
-	if out.Severity, err = compileSeverity(s); err != nil {
+	if out.Table, err = compileTable(f); err != nil {
 		return nil, err
 	}
-	if out.SilenceState, err = compileSilenceState(s); err != nil {
+	if out.Severity, err = compileSeverity(f); err != nil {
 		return nil, err
 	}
-	if out.Prompt, err = compilePrompt(s); err != nil {
+	if out.SilenceState, err = compileSilenceState(f); err != nil {
 		return nil, err
 	}
-	if out.Flash, err = compileFlash(s); err != nil {
+	if out.Prompt, err = compilePrompt(f); err != nil {
 		return nil, err
 	}
-	if out.Crumbs, err = compileCrumbs(s); err != nil {
+	if out.Flash, err = compileFlash(f); err != nil {
 		return nil, err
 	}
-	if out.Hint, err = compileHint(s); err != nil {
+	if out.Crumbs, err = compileCrumbs(f); err != nil {
 		return nil, err
 	}
-	if out.Modal, err = compileModal(s); err != nil {
+	if out.Hint, err = compileHint(f); err != nil {
 		return nil, err
 	}
-	if out.YAML, err = compileYAML(s); err != nil {
+	if out.Modal, err = compileModal(f); err != nil {
+		return nil, err
+	}
+	if out.YAML, err = compileYAML(f); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// resolve looks up a palette ref. Returns an error naming the role
-// and the offending key so the user can fix the right field.
-//
-// `key` is a palette name (e.g. "blue"), NOT a hex literal. The
-// schema validator already rejects malformed hex in the palette
-// block, and roles deliberately reference palette keys by name so
-// renaming a colour is one edit. Chains (`palette.foo: bar` where
-// `bar` is itself a palette key) are not supported — palette values
-// must always be hex literals per `validate()`.
-func resolve(palette map[string]string, role, key string) (color.Color, error) {
-	if key == "" {
-		return nil, fmt.Errorf("role %q: missing palette ref", role)
-	}
-	hex, ok := palette[key]
-	if !ok {
-		return nil, fmt.Errorf("role %q: palette key %q is not defined", role, key)
-	}
-	return lipgloss.Color(hex), nil
-}
-
-// fgbg builds a Style with both foreground and background. fgOnly
-// builds a foreground-only Style — the caller's enclosing widget
-// supplies the background.
-func fgbg(palette map[string]string, role, fg, bg string) (lipgloss.Style, error) {
-	f, err := resolve(palette, role, fg)
+func compileBody(f *k9sSkinFile) (BodyStyle, error) {
+	fg, err := parseColor(f.K9s.Body.FgColor)
 	if err != nil {
-		return lipgloss.NewStyle(), err
+		return BodyStyle{}, fmt.Errorf("body.fgColor: %w", err)
 	}
-	b, err := resolve(palette, role, bg)
+	bg, err := parseColor(f.K9s.Body.BgColor)
 	if err != nil {
-		return lipgloss.NewStyle(), err
+		return BodyStyle{}, fmt.Errorf("body.bgColor: %w", err)
 	}
-	return lipgloss.NewStyle().Foreground(f).Background(b), nil
-}
-
-func fgOnly(palette map[string]string, role, fg string) (lipgloss.Style, error) {
-	f, err := resolve(palette, role, fg)
-	if err != nil {
-		return lipgloss.NewStyle(), err
-	}
-	return lipgloss.NewStyle().Foreground(f), nil
-}
-
-func compileBody(s skinFile) (BodyStyle, error) {
-	style, err := fgbg(s.Palette, "body", s.Roles.Body.Fg, s.Roles.Body.Bg)
+	logo, err := f.resolveFgChain("body.logo", f.K9s.Body.LogoColor)
 	if err != nil {
 		return BodyStyle{}, err
 	}
-	return BodyStyle{Default: style}, nil
-}
-
-func compileHeader(s skinFile) (HeaderStyle, error) {
-	r := s.Roles.Header
-	def, err := fgbg(s.Palette, "header", r.Fg, r.Bg)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	accent, err := fgOnly(s.Palette, "header.accent", r.Accent)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	ok, err := fgOnly(s.Palette, "header.ok", r.OK)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	warn, err := fgOnly(s.Palette, "header.warn", r.Warn)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	errStyle, err := fgOnly(s.Palette, "header.error", r.Error)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	return HeaderStyle{Default: def, Accent: accent, OK: ok, Warn: warn, Error: errStyle}, nil
-}
-
-func compileTable(s skinFile) (TableStyle, error) {
-	r := s.Roles.Table
-	header, err := fgbg(s.Palette, "table.header", r.Header.Fg, r.Header.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	headerActive, err := fgbg(s.Palette, "table.header_active", r.HeaderActive.Fg, r.HeaderActive.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	row, err := fgbg(s.Palette, "table.row", r.Row.Fg, r.Row.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	rowAlt, err := fgbg(s.Palette, "table.row_alt", r.RowAlt.Fg, r.RowAlt.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	cursor, err := fgbg(s.Palette, "table.cursor", r.Cursor.Fg, r.Cursor.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	marked, err := fgbg(s.Palette, "table.marked", r.Marked.Fg, r.Marked.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	dimmed, err := fgbg(s.Palette, "table.dimmed", r.Dimmed.Fg, r.Dimmed.Bg)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	return TableStyle{
-		Header: header, HeaderActive: headerActive,
-		Row: row, RowAlt: rowAlt,
-		Cursor: cursor, Marked: marked, Dimmed: dimmed,
+	return BodyStyle{
+		Default: fgBgStyle(fg, bg),
+		Logo:    fgStyle(logo),
 	}, nil
 }
 
-func compileSeverity(s skinFile) (SeverityStyle, error) {
-	r := s.Roles.Severity
-	critical, err := fgOnly(s.Palette, "severity.critical", r.Critical)
+func compileFrame(f *k9sSkinFile) (FrameStyle, error) {
+	border, err := f.resolveFgChain("frame.border", f.K9s.Frame.Border.FgColor)
 	if err != nil {
-		return SeverityStyle{}, err
+		return FrameStyle{}, err
 	}
-	warning, err := fgOnly(s.Palette, "severity.warning", r.Warning)
+	title, err := f.resolveFgChain("frame.title", f.K9s.Frame.Title.FgColor)
 	if err != nil {
-		return SeverityStyle{}, err
+		return FrameStyle{}, err
 	}
-	info, err := fgOnly(s.Palette, "severity.info", r.Info)
+	highlight, err := f.resolveFgChain("frame.title.highlight",
+		f.K9s.Frame.Title.HighlightColor)
 	if err != nil {
-		return SeverityStyle{}, err
+		return FrameStyle{}, err
 	}
-	unknown, err := fgOnly(s.Palette, "severity.unknown", r.Unknown)
+	counter, err := f.resolveFgChain("frame.title.counter",
+		f.K9s.Frame.Title.CounterColor, f.K9s.Frame.Title.HighlightColor)
 	if err != nil {
-		return SeverityStyle{}, err
+		return FrameStyle{}, err
 	}
-	return SeverityStyle{Critical: critical, Warning: warning, Info: info, Unknown: unknown}, nil
+	filter, err := f.resolveFgChain("frame.title.filter",
+		f.K9s.Frame.Title.FilterColor, f.K9s.Frame.Title.HighlightColor)
+	if err != nil {
+		return FrameStyle{}, err
+	}
+	return FrameStyle{
+		Border:         fgStyle(border),
+		Title:          fgStyle(title),
+		TitleHighlight: fgStyle(highlight),
+		TitleCounter:   fgStyle(counter),
+		TitleFilter:    fgStyle(filter),
+	}, nil
 }
 
-func compileSilenceState(s skinFile) (SilenceStateStyle, error) {
-	r := s.Roles.SilenceState
-	active, err := fgOnly(s.Palette, "silence_state.active", r.Active)
+func compileHeader(f *k9sSkinFile) (HeaderStyle, error) {
+	fg, err := f.resolveFgChain("header.fg", f.K9s.Frame.Title.FgColor)
 	if err != nil {
-		return SilenceStateStyle{}, err
+		return HeaderStyle{}, err
 	}
-	pending, err := fgOnly(s.Palette, "silence_state.pending", r.Pending)
+	bg, err := f.resolveBgChain("header.bg", f.K9s.Frame.Title.BgColor)
 	if err != nil {
-		return SilenceStateStyle{}, err
+		return HeaderStyle{}, err
 	}
-	expired, err := fgOnly(s.Palette, "silence_state.expired", r.Expired)
+	accent, err := f.resolveFgChain("header.accent", f.K9s.Body.LogoColor)
 	if err != nil {
-		return SilenceStateStyle{}, err
+		return HeaderStyle{}, err
 	}
-	return SilenceStateStyle{Active: active, Pending: pending, Expired: expired}, nil
+	ok, err := f.resolveStatus("header.ok", f.K9s.Frame.Status.AddColor)
+	if err != nil {
+		return HeaderStyle{}, err
+	}
+	warn, err := f.resolveStatus("header.warn", f.K9s.Frame.Status.HighlightColor)
+	if err != nil {
+		return HeaderStyle{}, err
+	}
+	errC, err := f.resolveStatus("header.error", f.K9s.Frame.Status.ErrorColor)
+	if err != nil {
+		return HeaderStyle{}, err
+	}
+	return HeaderStyle{
+		Default: fgBgStyle(fg, bg),
+		Accent:  fgStyle(accent),
+		OK:      fgStyle(ok),
+		Warn:    fgStyle(warn),
+		Error:   fgStyle(errC),
+	}, nil
 }
 
-func compilePrompt(s skinFile) (PromptStyle, error) {
-	r := s.Roles.Prompt
-	def, err := fgbg(s.Palette, "prompt", r.Fg, r.Bg)
+func compileTable(f *k9sSkinFile) (TableStyle, error) {
+	headerFg, err := f.resolveFgChain("table.header.fg", f.K9s.Views.Table.Header.FgColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	headerBg, err := f.resolveBgChain("table.header.bg", f.K9s.Views.Table.Header.BgColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	headerActiveFg, err := f.resolveFgChain("table.header_active.fg",
+		f.K9s.Views.Table.Header.SorterColor, f.K9s.Views.Table.Header.FgColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	rowFg, err := f.resolveFgChain("table.row.fg", f.K9s.Views.Table.FgColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	rowBg, err := f.resolveBgChain("table.row.bg", f.K9s.Views.Table.BgColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+
+	// Cursor: when both axes are missing, k9s inverts body. Mirror
+	// that runtime default. When only one axis is set, fall back to
+	// body for the other (don't invert just one).
+	cFg := f.K9s.Views.Table.CursorFgColor
+	cBg := f.K9s.Views.Table.CursorBgColor
+	if cFg == "" && cBg == "" {
+		cFg, cBg = f.K9s.Body.BgColor, f.K9s.Body.FgColor
+	} else {
+		if cFg == "" {
+			cFg = f.K9s.Body.FgColor
+		}
+		if cBg == "" {
+			cBg = f.K9s.Body.BgColor
+		}
+	}
+	cursorFg, err := parseColor(cFg)
+	if err != nil {
+		return TableStyle{}, fmt.Errorf("table.cursor.fg: %w", err)
+	}
+	cursorBg, err := parseColor(cBg)
+	if err != nil {
+		return TableStyle{}, fmt.Errorf("table.cursor.bg: %w", err)
+	}
+
+	markedFg, err := f.resolveFgChain("table.marked",
+		f.K9s.Views.Table.MarkColor, f.K9s.Frame.Title.HighlightColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	dimmedFg, err := f.resolveFgChain("table.dimmed",
+		f.K9s.Frame.Status.CompletedColor, f.K9s.Frame.Status.KillColor)
+	if err != nil {
+		return TableStyle{}, err
+	}
+	bodyBg, err := parseColor(f.K9s.Body.BgColor)
+	if err != nil {
+		return TableStyle{}, fmt.Errorf("table.marked.bg: %w", err)
+	}
+
+	return TableStyle{
+		Header:       fgBgStyle(headerFg, headerBg),
+		HeaderActive: fgBgStyle(headerActiveFg, headerBg),
+		Row:          fgBgStyle(rowFg, rowBg),
+		// k9s applies tcell.AttrBold to its selected (cursor) row
+		// (internal/ui/table.go:337). Match that for parity so a
+		// side-by-side comparison reads identically.
+		Cursor: fgBgStyle(cursorFg, cursorBg).Bold(true),
+		Marked: fgBgStyle(markedFg, bodyBg),
+		Dimmed: fgBgStyle(dimmedFg, bodyBg),
+	}, nil
+}
+
+func compileSeverity(f *k9sSkinFile) (SeverityStyle, error) {
+	critical, err := f.resolveStatus("severity.critical", f.K9s.Frame.Status.ErrorColor)
+	if err != nil {
+		return SeverityStyle{}, err
+	}
+	warning, err := f.resolveStatus("severity.warning", f.K9s.Frame.Status.HighlightColor)
+	if err != nil {
+		return SeverityStyle{}, err
+	}
+	info, err := f.resolveStatus("severity.info", f.K9s.Frame.Status.NewColor)
+	if err != nil {
+		return SeverityStyle{}, err
+	}
+	unknown, err := f.resolveStatus("severity.unknown", f.K9s.Frame.Status.KillColor)
+	if err != nil {
+		return SeverityStyle{}, err
+	}
+	return SeverityStyle{
+		Critical: fgStyle(critical),
+		Warning:  fgStyle(warning),
+		Info:     fgStyle(info),
+		Unknown:  fgStyle(unknown),
+	}, nil
+}
+
+func compileSilenceState(f *k9sSkinFile) (SilenceStateStyle, error) {
+	active, err := f.resolveStatus("silence_state.active", f.K9s.Frame.Status.AddColor)
+	if err != nil {
+		return SilenceStateStyle{}, err
+	}
+	pending, err := f.resolveStatus("silence_state.pending", f.K9s.Frame.Status.HighlightColor)
+	if err != nil {
+		return SilenceStateStyle{}, err
+	}
+	expired, err := f.resolveStatus("silence_state.expired", f.K9s.Frame.Status.KillColor)
+	if err != nil {
+		return SilenceStateStyle{}, err
+	}
+	return SilenceStateStyle{
+		Active:  fgStyle(active),
+		Pending: fgStyle(pending),
+		Expired: fgStyle(expired),
+	}, nil
+}
+
+func compilePrompt(f *k9sSkinFile) (PromptStyle, error) {
+	fg, err := f.resolveFgChain("prompt.fg", f.K9s.Prompt.FgColor)
 	if err != nil {
 		return PromptStyle{}, err
 	}
-	suggestion, err := fgOnly(s.Palette, "prompt.suggestion", r.Suggestion)
+	bg, err := f.resolveBgChain("prompt.bg", f.K9s.Prompt.BgColor)
 	if err != nil {
 		return PromptStyle{}, err
 	}
-	return PromptStyle{Default: def, Suggestion: suggestion}, nil
+	suggestion, err := f.resolveFgChain("prompt.suggestion", f.K9s.Prompt.SuggestColor)
+	if err != nil {
+		return PromptStyle{}, err
+	}
+	return PromptStyle{
+		Default:    fgBgStyle(fg, bg),
+		Suggestion: fgStyle(suggestion),
+	}, nil
 }
 
-func compileFlash(s skinFile) (FlashStyle, error) {
-	r := s.Roles.Flash
-	success, err := fgOnly(s.Palette, "flash.success", r.Success)
+func compileFlash(f *k9sSkinFile) (FlashStyle, error) {
+	success, err := f.resolveStatus("flash.success", f.K9s.Frame.Status.AddColor)
 	if err != nil {
 		return FlashStyle{}, err
 	}
-	info, err := fgOnly(s.Palette, "flash.info", r.Info)
+	info, err := f.resolveStatus("flash.info", f.K9s.Frame.Status.NewColor)
 	if err != nil {
 		return FlashStyle{}, err
 	}
-	warn, err := fgOnly(s.Palette, "flash.warn", r.Warn)
+	warn, err := f.resolveStatus("flash.warn", f.K9s.Frame.Status.HighlightColor)
 	if err != nil {
 		return FlashStyle{}, err
 	}
-	errStyle, err := fgOnly(s.Palette, "flash.error", r.Error)
+	errC, err := f.resolveStatus("flash.error", f.K9s.Frame.Status.ErrorColor)
 	if err != nil {
 		return FlashStyle{}, err
 	}
-	return FlashStyle{Success: success, Info: info, Warn: warn, Error: errStyle}, nil
+	return FlashStyle{
+		Success: fgStyle(success),
+		Info:    fgStyle(info),
+		Warn:    fgStyle(warn),
+		Error:   fgStyle(errC),
+	}, nil
 }
 
-func compileCrumbs(s skinFile) (CrumbsStyle, error) {
-	r := s.Roles.Crumbs
-	def, err := fgbg(s.Palette, "crumbs", r.Fg, r.Bg)
+func compileCrumbs(f *k9sSkinFile) (CrumbsStyle, error) {
+	fg, err := f.resolveFgChain("crumbs.fg", f.K9s.Frame.Crumbs.FgColor)
 	if err != nil {
 		return CrumbsStyle{}, err
 	}
-	active, err := fgOnly(s.Palette, "crumbs.active", r.Active)
+	bg, err := f.resolveBgChain("crumbs.bg", f.K9s.Frame.Crumbs.BgColor)
 	if err != nil {
 		return CrumbsStyle{}, err
 	}
-	return CrumbsStyle{Default: def, Active: active}, nil
+	active, err := f.resolveFgChain("crumbs.active",
+		f.K9s.Frame.Crumbs.ActiveColor, f.K9s.Frame.Title.HighlightColor)
+	if err != nil {
+		return CrumbsStyle{}, err
+	}
+	return CrumbsStyle{
+		Default: fgBgStyle(fg, bg),
+		Active:  fgStyle(active),
+	}, nil
 }
 
-func compileHint(s skinFile) (HintStyle, error) {
-	r := s.Roles.Hint
-	def, err := fgbg(s.Palette, "hint", r.Fg, r.Bg)
+func compileHint(f *k9sSkinFile) (HintStyle, error) {
+	// k9s `frame.menu` has no bgColor; the strip paints over body.bg.
+	fg, err := f.resolveFgChain("hint.fg", f.K9s.Frame.Menu.FgColor)
 	if err != nil {
 		return HintStyle{}, err
 	}
-	key, err := fgOnly(s.Palette, "hint.key", r.Key)
+	bg, err := parseColor(f.K9s.Body.BgColor)
+	if err != nil {
+		return HintStyle{}, fmt.Errorf("hint.bg: %w", err)
+	}
+	keyChain := firstSet(f.K9s.Frame.Menu.KeyColor)
+	if keyChain == "" {
+		keyChain = f.K9s.Body.FgColor
+	}
+	keyC, err := parseColor(keyChain)
+	if err != nil {
+		return HintStyle{}, fmt.Errorf("hint.key: %w", err)
+	}
+	helpC, err := f.resolveFgChain("hint.help_key",
+		f.K9s.Frame.Menu.NumKeyColor, f.K9s.Frame.Menu.KeyColor)
 	if err != nil {
 		return HintStyle{}, err
 	}
-	helpKey, err := fgOnly(s.Palette, "hint.help_key", r.HelpKey)
-	if err != nil {
-		return HintStyle{}, err
-	}
-	return HintStyle{Default: def, Key: key, HelpKey: helpKey}, nil
+	return HintStyle{
+		Default: fgBgStyle(fg, bg),
+		Key:     fgStyle(keyC),
+		HelpKey: fgStyle(helpC),
+	}, nil
 }
 
-func compileModal(s skinFile) (ModalStyle, error) {
-	r := s.Roles.Modal
-	def, err := fgbg(s.Palette, "modal", r.Fg, r.Bg)
+func compileModal(f *k9sSkinFile) (ModalStyle, error) {
+	fg, err := f.resolveFgChain("modal.fg", f.K9s.Dialog.FgColor)
 	if err != nil {
 		return ModalStyle{}, err
 	}
-	border, err := fgOnly(s.Palette, "modal.border", r.Border)
+	bg, err := f.resolveBgChain("modal.bg", f.K9s.Dialog.BgColor)
 	if err != nil {
 		return ModalStyle{}, err
 	}
-	return ModalStyle{Default: def, Border: border}, nil
+	border, err := f.resolveFgChain("modal.border", f.K9s.Frame.Border.FgColor)
+	if err != nil {
+		return ModalStyle{}, err
+	}
+	return ModalStyle{
+		Default: fgBgStyle(fg, bg),
+		Border:  fgStyle(border),
+	}, nil
 }
 
-func compileYAML(s skinFile) (YAMLStyle, error) {
-	r := s.Roles.YAML
-	key, err := fgOnly(s.Palette, "yaml.key", r.Key)
+func compileYAML(f *k9sSkinFile) (YAMLStyle, error) {
+	key, err := f.resolveFgChain("yaml.key", f.K9s.Views.YAML.KeyColor)
 	if err != nil {
 		return YAMLStyle{}, err
 	}
-	value, err := fgOnly(s.Palette, "yaml.value", r.Value)
+	value, err := f.resolveFgChain("yaml.value", f.K9s.Views.YAML.ValueColor)
 	if err != nil {
 		return YAMLStyle{}, err
 	}
-	punct, err := fgOnly(s.Palette, "yaml.punct", r.Punct)
+	punct, err := f.resolveFgChain("yaml.punct", f.K9s.Views.YAML.ColonColor)
 	if err != nil {
 		return YAMLStyle{}, err
 	}
-	return YAMLStyle{Key: key, Value: value, Punct: punct}, nil
+	return YAMLStyle{
+		Key:   fgStyle(key),
+		Value: fgStyle(value),
+		Punct: fgStyle(punct),
+	}, nil
 }

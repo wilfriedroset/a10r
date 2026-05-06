@@ -1,10 +1,17 @@
 ---
 title: Theming and skin schema
-status: draft
+status: superseded
+superseded_by: docs/design/k9s-skins-dropin.md
 audience: a10r maintainer, theme authors, contributors
 ---
 
-# Theming and skin schema
+# Theming and skin schema  (superseded)
+
+> **This design is no longer current.** a10r consumes [k9s skins](https://github.com/derailed/k9s/tree/master/skins) drop-in as of the k9s-skins-dropin work; see [`k9s-skins-dropin.md`](./k9s-skins-dropin.md) for the active schema, role mapping, and loader behavior. The two-layer `palette` + `roles` schema described below was removed — the bundled set is now eight catppuccin variants from `catppuccin/k9s` upstream, and any community k9s skin can be dropped into `<config-dir>/skins/<name>.yaml` without conversion.
+>
+> The rest of this document is preserved for historical context.
+
+---
 
 a10r ships colour themes as YAML "skin" files. The schema is two-layer: a per-theme **palette** of named colours, then a fixed-shape **roles** map that binds semantic slots in the UI to palette entries. v0.1 ships three bundled themes; users can drop additional skins under `<config-dir>/skins/`.
 

@@ -1493,7 +1493,13 @@ func (p *Page) renderRows(width, maxRows int) string {
 		line := padRight(prefix+mark+" "+p.padColumns(row, width), width)
 		switch {
 		case i == p.cursor:
-			line = p.styles.Table.Cursor.Render(line)
+			// k9s parity: cursor bg tracks the row's semantic
+			// colour (severity), not the static cursorBgColor.
+			// `select_table.go:128` in k9s replaces the selected
+			// style on every selection-changed event; this is the
+			// equivalent.
+			rowColor := severityStyle(a, p.styles).GetForeground()
+			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case marked:
 			line = lipgloss.NewStyle().
 				Foreground(p.styles.Table.Marked.GetForeground()).

@@ -51,7 +51,11 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return err
 	}
 
-	styles, err := loadStylesFor(cfg.Theme.Name)
+	configDir, err := config.ResolveDir(flags.ConfigDir)
+	if err != nil {
+		return fmt.Errorf("resolve config dir: %w", err)
+	}
+	styles, err := loadStylesFor(cfg.Theme.Name, configDir)
 	if err != nil {
 		return err
 	}
@@ -340,13 +344,20 @@ func scopeFor(cfg *config.Config) string {
 	}
 }
 
-// loadStylesFor compiles the requested theme. Empty falls back to
-// the default skin name.
-func loadStylesFor(name string) (*theme.Styles, error) {
+// loadStylesFor compiles the requested theme. Empty `name` falls
+// back to the default skin name. configDir is the resolved
+// config-dir root (per K1/B2 precedence) — user-supplied skins live
+// in <configDir>/skins/<name>.yaml and shadow bundled skins of the
+// same name with a logged warning.
+func loadStylesFor(name, configDir string) (*theme.Styles, error) {
 	if name == "" {
 		name = theme.DefaultSkinName
 	}
-	return (&theme.Loader{}).Load(name)
+	loader := &theme.Loader{
+		UserDir: filepath.Join(configDir, "skins"),
+		Logger:  slog.Default(),
+	}
+	return loader.Load(name)
 }
 
 // newResolver builds the cmdbar resolver with the v0.1 alias

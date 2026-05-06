@@ -9,6 +9,7 @@ package panel
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -16,6 +17,51 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
+
+// titleStructRE captures the standard "subject(scope)[count]"
+// shape that pages return from their Title() method (see
+// panel.Title). Group 1 = subject, group 2 = scope (inside `()`),
+// group 4 = count digits inside `[]`, group 5 = optional trailing
+// segment (a filter glyph, "loading…" suffix, etc.). Titles that
+// don't match (cold-load spinners, modals) get the plain Frame.
+// Title styling instead.
+var titleStructRE = regexp.MustCompile(`^(.*?)\(([^()]*)\)(\[(\d+)\])?(.*)$`)
+
+// styleTitle applies the per-segment k9s title colouring to the
+// raw title returned by a page. Layout mirrors k9s NSTitleFmt:
+//
+//	subject(scope)[count]
+//	└─────┘ └───┘  └───┘
+//	  fg+bold  hilite+bold  counter+bold
+//	         └─┘   └─┘
+//	          fg     fg
+//
+// Anything outside that shape (loading spinner, modal label) gets
+// a single-tone Frame.Title render — the title stays readable
+// instead of falling back to terminal default.
+func styleTitle(raw string, styles theme.Styles) string {
+	m := titleStructRE.FindStringSubmatch(raw)
+	if m == nil {
+		return styles.Frame.Title.Bold(true).Render(raw)
+	}
+	subject, scope, count, trailing := m[1], m[2], m[4], m[5]
+	titleBold := styles.Frame.Title.Bold(true)
+	hiliteBold := styles.Frame.TitleHighlight.Bold(true)
+	titlePlain := styles.Frame.Title
+	var b strings.Builder
+	b.WriteString(titleBold.Render(subject + "("))
+	b.WriteString(hiliteBold.Render(scope))
+	b.WriteString(titlePlain.Render(")"))
+	if count != "" {
+		b.WriteString(titlePlain.Render("["))
+		b.WriteString(styles.Frame.TitleCounter.Bold(true).Render(count))
+		b.WriteString(titlePlain.Render("]"))
+	}
+	if trailing != "" {
+		b.WriteString(titlePlain.Render(trailing))
+	}
+	return b.String()
+}
 
 // InfoLine is one labelled row in the panel's info column. K9s
 // uses these for context / cluster / user / version / cpu / mem;
@@ -135,7 +181,15 @@ func RenderTop(state State, styles theme.Styles) string {
 		hint := padRight(getLine(hintLines, i), hintW)
 		// Pad every logo line to the SAME logoW so the right-fill
 		// is uniform across rows and the logo block doesn't stagger.
-		logo := padRight(getLine(logoLines, i), logoW)
+		// Tint with body.logoColor for k9s parity — the logo lights
+		// up in the skin's accent (mauve in mocha) instead of
+		// rendering as plain body fg.
+		logoLine := getLine(logoLines, i)
+		logoPadded := padRight(logoLine, logoW)
+		logo := logoPadded
+		if logoLine != "" {
+			logo = styles.Body.Logo.Render(logoPadded)
+		}
 
 		// Build left-to-right, inserting a 2-space gap only when
 		// the next column is non-empty.
@@ -369,6 +423,11 @@ func padRight(s string, w int) string {
 // rows tall. The body content is sliced / padded to fit the
 // inner rectangle (width-2, height-2). Empty footer renders the
 // bottom edge as a plain rule.
+//
+// Border characters are foreground-tinted with the skin's
+// `frame.border.fgColor` (k9s parity); the title text is tinted
+// with `frame.title.fgColor`. The inner content is left untouched
+// so per-cell colouring inside the body keeps showing through.
 func RenderBody(width, height int, body, title, footer string, styles theme.Styles) string {
 	if width < 4 || height < 2 {
 		return body
@@ -377,7 +436,7 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 	innerHeight := height - 2
 
 	// Top border with embedded title: "┌── title ──┐".
-	top := buildTitleBorder(innerWidth, title)
+	top := buildTitleBorder(innerWidth, title, styles)
 
 	// Inner body: split body into lines, pad / slice to fit inner.
 	lines := strings.Split(body, "\n")
@@ -387,6 +446,7 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 	for len(lines) < innerHeight {
 		lines = append(lines, "")
 	}
+	bar := styles.Frame.Border.Render("│")
 	for i, l := range lines {
 		w := lipgloss.Width(l)
 		if w > innerWidth {
@@ -394,16 +454,14 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 		} else if w < innerWidth {
 			l += strings.Repeat(" ", innerWidth-w)
 		}
-		lines[i] = "│" + l + "│"
+		lines[i] = bar + l + bar
 	}
 
 	// Bottom border, optionally embedding a label the same way
 	// the title sits in the top edge.
-	bottom := buildFooterBorder(innerWidth, footer)
+	bottom := buildFooterBorder(innerWidth, footer, styles)
 
-	frame := top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
-	_ = styles // reserved for the future BorderForeground hook
-	return frame
+	return top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
 }
 
 // RenderFrame wraps a single-line `body` in a 3-line bordered box
@@ -416,8 +474,9 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 // Used by the App for the `:` / `/` prompt panel. The body is
 // truncated when it exceeds the inner width; a hard upper bound
 // since the prompt is keyboard-driven and the user can only enter
-// what they see.
-func RenderFrame(width int, body string, _ theme.Styles) string {
+// what they see. Border is `frame.border.fgColor`-tinted so the
+// prompt panel matches the body panel's frame.
+func RenderFrame(width int, body string, styles theme.Styles) string {
 	if width < 4 {
 		return body
 	}
@@ -429,41 +488,53 @@ func RenderFrame(width int, body string, _ theme.Styles) string {
 	case w < innerWidth:
 		body += strings.Repeat(" ", innerWidth-w)
 	}
-	top := "┌" + strings.Repeat("─", innerWidth) + "┐"
-	bottom := "└" + strings.Repeat("─", innerWidth) + "┘"
-	return top + "\n│" + body + "│\n" + bottom
+	border := styles.Frame.Border
+	top := border.Render("┌" + strings.Repeat("─", innerWidth) + "┐")
+	bottom := border.Render("└" + strings.Repeat("─", innerWidth) + "┘")
+	bar := border.Render("│")
+	return top + "\n" + bar + body + bar + "\n" + bottom
 }
 
-// buildTitleBorder draws "┌── title ──┐" with the title centred.
-// Falls back to a plain border when the title is too long for
-// the inner width (rare on terminals ≥ 80 cols).
-func buildTitleBorder(innerWidth int, title string) string {
-	return buildLabelBorder(innerWidth, title, "┌", "┐")
+// buildTitleBorder draws "┌── title ──┐" with the title centred
+// and tinted in `frame.title.fgColor`. The horizontal rules get
+// `frame.border.fgColor`. Falls back to a plain (still tinted)
+// border when the title is too long for the inner width (rare on
+// terminals ≥ 80 cols).
+func buildTitleBorder(innerWidth int, title string, styles theme.Styles) string {
+	return buildLabelBorder(innerWidth, title, "┌", "┐", styles)
 }
 
 // buildFooterBorder is the bottom-edge counterpart: same layout,
 // `└` / `┘` corners. Empty label renders a plain rule so pages
 // without ambient state to surface still get a clean frame.
-func buildFooterBorder(innerWidth int, footer string) string {
-	return buildLabelBorder(innerWidth, footer, "└", "┘")
+func buildFooterBorder(innerWidth int, footer string, styles theme.Styles) string {
+	return buildLabelBorder(innerWidth, footer, "└", "┘", styles)
 }
 
 // buildLabelBorder draws "<L>── label ──<R>" with the label
-// centred. Falls back to a plain rule when label is empty or
-// would not leave at least 2 chars of border on each side.
-func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string) string {
+// centred. Border characters are border-tinted via styles.Frame.
+// Border. The label text is segment-styled by styleTitle to match
+// k9s's three-tone title (subject / scope-inside-parens / count-
+// inside-brackets) — note we measure the visual width of the
+// label glyphs without the SGR codes so centring stays correct.
+// Falls back to a plain (border-tinted) rule when label is empty
+// or would not leave at least 2 chars of border on each side.
+func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, styles theme.Styles) string {
+	border := styles.Frame.Border
 	if label == "" {
-		return leftCorner + strings.Repeat("─", innerWidth) + rightCorner
+		return border.Render(leftCorner + strings.Repeat("─", innerWidth) + rightCorner)
 	}
-	wrapped := " " + label + " "
-	labelW := lipgloss.Width(wrapped)
-	if labelW+4 > innerWidth {
-		wrapped = " " + truncate(label, innerWidth-4) + " "
-		labelW = lipgloss.Width(wrapped)
+	if lipgloss.Width(label)+4 > innerWidth {
+		label = truncate(label, innerWidth-4)
 	}
+	styled := styleTitle(label, styles)
+	wrapped := " " + styled + " "
+	labelW := lipgloss.Width(label) + 2 // styled width == raw width + 2 spaces
 	left := (innerWidth - labelW) / 2
 	right := innerWidth - labelW - left
-	return leftCorner + strings.Repeat("─", left) + wrapped + strings.Repeat("─", right) + rightCorner
+	leftRule := border.Render(leftCorner + strings.Repeat("─", left))
+	rightRule := border.Render(strings.Repeat("─", right) + rightCorner)
+	return leftRule + wrapped + rightRule
 }
 
 // truncate cuts s to at most w columns. Lipgloss-aware so a

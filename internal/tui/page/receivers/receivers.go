@@ -482,7 +482,11 @@ func (p *Page) View(width, height int) string {
 		// background extends across the whole row k9s-style.
 		row := padRight(prefix+text, width)
 		if i == p.cursor {
-			row = p.styles.Table.Cursor.Render(row)
+			// k9s parity: cursor bg tracks the row's semantic
+			// colour. Receiver rows have no severity / state, so
+			// we use Severity.Info (k9s StdColor equivalent).
+			rowColor := p.styles.Severity.Info.GetForeground()
+			row = p.styles.Table.CursorOver(rowColor).Render(row)
 		}
 		rows = append(rows, row)
 	}

@@ -1,4 +1,4 @@
-.PHONY: build test test-race cover vet prek lint run clean tidy am-up am-down am-logs smoke help
+.PHONY: build test test-race cover vet prek lint run clean tidy am-up am-down am-logs smoke skins-sync help
 
 GO ?= go
 BINARY := a10r
@@ -84,6 +84,39 @@ am-logs: ## Tail the local Alertmanager logs
 
 smoke: ## Run the backend smoke harness against the local Alertmanager
 	$(GO) run ./cmd/smoke -url http://127.0.0.1:$(AM_PORT)
+
+# Refresh the embedded skin set from upstream sources pinned in
+# internal/tui/theme/skins/SOURCES.yaml. Each repo is shallow-cloned
+# at the pinned commit into a tmpdir, listed files are copied into
+# internal/tui/theme/skins/, and the recipe fails if `git status`
+# shows unstaged diffs — every refresh therefore lands as a separate,
+# auditable commit. Edit the `commit` field, run this target, then
+# `git add` + commit.
+SKINS_DIR     := internal/tui/theme/skins
+SKINS_SOURCES := internal/tui/theme/SOURCES.yaml
+skins-sync: ## Refresh embedded skins from pinned upstream commits
+	@command -v yq >/dev/null 2>&1 || { echo "skins-sync requires yq"; exit 1; }
+	@command -v git >/dev/null 2>&1 || { echo "skins-sync requires git"; exit 1; }
+	@count=$$(yq '.sources | length' $(SKINS_SOURCES)); \
+	for i in $$(seq 0 $$(($$count - 1))); do \
+		repo=$$(yq -r ".sources[$$i].repo" $(SKINS_SOURCES)); \
+		commit=$$(yq -r ".sources[$$i].commit" $(SKINS_SOURCES)); \
+		tmp=$$(mktemp -d); \
+		echo "==> $$repo @ $$commit"; \
+		git -C $$tmp init -q && \
+			git -C $$tmp remote add origin $$repo && \
+			git -C $$tmp fetch -q --depth=1 origin $$commit && \
+			git -C $$tmp checkout -q FETCH_HEAD || { rm -rf $$tmp; exit 1; }; \
+		yq -r ".sources[$$i].files[]" $(SKINS_SOURCES) | while read f; do \
+			cp -v $$tmp/$$f $(SKINS_DIR)/$$(basename $$f); \
+		done; \
+		rm -rf $$tmp; \
+	done
+	@if ! git -c color.ui=never diff --quiet -- $(SKINS_DIR); then \
+		echo "==> $(SKINS_DIR) has changes — review with 'git diff' and commit."; \
+	else \
+		echo "==> $(SKINS_DIR) unchanged."; \
+	fi
 
 help: ## Show this help message
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

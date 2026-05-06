@@ -4,16 +4,26 @@ package panel
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
+
+// stripANSI removes SGR escape sequences from s. The frame border
+// is now foreground-tinted so the raw string carries `\x1b[…m`
+// prefixes / suffixes — assertions that pin border characters need
+// the visible-glyph view, not the byte-level one.
+var stripANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func plain(s string) string { return stripANSI.ReplaceAllString(s, "") }
 
 func loadStyles(t *testing.T) theme.Styles {
 	t.Helper()
@@ -179,15 +189,49 @@ func TestRenderTop_PanelHeightMatchesLogo(t *testing.T) {
 
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(40, 6, "row1\nrow2", "alerts[2]", "", loadStyles(t))
+	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", loadStyles(t))
 	lines := strings.Split(out, "\n")
 	require.GreaterOrEqual(t, len(lines), 4, "frame must have top + bottom + body lines")
-	require.Contains(t, lines[0], "alerts[2]",
+	require.Contains(t, plain(lines[0]), "alerts(all)[2]",
 		"title must appear in the top border")
-	require.True(t, strings.HasPrefix(lines[0], "┌"))
-	require.True(t, strings.HasSuffix(lines[0], "┐"))
-	require.True(t, strings.HasPrefix(lines[len(lines)-1], "└"))
-	require.True(t, strings.HasSuffix(lines[len(lines)-1], "┘"))
+	require.True(t, strings.HasPrefix(plain(lines[0]), "┌"))
+	require.True(t, strings.HasSuffix(plain(lines[0]), "┐"))
+	require.True(t, strings.HasPrefix(plain(lines[len(lines)-1]), "└"))
+	require.True(t, strings.HasSuffix(plain(lines[len(lines)-1]), "┘"))
+}
+
+func TestRenderBody_TitleSegmentsUseDistinctStyles(t *testing.T) {
+	t.Parallel()
+	// k9s parity: subject + brackets share one colour, scope inside
+	// `()` uses TitleHighlight, count inside `[]` uses TitleCounter
+	// — three separate SGR sequences in the rendered output.
+	styles := loadStyles(t)
+	out := RenderBody(60, 4, "row", "alerts(all)[300]", "", styles)
+	lines := strings.Split(out, "\n")
+	top := lines[0]
+
+	// The styled title must contain three distinct SGR colour
+	// sequences for the three roles. Each Frame.Title*  style only
+	// sets a foreground, which renders as `\x1b[38;2;R;G;Bm`.
+	titleFg := top
+	require.Contains(t, titleFg, sgrFor(t, styles.Frame.Title.Bold(true).Render("alerts")),
+		"subject must render in Frame.Title (bold)")
+	require.Contains(t, titleFg, sgrFor(t, styles.Frame.TitleHighlight.Bold(true).Render("all")),
+		"scope inside () must render in Frame.TitleHighlight (bold)")
+	require.Contains(t, titleFg, sgrFor(t, styles.Frame.TitleCounter.Bold(true).Render("300")),
+		"count inside [] must render in Frame.TitleCounter (bold)")
+}
+
+// sgrFor extracts the leading `\x1b[…m` opener from a rendered
+// lipgloss snippet so the assertion can match by SGR signature
+// rather than by exact rendered substring (the latter would match
+// any text rendered with the same style; the former pins the
+// style itself).
+func sgrFor(t *testing.T, rendered string) string {
+	t.Helper()
+	loc := stripANSI.FindStringIndex(rendered)
+	require.NotNil(t, loc, "rendered snippet should contain SGR opener")
+	return rendered[loc[0]:loc[1]]
 }
 
 func TestRenderBody_FooterInBottomBorder(t *testing.T) {
@@ -198,12 +242,12 @@ func TestRenderBody_FooterInBottomBorder(t *testing.T) {
 	// rather than spend a body line.
 	out := RenderBody(40, 6, "row1", "alerts[2]", "next refresh 26s", loadStyles(t))
 	lines := strings.Split(out, "\n")
-	bottom := lines[len(lines)-1]
+	bottom := plain(lines[len(lines)-1])
 	require.Contains(t, bottom, "next refresh 26s",
 		"footer must appear in the bottom border")
 	require.True(t, strings.HasPrefix(bottom, "└"))
 	require.True(t, strings.HasSuffix(bottom, "┘"))
-	require.NotContains(t, lines[0], "next refresh",
+	require.NotContains(t, plain(lines[0]), "next refresh",
 		"footer must not leak into the top border")
 }
 
@@ -211,10 +255,11 @@ func TestRenderBody_EmptyFooterIsPlainRule(t *testing.T) {
 	t.Parallel()
 	out := RenderBody(40, 6, "row1", "alerts[2]", "", loadStyles(t))
 	lines := strings.Split(out, "\n")
-	bottom := lines[len(lines)-1]
+	bottom := plain(lines[len(lines)-1])
 	// A plain bottom rule is "└" + (innerWidth × "─") + "┘". With
 	// innerWidth = 38, that's 38 box-drawing dashes between corners
-	// and no label substring.
+	// and no label substring. SGR codes are stripped before the
+	// equality check so the assertion stays semantic.
 	require.Equal(t, "└"+strings.Repeat("─", 38)+"┘", bottom,
 		"empty footer must render the bottom border as a plain rule")
 }
@@ -223,8 +268,8 @@ func TestRenderBody_PadsAndTruncatesLines(t *testing.T) {
 	t.Parallel()
 	out := RenderBody(20, 4, "short\nthis-line-is-far-too-long-to-fit", "x", "", loadStyles(t))
 	for l := range strings.SplitSeq(out, "\n") {
-		require.LessOrEqual(t, len(l), 60,
-			"each rendered line must fit (with byte allowance for box-drawing UTF-8)")
+		require.LessOrEqual(t, lipgloss.Width(l), 20,
+			"each rendered line's visual width must fit the requested width")
 	}
 }
 
@@ -234,13 +279,13 @@ func TestRenderFrame_WrapsBodyInBorderedBox(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	require.Len(t, lines, 3,
 		"the prompt frame is exactly 3 lines: top border, body, bottom border")
-	require.True(t, strings.HasPrefix(lines[0], "┌"))
-	require.True(t, strings.HasSuffix(lines[0], "┐"))
-	require.True(t, strings.HasPrefix(lines[1], "│"))
-	require.True(t, strings.HasSuffix(lines[1], "│"))
+	require.True(t, strings.HasPrefix(plain(lines[0]), "┌"))
+	require.True(t, strings.HasSuffix(plain(lines[0]), "┐"))
+	require.True(t, strings.HasPrefix(plain(lines[1]), "│"))
+	require.True(t, strings.HasSuffix(plain(lines[1]), "│"))
 	require.Contains(t, lines[1], "🐩> typed")
-	require.True(t, strings.HasPrefix(lines[2], "└"))
-	require.True(t, strings.HasSuffix(lines[2], "┘"))
+	require.True(t, strings.HasPrefix(plain(lines[2]), "└"))
+	require.True(t, strings.HasSuffix(plain(lines[2]), "┘"))
 }
 
 func TestRenderFrame_TooNarrowFallsBackToBody(t *testing.T) {

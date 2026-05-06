@@ -1,0 +1,21 @@
+# Pinned upstream origins for the bundled skin set. `make skins-sync`
+# clones each repo at `commit`, copies the listed files into this
+# directory, and fails if the working tree shows untracked diffs so
+# every refresh lands as a reviewable commit.
+#
+# License notes are informational; the upstream LICENSE governs each
+# embedded file's redistribution terms. Refresh by editing `commit`,
+# running `make skins-sync`, and committing the result.
+sources:
+  - repo: https://github.com/catppuccin/k9s
+    commit: fdbec82284744a1fc2eb3e2d24cb92ef87ffb8b4
+    license: MIT
+    files:
+      - dist/catppuccin-frappe.yaml
+      - dist/catppuccin-frappe-transparent.yaml
+      - dist/catppuccin-latte.yaml
+      - dist/catppuccin-latte-transparent.yaml
+      - dist/catppuccin-macchiato.yaml
+      - dist/catppuccin-macchiato-transparent.yaml
+      - dist/catppuccin-mocha.yaml
+      - dist/catppuccin-mocha-transparent.yaml

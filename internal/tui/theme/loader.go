@@ -14,16 +14,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultSkinName is the v0.1 default per M1.
+// DefaultSkinName is the v0.1 default. Picked for predictability:
+// works on any terminal regardless of the user's bg config. Users
+// who curate their terminal palette typically prefer one of the
+// `-transparent` variants — see docs/design/k9s-skins-dropin.md.
 const DefaultSkinName = "catppuccin-mocha"
 
 // skinsDir is the basename used both for the embedded skins/
 // directory and for the user-side <config-dir>/skins/ directory.
 const skinsDir = "skins"
 
-// ErrInvalidSkin wraps every parse / compile failure so callers can
-// branch on a stable sentinel via errors.Is. Used by the loader for
-// both bundled and user skins.
+// ErrInvalidSkin wraps every parse / validate / compile failure so
+// callers can branch on a stable sentinel via errors.Is. Used by
+// the loader for both bundled and user skins.
 var ErrInvalidSkin = errors.New("invalid skin")
 
 // Loader resolves and parses skin files. UserDir is the
@@ -136,49 +139,28 @@ func bundledExists(name string) bool {
 	return err == nil
 }
 
-// parseAndCompile is the shared parse → validate → compile pipeline
-// used by both the user and bundled paths.
+// parseAndCompile is the shared parse → validate → stock-fill →
+// compile pipeline used by both the user and bundled paths.
 //
-// Strict-mode YAML decoding (KnownFields(true)) means a typo in a
-// top-level role block — `bocy:` instead of `body:` — surfaces here
-// with a precise field-name error rather than a downstream
-// "missing palette ref" leaf error from compile().
+// Permissive YAML decoding (KnownFields(false)) lets us tolerate
+// future k9s schema additions and skins with extra fields we don't
+// model. Required-field enforcement (body.fgColor / body.bgColor)
+// happens explicitly in validate(). See docs/design/k9s-skins-dropin
+// .md (D7) for the rationale.
 func parseAndCompile(raw []byte, name string) (*Styles, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
 
-	var f skinFile
+	var f k9sSkinFile
 	if err := dec.Decode(&f); err != nil {
 		return nil, fmt.Errorf("%w: %q: %w", ErrInvalidSkin, name, err)
 	}
 	if err := f.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %q: %w", ErrInvalidSkin, name, err)
 	}
-	styles, err := compile(f)
+	f.applyStockFallback()
+	styles, err := compile(&f)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %q: %w", ErrInvalidSkin, name, err)
 	}
 	return styles, nil
-}
-
-// BundledNames returns the list of bundled skin names (without the
-// .yaml suffix). Useful for `a10r info` and the wizard, and for
-// validating that the embed.FS is populated as expected.
-func BundledNames() ([]string, error) {
-	entries, err := fs.ReadDir(bundledSkins, skinsDir)
-	if err != nil {
-		return nil, fmt.Errorf("read bundled skins dir: %w", err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if filepath.Ext(name) != ".yaml" {
-			continue
-		}
-		names = append(names, name[:len(name)-len(".yaml")])
-	}
-	return names, nil
 }

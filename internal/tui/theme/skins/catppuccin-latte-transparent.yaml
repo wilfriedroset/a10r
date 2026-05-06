@@ -1,22 +1,22 @@
 k9s:
   body:
     fgColor: '#4c4f69'
-    bgColor: '#eff1f5'
+    bgColor: default
     logoColor: '#8839ef'
   prompt:
     fgColor: '#4c4f69'
-    bgColor: '#e6e9ef'
+    bgColor: default
     suggestColor: '#1e66f5'
   help:
     fgColor: '#4c4f69'
-    bgColor: '#eff1f5'
+    bgColor: default
     sectionColor: '#40a02b'
     keyColor: '#1e66f5'
     numKeyColor: '#e64553'
   frame:
     title:
       fgColor: '#179299'
-      bgColor: '#eff1f5'
+      bgColor: default
       highlightColor: '#ea76cb'
       counterColor: '#df8e1d'
       filterColor: '#40a02b'
@@ -29,7 +29,7 @@ k9s:
       numKeyColor: '#e64553'
     crumbs:
       fgColor: '#eff1f5'
-      bgColor: '#e64553'
+      bgColor: default
       activeColor: '#dd7878'
     status:
       newColor: '#1e66f5'
@@ -46,24 +46,24 @@ k9s:
   views:
     table:
       fgColor: '#4c4f69'
-      bgColor: '#eff1f5'
+      bgColor: default
       cursorFgColor: '#ccd0da'
       cursorBgColor: '#bcc0cc'
       markColor: '#dc8a78'
       header:
         fgColor: '#df8e1d'
-        bgColor: '#eff1f5'
+        bgColor: default
         sorterColor: '#04a5e5'
     xray:
       fgColor: '#4c4f69'
-      bgColor: '#eff1f5'
+      bgColor: default
       cursorColor: '#bcc0cc'
       cursorTextColor: '#eff1f5'
       graphicColor: '#ea76cb'
     charts:
-      bgColor: '#eff1f5'
-      chartBgColor: '#eff1f5'
-      dialBgColor: '#eff1f5'
+      bgColor: default
+      chartBgColor: default
+      dialBgColor: default
       defaultDialColors:
         - '#40a02b'
         - '#d20f39'
@@ -83,17 +83,17 @@ k9s:
       colonColor: '#6c6f85'
     logs:
       fgColor: '#4c4f69'
-      bgColor: '#eff1f5'
+      bgColor: default
       indicator:
         fgColor: '#7287fd'
-        bgColor: '#eff1f5'
+        bgColor: default
         toggleOnColor: '#40a02b'
         toggleOffColor: '#6c6f85'
   dialog:
     fgColor: '#df8e1d'
-    bgColor: '#7c7f93'
+    bgColor: default
     buttonFgColor: '#eff1f5'
-    buttonBgColor: '#8c8fa1'
+    buttonBgColor: default
     buttonFocusFgColor: '#eff1f5'
     buttonFocusBgColor: '#ea76cb'
     labelFgColor: '#dc8a78'

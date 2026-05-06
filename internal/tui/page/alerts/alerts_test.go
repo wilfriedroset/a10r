@@ -1328,15 +1328,19 @@ func TestPage_MarkedSuppressedRowKeepsMarkedStyle(t *testing.T) {
 
 func TestPage_CursorOnSuppressedRowKeepsCursorStyle(t *testing.T) {
 	t.Parallel()
-	// Cursor beats both marked and dimmed.
+	// Cursor beats both marked and dimmed. Per the k9s parity
+	// rework, the cursor row's bg tracks the row's severity colour
+	// — so the expected SGR is Cursor with bg overridden to the
+	// row's severity.warning fg, not the static cursorBgColor.
 	p := newPage(t)
 	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{suppressed}})
 	// Cursor is on row 0 by default.
 
 	out := p.View(120, 10)
-	require.Contains(t, out, stylePrefix(t, p.styles.Table.Cursor.Render("x")),
-		"cursor on a suppressed row must render in the cursor style")
+	wantStyle := p.styles.Table.CursorOver(p.styles.Severity.Warning.GetForeground())
+	require.Contains(t, out, stylePrefix(t, wantStyle.Render("x")),
+		"cursor on a suppressed row must render in the cursor-over-severity style")
 }
 
 // alertWithFP builds a synthetic Alert with a stable fingerprint

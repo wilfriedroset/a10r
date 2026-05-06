@@ -1000,7 +1000,11 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 
 	body := padRight(b.String(), width)
 	if focused {
-		return p.styles.Table.Cursor.Render(body)
+		// k9s parity: cursor bg tracks the row's semantic colour
+		// (max severity for groups) rather than the static
+		// cursorBgColor — see k9s select_table.go:128.
+		rowColor := severityStyleByRank(entry.severityRank, p.styles).GetForeground()
+		return p.styles.Table.CursorOver(rowColor).Render(body)
 	}
 	return body
 }

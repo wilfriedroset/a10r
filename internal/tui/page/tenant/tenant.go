@@ -411,7 +411,13 @@ func (p *Page) View(width, height int) string {
 		line := padRight(prefix+body, width)
 		switch {
 		case i == p.cursor:
-			line = p.styles.Table.Cursor.Render(line)
+			// k9s parity: cursor bg tracks the row's semantic
+			// colour. Tenant rows have no severity / state, so we
+			// use Severity.Info (which maps to k9s's StdColor =
+			// frame.status.newColor) — the same default k9s uses
+			// for resource pages without a row colorer.
+			rowColor := p.styles.Severity.Info.GetForeground()
+			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case p.scopeIncludes(row.Name):
 			line = lipgloss.NewStyle().
 				Foreground(p.styles.Table.Marked.GetForeground()).

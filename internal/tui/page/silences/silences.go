@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"log/slog"
 	"sort"
 	"strings"
@@ -1626,7 +1627,12 @@ func (p *Page) renderRows(width, maxRows int) string {
 		line := padRight(prefix+mark+p.padColumns(row, width), width)
 		switch {
 		case i == p.cursor:
-			line = p.styles.Table.Cursor.Render(line)
+			// k9s parity: cursor bg tracks the silence-state
+			// colour (active/pending/expired) rather than the
+			// static cursorBgColor — see select_table.go:128 in
+			// k9s for the equivalent runtime override.
+			rowColor := silenceStateColor(e.s.State, p.styles)
+			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case marked:
 			line = lipgloss.NewStyle().
 				Foreground(p.styles.Table.Marked.GetForeground()).
@@ -1864,4 +1870,20 @@ func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
 	}
+}
+
+// silenceStateColor returns the foreground color associated with a
+// silence's state. Used to drive the cursor row's bg per the k9s
+// pattern where the selected row's bg tracks the row's semantic
+// colour rather than a static cursorBgColor.
+func silenceStateColor(s backend.SilenceState, styles theme.Styles) color.Color {
+	switch s {
+	case backend.SilenceStateActive:
+		return styles.SilenceState.Active.GetForeground()
+	case backend.SilenceStatePending:
+		return styles.SilenceState.Pending.GetForeground()
+	case backend.SilenceStateExpired:
+		return styles.SilenceState.Expired.GetForeground()
+	}
+	return styles.SilenceState.Active.GetForeground()
 }
