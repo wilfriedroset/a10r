@@ -49,8 +49,8 @@ func sampleGroups() []backend.AlertGroup {
 func TestPage_DefaultsToNameAscending(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
-	require.Equal(t, SortByName, p.sort)
-	require.True(t, p.sortAsc, "alphabetical name read-order is the default")
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc(), "alphabetical name read-order is the default")
 }
 
 func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
@@ -69,8 +69,8 @@ func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default: ascending by name → data (1 alert), platform (2 alerts).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, SortByCount, p.sort)
-	require.False(t, p.sortAsc, "Count default is DESC — biggest groups first")
+	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc(), "Count default is DESC — biggest groups first")
 	require.Len(t, p.flat[0].g.Alerts, 2,
 		"DESC count puts the platform group (2 alerts) above data (1)")
 }
@@ -80,8 +80,8 @@ func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
-	require.Equal(t, SortBySeverity, p.sort)
-	require.False(t, p.sortAsc, "Severity default is DESC — critical first")
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc(), "Severity default is DESC — critical first")
 	require.Equal(t, "platform", p.flat[0].g.Labels["team"],
 		"platform carries a critical alert; data has none → platform first")
 }
@@ -89,33 +89,33 @@ func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
-	require.Equal(t, SortByName, p.sort)
-	require.True(t, p.sortAsc)
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc())
 
 	// Same column shortcut flips direction.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.False(t, p.sortAsc)
+	require.False(t, p.sorter.Asc())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.True(t, p.sortAsc)
+	require.True(t, p.sorter.Asc())
 
 	// Different column resets to that column's default direction.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, SortByCount, p.sort)
-	require.False(t, p.sortAsc, "Count default is DESC")
+	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
+	require.False(t, p.sorter.Asc(), "Count default is DESC")
 }
 
 func TestPage_SortColumnWalk(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: loadStyles(t)})
-	require.Equal(t, SortByName, p.sort)
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByCount, p.sort)
+	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortBySeverity, p.sort)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, SortByName, p.sort, "right walk wraps from Severity back to Name")
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey(), "right walk wraps from Severity back to Name")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, SortBySeverity, p.sort, "left walk wraps to the rightmost axis")
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey(), "left walk wraps to the rightmost axis")
 }
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
@@ -140,47 +140,48 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	}
 }
 
-func TestPage_SortPreservesCursorOnFocusedGroup(t *testing.T) {
+func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	t.Parallel()
+	// User-initiated re-sort is k9s-positional: the cursor stays at
+	// the same row index, whichever group lands under it becomes
+	// the new focus. This pairs with poll/scope/filter recomputes
+	// which still follow the focused row by key (see
+	// TestPage_DataMsgKeepsCursor* if/when added).
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	// Default Name ASC: row 0 = data, row 1 = platform. Walk the
-	// cursor onto platform, then re-sort by count (DESC). Platform
-	// (2 alerts) lands at row 0, data at row 1 — the cursor must
-	// follow platform to row 0, not stay on the now-data row 1.
+	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
+	// platform (row 1).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, 1, p.cursor)
 	require.Equal(t, "platform", p.flat[p.cursor].g.Labels["team"])
 
+	// Shift+C → Count DESC. platform (2 alerts) moves to row 0,
+	// data to row 1. Cursor must STAY at row 1 (now data), not
+	// follow platform.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, "platform", p.flat[p.cursor].g.Labels["team"],
-		"Shift+C must re-sort but keep the cursor on the platform group")
-	require.Equal(t, 0, p.cursor, "platform now sits at row 0 under Count DESC")
+	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
+	require.Equal(t, "data", p.flat[p.cursor].g.Labels["team"],
+		"the group landing at the held index becomes the new focus")
 }
 
-func TestPage_SortPreservesCursorOnFocusedLeaf(t *testing.T) {
+func TestPage_UserResortOnExpandedLeafKeepsRowIndex(t *testing.T) {
 	t.Parallel()
+	// Same contract on a leaf row: the cursor's *index* survives the
+	// re-sort, even when the previously-focused leaf moves elsewhere
+	// in the visible row list.
 	p := New(Options{Styles: loadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	// Walk to platform, expand, walk to leaf B. Re-sort by count;
-	// platform moves to row 0, its leaves shift with it. Cursor
-	// must still be on leaf B (at row 2 under the new ordering).
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → platform
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})   // expand platform
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → leaf A
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // → leaf B
-
-	rowsBefore := p.rows()
-	leafBIdx := p.cursor
-	require.Equal(t, "B",
-		p.flat[rowsBefore[leafBIdx].groupIdx].
-			g.Alerts[rowsBefore[leafBIdx].alertIdx].Labels["alertname"])
+	// Walk to platform (row 1), expand, walk to leaf A (row 2),
+	// then leaf B (row 3).
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	heldIdx := p.cursor
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	rowsAfter := p.rows()
-	require.Equal(t, "B",
-		p.flat[rowsAfter[p.cursor].groupIdx].
-			g.Alerts[rowsAfter[p.cursor].alertIdx].Labels["alertname"],
-		"re-sort must keep the cursor on the same leaf alert")
+	require.Equal(t, heldIdx, p.cursor,
+		"cursor stays at the same row index across user re-sort")
 }
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
@@ -198,6 +199,19 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 	out = testutil.StripStyle(p.View(120, 10))
 	require.Contains(t, out, "NAME ↓",
 		"DESC must surface a ↓ arrow on the same active axis")
+}
+
+func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// TUI chrome stays on terminal default background — painting
+	// palette bg inside the unstyled body frame creates a coloured
+	// stripe. Asserts the header line carries no SGR background
+	// code.
+	p := New(Options{Styles: loadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
+	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
+	require.NotContains(t, headerLine, "\x1b[48",
+		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
 func TestPage_StartsCollapsed(t *testing.T) {
