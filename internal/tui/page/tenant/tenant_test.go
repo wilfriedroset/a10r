@@ -5,6 +5,7 @@ package tenant
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -303,6 +304,164 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
+}
+
+func TestSemverLess(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"0.9.0", "0.27.0", true},     // numeric segments: 9 < 27
+		{"0.27.0", "0.9.0", false},    // reverse — 27 not < 9
+		{"1.2.3", "1.10.0", true},     // the bug a default string sort makes
+		{"v0.28.1", "0.28.1", false},  // leading 'v' stripped → equal → false
+		{"0.28.1", "v0.28.1", false},  // symmetric
+		{"0.27.0", "0.27.1", true},    // last numeric segment differs
+		{"2.13.0", "0.27.0", false},   // major dominates
+		{"0.27.0", "2.13.0", true},    // major dominates — reverse
+		{"1.0.0", "1.0.0-rc.1", true}, // shorter parts sort before longer
+	}
+	for _, tc := range tests {
+		t.Run(tc.a+"_vs_"+tc.b, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, semverLess(tc.a, tc.b),
+				"semverLess(%q, %q)", tc.a, tc.b)
+		})
+	}
+}
+
+func TestPage_DefaultSortIsNameAsc(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: loadStyles(t)})
+	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
+	require.True(t, p.sorter.Asc())
+}
+
+func TestPage_ShiftVSortsByVersionSemverAware(t *testing.T) {
+	t.Parallel()
+	// Insertion order shows the bug a lexical sort would hide:
+	// "0.9.0" sorts after "0.27.0" lexically, but semver-correct
+	// ordering puts 0.9.0 ahead. The `Shift+V` keystroke must
+	// yield the semver-correct order.
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "alpha", Version: "0.27.0"},
+		{Name: "bravo", Version: "0.9.0"},
+		{Name: "charlie", Version: "1.10.0"},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	out := testutil.StripStyle(p.View(120, 10))
+	// In ASC mode the order should be 0.9.0, 0.27.0, 1.10.0.
+	bravo := strings.Index(out, "bravo")
+	alpha := strings.Index(out, "alpha")
+	charlie := strings.Index(out, "charlie")
+	require.Less(t, bravo, alpha, "0.9.0 must sort before 0.27.0 (semver-aware)")
+	require.Less(t, alpha, charlie, "0.27.0 must sort before 1.10.0")
+}
+
+func TestPage_VersionSortPutsEmptyLastInAsc(t *testing.T) {
+	t.Parallel()
+	// Empty version is "unknown", not "lowest" — concrete numbers
+	// surface at the top in ASC (operator triaging stale backends
+	// reads top-down looking for real data).
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "alpha", Version: "0.27.0"},
+		{Name: "bravo"}, // empty version
+		{Name: "charlie", Version: "0.9.0"},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	out := testutil.StripStyle(p.View(120, 10))
+	charlie := strings.Index(out, "charlie")
+	alpha := strings.Index(out, "alpha")
+	bravo := strings.Index(out, "bravo")
+	require.Less(t, charlie, alpha, "0.9.0 sorts before 0.27.0 (semver)")
+	require.Less(t, alpha, bravo, "non-empty versions sort before empty/unknown")
+}
+
+func TestPage_VersionSortPutsEmptyLastInDescToo(t *testing.T) {
+	t.Parallel()
+	// Symmetric to the ASC case: empty version is "unknown", and
+	// the operator scanning DESC for the newest backends should
+	// not see unknown rows at the top — concrete numbers stay at
+	// the top regardless of direction. rowsSorted post-processes
+	// empties to the bottom so this holds without a direction-
+	// aware Less function.
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "alpha", Version: "0.27.0"},
+		{Name: "bravo"}, // empty version
+		{Name: "charlie", Version: "0.9.0"},
+	})
+	// Two presses → DESC.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	out := testutil.StripStyle(p.View(120, 10))
+	alpha := strings.Index(out, "alpha")
+	charlie := strings.Index(out, "charlie")
+	bravo := strings.Index(out, "bravo")
+	require.Less(t, alpha, charlie, "DESC: 0.27.0 sorts before 0.9.0")
+	require.Less(t, charlie, bravo,
+		"empty version stays last even in DESC — unknown is not 'highest'")
+}
+
+func TestPage_DigitAnnotationStaysCanonicalAfterReSort(t *testing.T) {
+	t.Parallel()
+	// The whole point of the canonical digit annotation: re-sorting
+	// the visible rows must NOT change which row wears [1] / [2] / [3].
+	// alpha wears [1] when alphabetical-first, regardless of where
+	// the visible sort puts it.
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "alpha", Version: "0.27.0"},
+		{Name: "bravo", Version: "0.9.0"},
+		{Name: "charlie", Version: "1.0.0"},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	out := testutil.StripStyle(p.View(120, 10))
+	// Visible (V ASC): bravo (0.9.0), alpha (0.27.0), charlie (1.0.0).
+	// Canonical digits: alpha=[1], bravo=[2], charlie=[3].
+	require.Contains(t, out, "[1] ● alpha",
+		"[1] stays on alpha (alphabetical-first) regardless of visible sort")
+	require.Contains(t, out, "[2] ● bravo")
+	require.Contains(t, out, "[3] ● charlie")
+}
+
+func TestPage_UserReSortKeepsCursorAtRowIndex(t *testing.T) {
+	t.Parallel()
+	// k9s-positional contract: cursor stays at the same row index
+	// when the user re-sorts. Tenant has no focusName-restore, so
+	// this is automatic — but pin it as a test so a future
+	// "restore cursor by name" regression is caught.
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows([]Row{
+		{Name: "alpha", Version: "0.27.0"},
+		{Name: "bravo", Version: "0.9.0"},
+		{Name: "charlie", Version: "1.0.0"},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, 1, p.cursor)
+	require.Equal(t, "bravo", p.rowsSorted()[p.cursor].Name)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
+	// V ASC: bravo, alpha, charlie. cursor 1 is now alpha.
+	require.Equal(t, "alpha", p.rowsSorted()[p.cursor].Name)
+}
+
+func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// TUI chrome stays on terminal default background — painting
+	// palette bg inside the unstyled body frame creates a coloured
+	// stripe. Asserts the header line carries no SGR background
+	// code (covers both inactive Header fg and active HeaderActive
+	// fg paths).
+	p := New(Options{Styles: loadStyles(t)})
+	p.SetRows(sampleRows())
+	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
+	require.NotContains(t, headerLine, "\x1b[48",
+		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
 func TestPage_HeaderContentIsAlwaysEmpty(t *testing.T) {
