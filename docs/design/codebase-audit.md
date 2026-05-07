@@ -113,11 +113,11 @@ having dedup helpers in place), then the L-severity unification.
 
 ### Wave 1 — Quick wins (S, no deps)
 
-| # | ID | Title | Slice |
-|---|-----|---|---|
-| 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
-| 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome |
-| 3 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+| # | ID | Title | Slice | Status |
+|---|-----|---|---|---|
+| 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages | ✓ 881474e |
+| 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome | ✓ cecb8f4 (scope grew to 13 sites) |
+| 3 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend | ✓ a501159 |
 
 Five items dropped at execution-time spot-check — B1.2
 (`app.quitting`), A1.4 (`alert.View` receiver), C1.3
