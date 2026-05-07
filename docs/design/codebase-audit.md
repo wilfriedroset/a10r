@@ -192,9 +192,9 @@ review attention without meaningfully improving navigation. See
 
 ### Wave 5 — Cross-package retry unification (L)
 
-| # | ID | Title |
-|---|-----|---|
-| 23 | B2.3 | Extract `internal/retry/exponential.go` (`Backoff{Base, Cap, Jitter}` + `NextDelay(failures)`); adopt in `tui/poll` and `backend/transport` |
+| # | ID | Title | Status |
+|---|-----|---|---|
+| 23 | B2.3 | Extract `internal/retry/exponential.go`; adopt in `tui/poll` and `backend/transport` | **Closed** as false positive — see "Watched, not actioned" |
 
 Last because it's the highest-blast-radius change and benefits from
 landing after the page/chrome cleanups stabilise the call sites.
@@ -330,6 +330,7 @@ re-discover them.
 | B1.4 + B2.2 help catalogues from dispatcher | The dispatcher stores Handler funcs, not descriptions (called out explicitly in registerGlobalBindings's comment). Sourcing help from it would require growing the Dispatcher API to carry per-binding descriptions — bigger than a Wave-4 commit, better landed when the help overlay needs touching for a feature |
 | C2.5 generic K1 resolver | Five resolvers but the differences are load-bearing (env-aware vs not, OR-semantics for read-only, `>0` time.Duration zero-check vs string-empty, varying defaults). A generic helper would either be a 6-parameter monstrosity or fit only 2 of 5 callers |
 | C1.5 cmd/tui.go orchestrator | 615 LOC; under the audit's own 700-LOC trigger for extraction. Deferred until the file grows past 700 (typically when a future `init` / `doctor` command lands) |
+| B2.3 retry-logic unification | False positive: `backend/transport/transport.go` has zero retry logic — it's pure HTTP composition (auth, headers, UA, TLS, proxy). The only exponential-backoff loop in the repo lives in `tui/poll/poll.go`; `backend/errors.go` carries the `Retryabler` interface contract but no loop. Nothing to unify |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
@@ -385,3 +386,37 @@ logical unit per commit, no WIP):
 Mark items done by appending ` ✓ <commit-sha>` to the item's row in
 the punch-list tables above. When the table reads all-checked,
 cleanup ships.
+
+## Wrap-up
+
+The cleanup pass landed across five waves. Per-wave results:
+
+| Wave | Items | Real fixes | Closed at execution-time | Notes |
+|---|---|---|---|---|
+| 1 | 8 | 3 | 5 (62%) | Quick-wins; high false-positive rate as the audit subagents missed tests, function bodies, existing comments, and existing helper delegation |
+| 2 | 5 | 4 | 1 (20%) | Page dedup (cursor / format helpers); byte-identical bodies survived spot-check |
+| 3 | 4 | 4 | 0 | File splits (alerts / silences / groups / app); structural and unambiguous |
+| 4 | 5 | 1 | 4 (80%) | Chrome / backend tightening; most items were "speculative abstractions the audit suggested that don't pull their weight" |
+| 5 | 1 | 0 | 1 (100%) | Audit had `transport.go` confused for a retry call site — no shared backoff to unify |
+
+Combined: 12 real refactors landed, 11 audit items closed at
+execution-time spot-check. The execution-time review caught
+roughly half the original audit before any code was changed,
+which is exactly what the methodology section anticipated after
+Wave 1's discovery.
+
+Exit-criterion review:
+1. **Every punch-list item is fixed or explicitly deferred.** ✓
+2. **`prek -a` and `make test-race` green.** ✓ (1265 tests passing
+   on `chore/codebase-audit-cleanup`).
+3. **No file in the repo exceeds 800 LOC** modulo the documented
+   `alert.go` (845) / `form.go` (819) deferrals. ✓
+4. **No two functions across packages are byte-identical.** Every
+   spot-check landed; remaining structural similarities (e.g.
+   table-page handler quartets) are deliberately divergent or
+   already routed through cursor / format helpers.
+5. **"Watched, not actioned" reviewed at end** — no item
+   re-graduates to actionable.
+
+Cleanup is done. Feature work resumes per the per-candidate
+greenlight rule documented in the Context section.
