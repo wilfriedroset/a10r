@@ -17,6 +17,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.handleSidebandMsg(msg); handled {
 		return p, cmd
@@ -305,13 +306,6 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	})
 }
 
-// openBulkSilence resolves the marked alerts into bulkSilenceTargets
-// (matchers minus `__name__`, paired with each alert's tenant) and
-// either pushes the bulk form directly (N=1) or opens a confirm
-// modal first (N≥2). Marks that no longer correspond to any in-
-// scope alert (e.g. the alert resolved between mark and silence)
-// are dropped silently. Empty Clients flashes the standard hint;
-// no marks left after resolution drops to a soft Info flash.
 func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}

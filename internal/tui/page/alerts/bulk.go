@@ -36,6 +36,13 @@ type pendingBulkSilence struct {
 	tenants []string
 }
 
+// openBulkSilence resolves the marked alerts into bulkSilenceTargets
+// (matchers minus `__name__`, paired with each alert's tenant) and
+// either pushes the bulk form directly (N=1) or opens a confirm
+// modal first (N≥2). Marks that no longer correspond to any in-
+// scope alert (e.g. the alert resolved between mark and silence)
+// are dropped silently. Empty Clients flashes the standard hint;
+// no marks left after resolution drops to a soft Info flash.
 func (p *Page) openBulkSilence() tea.Cmd {
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)

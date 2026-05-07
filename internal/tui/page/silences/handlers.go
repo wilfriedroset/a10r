@@ -22,6 +22,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.handleSidebandMsg(msg); handled {
 		return p, cmd
@@ -474,7 +475,6 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	return flashFn(footer.FlashSuccess, "silence updated: "+id)
 }
 
-// flashExpireResult formats the success / partial / total-failure
 // openNewSilenceForm pushes an empty silence form targeting the
 // best-fit backend. Selection rule: the cursor row's tenant
 // (when a row is focused), else the first in-scope tenant from

@@ -8,6 +8,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
 
+// totalSilences is the unfiltered silence count within the active
+// scope — same role as the alerts page's totalAlerts.
 func (p *Page) totalSilences() int {
 	n := 0
 	for tenant, sils := range p.byTenant {

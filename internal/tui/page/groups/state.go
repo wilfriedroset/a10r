@@ -8,6 +8,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
 
+// totalGroups is the in-scope count regardless of filter.
 func (p *Page) totalGroups() int {
 	n := 0
 	for tenant, gs := range p.byTenant {
@@ -131,8 +132,6 @@ func groupKey(e groupEntry) string {
 	return e.tenant + "\x00" + labelSummary(e.g.Labels)
 }
 
-// handleFilterPrompt mirrors the alerts page's lifecycle handler.
-// See internal/tui/page/alerts/alerts.go for the full doc.
 func (p *Page) clampCursor() {
 	if p.cursor >= len(p.rows()) {
 		p.cursor = max(len(p.rows())-1, 0)

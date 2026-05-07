@@ -340,12 +340,6 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("alerts(%s)[%d]", scope, total)
 }
 
-// totalAlerts is the unfiltered alert count within the current
-// scope. Used by Title (for the [N] suffix) and by the empty-
-// state hint (which differentiates "no alerts polled yet" from
-// "no alerts match the active filter"). Honours scope so a
-// `<1>` quick-switch updates the title's [N] to that tenant's
-// alert count rather than the cross-tenant total.
 func (p *Page) HeaderContent() string {
 	var parts []string
 	if p.filter != "" {

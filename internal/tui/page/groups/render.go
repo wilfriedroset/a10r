@@ -134,10 +134,12 @@ func (p *Page) renderHeader(width int) string {
 	return format.PadRight(b.String(), width)
 }
 
-// — refactor is its own follow-up, intentionally out of scope for
-// the structural file split.
+// renderRow renders one row of the tree — group header (alertIdx
+// == -1) or leaf — into the body. The deep nesting is pre-existing
+// and out of scope for the structural file split; refactoring it
+// is its own follow-up.
 //
-//nolint:nestif // pre-existing complexity in the group/leaf branch
+//nolint:nestif // pre-existing complexity in the group/leaf branch.
 func (p *Page) renderRow(r row, focused bool, width int) string {
 	entry := p.flat[r.groupIdx]
 	tenantW, nameW, countW, sevW := p.columnWidths(width)

@@ -225,11 +225,6 @@ type Page struct {
 	spinner spinner.Model
 }
 
-// pendingEdit is the in-flight state between an opened editor
-// session and its FinishedMsg. id is the silence ID; tenant is
-// the backend the silence belongs to (cached at open time so a
-// poll-tick reordering between open and save still routes the
-// update correctly).
 type Options struct {
 	Styles  theme.Styles
 	Now     func() time.Time
@@ -341,8 +336,6 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("silences(%s)[%d]", scope, total)
 }
 
-// totalSilences is the unfiltered silence count within the active
-// scope — same role as the alerts page's totalAlerts.
 func (p *Page) HeaderContent() string {
 	var parts []string
 	if p.filter != "" {
@@ -447,7 +440,6 @@ func (p *Page) Bindings() []action.Action {
 	return out
 }
 
-// Update implements app.Page.
 func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 
 // polled reports whether at least one in-scope tenant has

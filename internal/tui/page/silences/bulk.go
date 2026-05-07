@@ -18,6 +18,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
+// pendingEdit is the in-flight state between an opened editor
+// session and its FinishedMsg. id is the silence ID; tenant is
+// the backend the silence belongs to (cached at open time so a
+// poll-tick reordering between open and save still routes the
+// update correctly).
 type pendingEdit struct {
 	id     string
 	tenant string
@@ -59,13 +64,12 @@ func (p *Page) openExpireConfirmUnified() tea.Cmd {
 	return p.openBulkExpireConfirm()
 }
 
-// requestRefresh emits a RefreshRequestedMsg so the wiring layer
-// can poke the silences pollers, flips the page into refreshing
-// state, and (re)kicks the spinner Tick chain. Idempotent in
-// practice: a second `r` press while still refreshing simply
-// re-emits the message (the poll layer coalesces nudges into a
-// single buffered slot) and re-issues a Tick the spinner ignores
-// because it already has one in flight via its tag mechanism.
+// openExpireConfirm opens the single-row expire confirm modal for
+// the cursor row. No-op flashes when the cursor is past the view,
+// when no backends are writeable, or when the cursor row's tenant
+// is not in the writeable set. Pending state (id + tenant) is
+// captured at modal-open time so a poll-tick reordering between
+// open and Yes still routes ExpireSilence at the right backend.
 func (p *Page) openExpireConfirm() tea.Cmd {
 	if p.cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
@@ -363,12 +367,10 @@ func runTenantExpirePool(
 	wg.Wait()
 }
 
-// openEditorForCursor marshals the cursor silence as YAML and
-// hands it off to $EDITOR via the injected Resolver. Empty view
-// or zero-value Resolver flash a hint instead. Pending state
-// (id + tenant) is captured at open time so a poll-tick that
-// reorders rows between open and save still routes the update
-// to the right backend.
+// flashExpireResult picks the flash level (success / warn / error)
+// and message wording from the success/failure counts of an expire
+// fanout. The leading bool arg is unused today; kept to mirror the
+// alerts page's bulk-result helper signature.
 func (p *Page) flashExpireResult(_ bool, success, failed int) tea.Cmd {
 	total := success + failed
 	if total == 1 {

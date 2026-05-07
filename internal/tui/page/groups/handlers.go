@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.DataMsg:

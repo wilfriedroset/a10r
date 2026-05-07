@@ -237,7 +237,6 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("groups(%s)[%d]", scope, visible)
 }
 
-// totalGroups is the in-scope count regardless of filter.
 func (p *Page) HeaderContent() string {
 	if p.filter != "" {
 		return "filter:" + p.filter
