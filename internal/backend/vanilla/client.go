@@ -131,26 +131,7 @@ func (c *Client) doGet(ctx context.Context, fullURL string, dst any) error {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if err := classifyStatus(resp); err != nil {
-		return err
-	}
-
-	if dst == nil {
-		// Drain the body so the connection can be reused.
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil
-	}
-	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-	return nil
+	return c.exec(req, dst)
 }
 
 // doPost executes a POST with a JSON body and (optionally) decodes
@@ -160,14 +141,37 @@ func (c *Client) doPost(ctx context.Context, fullURL string, body, dst any) erro
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(encoded))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	return c.exec(req, dst)
+}
 
+// doDelete executes a DELETE and discards any response body. Same
+// error contract as doGet.
+func (c *Client) doDelete(ctx context.Context, fullURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	return c.exec(req, nil)
+}
+
+// exec runs a built request through the shared do -> classify ->
+// drain-or-decode pipeline. Callers retain control of method, URL,
+// body, and headers; everything after the request is built lives
+// here so the three doX methods don't reimplement the error
+// wrapping.
+//
+// dst == nil drains the body so the connection can be reused (the
+// drain failure is intentionally swallowed — the response status
+// has already been classified); otherwise the body is decoded as
+// JSON into dst, matching the `Accept: application/json` the doX
+// callers set.
+func (c *Client) exec(req *http.Request, dst any) error {
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
@@ -185,27 +189,6 @@ func (c *Client) doPost(ctx context.Context, fullURL string, body, dst any) erro
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
-	return nil
-}
-
-// doDelete executes a DELETE and discards any response body. Same
-// error contract as doGet.
-func (c *Client) doDelete(ctx context.Context, fullURL string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, fullURL, http.NoBody)
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if err := classifyStatus(resp); err != nil {
-		return err
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
