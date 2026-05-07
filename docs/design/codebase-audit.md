@@ -115,14 +115,18 @@ having dedup helpers in place), then the L-severity unification.
 
 | # | ID | Title | Slice |
 |---|-----|---|---|
-| 1 | B1.2 | Delete dead `app.quitting` field | chrome |
-| 2 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
-| 3 | B2.1 | Add `theme.FgOnly(c)` and adopt in header / footer / panel | chrome |
-| 4 | C1.3 | Inline `validateAuthExclusive` allocation | backend |
-| 5 | C2.1 | Doc-comment why mimir returns `*vanilla.Client` | backend |
-| 6 | A1.4 | Drop unused receiver on `alert.View` if confirmed | pages |
-| 7 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
-| 8 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+| 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
+| 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome |
+| 3 | C1.3 | Inline `validateAuthExclusive` allocation | backend |
+| 4 | C2.1 | Doc-comment why mimir returns `*vanilla.Client` | backend |
+| 5 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
+| 6 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+
+Items B1.2 (`app.quitting`) and A1.4 (`alert.View` receiver) were
+dropped at execution-time spot-check: both are legitimate, see
+"Watched, not actioned" rows below for the rationale. B2.1's scope
+shrunk from three adoption sites to two — `footer.flashStyle` is a
+palette-dispatch by level, not a foreground-only factory.
 
 ### Wave 2 — Page dedup extractions (M, all sit under `internal/tui/page/`)
 
@@ -198,7 +202,7 @@ landing after the page/chrome cleanups stabilise the call sites.
 | A1.1 | `internal/tui/page/silences/silences.go:1-1889` | L | 1889 LOC, 28 funcs spanning model / handlers / render / IO in one file | Split per Wave 3 layout |
 | A1.2 | `internal/tui/page/alerts/alerts.go:1-1758` | L | 1758 LOC, 28 funcs | Same split |
 | A1.3 | `internal/tui/page/groups/groups.go:1-1187` | L | 1187 LOC; motion / sort inlined into `handleKey` | Split + inline-extract motion / sort to match alerts / silences |
-| A1.4 | `internal/tui/page/alert/alert.go:360` | S | `View` declared with receiver but receiver unused (verify) | Drop receiver if confirmed; otherwise close as no-op |
+| A1.4 | `internal/tui/page/alert/alert.go:360` | — | False positive — `View` does use `p` (`p.bodyHeight`, `p.bodyLines`, `p.reconcileScroll` at lines 364-366) | **Closed** at execution-time spot-check |
 
 #### A.2 Duplication
 
@@ -226,7 +230,7 @@ under "Watched, not actioned" below for traceability.
 | ID | File:line | Sev | Smell | Remediation |
 |---|---|---|---|---|
 | B1.1 | `internal/tui/app/app.go:68-122` | M | 35+ methods in one struct: lifecycle, input, page-stack, modal, theme reload interleaved | Split per Wave 3 layout (`lifecycle.go` / `input.go` / `pagestack.go`) |
-| B1.2 | `internal/tui/app/app.go:93,411` | S | `quitting bool` field set once, never read (verified) | Delete |
+| B1.2 | `internal/tui/app/app.go:93,411` | — | Field is read by three test assertions (`app_test.go:297,348,357`) as the routing-observability seam for QuitMsg / capturing-page tests — audit subagent missed test files | **Kept** — see "Watched, not actioned" |
 | B1.3 | `internal/tui/app/app.go:201-246` | S | `registerGlobalBindings` / `registerTenantBindings` duplicate the `dispatcher.Set(...)` boilerplate | Single helper `registerBinding(layer, key, desc, handler)` |
 | B1.4 | `internal/tui/app/app.go:277-312` | S | Three help-catalogue funcs hand-list keybindings in parallel with `dispatcher.Set` calls | Source from `Dispatcher.Bindings(layer)` accessor |
 | B1.5 | `internal/tui/panel/panel.go:42-64` | S | `styleTitle` regex parsing has no tests | Add unit tests for `titleStructRE` edge cases (or simplify if regex is overkill) |
@@ -239,7 +243,7 @@ under "Watched, not actioned" below for traceability.
 
 | ID | Files | Sev | Pattern | Remediation |
 |---|---|---|---|---|
-| B2.1 | `tui/header/header.go:146` + `tui/footer/flash.go:124` + `tui/panel/panel.go:317` | S | Each defines its own foreground-only `lipgloss.Style` factory mirroring `theme/styles.go:170` | Add `theme.FgOnly(color.Color) lipgloss.Style`, adopt in all three |
+| B2.1 | `tui/header/header.go:146` + `tui/panel/panel.go:317` | S | Both define a foreground-only `lipgloss.Style` factory off a palette role (`Header.Default` and `Hint.Default`); two callers, one-liner pattern | Add `theme.FgOnly(c color.Color) lipgloss.Style`, adopt in both. (Audit also named `tui/footer/flash.go:124` but that's a palette-dispatch by level — different pattern, not in scope.) |
 | B2.2 | `tui/app/app.go:256-289` ↔ `tui/help/help.go:127-145` | M | Globals / table catalogues curated in `app.go`; `help.columns` rebuilds parallel static lists | Pass `[]action.Action` from app to help at open-time; help becomes pure view |
 | B2.3 | `tui/poll/poll.go:133-195` ↔ `backend/transport/transport.go:*` | L | Both implement exponential backoff + jitter independently | Extract `internal/retry/exponential.go`; adopt in both |
 | B2.4 | `tui/modal/picker.go` + `tui/modal/confirm.go` | S | Identical Enter/Esc/nav routing scaffolding | `tui/modal/base.go` helper; both modals embed |
@@ -304,6 +308,8 @@ re-discover them.
 
 | ID | What | Why kept |
 |---|---|---|
+| A1.4 | `alert.View` receiver | Receiver is used (`p.bodyHeight`, `p.bodyLines`, `p.reconcileScroll`); audit subagent missed the body — no smell |
+| B1.2 | `app.quitting` field | Test observability seam for QuitMsg routing assertions (`app_test.go:297,348,357`). Removing it would require either restructuring three tests or adding an alternate test seam — net negative cleanup |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
