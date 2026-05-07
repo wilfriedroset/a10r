@@ -117,16 +117,21 @@ having dedup helpers in place), then the L-severity unification.
 |---|-----|---|---|
 | 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
 | 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome |
-| 3 | C2.1 | Doc-comment why mimir returns `*vanilla.Client` | backend |
-| 4 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
-| 5 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+| 3 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
+| 4 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
 
-Items B1.2 (`app.quitting`), A1.4 (`alert.View` receiver), and
-C1.3 (`validateAuthExclusive` slice) were dropped at execution-time
-spot-check: each is legitimate, see "Watched, not actioned" rows
-below for the rationale. B2.1's scope grew the other direction —
-the audit named three sites; execution surfaced ten more under the
-same shape, all converted in cecb8f4.
+Four items dropped at execution-time spot-check — B1.2
+(`app.quitting`), A1.4 (`alert.View` receiver), C1.3
+(`validateAuthExclusive` slice), C2.1 (factory ↔ vanilla doc was
+already in place at `mimir/client.go:74-80` and `factory.go:24-42`).
+See "Watched, not actioned" rows below for each rationale. B2.1
+went the other way — the audit named three sites; execution
+surfaced ten more under the same shape, all converted in cecb8f4.
+
+Net Wave 1 false-positive rate (4 of 8) is a process lesson: the
+audit subagents didn't sweep existing tests / existing comments,
+and one item overstated the cost-benefit. Subsequent waves should
+expect a similar correction loop.
 
 ### Wave 2 — Page dedup extractions (M, all sit under `internal/tui/page/`)
 
@@ -277,7 +282,7 @@ under "Watched, not actioned" below for traceability.
 
 | ID | Files | Sev | Pattern | Remediation |
 |---|---|---|---|---|
-| C2.1 | `backend/factory/factory.go` | S | mimir factory returns `*vanilla.Client` (vanilla = mimir with empty prefix) | Doc comment in factory + mimir packages explaining the design — prevents "fix the apparent omission" PRs |
+| C2.1 | `backend/factory/factory.go` | — | Doc already exists: `mimir/client.go:74-80` explains why `mimir.New` returns `*vanilla.Client`, and `factory.go:24-42` documents the single-code-path decision | **Closed** at execution-time spot-check — audit subagent didn't read the existing comments |
 | C2.5 | `internal/config/resolve.go:121-193` | S | Five resolvers each implement `cli > env > file > default` precedence | Generic helper `resolve[T](cli, file T, env func() T, def T) T` |
 
 C2.2-C2.4 reviewed and dismissed (RT constructors / smoke binary /
@@ -311,6 +316,7 @@ re-discover them.
 | A1.4 | `alert.View` receiver | Receiver is used (`p.bodyHeight`, `p.bodyLines`, `p.reconcileScroll`); audit subagent missed the body — no smell |
 | B1.2 | `app.quitting` field | Test observability seam for QuitMsg routing assertions (`app_test.go:297,348,357`). Removing it would require either restructuring three tests or adding an alternate test seam — net negative cleanup |
 | C1.3 | `validateAuthExclusive` slice | Runs once per backend at startup; common path (0-1 auth methods) allocates 0-1 times — immaterial. Sketched alternatives (counter + lazy slice; three booleans) were equal or worse on clarity. Audit overstated the smell |
+| C2.1 | factory ↔ vanilla doc | Already documented: `mimir/client.go:74-80` explains why `mimir.New` returns `*vanilla.Client`, `factory.go:24-42` documents the single-code-path decision. Audit subagent didn't read existing comments |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
