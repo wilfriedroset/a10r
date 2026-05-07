@@ -654,18 +654,12 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // uses Shift+V (mnemonic for "severity"), avoiding a collision
 // with the existing `s` action handler.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
-	if !p.sorter.HandleKey(m.String()) {
-		return false
-	}
-	// User-initiated re-sort is k9s-positional: cursor stays at the
-	// same row index. Clearing focusKey before recompute bypasses
-	// the find-by-key branch; snapshotFocus then re-captures
-	// whatever group / leaf landed under the cursor at that index
-	// so subsequent poll / scope / filter recomputes still follow
-	// the new focus content-stably.
-	p.focusKey = ""
-	p.recompute()
-	return true
+	return cursor.HandleSort(
+		m.String(),
+		p.sorter,
+		func() { p.focusKey = "" },
+		p.recompute,
+	)
 }
 
 // requestRefresh emits RefreshRequestedMsg and re-arms the

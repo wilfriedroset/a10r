@@ -729,19 +729,12 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 // resets to default for the new column. This matches the spreadsheet-
 // style "click again to invert" UX users expect.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
-	if !p.sorter.HandleKey(m.String()) {
-		return false
-	}
-	// User-initiated re-sort is k9s-positional: the cursor stays at
-	// the same index; whatever alert lands under it becomes the new
-	// focus. Clearing focusFingerprint here bypasses the find-by-
-	// fingerprint branch in recompute so the cursor is index-stable
-	// for this one call. snapshotFocus then re-captures the new
-	// alert so subsequent poll / scope / filter recomputes still
-	// follow it (content-stable on data churn).
-	p.focusFingerprint = ""
-	p.recompute()
-	return true
+	return cursor.HandleSort(
+		m.String(),
+		p.sorter,
+		func() { p.focusFingerprint = "" },
+		p.recompute,
+	)
 }
 
 // handleAction processes the page's per-view action keys

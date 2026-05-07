@@ -342,16 +342,12 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 		// walking to do here" rather than falling through.
 		return true
 	}
-	if !p.sorter.HandleKey(m.String()) {
-		return false
-	}
-	// User-initiated re-sort is k9s-positional. Clear focusName so
-	// the find-by-name branch in recompute is bypassed; the cursor
-	// stays at its index and snapshotFocus re-captures the receiver
-	// landing under it.
-	p.focusName = ""
-	p.recompute()
-	return true
+	return cursor.HandleSort(
+		m.String(),
+		p.sorter,
+		func() { p.focusName = "" },
+		p.recompute,
+	)
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {

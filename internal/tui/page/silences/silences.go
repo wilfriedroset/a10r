@@ -735,18 +735,12 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 // column's shortcut resets to that column's default direction. h/l
 // walk also resets to default for the new column.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
-	if !p.sorter.HandleKey(m.String()) {
-		return false
-	}
-	// User-initiated re-sort is k9s-positional: cursor stays at the
-	// same row index, whichever silence lands under it becomes the
-	// new focus. Clearing focusID before recompute bypasses the
-	// find-by-ID branch; snapshotFocus then re-captures the new
-	// focus so subsequent poll / scope / filter recomputes still
-	// follow it content-stably.
-	p.focusID = ""
-	p.recompute()
-	return true
+	return cursor.HandleSort(
+		m.String(),
+		p.sorter,
+		func() { p.focusID = "" },
+		p.recompute,
+	)
 }
 
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
