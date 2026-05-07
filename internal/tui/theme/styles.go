@@ -283,18 +283,76 @@ func compile(f *k9sSkinFile) (*Styles, error) {
 	return out, nil
 }
 
+// styleGather collects color-resolution errors so a compileX
+// function can read as a flat sequence of role assignments rather
+// than a per-row if-err-return ladder. The first error sticks;
+// subsequent calls short-circuit and return a nil color.Color.
+// Each compileX checks g.err once before assembling its result.
+type styleGather struct {
+	f   *k9sSkinFile
+	err error
+}
+
+// fg resolves a foreground role through the fgChain machinery.
+// First error sticks; on a sticky error the call returns nil.
+func (g *styleGather) fg(role string, candidates ...string) color.Color {
+	if g.err != nil {
+		return nil
+	}
+	c, err := g.f.resolveFgChain(role, candidates...)
+	if err != nil {
+		g.err = err
+	}
+	return c
+}
+
+// bg is the background-chain analogue of fg.
+func (g *styleGather) bg(role string, candidates ...string) color.Color {
+	if g.err != nil {
+		return nil
+	}
+	c, err := g.f.resolveBgChain(role, candidates...)
+	if err != nil {
+		g.err = err
+	}
+	return c
+}
+
+// raw parses a literal color string and prefixes any parse error
+// with the role label. Used for slots that bypass the chain
+// machinery — body.{fg,bg}Color (the universal floor) and
+// table.cursor.{fg,bg} (the body-inversion intercept).
+func (g *styleGather) raw(role, value string) color.Color {
+	if g.err != nil {
+		return nil
+	}
+	c, err := parseColor(value)
+	if err != nil {
+		g.err = fmt.Errorf("%s: %w", role, err)
+	}
+	return c
+}
+
+// status resolves a role through resolveStatus (the variant that
+// applies the k9s status-color sentinel handling).
+func (g *styleGather) status(role, value string) color.Color {
+	if g.err != nil {
+		return nil
+	}
+	c, err := g.f.resolveStatus(role, value)
+	if err != nil {
+		g.err = err
+	}
+	return c
+}
+
 func compileBody(f *k9sSkinFile) (BodyStyle, error) {
-	fg, err := parseColor(f.K9s.Body.FgColor)
-	if err != nil {
-		return BodyStyle{}, fmt.Errorf("body.fgColor: %w", err)
-	}
-	bg, err := parseColor(f.K9s.Body.BgColor)
-	if err != nil {
-		return BodyStyle{}, fmt.Errorf("body.bgColor: %w", err)
-	}
-	logo, err := f.resolveFgChain("body.logo", f.K9s.Body.LogoColor)
-	if err != nil {
-		return BodyStyle{}, err
+	g := &styleGather{f: f}
+	fg := g.raw("body.fgColor", f.K9s.Body.FgColor)
+	bg := g.raw("body.bgColor", f.K9s.Body.BgColor)
+	logo := g.fg("body.logo", f.K9s.Body.LogoColor)
+	if g.err != nil {
+		return BodyStyle{}, g.err
 	}
 	return BodyStyle{
 		Default: fgBgStyle(fg, bg),
@@ -303,28 +361,16 @@ func compileBody(f *k9sSkinFile) (BodyStyle, error) {
 }
 
 func compileFrame(f *k9sSkinFile) (FrameStyle, error) {
-	border, err := f.resolveFgChain("frame.border", f.K9s.Frame.Border.FgColor)
-	if err != nil {
-		return FrameStyle{}, err
-	}
-	title, err := f.resolveFgChain("frame.title", f.K9s.Frame.Title.FgColor)
-	if err != nil {
-		return FrameStyle{}, err
-	}
-	highlight, err := f.resolveFgChain("frame.title.highlight",
-		f.K9s.Frame.Title.HighlightColor)
-	if err != nil {
-		return FrameStyle{}, err
-	}
-	counter, err := f.resolveFgChain("frame.title.counter",
+	g := &styleGather{f: f}
+	border := g.fg("frame.border", f.K9s.Frame.Border.FgColor)
+	title := g.fg("frame.title", f.K9s.Frame.Title.FgColor)
+	highlight := g.fg("frame.title.highlight", f.K9s.Frame.Title.HighlightColor)
+	counter := g.fg("frame.title.counter",
 		f.K9s.Frame.Title.CounterColor, f.K9s.Frame.Title.HighlightColor)
-	if err != nil {
-		return FrameStyle{}, err
-	}
-	filter, err := f.resolveFgChain("frame.title.filter",
+	filter := g.fg("frame.title.filter",
 		f.K9s.Frame.Title.FilterColor, f.K9s.Frame.Title.HighlightColor)
-	if err != nil {
-		return FrameStyle{}, err
+	if g.err != nil {
+		return FrameStyle{}, g.err
 	}
 	return FrameStyle{
 		Border:         FgOnly(border),
@@ -336,29 +382,15 @@ func compileFrame(f *k9sSkinFile) (FrameStyle, error) {
 }
 
 func compileHeader(f *k9sSkinFile) (HeaderStyle, error) {
-	fg, err := f.resolveFgChain("header.fg", f.K9s.Frame.Title.FgColor)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	bg, err := f.resolveBgChain("header.bg", f.K9s.Frame.Title.BgColor)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	accent, err := f.resolveFgChain("header.accent", f.K9s.Body.LogoColor)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	ok, err := f.resolveStatus("header.ok", f.K9s.Frame.Status.AddColor)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	warn, err := f.resolveStatus("header.warn", f.K9s.Frame.Status.HighlightColor)
-	if err != nil {
-		return HeaderStyle{}, err
-	}
-	errC, err := f.resolveStatus("header.error", f.K9s.Frame.Status.ErrorColor)
-	if err != nil {
-		return HeaderStyle{}, err
+	g := &styleGather{f: f}
+	fg := g.fg("header.fg", f.K9s.Frame.Title.FgColor)
+	bg := g.bg("header.bg", f.K9s.Frame.Title.BgColor)
+	accent := g.fg("header.accent", f.K9s.Body.LogoColor)
+	ok := g.status("header.ok", f.K9s.Frame.Status.AddColor)
+	warn := g.status("header.warn", f.K9s.Frame.Status.HighlightColor)
+	errC := g.status("header.error", f.K9s.Frame.Status.ErrorColor)
+	if g.err != nil {
+		return HeaderStyle{}, g.err
 	}
 	return HeaderStyle{
 		Default: fgBgStyle(fg, bg),
@@ -370,27 +402,13 @@ func compileHeader(f *k9sSkinFile) (HeaderStyle, error) {
 }
 
 func compileTable(f *k9sSkinFile) (TableStyle, error) {
-	headerFg, err := f.resolveFgChain("table.header.fg", f.K9s.Views.Table.Header.FgColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	headerBg, err := f.resolveBgChain("table.header.bg", f.K9s.Views.Table.Header.BgColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	headerActiveFg, err := f.resolveFgChain("table.header_active.fg",
+	g := &styleGather{f: f}
+	headerFg := g.fg("table.header.fg", f.K9s.Views.Table.Header.FgColor)
+	headerBg := g.bg("table.header.bg", f.K9s.Views.Table.Header.BgColor)
+	headerActiveFg := g.fg("table.header_active.fg",
 		f.K9s.Views.Table.Header.SorterColor, f.K9s.Views.Table.Header.FgColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	rowFg, err := f.resolveFgChain("table.row.fg", f.K9s.Views.Table.FgColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	rowBg, err := f.resolveBgChain("table.row.bg", f.K9s.Views.Table.BgColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
+	rowFg := g.fg("table.row.fg", f.K9s.Views.Table.FgColor)
+	rowBg := g.bg("table.row.bg", f.K9s.Views.Table.BgColor)
 
 	// Cursor: when both axes are missing, k9s inverts body. Mirror
 	// that runtime default. When only one axis is set, fall back to
@@ -407,30 +425,18 @@ func compileTable(f *k9sSkinFile) (TableStyle, error) {
 			cBg = f.K9s.Body.BgColor
 		}
 	}
-	cursorFg, err := parseColor(cFg)
-	if err != nil {
-		return TableStyle{}, fmt.Errorf("table.cursor.fg: %w", err)
-	}
-	cursorBg, err := parseColor(cBg)
-	if err != nil {
-		return TableStyle{}, fmt.Errorf("table.cursor.bg: %w", err)
-	}
+	cursorFg := g.raw("table.cursor.fg", cFg)
+	cursorBg := g.raw("table.cursor.bg", cBg)
 
-	markedFg, err := f.resolveFgChain("table.marked",
+	markedFg := g.fg("table.marked",
 		f.K9s.Views.Table.MarkColor, f.K9s.Frame.Title.HighlightColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	dimmedFg, err := f.resolveFgChain("table.dimmed",
+	dimmedFg := g.fg("table.dimmed",
 		f.K9s.Frame.Status.CompletedColor, f.K9s.Frame.Status.KillColor)
-	if err != nil {
-		return TableStyle{}, err
-	}
-	bodyBg, err := parseColor(f.K9s.Body.BgColor)
-	if err != nil {
-		return TableStyle{}, fmt.Errorf("table.marked.bg: %w", err)
-	}
+	bodyBg := g.raw("table.marked.bg", f.K9s.Body.BgColor)
 
+	if g.err != nil {
+		return TableStyle{}, g.err
+	}
 	return TableStyle{
 		Header:       fgBgStyle(headerFg, headerBg),
 		HeaderActive: fgBgStyle(headerActiveFg, headerBg),
@@ -445,21 +451,13 @@ func compileTable(f *k9sSkinFile) (TableStyle, error) {
 }
 
 func compileSeverity(f *k9sSkinFile) (SeverityStyle, error) {
-	critical, err := f.resolveStatus("severity.critical", f.K9s.Frame.Status.ErrorColor)
-	if err != nil {
-		return SeverityStyle{}, err
-	}
-	warning, err := f.resolveStatus("severity.warning", f.K9s.Frame.Status.HighlightColor)
-	if err != nil {
-		return SeverityStyle{}, err
-	}
-	info, err := f.resolveStatus("severity.info", f.K9s.Frame.Status.NewColor)
-	if err != nil {
-		return SeverityStyle{}, err
-	}
-	unknown, err := f.resolveStatus("severity.unknown", f.K9s.Frame.Status.KillColor)
-	if err != nil {
-		return SeverityStyle{}, err
+	g := &styleGather{f: f}
+	critical := g.status("severity.critical", f.K9s.Frame.Status.ErrorColor)
+	warning := g.status("severity.warning", f.K9s.Frame.Status.HighlightColor)
+	info := g.status("severity.info", f.K9s.Frame.Status.NewColor)
+	unknown := g.status("severity.unknown", f.K9s.Frame.Status.KillColor)
+	if g.err != nil {
+		return SeverityStyle{}, g.err
 	}
 	return SeverityStyle{
 		Critical: FgOnly(critical),
@@ -470,17 +468,12 @@ func compileSeverity(f *k9sSkinFile) (SeverityStyle, error) {
 }
 
 func compileSilenceState(f *k9sSkinFile) (SilenceStateStyle, error) {
-	active, err := f.resolveStatus("silence_state.active", f.K9s.Frame.Status.AddColor)
-	if err != nil {
-		return SilenceStateStyle{}, err
-	}
-	pending, err := f.resolveStatus("silence_state.pending", f.K9s.Frame.Status.HighlightColor)
-	if err != nil {
-		return SilenceStateStyle{}, err
-	}
-	expired, err := f.resolveStatus("silence_state.expired", f.K9s.Frame.Status.KillColor)
-	if err != nil {
-		return SilenceStateStyle{}, err
+	g := &styleGather{f: f}
+	active := g.status("silence_state.active", f.K9s.Frame.Status.AddColor)
+	pending := g.status("silence_state.pending", f.K9s.Frame.Status.HighlightColor)
+	expired := g.status("silence_state.expired", f.K9s.Frame.Status.KillColor)
+	if g.err != nil {
+		return SilenceStateStyle{}, g.err
 	}
 	return SilenceStateStyle{
 		Active:  FgOnly(active),
@@ -490,17 +483,12 @@ func compileSilenceState(f *k9sSkinFile) (SilenceStateStyle, error) {
 }
 
 func compilePrompt(f *k9sSkinFile) (PromptStyle, error) {
-	fg, err := f.resolveFgChain("prompt.fg", f.K9s.Prompt.FgColor)
-	if err != nil {
-		return PromptStyle{}, err
-	}
-	bg, err := f.resolveBgChain("prompt.bg", f.K9s.Prompt.BgColor)
-	if err != nil {
-		return PromptStyle{}, err
-	}
-	suggestion, err := f.resolveFgChain("prompt.suggestion", f.K9s.Prompt.SuggestColor)
-	if err != nil {
-		return PromptStyle{}, err
+	g := &styleGather{f: f}
+	fg := g.fg("prompt.fg", f.K9s.Prompt.FgColor)
+	bg := g.bg("prompt.bg", f.K9s.Prompt.BgColor)
+	suggestion := g.fg("prompt.suggestion", f.K9s.Prompt.SuggestColor)
+	if g.err != nil {
+		return PromptStyle{}, g.err
 	}
 	return PromptStyle{
 		Default:    fgBgStyle(fg, bg),
@@ -509,21 +497,13 @@ func compilePrompt(f *k9sSkinFile) (PromptStyle, error) {
 }
 
 func compileFlash(f *k9sSkinFile) (FlashStyle, error) {
-	success, err := f.resolveStatus("flash.success", f.K9s.Frame.Status.AddColor)
-	if err != nil {
-		return FlashStyle{}, err
-	}
-	info, err := f.resolveStatus("flash.info", f.K9s.Frame.Status.NewColor)
-	if err != nil {
-		return FlashStyle{}, err
-	}
-	warn, err := f.resolveStatus("flash.warn", f.K9s.Frame.Status.HighlightColor)
-	if err != nil {
-		return FlashStyle{}, err
-	}
-	errC, err := f.resolveStatus("flash.error", f.K9s.Frame.Status.ErrorColor)
-	if err != nil {
-		return FlashStyle{}, err
+	g := &styleGather{f: f}
+	success := g.status("flash.success", f.K9s.Frame.Status.AddColor)
+	info := g.status("flash.info", f.K9s.Frame.Status.NewColor)
+	warn := g.status("flash.warn", f.K9s.Frame.Status.HighlightColor)
+	errC := g.status("flash.error", f.K9s.Frame.Status.ErrorColor)
+	if g.err != nil {
+		return FlashStyle{}, g.err
 	}
 	return FlashStyle{
 		Success: FgOnly(success),
@@ -534,18 +514,13 @@ func compileFlash(f *k9sSkinFile) (FlashStyle, error) {
 }
 
 func compileCrumbs(f *k9sSkinFile) (CrumbsStyle, error) {
-	fg, err := f.resolveFgChain("crumbs.fg", f.K9s.Frame.Crumbs.FgColor)
-	if err != nil {
-		return CrumbsStyle{}, err
-	}
-	bg, err := f.resolveBgChain("crumbs.bg", f.K9s.Frame.Crumbs.BgColor)
-	if err != nil {
-		return CrumbsStyle{}, err
-	}
-	active, err := f.resolveFgChain("crumbs.active",
+	g := &styleGather{f: f}
+	fg := g.fg("crumbs.fg", f.K9s.Frame.Crumbs.FgColor)
+	bg := g.bg("crumbs.bg", f.K9s.Frame.Crumbs.BgColor)
+	active := g.fg("crumbs.active",
 		f.K9s.Frame.Crumbs.ActiveColor, f.K9s.Frame.Title.HighlightColor)
-	if err != nil {
-		return CrumbsStyle{}, err
+	if g.err != nil {
+		return CrumbsStyle{}, g.err
 	}
 	return CrumbsStyle{
 		Default: fgBgStyle(fg, bg),
@@ -554,27 +529,23 @@ func compileCrumbs(f *k9sSkinFile) (CrumbsStyle, error) {
 }
 
 func compileHint(f *k9sSkinFile) (HintStyle, error) {
+	g := &styleGather{f: f}
 	// k9s `frame.menu` has no bgColor; the strip paints over body.bg.
-	fg, err := f.resolveFgChain("hint.fg", f.K9s.Frame.Menu.FgColor)
-	if err != nil {
-		return HintStyle{}, err
-	}
-	bg, err := parseColor(f.K9s.Body.BgColor)
-	if err != nil {
-		return HintStyle{}, fmt.Errorf("hint.bg: %w", err)
-	}
+	fg := g.fg("hint.fg", f.K9s.Frame.Menu.FgColor)
+	bg := g.raw("hint.bg", f.K9s.Body.BgColor)
+	// hint.key falls back to body.fg directly via firstSet — the
+	// chain machinery would consult body.fgColor as the floor too,
+	// but the explicit firstSet here keeps the intent obvious in
+	// the role schema.
 	keyChain := firstSet(f.K9s.Frame.Menu.KeyColor)
 	if keyChain == "" {
 		keyChain = f.K9s.Body.FgColor
 	}
-	keyC, err := parseColor(keyChain)
-	if err != nil {
-		return HintStyle{}, fmt.Errorf("hint.key: %w", err)
-	}
-	helpC, err := f.resolveFgChain("hint.help_key",
+	keyC := g.raw("hint.key", keyChain)
+	helpC := g.fg("hint.help_key",
 		f.K9s.Frame.Menu.NumKeyColor, f.K9s.Frame.Menu.KeyColor)
-	if err != nil {
-		return HintStyle{}, err
+	if g.err != nil {
+		return HintStyle{}, g.err
 	}
 	return HintStyle{
 		Default: fgBgStyle(fg, bg),
@@ -584,17 +555,12 @@ func compileHint(f *k9sSkinFile) (HintStyle, error) {
 }
 
 func compileModal(f *k9sSkinFile) (ModalStyle, error) {
-	fg, err := f.resolveFgChain("modal.fg", f.K9s.Dialog.FgColor)
-	if err != nil {
-		return ModalStyle{}, err
-	}
-	bg, err := f.resolveBgChain("modal.bg", f.K9s.Dialog.BgColor)
-	if err != nil {
-		return ModalStyle{}, err
-	}
-	border, err := f.resolveFgChain("modal.border", f.K9s.Frame.Border.FgColor)
-	if err != nil {
-		return ModalStyle{}, err
+	g := &styleGather{f: f}
+	fg := g.fg("modal.fg", f.K9s.Dialog.FgColor)
+	bg := g.bg("modal.bg", f.K9s.Dialog.BgColor)
+	border := g.fg("modal.border", f.K9s.Frame.Border.FgColor)
+	if g.err != nil {
+		return ModalStyle{}, g.err
 	}
 	return ModalStyle{
 		Default: fgBgStyle(fg, bg),
@@ -603,17 +569,12 @@ func compileModal(f *k9sSkinFile) (ModalStyle, error) {
 }
 
 func compileYAML(f *k9sSkinFile) (YAMLStyle, error) {
-	key, err := f.resolveFgChain("yaml.key", f.K9s.Views.YAML.KeyColor)
-	if err != nil {
-		return YAMLStyle{}, err
-	}
-	value, err := f.resolveFgChain("yaml.value", f.K9s.Views.YAML.ValueColor)
-	if err != nil {
-		return YAMLStyle{}, err
-	}
-	punct, err := f.resolveFgChain("yaml.punct", f.K9s.Views.YAML.ColonColor)
-	if err != nil {
-		return YAMLStyle{}, err
+	g := &styleGather{f: f}
+	key := g.fg("yaml.key", f.K9s.Views.YAML.KeyColor)
+	value := g.fg("yaml.value", f.K9s.Views.YAML.ValueColor)
+	punct := g.fg("yaml.punct", f.K9s.Views.YAML.ColonColor)
+	if g.err != nil {
+		return YAMLStyle{}, g.err
 	}
 	return YAMLStyle{
 		Key:   FgOnly(key),
