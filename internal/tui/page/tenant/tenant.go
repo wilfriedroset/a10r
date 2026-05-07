@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -379,7 +380,7 @@ func (p *Page) View(width, height int) string {
 			prefix = "▸ "
 		}
 		body := digitGlyph + scopeGlyph + " " + p.padTenantColumns(columns, width)
-		line := padRight(prefix+body, width)
+		line := format.PadRight(prefix+body, width)
 		switch {
 		case i == p.cursor:
 			// k9s parity: cursor bg tracks the row's semantic
@@ -423,7 +424,7 @@ func (p *Page) renderHeader(width int) string {
 		if arrow := p.sorter.ArrowFor(c.key); arrow != "" {
 			label = label + " " + arrow
 		}
-		padded := padRight(label, widths[i])
+		padded := format.PadRight(label, widths[i])
 		if p.sorter.IsActive(c.key) {
 			parts[i] = activeFg.Render(padded)
 		} else {
@@ -479,7 +480,7 @@ func (p *Page) padTenantColumns(parts []string, width int) string {
 		if i >= len(cols) {
 			break
 		}
-		b.WriteString(padRight(v, cols[i]))
+		b.WriteString(format.PadRight(v, cols[i]))
 	}
 	return b.String()
 }
@@ -511,18 +512,6 @@ func (p *Page) scopeIncludes(name string) bool {
 		}
 	}
 	return false
-}
-
-// padRight pads s with trailing spaces to w columns so the
-// cursor's background extends across the whole row.
-func padRight(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) >= w {
-		return s
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
 
 // rowsSorted returns the rows ordered by the active sort column +

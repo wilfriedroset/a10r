@@ -25,6 +25,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -864,14 +865,14 @@ func (p *Page) renderHeader(width int) string {
 			label = label + " " + arrow
 		}
 		if p.sorter.IsActive(key) {
-			return activeFg.Render(padRight(label, w))
+			return activeFg.Render(format.PadRight(label, w))
 		}
-		return headerFg.Render(padRight(label, w))
+		return headerFg.Render(format.PadRight(label, w))
 	}
 
 	var b strings.Builder
 	if tenantW > 0 {
-		b.WriteString(headerFg.Render(padRight("TENANT", tenantW)))
+		b.WriteString(headerFg.Render(format.PadRight("TENANT", tenantW)))
 	}
 	// Tree-marker column has no header label — it carries ▸/▾ on
 	// data rows only.
@@ -879,7 +880,7 @@ func (p *Page) renderHeader(width int) string {
 	b.WriteString(render("NAME", sortKeyName, nameW))
 	b.WriteString(render("COUNT", sortKeyCount, countW))
 	b.WriteString(render("SEVERITY", sortKeySeverity, sevW))
-	return padRight(b.String(), width)
+	return format.PadRight(b.String(), width)
 }
 
 func (p *Page) renderRow(r row, focused bool, width int) string {
@@ -893,7 +894,7 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 	// since the parent header already names the source backend.
 	if tenantW > 0 {
 		if r.alertIdx == -1 {
-			b.WriteString(padRight(entry.tenant, tenantW))
+			b.WriteString(format.PadRight(entry.tenant, tenantW))
 		} else {
 			b.WriteString(strings.Repeat(" ", tenantW))
 		}
@@ -914,16 +915,16 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 			// cursor row.
 			summary = styledLabelSummary(entry.g.Labels, p.styles)
 		}
-		b.WriteString(padRight(summary, nameW))
+		b.WriteString(format.PadRight(summary, nameW))
 
 		count := strconv.Itoa(len(entry.g.Alerts))
-		b.WriteString(padRight(count, countW))
+		b.WriteString(format.PadRight(count, countW))
 
 		sev := severityLabelByRank(entry.severityRank)
 		if !focused {
 			sev = severityStyleByRank(entry.severityRank, p.styles).Render(sev)
 		}
-		b.WriteString(padRight(sev, sevW))
+		b.WriteString(format.PadRight(sev, sevW))
 	} else {
 		// Leaf row: empty tree slot, then the labels that
 		// distinguish this leaf from its siblings (instance, pod,
@@ -960,10 +961,10 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 		// would be padding around dead air. Drilling via Enter is
 		// where per-alert detail belongs.
 		leaf := "  " + labelText + " — " + state
-		b.WriteString(padRight(leaf, nameW+countW+sevW))
+		b.WriteString(format.PadRight(leaf, nameW+countW+sevW))
 	}
 
-	body := padRight(b.String(), width)
+	body := format.PadRight(b.String(), width)
 	if focused {
 		// k9s parity: cursor bg tracks the row's semantic colour
 		// (max severity for groups) rather than the static
@@ -1048,42 +1049,6 @@ func (p *Page) showTenantColumn() bool {
 		}
 	}
 	return in > 1
-}
-
-// padRight truncates / right-pads s to exactly w columns so the
-// cursor's background extends across the whole row and an over-
-// wide cell can't push later columns out of alignment. Mirrors
-// the alerts page's helper of the same name.
-func padRight(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) >= w {
-		return truncate(s, w)
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
-}
-
-// truncate cuts s to at most w columns, counting visual width so
-// SGR escapes don't burn budget. Mirrors alerts.truncate.
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String()
 }
 
 // labelSummary renders a "k=v, k=v" preview of a label-set so the

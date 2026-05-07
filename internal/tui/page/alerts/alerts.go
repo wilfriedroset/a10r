@@ -47,6 +47,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -1358,7 +1359,7 @@ func (p *Page) renderHeader(width int) string {
 	b.WriteString(strings.Repeat(" ", rowPrefixCols))
 	idx := 0
 	if p.showTenantColumn() && idx < len(widths) {
-		b.WriteString(headerFg.Render(padRight("TENANT", widths[idx])))
+		b.WriteString(headerFg.Render(format.PadRight("TENANT", widths[idx])))
 		idx++
 	}
 	for _, k := range cols {
@@ -1369,7 +1370,7 @@ func (p *Page) renderHeader(width int) string {
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
 		}
-		padded := padRight(label, widths[idx])
+		padded := format.PadRight(label, widths[idx])
 		// Active column gets HeaderActive; the rest get the regular
 		// Header foreground. The two tints plus the arrow glyph give
 		// two distinct cues for "which sort is live" — one for the
@@ -1451,7 +1452,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// treatment k9s gives "Completed" pods. Marked beats
 		// dimmed on purpose: marked is an explicit user action,
 		// suppression is ambient state.
-		line := padRight(prefix+mark+" "+p.padColumns(row, width), width)
+		line := format.PadRight(prefix+mark+" "+p.padColumns(row, width), width)
 		switch {
 		case i == p.cursor:
 			// k9s parity: cursor bg tracks the row's semantic
@@ -1497,7 +1498,7 @@ func (p *Page) padColumns(parts []string, width int) string {
 		if i >= len(cols) {
 			break
 		}
-		b.WriteString(padRight(v, cols[i]))
+		b.WriteString(format.PadRight(v, cols[i]))
 	}
 	return b.String()
 }
@@ -1536,38 +1537,6 @@ func (p *Page) formatTime(ts time.Time) string {
 		return header.FormatAbsolute(ts)
 	}
 	return header.FormatAge(p.now(), ts)
-}
-
-// padRight truncates / right-pads s to exactly w runes.
-func padRight(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) >= w {
-		return truncate(s, w)
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
-}
-
-// truncate cuts s to at most w columns.
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String()
 }
 
 // recompute rebuilds p.view by unioning every per-tenant

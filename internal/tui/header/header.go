@@ -18,6 +18,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -209,31 +210,8 @@ func renderMiddle(content string, budget int, styles theme.Styles) string {
 		return fg.Render(content)
 	}
 	// Truncate to budget-1 columns and append the marker.
-	truncated := truncate(content, budget-lipgloss.Width(truncationMarker))
+	truncated := format.Truncate(content, budget-lipgloss.Width(truncationMarker))
 	return fg.Render(truncated + truncationMarker)
-}
-
-// truncate cuts s to at most n columns. Lipgloss-aware width so a
-// future emoji content slot doesn't clip on a fractional rune.
-func truncate(s string, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= n {
-		return s
-	}
-	// Walk runes, accumulating width until we hit the limit.
-	var b strings.Builder
-	w := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if w+rw > n {
-			break
-		}
-		b.WriteRune(r)
-		w += rw
-	}
-	return b.String()
 }
 
 // renderHints formats the right-aligned hint strip from the

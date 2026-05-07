@@ -40,6 +40,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -1586,7 +1587,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// page applies to suppressed alerts. Marked beats the dim:
 		// marked is an explicit user action, expiry is ambient
 		// state.
-		line := padRight(prefix+mark+p.padColumns(row, width), width)
+		line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
 		switch {
 		case i == p.cursor:
 			// k9s parity: cursor bg tracks the silence-state
@@ -1666,7 +1667,7 @@ func padCell(s string, w int) string {
 	if w == 1 {
 		return " "
 	}
-	return truncate(s, w-2) + "… "
+	return format.Truncate(s, w-2) + "… "
 }
 
 // formatTime renders ts according to the page's active time
@@ -1700,35 +1701,6 @@ func singleLine(s string) string {
 	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
 }
 
-func padRight(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) >= w {
-		return truncate(s, w)
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
-}
-
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String()
-}
 
 // recompute rebuilds p.view by walking byTenant, applying the
 // scope and substring filters, then sorting. Cursor is preserved

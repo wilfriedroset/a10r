@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -176,16 +177,16 @@ func RenderTop(state State, styles theme.Styles) string {
 
 	out := make([]string, rows)
 	for i := range rows {
-		info := padRight(getLine(infoLines, i), infoW)
-		tenants := padRight(getLine(tenantLines, i), tenantW)
-		hint := padRight(getLine(hintLines, i), hintW)
+		info := format.PadRight(getLine(infoLines, i), infoW)
+		tenants := format.PadRight(getLine(tenantLines, i), tenantW)
+		hint := format.PadRight(getLine(hintLines, i), hintW)
 		// Pad every logo line to the SAME logoW so the right-fill
 		// is uniform across rows and the logo block doesn't stagger.
 		// Tint with body.logoColor for k9s parity — the logo lights
 		// up in the skin's accent (mauve in mocha) instead of
 		// rendering as plain body fg.
 		logoLine := getLine(logoLines, i)
-		logoPadded := padRight(logoLine, logoW)
+		logoPadded := format.PadRight(logoLine, logoW)
 		logo := logoPadded
 		if logoLine != "" {
 			logo = styles.Body.Logo.Render(logoPadded)
@@ -217,7 +218,7 @@ func RenderTop(state State, styles theme.Styles) string {
 		} else {
 			line = left
 		}
-		out[i] = padRight(line, state.Width)
+		out[i] = format.PadRight(line, state.Width)
 	}
 	return strings.Join(out, "\n")
 }
@@ -393,16 +394,6 @@ func maxWidth(lines []string) int {
 	return w
 }
 
-// padRight pads s with trailing spaces to width w. Truncates
-// when s is wider (rare in panel rendering).
-func padRight(s string, w int) string {
-	cur := lipgloss.Width(s)
-	if cur >= w {
-		return s
-	}
-	return s + strings.Repeat(" ", w-cur)
-}
-
 // RenderBody wraps the page's body content in a single-line
 // border with title centred in the top edge and an optional
 // footer label centred in the bottom edge — the k9s look:
@@ -442,7 +433,7 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 	for i, l := range lines {
 		w := lipgloss.Width(l)
 		if w > innerWidth {
-			l = truncate(l, innerWidth)
+			l = format.Truncate(l, innerWidth)
 		} else if w < innerWidth {
 			l += strings.Repeat(" ", innerWidth-w)
 		}
@@ -476,7 +467,7 @@ func RenderFrame(width int, body string, styles theme.Styles) string {
 	w := lipgloss.Width(body)
 	switch {
 	case w > innerWidth:
-		body = truncate(body, innerWidth)
+		body = format.Truncate(body, innerWidth)
 	case w < innerWidth:
 		body += strings.Repeat(" ", innerWidth-w)
 	}
@@ -517,7 +508,7 @@ func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, sty
 		return border.Render(leftCorner + strings.Repeat("─", innerWidth) + rightCorner)
 	}
 	if lipgloss.Width(label)+4 > innerWidth {
-		label = truncate(label, innerWidth-4)
+		label = format.Truncate(label, innerWidth-4)
 	}
 	styled := styleTitle(label, styles)
 	wrapped := " " + styled + " "
@@ -527,28 +518,6 @@ func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, sty
 	leftRule := border.Render(leftCorner + strings.Repeat("─", left))
 	rightRule := border.Render(strings.Repeat("─", right) + rightCorner)
 	return leftRule + wrapped + rightRule
-}
-
-// truncate cuts s to at most w columns. Lipgloss-aware so a
-// future emoji title doesn't clip on a fractional rune.
-func truncate(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	var b strings.Builder
-	used := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String()
 }
 
 // Title formats the standard "<crumb>(<scope>)[<count>]" body

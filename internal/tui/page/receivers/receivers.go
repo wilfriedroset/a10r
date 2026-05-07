@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -379,19 +380,6 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-// padRight pads s with trailing spaces so it occupies exactly w
-// columns. Truncates when s already exceeds w. Used to size the
-// cursor row to the full body width before the style wraps it,
-// so the cursor's background extends across the row.
-func padRight(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) >= w {
-		return s
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
-}
 
 // View implements app.Page.
 func (p *Page) View(width, height int) string {
@@ -425,7 +413,7 @@ func (p *Page) View(width, height int) string {
 		}
 		// Pad to width before applying the cursor style so the
 		// background extends across the whole row k9s-style.
-		row := padRight(prefix+text, width)
+		row := format.PadRight(prefix+text, width)
 		if i == p.cursor {
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour. Receiver rows have no severity / state, so
@@ -453,7 +441,7 @@ func (p *Page) renderHeader(width int) string {
 	if arrow := p.sorter.ArrowFor(sortKeyName); arrow != "" {
 		label = label + " " + arrow
 	}
-	body := padRight("  "+label, width)
+	body := format.PadRight("  "+label, width)
 	return lipgloss.NewStyle().
 		Foreground(p.styles.Table.HeaderActive.GetForeground()).
 		Render(body)

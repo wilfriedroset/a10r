@@ -27,6 +27,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -805,7 +806,7 @@ func (f *Form) fieldRow(label string, idx fieldIndex, rendered string) string {
 		prefix = "▸ "
 		labelStyle = f.styles.Header.Accent.Bold(true)
 	}
-	labelText := labelStyle.Render(padRight(label+":", labelWidth))
+	labelText := labelStyle.Render(format.PadRight(label+":", labelWidth))
 	lines := strings.Split(rendered, "\n")
 	for i, ln := range lines {
 		if i == 0 {
@@ -815,14 +816,4 @@ func (f *Form) fieldRow(label string, idx fieldIndex, rendered string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-// padRight pads s with spaces to exactly w columns. Used for the
-// label column so every input lines up regardless of label
-// length.
-func padRight(s string, w int) string {
-	if lipgloss.Width(s) >= w {
-		return s
-	}
-	return s + strings.Repeat(" ", w-lipgloss.Width(s))
 }
