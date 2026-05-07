@@ -286,7 +286,7 @@ func (p Prompt) Render(styles theme.Styles) string {
 		Bold(true)
 	out := main.Render(" " + p.mode.prefixGlyph() + p.value)
 	if p.suggestion != "" {
-		ghost := lipgloss.NewStyle().Foreground(styles.Prompt.Suggestion.GetForeground())
+		ghost := theme.FgOnly(styles.Prompt.Suggestion.GetForeground())
 		out += ghost.Render(strings.TrimPrefix(p.suggestion, p.value))
 	}
 	return out

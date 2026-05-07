@@ -1544,8 +1544,8 @@ func (p *Page) renderHeader(width int) string {
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a
 	// coloured stripe.
-	headerFg := lipgloss.NewStyle().Foreground(p.styles.Table.Header.GetForeground())
-	activeFg := lipgloss.NewStyle().Foreground(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
+	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
 	parts := make([]string, len(cols))
 	for i, c := range cols {
 		label := c.label

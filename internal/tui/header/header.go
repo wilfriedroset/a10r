@@ -139,14 +139,6 @@ func Render(state State, styles theme.Styles) string {
 	return left + middle + spacer + right
 }
 
-// headerFg returns a foreground-only style derived from
-// Header.Default. The header.Default palette role carries fg+bg
-// for hypothetical full-bg compositing, but the live app frames
-// the strip without a painted bg — see the package doc.
-func headerFg(styles theme.Styles) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(styles.Header.Default.GetForeground())
-}
-
 // renderHintsWithBudget formats the hint strip and drops trailing
 // entries until it fits the budget. Pages should register the most
 // important affordances first so the drop-from-end strategy keeps
@@ -169,7 +161,7 @@ func renderHintsWithBudget(hints []action.Action, budget int, styles theme.Style
 // renderLeft formats the tenant indicator + glyph + count + age.
 func renderLeft(state State, styles theme.Styles) string {
 	var b strings.Builder
-	fg := headerFg(styles)
+	fg := theme.FgOnly(styles.Header.Default.GetForeground())
 
 	b.WriteString(fg.Render("tenants: "))
 	if state.Tenants != "" {
@@ -191,8 +183,9 @@ func renderLeft(state State, styles theme.Styles) string {
 
 // connStyle picks the lipgloss style matching the connection state.
 // All four branches return foreground-only styles: OK / Warn /
-// Error are fgOnly per the theme spec, and the Default fall-through
-// is downgraded to fg-only here so it doesn't paint a palette bg.
+// Error are foreground-only per the theme spec, and the Default
+// fall-through goes through theme.FgOnly so it doesn't paint a
+// palette bg.
 func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
 	switch c {
 	case ConnConnected:
@@ -202,7 +195,7 @@ func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
 	case ConnUnreachable:
 		return styles.Header.Error
 	}
-	return headerFg(styles)
+	return theme.FgOnly(styles.Header.Default.GetForeground())
 }
 
 // renderMiddle truncates content to fit budget columns. Returns
@@ -211,7 +204,7 @@ func renderMiddle(content string, budget int, styles theme.Styles) string {
 	if content == "" || budget < minMiddleWidth {
 		return ""
 	}
-	fg := headerFg(styles)
+	fg := theme.FgOnly(styles.Header.Default.GetForeground())
 	if lipgloss.Width(content) <= budget {
 		return fg.Render(content)
 	}
@@ -252,7 +245,7 @@ func renderHints(hints []action.Action, styles theme.Styles) string {
 	if len(hints) == 0 {
 		return ""
 	}
-	descStyle := lipgloss.NewStyle().Foreground(styles.Hint.Default.GetForeground())
+	descStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
 	var b strings.Builder
 	for i, a := range hints {
 		if i > 0 {

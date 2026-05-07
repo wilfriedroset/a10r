@@ -241,7 +241,7 @@ func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles theme.Sty
 		}
 	}
 	keyStyle := styles.Hint.HelpKey.Bold(true)
-	nameStyle := hintFgOnly(styles).Bold(true)
+	nameStyle := theme.FgOnly(styles.Hint.Default.GetForeground()).Bold(true)
 	cells := make([]string, len(tenants))
 	for i, t := range tenants {
 		key := keyStyle.Render("<" + t.Key + ">")
@@ -310,14 +310,6 @@ func clipLines(lines []string, maxRows int) []string {
 	return lines[:maxRows]
 }
 
-// hintFgOnly returns a fresh style carrying only the Hint
-// foreground colour. Used for the panel's labels, tenant names,
-// and action descriptions so the top panel reads as text on the
-// body background rather than a separate dimmed stripe.
-func hintFgOnly(styles theme.Styles) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(styles.Hint.Default.GetForeground())
-}
-
 // renderInfoLines splits the info column into per-row lines, with
 // labels right-aligned to a common width so the values line up.
 func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
@@ -331,13 +323,13 @@ func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
 		}
 	}
 	out := make([]string, len(lines))
-	labelStyle := hintFgOnly(styles)
+	labelStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
 	// Values use the body's foreground only — same fg-only
 	// treatment the labels get above. Calling Body.Default would
 	// paint the body's bg behind the value, which renders as a
 	// stripe of mismatched colour against the surrounding empty
 	// cells in the panel zone.
-	valueStyle := lipgloss.NewStyle().Foreground(styles.Body.Default.GetForeground())
+	valueStyle := theme.FgOnly(styles.Body.Default.GetForeground())
 	for i, l := range lines {
 		pad := strings.Repeat(" ", maxLabel-lipgloss.Width(l.Label))
 		out[i] = labelStyle.Render(l.Label+":") + pad + " " + valueStyle.Render(l.Value)
@@ -359,7 +351,7 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles theme.Styles)
 			maxKey = w
 		}
 	}
-	descStyle := hintFgOnly(styles)
+	descStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
 	cells := make([]string, len(hints))
 	for i, a := range hints {
 		keyStyle := styles.Hint.Key.Bold(true)

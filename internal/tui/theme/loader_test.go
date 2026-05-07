@@ -15,11 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// isUnsetBackground returns true if the lipgloss style's background
-// is in lipgloss's documented "no value set" state. lipgloss uses
-// `NoColor{}` for this; both never-called and explicitly-NoColor
-// produce the same observable rendering (no SGR for bg).
-func isUnsetBackground(c color.Color) bool {
+// isUnsetColor returns true if the lipgloss colour is in lipgloss's
+// documented "no value set" state. lipgloss uses `NoColor{}` for
+// this; both never-called and explicitly-NoColor produce the same
+// observable rendering (no SGR for the slot). Used to assert either
+// foreground or background is unset on a compiled style.
+func isUnsetColor(c color.Color) bool {
 	_, ok := c.(lipgloss.NoColor)
 	return c == nil || ok
 }
@@ -84,7 +85,7 @@ func TestLoad_TransparentVariantsKeepBodyBgUnset(t *testing.T) {
 			t.Parallel()
 			styles, err := (&Loader{}).Load(name)
 			require.NoError(t, err)
-			require.True(t, isUnsetBackground(styles.Body.Default.GetBackground()),
+			require.True(t, isUnsetColor(styles.Body.Default.GetBackground()),
 				"body.bg must be unset (terminal-default) on -transparent variant")
 		})
 	}
@@ -262,7 +263,7 @@ k9s:
 
 	styles, err := (&Loader{UserDir: dir}).Load("tpass")
 	require.NoError(t, err)
-	require.True(t, isUnsetBackground(styles.Body.Default.GetBackground()),
+	require.True(t, isUnsetColor(styles.Body.Default.GetBackground()),
 		"`bgColor: default` must produce an unset Background()")
 }
 

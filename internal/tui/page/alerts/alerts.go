@@ -1390,8 +1390,8 @@ func (p *Page) renderHeader(width int) string {
 	// background — painting palette bg inside the unstyled body
 	// frame creates a coloured stripe (see feedback memory on
 	// chrome rendering).
-	headerFg := lipgloss.NewStyle().Foreground(p.styles.Table.Header.GetForeground())
-	activeFg := lipgloss.NewStyle().Foreground(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
+	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
 
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", rowPrefixCols))

@@ -164,10 +164,13 @@ func firstSet(candidates ...string) string {
 	return ""
 }
 
-// fgStyle builds a foreground-only Style. The terminal-default
+// FgOnly builds a foreground-only Style. The terminal-default
 // sentinel skips the Foreground call so the terminal's native fg
-// shows through unchanged.
-func fgStyle(c color.Color) lipgloss.Style {
+// shows through unchanged. Used by the internal compileX helpers
+// and exported so chrome / page renderers can construct a
+// foreground-only style off a theme role without each owning a
+// per-package factory.
+func FgOnly(c color.Color) lipgloss.Style {
 	s := lipgloss.NewStyle()
 	if !isDefaultColor(c) {
 		s = s.Foreground(c)
@@ -295,7 +298,7 @@ func compileBody(f *k9sSkinFile) (BodyStyle, error) {
 	}
 	return BodyStyle{
 		Default: fgBgStyle(fg, bg),
-		Logo:    fgStyle(logo),
+		Logo:    FgOnly(logo),
 	}, nil
 }
 
@@ -324,11 +327,11 @@ func compileFrame(f *k9sSkinFile) (FrameStyle, error) {
 		return FrameStyle{}, err
 	}
 	return FrameStyle{
-		Border:         fgStyle(border),
-		Title:          fgStyle(title),
-		TitleHighlight: fgStyle(highlight),
-		TitleCounter:   fgStyle(counter),
-		TitleFilter:    fgStyle(filter),
+		Border:         FgOnly(border),
+		Title:          FgOnly(title),
+		TitleHighlight: FgOnly(highlight),
+		TitleCounter:   FgOnly(counter),
+		TitleFilter:    FgOnly(filter),
 	}, nil
 }
 
@@ -359,10 +362,10 @@ func compileHeader(f *k9sSkinFile) (HeaderStyle, error) {
 	}
 	return HeaderStyle{
 		Default: fgBgStyle(fg, bg),
-		Accent:  fgStyle(accent),
-		OK:      fgStyle(ok),
-		Warn:    fgStyle(warn),
-		Error:   fgStyle(errC),
+		Accent:  FgOnly(accent),
+		OK:      FgOnly(ok),
+		Warn:    FgOnly(warn),
+		Error:   FgOnly(errC),
 	}, nil
 }
 
@@ -459,10 +462,10 @@ func compileSeverity(f *k9sSkinFile) (SeverityStyle, error) {
 		return SeverityStyle{}, err
 	}
 	return SeverityStyle{
-		Critical: fgStyle(critical),
-		Warning:  fgStyle(warning),
-		Info:     fgStyle(info),
-		Unknown:  fgStyle(unknown),
+		Critical: FgOnly(critical),
+		Warning:  FgOnly(warning),
+		Info:     FgOnly(info),
+		Unknown:  FgOnly(unknown),
 	}, nil
 }
 
@@ -480,9 +483,9 @@ func compileSilenceState(f *k9sSkinFile) (SilenceStateStyle, error) {
 		return SilenceStateStyle{}, err
 	}
 	return SilenceStateStyle{
-		Active:  fgStyle(active),
-		Pending: fgStyle(pending),
-		Expired: fgStyle(expired),
+		Active:  FgOnly(active),
+		Pending: FgOnly(pending),
+		Expired: FgOnly(expired),
 	}, nil
 }
 
@@ -501,7 +504,7 @@ func compilePrompt(f *k9sSkinFile) (PromptStyle, error) {
 	}
 	return PromptStyle{
 		Default:    fgBgStyle(fg, bg),
-		Suggestion: fgStyle(suggestion),
+		Suggestion: FgOnly(suggestion),
 	}, nil
 }
 
@@ -523,10 +526,10 @@ func compileFlash(f *k9sSkinFile) (FlashStyle, error) {
 		return FlashStyle{}, err
 	}
 	return FlashStyle{
-		Success: fgStyle(success),
-		Info:    fgStyle(info),
-		Warn:    fgStyle(warn),
-		Error:   fgStyle(errC),
+		Success: FgOnly(success),
+		Info:    FgOnly(info),
+		Warn:    FgOnly(warn),
+		Error:   FgOnly(errC),
 	}, nil
 }
 
@@ -546,7 +549,7 @@ func compileCrumbs(f *k9sSkinFile) (CrumbsStyle, error) {
 	}
 	return CrumbsStyle{
 		Default: fgBgStyle(fg, bg),
-		Active:  fgStyle(active),
+		Active:  FgOnly(active),
 	}, nil
 }
 
@@ -575,8 +578,8 @@ func compileHint(f *k9sSkinFile) (HintStyle, error) {
 	}
 	return HintStyle{
 		Default: fgBgStyle(fg, bg),
-		Key:     fgStyle(keyC),
-		HelpKey: fgStyle(helpC),
+		Key:     FgOnly(keyC),
+		HelpKey: FgOnly(helpC),
 	}, nil
 }
 
@@ -595,7 +598,7 @@ func compileModal(f *k9sSkinFile) (ModalStyle, error) {
 	}
 	return ModalStyle{
 		Default: fgBgStyle(fg, bg),
-		Border:  fgStyle(border),
+		Border:  FgOnly(border),
 	}, nil
 }
 
@@ -613,8 +616,8 @@ func compileYAML(f *k9sSkinFile) (YAMLStyle, error) {
 		return YAMLStyle{}, err
 	}
 	return YAMLStyle{
-		Key:   fgStyle(key),
-		Value: fgStyle(value),
-		Punct: fgStyle(punct),
+		Key:   FgOnly(key),
+		Value: FgOnly(value),
+		Punct: FgOnly(punct),
 	}, nil
 }
