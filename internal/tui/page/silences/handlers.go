@@ -404,6 +404,16 @@ func (p *Page) openRecreateSilenceForm() tea.Cmd {
 	return app.PushPage(func() app.Page { return silenceform.New(opts) })
 }
 
+// pendingEdit is the in-flight state between an opened editor
+// session and its FinishedMsg. id is the silence ID; tenant is
+// the backend the silence belongs to (cached at open time so a
+// poll-tick reordering between open and save still routes the
+// update correctly).
+type pendingEdit struct {
+	id     string
+	tenant string
+}
+
 // openEditorForCursor hands the cursor silence to the user's
 // $EDITOR via the page's edit.Resolver. Captures the silence
 // (id, tenant, snapshot) into p.pendingEdit so the FinishedMsg

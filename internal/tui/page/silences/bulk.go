@@ -18,16 +18,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
-// pendingEdit is the in-flight state between an opened editor
-// session and its FinishedMsg. id is the silence ID; tenant is
-// the backend the silence belongs to (cached at open time so a
-// poll-tick reordering between open and save still routes the
-// update correctly).
-type pendingEdit struct {
-	id     string
-	tenant string
-}
-
 // pendingExpire is the in-flight state between an opened expire
 // confirm modal and its ConfirmResultMsg. ids is the set of
 // silence IDs to expire on Yes, paired with the tenant the
