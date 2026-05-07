@@ -15,15 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func sampleRows() []Row {
 	return []Row{
@@ -35,7 +27,7 @@ func sampleRows() []Row {
 
 func TestPage_SetRowsClampsCursor(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	p.cursor = 99
 	p.SetRows(sampleRows())
@@ -46,7 +38,7 @@ func TestPage_EnterCallsDrillFactoryWithCursorRowName(t *testing.T) {
 	t.Parallel()
 	captured := ""
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		DrillFactory: func(name string) (app.Page, error) {
 			captured = name
 			// Returning nil page is harmless here: the test only
@@ -70,7 +62,7 @@ func TestPage_EnterCallsDrillFactoryWithCursorRowName(t *testing.T) {
 func TestPage_EnterFlashesWhenDrillFactoryErrors(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		DrillFactory: func(_ string) (app.Page, error) {
 			return nil, errors.New("backend failed to build")
 		},
@@ -86,7 +78,7 @@ func TestPage_EnterFlashesWhenDrillFactoryErrors(t *testing.T) {
 
 func TestPage_EnterWithoutFactoryIsSilentNoop(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)}) // no DrillFactory
+	p := New(Options{Styles: testutil.LoadStyles(t)}) // no DrillFactory
 	p.SetRows(sampleRows())
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Nil(t, cmd,
@@ -97,7 +89,7 @@ func TestPage_EnterWithoutFactoryIsSilentNoop(t *testing.T) {
 func TestPage_EnterOnEmptyIsNoop(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		DrillFactory: func(_ string) (app.Page, error) {
 			return nil, nil //nolint:nilnil // sentinel for the empty-rows test
 		},
@@ -108,7 +100,7 @@ func TestPage_EnterOnEmptyIsNoop(t *testing.T) {
 
 func TestPage_RenderShowsURLAndVersion(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	out := testutil.StripStyle(p.View(140, 10))
 	require.Contains(t, out, "http://am-prod:9093")
@@ -119,7 +111,7 @@ func TestPage_RenderShowsURLAndVersion(t *testing.T) {
 
 func TestPage_RenderHeaderRowCarriesColumnTitles(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	out := testutil.StripStyle(p.View(160, 10))
 	for _, want := range []string{"NAME", "URL", "VERSION"} {
@@ -138,7 +130,7 @@ func TestPage_CanonicalDigitGlyphAnnotatesFirstNine(t *testing.T) {
 		{Name: "bravo"},
 		{Name: "charlie"},
 	}
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(rows)
 	out := testutil.StripStyle(p.View(120, 10))
 	// Each row's prefix region ends with `[N] ● ` (digit + scope
@@ -159,7 +151,7 @@ func TestPage_CanonicalDigitGlyphSkipsRowsPastNine(t *testing.T) {
 	for i := range rows {
 		rows[i] = Row{Name: fmt.Sprintf("t%02d", i)}
 	}
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(rows)
 	out := testutil.StripStyle(p.View(160, 14))
 	require.Contains(t, out, "[9] ● t08", "9th row in alphabetical order gets [9]")
@@ -173,7 +165,7 @@ func TestPage_CanonicalDigitFollowsAlphabeticalOrderRegardlessOfInsertOrder(t *t
 	// Insertion order is reversed (charlie, bravo, alpha); render
 	// must still annotate alpha=[1], bravo=[2], charlie=[3] —
 	// canonical = alphabetical, not insertion order.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "charlie"},
 		{Name: "bravo"},
@@ -192,7 +184,7 @@ func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 	// dispatcher consumes them before forwardToTop runs, so the
 	// tenant page must NOT bind them locally — otherwise we'd be
 	// chasing two competing handlers per digit.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	for _, code := range []rune{'0', '1', '2', '5', '9'} {
 		_, cmd := p.Update(tea.KeyPressMsg{Code: code, Text: string(code)})
@@ -202,7 +194,7 @@ func TestPage_DigitsAreNotPageOwned(t *testing.T) {
 
 func TestPage_RenderShowsEveryRow(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	out := p.View(80, 10)
 	for _, name := range []string{"prod", "staging", "dev"} {
@@ -212,7 +204,7 @@ func TestPage_RenderShowsEveryRow(t *testing.T) {
 
 func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 
 	// Default scope reads as "all" — matching every other list page.
@@ -237,7 +229,7 @@ func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -259,7 +251,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 
 	// Build enough rows that the cold-start fallback (20) lands inside
 	// the row list without clamping.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	rows := make([]Row, 60)
 	for i := range rows {
 		rows[i] = Row{Name: fmt.Sprintf("t%02d", i), URL: "http://x"}
@@ -288,7 +280,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	rows := make([]Row, 100)
 	for i := range rows {
 		rows[i] = Row{Name: fmt.Sprintf("t%03d", i), URL: "http://x"}
@@ -333,7 +325,7 @@ func TestSemverLess(t *testing.T) {
 
 func TestPage_DefaultSortIsNameAsc(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	require.True(t, p.sorter.Asc())
 }
@@ -344,7 +336,7 @@ func TestPage_ShiftVSortsByVersionSemverAware(t *testing.T) {
 	// "0.9.0" sorts after "0.27.0" lexically, but semver-correct
 	// ordering puts 0.9.0 ahead. The `Shift+V` keystroke must
 	// yield the semver-correct order.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "alpha", Version: "0.27.0"},
 		{Name: "bravo", Version: "0.9.0"},
@@ -365,7 +357,7 @@ func TestPage_VersionSortPutsEmptyLastInAsc(t *testing.T) {
 	// Empty version is "unknown", not "lowest" — concrete numbers
 	// surface at the top in ASC (operator triaging stale backends
 	// reads top-down looking for real data).
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "alpha", Version: "0.27.0"},
 		{Name: "bravo"}, // empty version
@@ -388,7 +380,7 @@ func TestPage_VersionSortPutsEmptyLastInDescToo(t *testing.T) {
 	// the top regardless of direction. rowsSorted post-processes
 	// empties to the bottom so this holds without a direction-
 	// aware Less function.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "alpha", Version: "0.27.0"},
 		{Name: "bravo"}, // empty version
@@ -412,7 +404,7 @@ func TestPage_DigitAnnotationStaysCanonicalAfterReSort(t *testing.T) {
 	// the visible rows must NOT change which row wears [1] / [2] / [3].
 	// alpha wears [1] when alphabetical-first, regardless of where
 	// the visible sort puts it.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "alpha", Version: "0.27.0"},
 		{Name: "bravo", Version: "0.9.0"},
@@ -434,7 +426,7 @@ func TestPage_UserReSortKeepsCursorAtRowIndex(t *testing.T) {
 	// when the user re-sorts. Tenant has no focusName-restore, so
 	// this is automatic — but pin it as a test so a future
 	// "restore cursor by name" regression is caught.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows([]Row{
 		{Name: "alpha", Version: "0.27.0"},
 		{Name: "bravo", Version: "0.9.0"},
@@ -457,7 +449,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// stripe. Asserts the header line carries no SGR background
 	// code (covers both inactive Header fg and active HeaderActive
 	// fg paths).
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -470,7 +462,7 @@ func TestPage_HeaderContentIsAlwaysEmpty(t *testing.T) {
 	// the subtitle line. Pinning this contract so a future
 	// regression that re-introduces the legacy mark counter
 	// trips the test.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	require.Empty(t, p.HeaderContent())
 }

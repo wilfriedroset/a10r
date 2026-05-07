@@ -16,19 +16,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func TestPage_DataMsgSortsReceivers(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -40,7 +32,7 @@ func TestPage_DataMsgSortsReceivers(t *testing.T) {
 
 func TestPage_EnterEmitsDrillRequest(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 
@@ -51,14 +43,14 @@ func TestPage_EnterEmitsDrillRequest(t *testing.T) {
 
 func TestPage_EnterOnEmptyIsNoOp(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Nil(t, cmd, "Enter on empty list must not panic or emit a drill")
 }
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}, {Name: "c"}}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
@@ -76,7 +68,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 
 	// Build enough rows that the cold-start fallback (20) lands inside
 	// the view without clamping.
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	recs := make([]backend.Receiver, 60)
 	for i := range recs {
 		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%02d", i)}
@@ -105,7 +97,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	t.Parallel()
 
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	recs := make([]backend.Receiver, 100)
 	for i := range recs {
 		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%03d", i)}
@@ -125,7 +117,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 
 func TestPage_TitleCarriesCount(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}}})
 	require.Equal(t, "receivers(all)[2]", p.Title(),
 		"count lives in the title's [N] suffix; HeaderContent stays "+
@@ -135,7 +127,7 @@ func TestPage_TitleCarriesCount(t *testing.T) {
 
 func TestPage_RenderShowsRows(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}}})
 	out := p.View(40, 10)
 	require.Contains(t, out, "ops")
@@ -148,7 +140,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// palette bg inside the unstyled body frame creates a coloured
 	// stripe. Asserts the header line carries no SGR background
 	// code.
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}}})
 	headerLine, _, _ := strings.Cut(p.View(40, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -157,14 +149,14 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 
 func TestPage_DefaultsToNameAscending(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	require.True(t, p.sorter.Asc(), "alphabetical reading order is the default")
 }
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -184,7 +176,7 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 
 func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -202,7 +194,7 @@ func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 
 func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "a"}, {Name: "b"}, {Name: "c"},
 	}})
@@ -217,7 +209,7 @@ func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	got := map[string]string{}
 	for _, b := range p.Bindings() {
 		if strings.HasPrefix(b.Key, "Shift+") {
@@ -231,7 +223,7 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}}})
 	out := testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "NAME ↑",
@@ -245,7 +237,7 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 
 func TestPage_FilterPromptIsLive(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t))
+	p := New(testutil.LoadStyles(t))
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})

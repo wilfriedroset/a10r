@@ -12,22 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 // ----- crumbs -----
 
 func TestCrumbs_PushPopRender(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	c := NewCrumbs()
 
 	require.Empty(t, c.Render(styles), "empty crumbs render as empty")
@@ -76,7 +68,7 @@ func TestCrumbs_SetIsDefensiveCopy(t *testing.T) {
 	src := []string{"alerts", "detail"}
 	c := NewCrumbs().Set(src)
 	src[0] = "mutated"
-	require.NotEqual(t, "mutated", c.Render(loadStyles(t)),
+	require.NotEqual(t, "mutated", c.Render(testutil.LoadStyles(t)),
 		"Set must copy the input slice so external mutation doesn't bleed in")
 }
 
@@ -293,7 +285,7 @@ func TestPrompt_PrintableKeyEmitsChanged(t *testing.T) {
 func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := NewPrompt(nil).Open(PromptCommand)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 
@@ -311,7 +303,7 @@ func TestPrompt_RenderIncludesPrefix(t *testing.T) {
 func TestPrompt_RenderClosedIsEmpty(t *testing.T) {
 	t.Parallel()
 
-	require.Empty(t, NewPrompt(nil).Render(loadStyles(t)))
+	require.Empty(t, NewPrompt(nil).Render(testutil.LoadStyles(t)))
 }
 
 func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
@@ -325,7 +317,7 @@ func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
 	// (48;) parameter. Bold (1;) on the typed segment may precede
 	// the fg in the chained SGR — accept either standalone or
 	// chained fg openings.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 
 	for _, mode := range []PromptMode{PromptCommand, PromptFilter} {
 		p := NewPrompt(nil).Open(mode)
@@ -548,7 +540,7 @@ func TestPrompt_SuggesterContractViolationDropped(t *testing.T) {
 func TestPrompt_RenderShowsGhost(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	sug := stubSuggester(t, map[string]string{"s": "sil"})
 	p := NewPrompt(sug).Open(PromptCommand)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -569,7 +561,7 @@ func TestPrompt_RenderHasNoBackgroundFillWithGhost(t *testing.T) {
 	// The ghost must obey the same fg-only rule as the rest of the
 	// prompt: the surrounding panel.RenderFrame is unstyled, so a
 	// painted bg behind the ghost would render as a coloured stripe.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	sug := stubSuggester(t, map[string]string{"s": "sil"})
 	p := NewPrompt(sug).Open(PromptCommand)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -588,7 +580,7 @@ func TestFlash_NewIsInactive(t *testing.T) {
 
 	f := NewFlash()
 	require.False(t, f.IsActive())
-	require.Empty(t, f.Render(loadStyles(t)))
+	require.Empty(t, f.Render(testutil.LoadStyles(t)))
 }
 
 func TestFlash_ShowAndAutoClear(t *testing.T) {
@@ -624,7 +616,7 @@ func TestFlash_StaleClearIgnored(t *testing.T) {
 	require.True(t, f.IsActive(),
 		"stale clear (id=1) must not clear a newer flash (id=2)")
 	require.Equal(t, "second", f.Text())
-	require.Contains(t, testutil.StripStyle(f.Render(loadStyles(t))), "second",
+	require.Contains(t, testutil.StripStyle(f.Render(testutil.LoadStyles(t))), "second",
 		"render must reflect the newer flash text, not the stale one")
 
 	// Matching clear (gen 2) does clear it.
@@ -635,7 +627,7 @@ func TestFlash_StaleClearIgnored(t *testing.T) {
 func TestFlash_RenderUsesLevelStyle(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 
 	cases := []struct {
 		name  string

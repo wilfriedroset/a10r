@@ -21,17 +21,9 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 // fakeClipboard records every Copy call. Nil err on success;
 // callers can flip wantErr to simulate a failure path.
@@ -87,7 +79,7 @@ func TestPage_OpensInPushTimeFormat(t *testing.T) {
 	p := New(Options{
 		Alert:      sample(),
 		Tenant:     "prod",
-		Styles:     loadStyles(t),
+		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
 		TimeFormat: app.TimeFormatAbsolute,
 	})
@@ -104,7 +96,7 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 	p := New(Options{
 		Alert:  sample(),
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	out := testutil.StripStyle(p.View(120, 30))
@@ -122,7 +114,7 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 func TestPage_RenderAppliesYAMLKeyAndValueStyles(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{
 		Alert:  sample(),
 		Tenant: "prod",
@@ -152,7 +144,7 @@ func TestPage_RenderShowsAllSections(t *testing.T) {
 	p := New(Options{
 		Alert:  sample(),
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	out := testutil.StripStyle(p.View(120, 30))
@@ -171,7 +163,7 @@ func TestPage_HeaderContentIsEmpty(t *testing.T) {
 	p := New(Options{
 		Alert:  sample(),
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 	})
 	require.Empty(t, p.HeaderContent(),
 		"title shows <tenant>/<alertname> and the summary surfaces state + "+
@@ -184,7 +176,7 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 	clip := &fakeClipboard{}
 	p := New(Options{
 		Alert:     sample(),
-		Styles:    loadStyles(t),
+		Styles:    testutil.LoadStyles(t),
 		Clipboard: clip,
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
@@ -198,7 +190,7 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 func TestPage_CopyFingerprintWithoutClipboardFlashesWarn(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
@@ -209,7 +201,7 @@ func TestPage_CopyFingerprintErrorFlashesError(t *testing.T) {
 	t.Parallel()
 
 	clip := &fakeClipboard{wantErr: errors.New("display server unreachable")}
-	p := New(Options{Alert: sample(), Styles: loadStyles(t), Clipboard: clip})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t), Clipboard: clip})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
@@ -220,7 +212,7 @@ func TestPage_OpenURLSuccess(t *testing.T) {
 	t.Parallel()
 
 	br := &fakeBrowser{}
-	p := New(Options{Alert: sample(), Styles: loadStyles(t), Browser: br})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t), Browser: br})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
@@ -234,7 +226,7 @@ func TestPage_OpenURLMissingIsInfoNoBrowserCall(t *testing.T) {
 	a := sample()
 	a.GeneratorURL = ""
 	br := &fakeBrowser{}
-	p := New(Options{Alert: a, Styles: loadStyles(t), Browser: br})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t), Browser: br})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashInfo, msg.Level,
@@ -247,7 +239,7 @@ func TestPage_OpenURLErrorFlashesError(t *testing.T) {
 	t.Parallel()
 
 	br := &fakeBrowser{wantErr: errors.New("no display server")}
-	p := New(Options{Alert: sample(), Styles: loadStyles(t), Browser: br})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t), Browser: br})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
@@ -257,7 +249,7 @@ func TestPage_OpenURLErrorFlashesError(t *testing.T) {
 func TestPage_OpenURLWithoutBrowserFlashesWarn(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
@@ -266,7 +258,7 @@ func TestPage_OpenURLWithoutBrowserFlashesWarn(t *testing.T) {
 func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "no writeable backend",
@@ -278,7 +270,7 @@ func TestPage_SilencePushesFormWhenClientsAreConfigured(t *testing.T) {
 	p := New(Options{
 		Alert:   sample(),
 		Tenant:  "prod",
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
@@ -296,7 +288,7 @@ func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
 	p := New(Options{
 		Alert:   sample(),
 		Tenant:  "ghost",
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -306,7 +298,7 @@ func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
 
 func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Alert: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
@@ -330,7 +322,7 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 func TestPage_BindingsHaveCopyOpenSilence(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	keys := map[string]bool{}
 	for _, b := range p.Bindings() {
 		keys[b.Key] = true
@@ -350,7 +342,7 @@ func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	a := sample()
 	long := strings.Repeat("X", 500)
 	a.Annotations = map[string]string{"description": long}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 
 	done := make(chan string, 1)
 	go func() { done <- p.View(80, 30) }()
@@ -371,7 +363,7 @@ func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
 		// contains a literal newline between the two facts.
 		"description": "VALUE = 0\nLABELS = map[__name__:up cluster:EU]",
 	}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(120, 50))
 	lines := strings.Split(out, "\n")
 
@@ -403,7 +395,7 @@ func TestPage_WrapsLongAnnotationWithHangingIndent(t *testing.T) {
 	a.Annotations = map[string]string{
 		"description": "This is an alert meant to ensure that the entire alerting pipeline is functional. This alert is always firing.",
 	}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(80, 50))
 	lines := strings.Split(out, "\n")
 
@@ -434,7 +426,7 @@ func TestPage_ScrollsViewport(t *testing.T) {
 	for i := range 20 {
 		a.Annotations["k"+string(rune('a'+i))] = "v" + string(rune('a'+i))
 	}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 	// Render at a tiny height that won't show the full body.
 	out := testutil.StripStyle(p.View(80, 10))
 	require.NotContains(t, out, "kt: vt",
@@ -450,7 +442,7 @@ func TestPage_ScrollsViewport(t *testing.T) {
 func TestPage_FullPageMotionsScrollViewport(t *testing.T) {
 	t.Parallel()
 	// Cold-start: no View call yet → 20-line fallback.
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
@@ -469,7 +461,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	for i := range 200 {
 		a.Annotations[fmt.Sprintf("k%03d", i)] = fmt.Sprintf("v%03d", i)
 	}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 	_ = p.View(120, 40) // 40-line viewport — half=20, full=body-2=38
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
@@ -489,7 +481,7 @@ func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 		Labels: map[string]string{"alertname": "Bare"},
 		State:  backend.AlertStateActive,
 	}
-	p := New(Options{Alert: a, Styles: loadStyles(t)})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(80, 20))
 	require.Contains(t, out, "Bare")
 	require.Contains(t, out, "(none)",
@@ -510,7 +502,7 @@ func suppressedSample(silencedBy, inhibitedBy, mutedBy []string) backend.Alert {
 
 func renderSuppressed(t *testing.T, a backend.Alert, width int) string {
 	t.Helper()
-	p := New(Options{Alert: a, Styles: loadStyles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t), Now: func() time.Time { return fixedNow }})
 	return testutil.StripStyle(p.View(width, 30))
 }
 
@@ -607,7 +599,7 @@ func TestPage_SilencedByEnrichedFromCache(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -634,7 +626,7 @@ func TestPage_SilencedByOnlyTenantTrustedFromCache(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	// Same ID, but ingested under a different tenant tag.
@@ -657,7 +649,7 @@ func TestPage_SilencedByDegradedRowOnCacheMiss(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	// Ingest a snapshot that doesn't contain the alert's silenced-by
@@ -678,7 +670,7 @@ func TestPage_SilencedByCommentClippedNoWrap(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -722,7 +714,7 @@ func TestPage_SilencedByCommentTruncatedAtFirstNewline(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -744,7 +736,7 @@ func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
 	p := New(Options{
 		Alert:      a,
 		Tenant:     "prod",
-		Styles:     loadStyles(t),
+		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
 		TimeFormat: app.TimeFormatAbsolute,
 	})
@@ -765,14 +757,14 @@ func TestPage_PollResourcesIncludesSilences(t *testing.T) {
 	t.Parallel()
 	// The page must opt in to the silences feed so the App's cache
 	// replay hydrates a freshly-pushed detail view immediately.
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, []string{"silences"}, p.PollResources())
 }
 
 func TestPage_OpenSilenceFlashesWhenNoSilencedBy(t *testing.T) {
 	t.Parallel()
 	// Active alert with no silenced-by IDs: `S` is a soft no-op.
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
@@ -786,7 +778,7 @@ func TestPage_OpenSilenceN1PushesDetail(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -811,7 +803,7 @@ func TestPage_OpenSilenceCacheMissFlashesInfo(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	// No DataMsg ingested — cache miss.
@@ -835,7 +827,7 @@ func TestPage_OpenSilenceN2OpensModal(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{
@@ -858,7 +850,7 @@ func TestPage_SilencedByNarrowWidthDropsEmDashSeparator(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -887,7 +879,7 @@ func TestPage_SilencedByDedupesDuplicateIDs(t *testing.T) {
 	p := New(Options{
 		Alert:  a,
 		Tenant: "prod",
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
@@ -941,7 +933,7 @@ func TestPage_BindingsIncludeOpenSilence(t *testing.T) {
 	// Capital `S` is a separate binding from lower-case `s`
 	// (silence form). Both must surface in `?` help so the user can
 	// discover the read-only navigation alongside the write one.
-	p := New(Options{Alert: sample(), Styles: loadStyles(t)})
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
 	keys := map[string]bool{}
 	for _, b := range p.Bindings() {
 		keys[b.Key] = true

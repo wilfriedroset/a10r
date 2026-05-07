@@ -14,15 +14,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func sampleStatus() backend.Status {
 	return backend.Status{
@@ -38,7 +31,7 @@ func sampleStatus() backend.Status {
 
 func TestPage_RenderShowsAllSections(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 	out := p.View(120, 50)
 	for _, want := range []string{
@@ -52,7 +45,7 @@ func TestPage_RenderShowsAllSections(t *testing.T) {
 
 func TestPage_AnchorJumpsToSection(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'p', Text: "p"})
@@ -67,7 +60,7 @@ func TestPage_AnchorJumpsToSection(t *testing.T) {
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -93,7 +86,7 @@ func TestPage_FullPageMotions(t *testing.T) {
 		long = append(long, "  line-"+string(rune('a'+i%26)))
 	}
 	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: st})
 
 	require.Equal(t, 0, p.scroll)
@@ -113,7 +106,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 		long = append(long, "  line-"+string(rune('a'+i%26)))
 	}
 	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: st})
 	_ = p.View(120, 40) // 40-line viewport — vim's full-page = 40-2 = 38, half = 20
 
@@ -129,7 +122,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "prod")
+	p := New(testutil.LoadStyles(t), "prod")
 	require.Contains(t, p.HeaderContent(), "loading")
 
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
@@ -139,21 +132,21 @@ func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 
 func TestPage_EmptyView(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "")
+	p := New(testutil.LoadStyles(t), "")
 	out := p.View(80, 5)
 	require.Contains(t, out, "no data")
 }
 
 func TestPage_HandlesNilDataMsg(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "")
+	p := New(testutil.LoadStyles(t), "")
 	_, _ = p.Update(poll.DataMsg{Resource: "wrong type"})
 	require.False(t, p.have, "wrong-typed Resource must be ignored")
 }
 
 func TestPage_ConfigPreservesNewlines(t *testing.T) {
 	t.Parallel()
-	p := New(loadStyles(t), "")
+	p := New(testutil.LoadStyles(t), "")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 	out := strings.Join(p.lines(), "\n")
 	require.Contains(t, out, "route:\n  receiver: web")
@@ -163,7 +156,7 @@ func TestPage_TitleFollowsScopeChange(t *testing.T) {
 	t.Parallel()
 	// Empty constructor scope reads as "all" — same convention as
 	// the alerts page so the title shape is uniform across views.
-	p := New(loadStyles(t), "")
+	p := New(testutil.LoadStyles(t), "")
 	require.Equal(t, "status(all)", p.Title())
 
 	// A global numeric quick-switch (ScopeChangedMsg) updates the

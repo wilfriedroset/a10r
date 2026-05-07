@@ -15,15 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 // fakeFetcher captures the call and replies with a fixed
 // Status. Tests that need a delay can set ch and signal manually.
@@ -135,7 +127,7 @@ func TestRedactedBackendYAML_RedactionDoesNotMutateInput(t *testing.T) {
 
 func TestPage_TitleNamesTenant(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: loadStyles(t)})
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	require.Equal(t, "tenant-config(prod)", p.Title())
 }
 
@@ -148,7 +140,7 @@ func TestPage_BodyShowsRedactedBackendImmediately(t *testing.T) {
 			URL:         "http://am",
 			BearerToken: "supersecret",
 		},
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 	})
 	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "url: http://am")
@@ -162,7 +154,7 @@ func TestPage_FetchSucceedsRendersAMConfig(t *testing.T) {
 		Tenant:  "prod",
 		Backend: config.Backend{Name: "prod"},
 		Fetcher: &fakeFetcher{cfg: "global:\n  resolve_timeout: 5m\n"},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 	})
 	require.True(t, p.loading)
 
@@ -182,7 +174,7 @@ func TestPage_FetchFailureSurfacesError(t *testing.T) {
 		Tenant:  "prod",
 		Backend: config.Backend{Name: "prod"},
 		Fetcher: &fakeFetcher{err: errors.New("backend unreachable")},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 	})
 	cmd := p.Init()
 	_, _ = p.Update(cmd())
@@ -196,7 +188,7 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 	p := New(Options{
 		Tenant:  "prod",
 		Backend: config.Backend{Name: "prod"},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 	})
 	require.False(t, p.loading)
 	require.Nil(t, p.Init())
@@ -206,7 +198,7 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: loadStyles(t)})
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	require.Equal(t, 1, p.scroll)
@@ -219,7 +211,7 @@ func TestPage_VimMotionsScroll(t *testing.T) {
 func TestPage_FullPageMotionsScroll(t *testing.T) {
 	t.Parallel()
 	// Cold-start: no View call yet → 20-line fallback.
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: loadStyles(t)})
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
 	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
@@ -231,7 +223,7 @@ func TestPage_FullPageMotionsScroll(t *testing.T) {
 
 func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: loadStyles(t)})
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	_ = p.View(120, 40) // 40-line viewport — half=20, full=body-2=38
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})

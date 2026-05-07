@@ -13,17 +13,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func sample() backend.Silence {
 	return backend.Silence{
@@ -42,20 +34,20 @@ func sample() backend.Silence {
 
 func TestPage_TitleNamesTenantAndID(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
 	require.Equal(t, "Describe(prod/sil-1)", p.Title())
 }
 
 func TestPage_TitleFallsBackOnEmptyTenant(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, "Describe(—/sil-1)", p.Title(),
 		"empty tenant must show a placeholder so the format reads symmetrically")
 }
 
 func TestPage_HeaderContentIsEmpty(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
 	require.Empty(t, p.HeaderContent(),
 		"title shows <tenant>/<id> and the YAML body surfaces `state:` — "+
 			"a header subtitle would duplicate both")
@@ -63,7 +55,7 @@ func TestPage_HeaderContentIsEmpty(t *testing.T) {
 
 func TestPage_BodyRendersYAMLWithSilenceFields(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Tenant: "prod", Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(120, 40))
 	require.Contains(t, out, "id: sil-1")
 	require.Contains(t, out, "createdBy: alice")
@@ -76,7 +68,7 @@ func TestPage_BodyRendersYAMLWithSilenceFields(t *testing.T) {
 
 func TestPage_BodySurfacesRegexMatcherFlags(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(160, 40))
 	// Regex matchers ride alongside ident matchers; the boolean
 	// flags must surface so an operator inspecting the silence can
@@ -100,7 +92,7 @@ func TestPage_BodySurfacesNonActiveStates(t *testing.T) {
 			t.Parallel()
 			s := sample()
 			s.State = tc.state
-			p := New(Options{Silence: s, Styles: loadStyles(t)})
+			p := New(Options{Silence: s, Styles: testutil.LoadStyles(t)})
 			out := testutil.StripStyle(p.View(120, 40))
 			require.Contains(t, out, "state: "+string(tc.state),
 				"non-active states must reach the body so the operator "+
@@ -111,7 +103,7 @@ func TestPage_BodySurfacesNonActiveStates(t *testing.T) {
 
 func TestPage_BodyRendersTimestampsRFC3339UTC(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	out := testutil.StripStyle(p.View(120, 40))
 	// startsAt is fixedNow - 1h = 2026-04-25T11:00:00Z. yaml.v3 quotes
 	// scalars containing `:` so the rendered form keeps the quotes —
@@ -122,7 +114,7 @@ func TestPage_BodyRendersTimestampsRFC3339UTC(t *testing.T) {
 
 func TestPage_BodyAppliesYAMLKeyAndValueStyles(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Silence: sample(), Styles: styles})
 	raw := p.View(120, 40)
 
@@ -147,7 +139,7 @@ func TestPage_BodyAppliesYAMLKeyAndValueStyles(t *testing.T) {
 
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	require.Equal(t, 1, p.scroll)
@@ -159,7 +151,7 @@ func TestPage_VimMotionsScroll(t *testing.T) {
 
 func TestPage_HalfAndFullPageMotionsScroll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	// Cold-start: no View → 10 / 20 fallback.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
@@ -174,7 +166,7 @@ func TestPage_HalfAndFullPageMotionsScroll(t *testing.T) {
 
 func TestPage_ScrollClampsToBodyOnRender(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	// Pin scroll way past the end with G; the next View must clamp.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
 	require.Positive(t, p.scroll)
@@ -187,7 +179,7 @@ func TestPage_ScrollClampsToBodyOnRender(t *testing.T) {
 
 func TestPage_GoToFirstRowResetsScroll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	require.Equal(t, 2, p.scroll)
@@ -197,7 +189,7 @@ func TestPage_GoToFirstRowResetsScroll(t *testing.T) {
 
 func TestPage_NoOpKeysAreSilent(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: loadStyles(t)})
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	got, cmd := p.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	require.Equal(t, p, got)
 	require.Nil(t, cmd)
@@ -205,7 +197,7 @@ func TestPage_NoOpKeysAreSilent(t *testing.T) {
 
 func TestPage_ImplementsAppPageInterface(t *testing.T) {
 	t.Parallel()
-	var _ app.Page = New(Options{Silence: sample(), Styles: loadStyles(t)})
+	var _ app.Page = New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 }
 
 func TestMarshalSilence_OmitsZeroUpdatedAt(t *testing.T) {

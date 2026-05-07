@@ -8,19 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func TestLine_CommentPassesThroughUnstyled(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	const line = "# resolved at: 2026-05-01"
 	got := Line(line, styles)
 	require.Equal(t, line, got,
@@ -30,7 +22,7 @@ func TestLine_CommentPassesThroughUnstyled(t *testing.T) {
 
 func TestLine_IndentedCommentPassesThrough(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	const line = "  # routes:"
 	got := Line(line, styles)
 	require.Equal(t, line, got)
@@ -38,14 +30,14 @@ func TestLine_IndentedCommentPassesThrough(t *testing.T) {
 
 func TestLine_NoColonPassesThrough(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	const line = "  - matchers"
 	require.Equal(t, line, Line(line, styles))
 }
 
 func TestLine_KeyValueIsStyled(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	out := Line("comment: scheduled maintenance", styles)
 	// Must keep the underlying text intact so :%s-style scanning works.
 	require.Equal(t, "comment: scheduled maintenance", testutil.StripStyle(out))
@@ -58,7 +50,7 @@ func TestLine_KeyValueIsStyled(t *testing.T) {
 
 func TestLine_KeyOnlyStillStylesKeyAndPunct(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	out := Line("matchers:", styles)
 	require.Equal(t, "matchers:", testutil.StripStyle(out))
 	require.NotEqual(t, "matchers:", out)
@@ -66,7 +58,7 @@ func TestLine_KeyOnlyStillStylesKeyAndPunct(t *testing.T) {
 
 func TestLine_ListElementKeyValueStyled(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// "- name: foo" — leading "- " is treated as part of the indent
 	// so the key (`name`) still gets the YAML.Key role.
 	out := Line("- name: foo", styles)
@@ -76,7 +68,7 @@ func TestLine_ListElementKeyValueStyled(t *testing.T) {
 
 func TestLine_PrometheusAnnotationContinuationPassesThrough(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// kvLines splits multi-line annotation values on \n and renders
 	// each segment with the hanging indent. A continuation like
 	// "      LABELS = map[__name__:up]" has a `:` purely from the
@@ -88,7 +80,7 @@ func TestLine_PrometheusAnnotationContinuationPassesThrough(t *testing.T) {
 
 func TestLine_KeyWithBracketsRejected(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// A bracket in the key portion is a dead giveaway of a value
 	// fragment, not a real YAML key.
 	const line = "  foo[0]: bar"
@@ -97,7 +89,7 @@ func TestLine_KeyWithBracketsRejected(t *testing.T) {
 
 func TestLine_MultiWordKeyStillStyled(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// "Generator URL" / "silenced by" are not strict YAML idents
 	// but they are *labels* the alert detail page builds. They
 	// must still receive the YAML.Key role.
@@ -109,13 +101,13 @@ func TestLine_MultiWordKeyStillStyled(t *testing.T) {
 
 func TestBody_EmptyInputReturnsEmpty(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	require.Empty(t, Body("", styles))
 }
 
 func TestBody_PreservesLineCount(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	in := "id: abc\ncomment: hi\nmatchers:\n  - name: alertname\n    value: HighCPU\n"
 	out := Body(in, styles)
 	require.Equal(t, in, testutil.StripStyle(out))

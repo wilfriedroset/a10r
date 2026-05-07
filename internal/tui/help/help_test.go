@@ -12,15 +12,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func sampleOpts(t *testing.T) Options {
 	t.Helper()
@@ -48,7 +40,7 @@ func sampleOpts(t *testing.T) Options {
 			{Key: "G", Description: "bottom"},
 		},
 		Tenants: []string{"primary", "secondary"},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 	}
 }
 

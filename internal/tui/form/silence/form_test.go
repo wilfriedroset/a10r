@@ -15,17 +15,10 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 // fakeClient records every CreateSilence / UpdateSilence call so
 // each test can assert which verb the form picked plus the spec
@@ -61,7 +54,7 @@ func newForm(t *testing.T, client Client) *Form {
 	t.Helper()
 	return New(Options{
 		Client:  client,
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 	})
@@ -89,7 +82,7 @@ func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
 	// Ctrl+S and the silence comes back with the placeholder).
 	f := New(Options{
 		Client:    &fakeClient{},
-		Styles:    loadStyles(t),
+		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
 		BlankEnds: true,
@@ -105,7 +98,7 @@ func TestForm_BlankEndsBeatsExplicitEndsAt(t *testing.T) {
 	// untouched, but only the matchers/comment fields should land).
 	f := New(Options{
 		Client:    &fakeClient{},
-		Styles:    loadStyles(t),
+		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
 		EndsAt:    fixedNow.Add(time.Hour),
@@ -148,7 +141,7 @@ func TestForm_BlankEndsSubmitWithoutTypingErrors(t *testing.T) {
 	client := &fakeClient{}
 	f := New(Options{
 		Client:    client,
-		Styles:    loadStyles(t),
+		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
 		Matchers:  []backend.Matcher{{Name: "alertname", Value: "X", IsEqual: true}},
@@ -168,7 +161,7 @@ func TestForm_FocusEndsLandsOnEndsField(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
 		Client:    &fakeClient{},
-		Styles:    loadStyles(t),
+		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
 		FocusEnds: true,
@@ -475,7 +468,7 @@ func TestForm_PrefillMatchers(t *testing.T) {
 	}
 	f := New(Options{
 		Client:   &fakeClient{},
-		Styles:   loadStyles(t),
+		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
 		Matchers: in,
@@ -488,7 +481,7 @@ func TestForm_PrefillComment(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
 		Client:  &fakeClient{},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 		Comment: "ack while patching",
@@ -501,7 +494,7 @@ func TestForm_PrefillEndsAt(t *testing.T) {
 	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
 	f := New(Options{
 		Client:  &fakeClient{},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 		EndsAt:  endsAt,
@@ -513,7 +506,7 @@ func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
 		Client:  &fakeClient{},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 	})
@@ -525,7 +518,7 @@ func TestForm_EditModeCallsUpdate(t *testing.T) {
 	client := &fakeClient{}
 	f := New(Options{
 		Client:   client,
-		Styles:   loadStyles(t),
+		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
 		Matchers: []backend.Matcher{{Name: "alertname", Value: "A", IsEqual: true}},
@@ -550,7 +543,7 @@ func TestForm_EditModeClientErrorFlashesAndKeepsForm(t *testing.T) {
 	client := &fakeClient{wantUpdateErr: errors.New("update boom")}
 	f := New(Options{
 		Client:   client,
-		Styles:   loadStyles(t),
+		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
 		Matchers: []backend.Matcher{{Name: "alertname", Value: "A", IsEqual: true}},
@@ -643,13 +636,13 @@ func TestForm_TitleSwitchesOnEditID(t *testing.T) {
 	t.Parallel()
 	create := New(Options{
 		Client:  &fakeClient{},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 	})
 	edit := New(Options{
 		Client:  &fakeClient{},
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 		EditID:  "sil-7",
@@ -675,7 +668,7 @@ func newBulkForm(t *testing.T, client Client, banner string) *Form {
 	t.Helper()
 	return New(Options{
 		Client:     client,
-		Styles:     loadStyles(t),
+		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
 		Creator:    "alice",
 		Bulk:       true,
@@ -828,7 +821,7 @@ func TestForm_BulkModeIgnoresPrefilledMatchers(t *testing.T) {
 	// This guards a future regression where a caller copies an Options
 	// struct and forgets to clear Matchers.
 	f := New(Options{
-		Styles:     loadStyles(t),
+		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
 		Creator:    "alice",
 		Bulk:       true,

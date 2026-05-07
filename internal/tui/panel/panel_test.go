@@ -14,7 +14,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // stripANSI removes SGR escape sequences from s. The frame border
@@ -25,16 +24,9 @@ var stripANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func plain(s string) string { return stripANSI.ReplaceAllString(s, "") }
 
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
-
 func TestRenderTop_AllColumnsAppear(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	out := RenderTop(State{
 		Width: 120,
 		Info: []InfoLine{
@@ -58,7 +50,7 @@ func TestRenderTop_AllColumnsAppear(t *testing.T) {
 
 func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// Width too tight for the logo: the renderer must drop it
 	// rather than overflow.
 	out := RenderTop(State{
@@ -73,7 +65,7 @@ func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 
 func TestRenderTop_TenantsClipToLogoHeight(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	tenants := make([]TenantBinding, 16)
 	for i := range tenants {
 		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%02d", i+1)}
@@ -88,7 +80,7 @@ func TestRenderTop_TenantsClipToLogoHeight(t *testing.T) {
 
 func TestRenderTop_TenantsColumnMajorFill(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// Six tenants, logo height 5 → cols=2, rows=5. Column-major:
 	// <1>..<5> in col 0; <6> at top of col 1.
 	tenants := []TenantBinding{
@@ -113,7 +105,7 @@ func TestRenderTop_TenantsColumnMajorFill(t *testing.T) {
 
 func TestRenderTop_HintsClipAndLayoutMatchTenants(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	hints := make([]action.Action, 16)
 	for i := range hints {
 		hints[i] = action.Action{
@@ -130,7 +122,7 @@ func TestRenderTop_HintsClipAndLayoutMatchTenants(t *testing.T) {
 
 func TestRenderTop_HintsColumnMajorFill(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// Seven hints, logo height 5 → cols=2, rows=5. <1>..<5> in col 0,
 	// <6>..<7> in col 1 (rows 0..1). Row 1 carries both <2> and <7>.
 	hints := []action.Action{
@@ -156,7 +148,7 @@ func TestRenderTop_HintsColumnMajorFill(t *testing.T) {
 
 func TestRenderTop_TenantsExactlyAtCapacity(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	// 15 tenants exactly fill a 3-col × 5-row grid. The off-by-one
 	// guard: every entry stays visible, none clipped.
 	tenants := make([]TenantBinding, 15)
@@ -176,7 +168,7 @@ func TestRenderTop_TenantsExactlyAtCapacity(t *testing.T) {
 
 func TestRenderTop_PanelHeightMatchesLogo(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	tenants := make([]TenantBinding, 30)
 	for i := range tenants {
 		tenants[i] = TenantBinding{Key: strconv.Itoa(i + 1), Name: fmt.Sprintf("t%d", i+1)}
@@ -189,7 +181,7 @@ func TestRenderTop_PanelHeightMatchesLogo(t *testing.T) {
 
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", loadStyles(t))
+	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
 	require.GreaterOrEqual(t, len(lines), 4, "frame must have top + bottom + body lines")
 	require.Contains(t, plain(lines[0]), "alerts(all)[2]",
@@ -205,7 +197,7 @@ func TestRenderBody_TitleSegmentsUseDistinctStyles(t *testing.T) {
 	// k9s parity: subject + brackets share one colour, scope inside
 	// `()` uses TitleHighlight, count inside `[]` uses TitleCounter
 	// — three separate SGR sequences in the rendered output.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	out := RenderBody(60, 4, "row", "alerts(all)[300]", "", styles)
 	lines := strings.Split(out, "\n")
 	top := lines[0]
@@ -240,7 +232,7 @@ func TestRenderBody_FooterInBottomBorder(t *testing.T) {
 	// title sits in the top — k9s symmetry. Pages use it for
 	// ambient state ("next refresh 26s") that should be framed
 	// rather than spend a body line.
-	out := RenderBody(40, 6, "row1", "alerts[2]", "next refresh 26s", loadStyles(t))
+	out := RenderBody(40, 6, "row1", "alerts[2]", "next refresh 26s", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
 	bottom := plain(lines[len(lines)-1])
 	require.Contains(t, bottom, "next refresh 26s",
@@ -253,7 +245,7 @@ func TestRenderBody_FooterInBottomBorder(t *testing.T) {
 
 func TestRenderBody_EmptyFooterIsPlainRule(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(40, 6, "row1", "alerts[2]", "", loadStyles(t))
+	out := RenderBody(40, 6, "row1", "alerts[2]", "", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
 	bottom := plain(lines[len(lines)-1])
 	// A plain bottom rule is "└" + (innerWidth × "─") + "┘". With
@@ -266,7 +258,7 @@ func TestRenderBody_EmptyFooterIsPlainRule(t *testing.T) {
 
 func TestRenderBody_PadsAndTruncatesLines(t *testing.T) {
 	t.Parallel()
-	out := RenderBody(20, 4, "short\nthis-line-is-far-too-long-to-fit", "x", "", loadStyles(t))
+	out := RenderBody(20, 4, "short\nthis-line-is-far-too-long-to-fit", "x", "", testutil.LoadStyles(t))
 	for l := range strings.SplitSeq(out, "\n") {
 		require.LessOrEqual(t, lipgloss.Width(l), 20,
 			"each rendered line's visual width must fit the requested width")
@@ -275,7 +267,7 @@ func TestRenderBody_PadsAndTruncatesLines(t *testing.T) {
 
 func TestRenderFrame_WrapsBodyInBorderedBox(t *testing.T) {
 	t.Parallel()
-	out := RenderFrame(20, "🐩> typed", loadStyles(t))
+	out := RenderFrame(20, "🐩> typed", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
 	require.Len(t, lines, 3,
 		"the prompt frame is exactly 3 lines: top border, body, bottom border")
@@ -293,7 +285,7 @@ func TestRenderFrame_TooNarrowFallsBackToBody(t *testing.T) {
 	// Narrower than the border can carry — return the body verbatim
 	// rather than draw a degenerate frame the user would have to
 	// stare at.
-	require.Equal(t, "x", RenderFrame(2, "x", loadStyles(t)))
+	require.Equal(t, "x", RenderFrame(2, "x", testutil.LoadStyles(t)))
 }
 
 func TestTitle_ScopeAndCount(t *testing.T) {
