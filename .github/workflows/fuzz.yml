@@ -1,0 +1,73 @@
+---
+name: fuzz
+
+# Nightly explore phase for the Go-native fuzz targets. The seed
+# corpus and any checked-in crash repros run on every PR via the
+# `ci` workflow's `make test-race`; this workflow is the
+# coverage-guided exploration window. See docs/design/fuzzing.md.
+on:
+  schedule:
+    # 03:17 UTC nightly — off-peak for GitHub-hosted runners.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One nightly per branch. cancel-in-progress is false so a
+# manual workflow_dispatch never kills the scheduled run.
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    # 5m fuzz + setup + corpus restore/save. 15m is generous;
+    # keeps a future deadlock from sitting at the runner default.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fuzz-app
+            package: ./internal/tui/app/
+            name: FuzzApp
+          - target: fuzz-form
+            package: ./internal/tui/form/silence/
+            name: FuzzSilenceForm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          check-latest: true
+
+      # Coverage-guided corpus accumulates under $GOCACHE/fuzz.
+      # Without this cache each nightly run starts from scratch
+      # and re-explores the same shallow surface; with it,
+      # exploration deepens over weeks. testdata/fuzz/ is for
+      # checked-in regression repros only — different concern.
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      - name: Run ${{ matrix.name }} (5m explore)
+        run: make ${{ matrix.target }} FUZZTIME=5m
+
+      - name: Upload crash repros on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-crash-repros
+          path: ${{ matrix.package }}testdata/fuzz/
+          if-no-files-found: ignore
+          retention-days: 14

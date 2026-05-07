@@ -1,4 +1,4 @@
-.PHONY: build test test-race cover vet prek lint run clean tidy am-up am-down am-logs smoke skins-sync help
+.PHONY: build test test-race cover vet prek lint run clean tidy am-up am-down am-logs smoke skins-sync fuzz fuzz-app fuzz-form help
 
 GO ?= go
 BINARY := a10r
@@ -84,6 +84,20 @@ am-logs: ## Tail the local Alertmanager logs
 
 smoke: ## Run the backend smoke harness against the local Alertmanager
 	$(GO) run ./cmd/smoke -url http://127.0.0.1:$(AM_PORT)
+
+# FUZZTIME bounds each fuzz target's exploration window. The seed
+# corpus + checked-in repros run unconditionally on `make test`;
+# `make fuzz` is the dev / nightly explore phase. See
+# docs/design/fuzzing.md for design rationale.
+FUZZTIME ?= 30s
+
+fuzz: fuzz-app fuzz-form ## Run all fuzz targets ($(FUZZTIME) each)
+
+fuzz-app: ## Fuzz internal/tui/app FuzzApp (FUZZTIME=$(FUZZTIME))
+	$(GO) test -run='^$$' -fuzz=FuzzApp -fuzztime=$(FUZZTIME) ./internal/tui/app/
+
+fuzz-form: ## Fuzz internal/tui/form/silence FuzzSilenceForm (FUZZTIME=$(FUZZTIME))
+	$(GO) test -run='^$$' -fuzz=FuzzSilenceForm -fuzztime=$(FUZZTIME) ./internal/tui/form/silence/
 
 # Refresh the embedded skin set from upstream sources pinned in
 # internal/tui/theme/skins/SOURCES.yaml. Each repo is shallow-cloned
