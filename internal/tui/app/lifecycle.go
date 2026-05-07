@@ -134,8 +134,8 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	a.stack = append(a.stack, page)
 	a.refreshCrumbs()
 	initCmd := page.Init()
-	a.replayCachedDataMsgs()
-	return initCmd
+	replayCmd := a.replayCachedDataMsgs()
+	return tea.Batch(initCmd, replayCmd)
 }
 
 // popPage removes the top page when the stack has more than one
@@ -174,8 +174,8 @@ func (a *App) replacePage(factory func() Page) tea.Cmd {
 	a.stack[len(a.stack)-1] = page
 	a.refreshCrumbs()
 	cmd := tea.Sequence(departing.Close(), page.Init())
-	a.replayCachedDataMsgs()
-	return cmd
+	replayCmd := a.replayCachedDataMsgs()
+	return tea.Batch(cmd, replayCmd)
 }
 
 // cacheDataMsg stores the latest DataMsg per (ResourceLabel,
@@ -202,19 +202,21 @@ func (a *App) cacheDataMsg(m poll.DataMsg) {
 // already type-assert and ignore wrong shapes, so nothing breaks;
 // the filter just trims the noise for opted-in pages.
 //
-// A returned Cmd is dropped: pages don't return Cmds in response
-// to a poll DataMsg (verified by every existing page's Update
-// branch). Should that invariant change, lift the helper to
-// return tea.Batch of every page Cmd.
+// Cmds returned from each replayed Update are collected and folded
+// into a tea.Batch so they survive: every production page returns
+// nil from DataMsg today, so the batch is degenerate, but a future
+// page wiring DataMsg → kick a follow-up Cmd would otherwise lose
+// the kick on the first push.
 //
 // The inner-loop write to a.stack[len-1] is safe because the App's
 // Update path is single-threaded by bubbletea — replay runs
 // inside the same Update call that pushed the page, so no other
 // goroutine reads or writes the stack while this loop runs.
-func (a *App) replayCachedDataMsgs() {
+func (a *App) replayCachedDataMsgs() tea.Cmd {
 	if len(a.stack) == 0 {
-		return
+		return nil
 	}
+	var cmds []tea.Cmd
 	allowed, filtering := a.replayFilter()
 	for label, bucket := range a.pollCache {
 		if filtering {
@@ -223,10 +225,14 @@ func (a *App) replayCachedDataMsgs() {
 			}
 		}
 		for _, m := range bucket {
-			top, _ := a.stack[len(a.stack)-1].Update(m)
+			top, cmd := a.stack[len(a.stack)-1].Update(m)
 			a.stack[len(a.stack)-1] = top
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
+	return tea.Batch(cmds...)
 }
 
 // replayFilter resolves the active page's PollResources()

@@ -34,6 +34,13 @@ type fakePage struct {
 	// shell propagates tear-down work to bubbletea's program loop.
 	closeCmd tea.Cmd
 
+	// dataMsgCmd, when non-nil, is returned alongside the page from
+	// Update on a poll.DataMsg. Used by tests to pin the cache-replay
+	// Cmd-preservation contract — every production page returns nil
+	// from DataMsg today, so without an explicit hook the replay path
+	// has no Cmd to assert against.
+	dataMsgCmd tea.Cmd
+
 	// capturesInput, when set, makes the page also implement the
 	// InputCapturePage interface — used by tests that exercise
 	// the dispatcher-bypass path for forms.
@@ -78,6 +85,9 @@ func (p *fakePage) Close() tea.Cmd {
 
 func (p *fakePage) Update(msg tea.Msg) (Page, tea.Cmd) {
 	*p.updateLog = append(*p.updateLog, msg)
+	if _, ok := msg.(poll.DataMsg); ok && p.dataMsgCmd != nil {
+		return p, p.dataMsgCmd
+	}
 	return p, nil
 }
 
@@ -602,6 +612,37 @@ func TestPollCache_LegacyDataMsgIsForwardedNotCached(t *testing.T) {
 		require.False(t, isData,
 			"unlabelled DataMsg must not be replayed into a freshly pushed page")
 	}
+}
+
+// TestPollCache_PreservesReplayedCmd pins the contract that cmds
+// returned from a page's Update during cache replay survive via
+// tea.Batch instead of being dropped. Every production page returns
+// nil from DataMsg today, so the regression would be invisible
+// until a page wires DataMsg → kick a follow-up Cmd; the test
+// asserts the contract before that page lands.
+func TestPollCache_PreservesReplayedCmd(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	a.Update(poll.DataMsg{
+		Resource:      []string{"prod-alert"},
+		Tenant:        "prod",
+		ResourceLabel: "alerts",
+	})
+
+	type kickedMsg struct{}
+	page := newFakePage("alerts")
+	page.dataMsgCmd = func() tea.Msg { return kickedMsg{} }
+	drive(t, a, PushPage(func() Page { return page }))
+
+	var saw bool
+	for _, msg := range *page.updateLog {
+		if _, ok := msg.(kickedMsg); ok {
+			saw = true
+			break
+		}
+	}
+	require.True(t, saw, "replayed Cmd must reach the page's Update via tea.Batch (log=%v)", *page.updateLog)
 }
 
 func TestStack_PageInitChainedCmdsLand(t *testing.T) {
