@@ -117,16 +117,16 @@ having dedup helpers in place), then the L-severity unification.
 |---|-----|---|---|
 | 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
 | 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome |
-| 3 | C1.3 | Inline `validateAuthExclusive` allocation | backend |
-| 4 | C2.1 | Doc-comment why mimir returns `*vanilla.Client` | backend |
-| 5 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
-| 6 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+| 3 | C2.1 | Doc-comment why mimir returns `*vanilla.Client` | backend |
+| 4 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
+| 5 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
 
-Items B1.2 (`app.quitting`) and A1.4 (`alert.View` receiver) were
-dropped at execution-time spot-check: both are legitimate, see
-"Watched, not actioned" rows below for the rationale. B2.1's scope
-shrunk from three adoption sites to two — `footer.flashStyle` is a
-palette-dispatch by level, not a foreground-only factory.
+Items B1.2 (`app.quitting`), A1.4 (`alert.View` receiver), and
+C1.3 (`validateAuthExclusive` slice) were dropped at execution-time
+spot-check: each is legitimate, see "Watched, not actioned" rows
+below for the rationale. B2.1's scope grew the other direction —
+the audit named three sites; execution surfaced ten more under the
+same shape, all converted in cecb8f4.
 
 ### Wave 2 — Page dedup extractions (M, all sit under `internal/tui/page/`)
 
@@ -267,7 +267,7 @@ under "Watched, not actioned" below for traceability.
 |---|---|---|---|---|
 | C1.1 | `backend/transport/transport.go:250-268` | S | `buildProxyFunc` returns closure with internal `compileNoProxy` call | Low payoff — keep |
 | C1.2 | `backend/transport/transport.go:283-318` | S | `compileNoProxy` is dense with nested closures, no dedicated tests | Add unit tests for port stripping / suffix vs exact match; OR introduce a small `proxyMatcher` value type |
-| C1.3 | `internal/config/types.go:158-173` | S | `validateAuthExclusive` allocates `[]string` to count-and-format | Inline counter or three booleans |
+| C1.3 | `internal/config/types.go:158-173` | — | Original allocates 0-1 times in the common path; runs once per backend at startup; alternatives sketched (counter + lazy slice; three booleans) were equal or worse on clarity | **Kept** — see "Watched, not actioned" |
 | C1.4 | `internal/config/types.go:122-144` | — | `Backend.Validate` calls six helpers in sequence | **Keep** — composition is clear, error short-circuit is correct |
 | C1.5 | `cmd/tui.go:48-615` | M | 615 LOC, 20 helper funcs sized 14-110 LOC | Optional: extract a `TUIBuilder`. Defer until the file grows past 700 LOC or a future `init` / `doctor` command lands |
 | C1.6 | `backend/vanilla/client.go:128-192` | S | `doGet` / `doPost` / `doDelete` repeat context + error-classify boilerplate | Extract `exec(req, dst any)` |
@@ -310,6 +310,7 @@ re-discover them.
 |---|---|---|
 | A1.4 | `alert.View` receiver | Receiver is used (`p.bodyHeight`, `p.bodyLines`, `p.reconcileScroll`); audit subagent missed the body — no smell |
 | B1.2 | `app.quitting` field | Test observability seam for QuitMsg routing assertions (`app_test.go:297,348,357`). Removing it would require either restructuring three tests or adding an alternate test seam — net negative cleanup |
+| C1.3 | `validateAuthExclusive` slice | Runs once per backend at startup; common path (0-1 auth methods) allocates 0-1 times — immaterial. Sketched alternatives (counter + lazy slice; three booleans) were equal or worse on clarity. Audit overstated the smell |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
