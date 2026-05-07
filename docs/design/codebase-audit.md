@@ -166,15 +166,19 @@ already available, so the splits stay narrow (no
 - `state.go` — `recompute`, `snapshotFocus`, filter / scope helpers,
   scroll helpers, `polled`, `spinnerActive`, etc.
 
-| # | ID | Title |
-|---|-----|---|
-| 14 | A1.1 | Split `silences.go` (1889 → ~4 files) |
-| 15 | A1.2 | Split `alerts.go` (1758 → ~4 files) |
-| 16 | A1.3 | Split `groups.go` (1187 → ~3-4 files) |
-| 17 | B1.1 | Split `app.go` (886 → lifecycle / input / pagestack) |
+| # | ID | Title | Status |
+|---|-----|---|---|
+| 14 | A1.1 | Split `silences.go` (1798 → 5 files) | ✓ b794063 |
+| 15 | A1.2 | Split `alerts.go` (1661 → 5 files) | ✓ 7a672b0 |
+| 16 | A1.3 | Split `groups.go` (1091 → 4 files) | ✓ 197e723 |
+| 17 | B1.1 | Split `app.go` (886 → 4 files) | ✓ 099df8f |
 
-`alert.go` (866) and `form.go` (828) are right at the edge; review
-during their adoption commits — split only if the seam is natural.
+`alert.go` and `form.go` were both flagged as "right at the edge"
+in the original audit. After Wave 2's cursor extractions they sit
+at 845 and 819 LOC respectively — 45 and 19 over the ceiling.
+**Deferred**: splitting either for ≤45 LOC of churn would burn
+review attention without meaningfully improving navigation. See
+"Watched, not actioned" rows.
 
 ### Wave 4 — Chrome / backend tightening (M, independent)
 
@@ -320,6 +324,8 @@ re-discover them.
 | C2.1 | factory ↔ vanilla doc | Already documented: `mimir/client.go:74-80` explains why `mimir.New` returns `*vanilla.Client`, `factory.go:24-42` documents the single-code-path decision. Audit subagent didn't read existing comments |
 | B1.7 | dispatcher `lookup`/`hasBinding` | `hasBinding` already delegates to `lookup` (no duplicate walk); merging by adding a `Layer` return value would expand API surface no current caller needs; helper's single call site is readability-positive vs. inlining |
 | B2.4 | modal Enter/Esc/nav scaffolding | Three modal impls have fundamentally different bodies (Confirm switch on y/n/Enter/Esc; Picker terminal/nav/query split; Help dismiss-on-any-key). Only shared scaffold is the standard `msg.(tea.KeyMsg)` idiom — extracting that hides a standard Bubbletea pattern rather than reducing duplication |
+| `alert.go` split | 845 LOC after the cursor extractions, 45 over the ceiling. Splitting into render / lifecycle would mechanically work but the file is one cohesive detail page; net win against the ~10 commits of churn (split + adoption) is small. Re-evaluate when a feature that needs to add to the page lands |
+| `form.go` split | 819 LOC, 19 over the ceiling. Single-page coherent form; splitting for 19 LOC of overrun is pure churn. Same re-evaluation trigger as alert.go |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
