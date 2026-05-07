@@ -343,7 +343,7 @@ func (p *Page) View(width, height int) string {
 	bodyHeight := max(height-1, 0)
 	p.bodyHeight = bodyHeight
 	maxRows := min(bodyHeight, len(p.rows))
-	p.reconcileScroll(maxRows)
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.rows))
 	end := min(p.topRow+maxRows, len(p.rows))
 	out := make([]string, 0, end-p.topRow+1)
 	out = append(out, headerLine)
@@ -511,23 +511,6 @@ func (p *Page) scopeIncludes(name string) bool {
 		}
 	}
 	return false
-}
-
-// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
-func (p *Page) reconcileScroll(maxRows int) {
-	if p.cursor < p.topRow {
-		p.topRow = p.cursor
-	}
-	if p.cursor >= p.topRow+maxRows {
-		p.topRow = p.cursor - maxRows + 1
-	}
-	maxTop := max(len(p.rows)-maxRows, 0)
-	if p.topRow > maxTop {
-		p.topRow = maxTop
-	}
-	if p.topRow < 0 {
-		p.topRow = 0
-	}
 }
 
 // padRight pads s with trailing spaces to w columns so the

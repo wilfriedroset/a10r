@@ -1397,7 +1397,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
-	p.reconcileScroll(maxRows)
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
 	end := min(p.topRow+maxRows, len(p.view))
 
 	showTenant := p.showTenantColumn()
@@ -1476,26 +1476,6 @@ func (p *Page) renderRows(width, maxRows int) string {
 		}
 	}
 	return b.String()
-}
-
-// reconcileScroll slides topRow so the cursor lands inside the
-// [topRow, topRow+maxRows) window. Called from the renderer
-// because maxRows is body-height-dependent and only known here.
-func (p *Page) reconcileScroll(maxRows int) {
-	if p.cursor < p.topRow {
-		p.topRow = p.cursor
-	}
-	if p.cursor >= p.topRow+maxRows {
-		p.topRow = p.cursor - maxRows + 1
-	}
-	// Clamp: never scroll past the last possible window.
-	maxTop := max(len(p.view)-maxRows, 0)
-	if p.topRow > maxTop {
-		p.topRow = maxTop
-	}
-	if p.topRow < 0 {
-		p.topRow = 0
-	}
 }
 
 // rowPrefixCols is the space the rendered row reserves for its

@@ -1542,7 +1542,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
-	p.reconcileScroll(maxRows)
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
 	end := min(p.topRow+maxRows, len(p.view))
 	showMark := p.hasMarks()
 	var b strings.Builder
@@ -1610,25 +1610,6 @@ func (p *Page) renderRows(width, maxRows int) string {
 		}
 	}
 	return b.String()
-}
-
-// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
-// Same shape as the alerts page; replicated rather than shared so
-// each page stays self-contained until a tablekit emerges.
-func (p *Page) reconcileScroll(maxRows int) {
-	if p.cursor < p.topRow {
-		p.topRow = p.cursor
-	}
-	if p.cursor >= p.topRow+maxRows {
-		p.topRow = p.cursor - maxRows + 1
-	}
-	maxTop := max(len(p.view)-maxRows, 0)
-	if p.topRow > maxTop {
-		p.topRow = maxTop
-	}
-	if p.topRow < 0 {
-		p.topRow = 0
-	}
 }
 
 // padColumns lays out a row across fixed-width columns. UUID,

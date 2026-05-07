@@ -835,7 +835,7 @@ func (p *Page) View(width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render(p.emptyState())
 	}
 	maxRows := min(height-1, len(rows))
-	p.reconcileScroll(maxRows, len(rows))
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(rows))
 	end := min(p.topRow+maxRows, len(rows))
 	out := make([]string, 0, end-p.topRow+1)
 	out = append(out, p.renderHeader(width))
@@ -1048,26 +1048,6 @@ func (p *Page) showTenantColumn() bool {
 		}
 	}
 	return in > 1
-}
-
-// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
-// totalRows is the live row-count (groups can expand and shrink as
-// the user toggles), so it's threaded through rather than read off
-// the page.
-func (p *Page) reconcileScroll(maxRows, totalRows int) {
-	if p.cursor < p.topRow {
-		p.topRow = p.cursor
-	}
-	if p.cursor >= p.topRow+maxRows {
-		p.topRow = p.cursor - maxRows + 1
-	}
-	maxTop := max(totalRows-maxRows, 0)
-	if p.topRow > maxTop {
-		p.topRow = maxTop
-	}
-	if p.topRow < 0 {
-		p.topRow = 0
-	}
 }
 
 // padRight truncates / right-pads s to exactly w columns so the

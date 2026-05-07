@@ -379,23 +379,6 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-// reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).
-func (p *Page) reconcileScroll(maxRows int) {
-	if p.cursor < p.topRow {
-		p.topRow = p.cursor
-	}
-	if p.cursor >= p.topRow+maxRows {
-		p.topRow = p.cursor - maxRows + 1
-	}
-	maxTop := max(len(p.view)-maxRows, 0)
-	if p.topRow > maxTop {
-		p.topRow = maxTop
-	}
-	if p.topRow < 0 {
-		p.topRow = 0
-	}
-}
-
 // padRight pads s with trailing spaces so it occupies exactly w
 // columns. Truncates when s already exceeds w. Used to size the
 // cursor row to the full body width before the style wraps it,
@@ -430,7 +413,7 @@ func (p *Page) View(width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render(msg)
 	}
 	maxRows := min(height-1, len(p.view))
-	p.reconcileScroll(maxRows)
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
 	end := min(p.topRow+maxRows, len(p.view))
 	rows := make([]string, 0, end-p.topRow+1)
 	rows = append(rows, p.renderHeader(width))
