@@ -24,21 +24,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // fixedNow returns a deterministic clock for the age column tests.
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-// loadStyles returns a populated theme.Styles for body width
-// rendering. Most assertions strip styles before comparing, so the
-// exact skin doesn't matter.
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 // alert builds a synthetic Alert for tests. Age is fixed at one
 // minute so age-column rendering is consistent across the suite;
@@ -57,7 +46,7 @@ func mkAlert(name, severity string, state backend.AlertState) backend.Alert {
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 }
@@ -65,7 +54,7 @@ func newPage(t *testing.T) *Page {
 func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
 	alerts := []backend.Alert{
 		mkAlert("CritOne", "critical", backend.AlertStateActive),
@@ -88,7 +77,7 @@ func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 func TestPage_CursorRowSkipsSeverityColour(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
 	alerts := []backend.Alert{
 		mkAlert("CritOne", "critical", backend.AlertStateActive),
@@ -106,7 +95,7 @@ func TestPage_CursorRowSkipsSeverityColour(t *testing.T) {
 func TestPage_MarkedRowSkipsSeverityColour(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
 	alerts := []backend.Alert{
 		mkAlert("CritOne", "critical", backend.AlertStateActive),
@@ -127,7 +116,7 @@ func TestPage_MarkedRowSkipsSeverityColour(t *testing.T) {
 func TestPage_SuppressedRowSkipsSeverityColour(t *testing.T) {
 	t.Parallel()
 
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
 	alerts := []backend.Alert{
 		mkAlert("CritOne", "critical", backend.AlertStateActive),
@@ -455,7 +444,7 @@ func TestPage_SilenceKeyOnEmptyViewFlashesHint(t *testing.T) {
 	// Clients set so the "no writeable backend" path doesn't win;
 	// no DataMsg → empty view.
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
@@ -483,7 +472,7 @@ func TestPage_SilenceKeyWithoutClientsFlashesHint(t *testing.T) {
 func TestPage_SilenceKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
@@ -895,7 +884,7 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 	// Non-cursor rows do carry per-cell severity ANSI now. Assert
 	// the Cursor style ANSI is absent — that's the contract that
 	// keeps the cursor visually distinct from a coloured cell.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	cursorANSI := styles.Table.Cursor.Render("x")
 	cursorPrefix := strings.SplitN(cursorANSI, "x", 2)[0]
 	require.NotContains(t, otherLine, cursorPrefix,
@@ -983,7 +972,7 @@ func TestPage_TenantColumnAppearsForAllScope(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "all",
 	})
@@ -1008,7 +997,7 @@ func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "prod",
 	})
@@ -1035,7 +1024,7 @@ func TestPage_TitleIncludesScope(t *testing.T) {
 
 	// Explicit scope from Options threads into the title.
 	p2 := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "prod",
 	})
@@ -1169,7 +1158,7 @@ func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 
 	// Two backends each report one alert. Scope starts as "all".
 	p := New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "all",
 	})
@@ -1374,7 +1363,7 @@ func bulkPage(t *testing.T, alertsByTenant map[string][]backend.Alert, fakes map
 		clients[tenant] = fake
 	}
 	p := New(Options{
-		Styles:          loadStyles(t),
+		Styles:          testutil.LoadStyles(t),
 		Now:             func() time.Time { return fixedNow },
 		Scope:           "all",
 		Clients:         clients,

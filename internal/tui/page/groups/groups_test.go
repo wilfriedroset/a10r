@@ -18,15 +18,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
-
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
 
 func sampleGroups() []backend.AlertGroup {
 	return []backend.AlertGroup{
@@ -48,14 +40,14 @@ func sampleGroups() []backend.AlertGroup {
 
 func TestPage_DefaultsToNameAscending(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	require.True(t, p.sorter.Asc(), "alphabetical name read-order is the default")
 }
 
 func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	// sampleGroups has team=platform first and team=data second
 	// in source order; Name ASC must reorder to data, platform.
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
@@ -65,7 +57,7 @@ func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
 
 func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default: ascending by name → data (1 alert), platform (2 alerts).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
@@ -77,7 +69,7 @@ func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
 
 func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
 	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
@@ -88,7 +80,7 @@ func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	require.True(t, p.sorter.Asc())
 
@@ -106,7 +98,7 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 
 func TestPage_SortColumnWalk(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
@@ -120,7 +112,7 @@ func TestPage_SortColumnWalk(t *testing.T) {
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	want := map[string]string{
 		"Shift+N": "sort by name",
 		"Shift+C": "sort by alert count",
@@ -147,7 +139,7 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	// the new focus. This pairs with poll/scope/filter recomputes
 	// which still follow the focused row by key (see
 	// TestPage_DataMsgKeepsCursor* if/when added).
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
 	// platform (row 1).
@@ -169,7 +161,7 @@ func TestPage_UserResortOnExpandedLeafKeepsRowIndex(t *testing.T) {
 	// Same contract on a leaf row: the cursor's *index* survives the
 	// re-sort, even when the previously-focused leaf moves elsewhere
 	// in the visible row list.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Walk to platform (row 1), expand, walk to leaf A (row 2),
 	// then leaf B (row 3).
@@ -186,7 +178,7 @@ func TestPage_UserResortOnExpandedLeafKeepsRowIndex(t *testing.T) {
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	out := testutil.StripStyle(p.View(120, 10))
 	require.Contains(t, out, "NAME ↑",
@@ -207,7 +199,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// palette bg inside the unstyled body frame creates a coloured
 	// stripe. Asserts the header line carries no SGR background
 	// code.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -216,7 +208,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 
 func TestPage_StartsCollapsed(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	rows := p.rows()
 	require.Len(t, rows, 2, "every group is collapsed → one row per group")
@@ -224,7 +216,7 @@ func TestPage_StartsCollapsed(t *testing.T) {
 
 func TestPage_EnterTogglesExpand(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// Default Name ASC puts data (1 alert) first, platform (2 alerts)
@@ -242,7 +234,7 @@ func TestPage_EnterTogglesExpand(t *testing.T) {
 
 func TestPage_TabExpandsAll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -258,7 +250,7 @@ func TestPage_TabExpandsAll(t *testing.T) {
 
 func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
 	// platform, expand it, then drill the first leaf (A).
@@ -273,7 +265,7 @@ func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 
 func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -285,7 +277,7 @@ func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
@@ -298,7 +290,7 @@ func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 
 func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
@@ -310,7 +302,7 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	t.Parallel()
 	// No DataMsg → empty rows → `s` flashes "no group under cursor".
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -321,21 +313,21 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 
 func TestPage_TitleColdStartShowsLoading(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Contains(t, testutil.StripStyle(p.Title()), "loading groups",
 		"cold-start title must read as loading until the first DataMsg lands")
 }
 
 func TestPage_TitleAfterDataMsgFlipsToCount(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
 	require.Equal(t, "groups(all)[2]", p.Title())
 }
 
 func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
 	require.False(t, p.refreshing)
 
@@ -360,7 +352,7 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	p := New(Options{Styles: loadStyles(t), Now: func() time.Time { return now }})
+	p := New(Options{Styles: testutil.LoadStyles(t), Now: func() time.Time { return now }})
 	require.Empty(t, p.Footer())
 
 	_, _ = p.Update(poll.DataMsg{
@@ -389,7 +381,7 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
@@ -408,7 +400,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 	// Build enough rows that the cold-start fallback (20) lands inside
 	// the row list without clamping. Each group is collapsed by default
 	// → one row per group.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	gs := make([]backend.AlertGroup, 60)
 	for i := range gs {
 		gs[i] = backend.AlertGroup{
@@ -444,7 +436,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	// After a render the page snapshots its body-row budget. Ctrl+D
 	// must walk half the viewport, Ctrl+F a full window minus two —
 	// vim's CTRL-F overlap convention.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	gs := make([]backend.AlertGroup, 100)
 	for i := range gs {
 		gs[i] = backend.AlertGroup{
@@ -467,7 +459,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Move the cursor off row 0 so it doesn't get wrapped in the
 	// row-level Cursor style — that would supersede the per-cell
@@ -490,7 +482,7 @@ func TestPage_RenderShowsSeverityLabel(t *testing.T) {
 	// severity → renders as the unknown placeholder. The SEVERITY
 	// column surfaces the worst-rank label so the user can triage
 	// without expanding.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	out := testutil.StripStyle(p.View(120, 10))
@@ -505,7 +497,7 @@ func TestPage_FocusedGroupShowsSingleTreeMarker(t *testing.T) {
 	// must not double up — a focused collapsed group used to render
 	// "▸ ▸ team=…" because the cursor and tree marker shared the
 	// same glyph.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	out := testutil.StripStyle(p.View(120, 10))
 	require.NotContains(t, out, "▸ ▸",
@@ -516,7 +508,7 @@ func TestPage_FocusedGroupShowsSingleTreeMarker(t *testing.T) {
 
 func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 	t.Parallel()
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Walk the cursor onto whichever row is NOT the platform group
@@ -544,7 +536,7 @@ func TestPage_LeafRowsColourLabelsAndState(t *testing.T) {
 	// instance, not the labels already in the group header. The
 	// per-cell colouring follows the YAML viewer's palette so a
 	// k=v pair reads consistently across the TUI.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{Styles: styles})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
@@ -573,7 +565,7 @@ func TestPage_LeafRowsShowDistinguishingLabels(t *testing.T) {
 	// instance=… so the user can tell siblings apart and decide
 	// which one to drill into. alertname is already in the group
 	// header — echoing it on every leaf is dead pixels.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
 		Alerts: []backend.Alert{
@@ -601,7 +593,7 @@ func TestPage_LeafRowsFallbackToAlertnameWhenIdentical(t *testing.T) {
 	// is empty, so the leaf falls back to the alertname so the row
 	// still carries something the user can read. Edge case (a real
 	// duplicate), but the fallback prevents a blank leaf.
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
 		Alerts: []backend.Alert{
@@ -653,7 +645,7 @@ func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
 
 func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.AlertGroup{{
 			Labels: map[string]string{"team": "platform"},
@@ -677,7 +669,7 @@ func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
 
 func TestPage_TenantColumnHiddenOnSingleTenantScope(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.AlertGroup{{
 			Labels: map[string]string{"team": "platform"},
@@ -722,7 +714,7 @@ func TestCommonLabels_AllSharedSurvives(t *testing.T) {
 
 func TestPage_FilterPromptIsLive(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: loadStyles(t)})
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// sampleGroups has two entries: team=platform and team=data.

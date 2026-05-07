@@ -27,22 +27,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 
-func loadStyles(t *testing.T) theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return *s
-}
-
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: loadStyles(t),
+		Styles: testutil.LoadStyles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 }
@@ -306,7 +298,7 @@ type recordingResolver struct {
 func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": fake},
 		Creator: "wilfried",
@@ -729,7 +721,7 @@ func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 	// alerts: foreground-only dim so the row is still legible
 	// but visibly demoted. The active row in the same view
 	// stays at full contrast so the comparison is obvious.
-	styles := loadStyles(t)
+	styles := testutil.LoadStyles(t)
 	p := New(Options{
 		Styles: styles,
 		Now:    func() time.Time { return fixedNow },
@@ -1200,7 +1192,7 @@ func TestPage_BindingsSurfaceEnterDetail(t *testing.T) {
 func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
@@ -1221,7 +1213,7 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": fake},
 		Creator: "wilfried",
@@ -1247,7 +1239,7 @@ func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1278,7 +1270,7 @@ func TestPage_EditKeyPushesEditForm(t *testing.T) {
 func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1318,7 +1310,7 @@ func TestPage_RecreateKeyOnActiveSilenceFlashesHint(t *testing.T) {
 func TestPage_RecreateKeyOnPendingSilenceFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
@@ -1337,7 +1329,7 @@ func TestPage_RecreateKeyOnPendingSilenceFlashesHint(t *testing.T) {
 func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
@@ -1374,7 +1366,7 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 	}
 	fake := &fakeSilenceClient{}
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": fake},
 		Creator: "wilfried",
@@ -1430,7 +1422,7 @@ func TestPage_FormSubmittedUpdatedFlashesUpdated(t *testing.T) {
 func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  loadStyles(t),
+		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1685,7 +1677,7 @@ func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
 	// Concurrency = 2 with 5 marks → at most 2 blocked at once.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          loadStyles(t),
+		Styles:          testutil.LoadStyles(t),
 		Now:             func() time.Time { return fixedNow },
 		Clients:         map[string]Client{"prod": fake},
 		Creator:         "wilfried",
@@ -1740,7 +1732,7 @@ func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
 	// callers arrive at the fake after Close.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          loadStyles(t),
+		Styles:          testutil.LoadStyles(t),
 		Now:             func() time.Time { return fixedNow },
 		Clients:         map[string]Client{"prod": fake},
 		Creator:         "wilfried",
