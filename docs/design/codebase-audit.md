@@ -117,21 +117,22 @@ having dedup helpers in place), then the L-severity unification.
 |---|-----|---|---|
 | 1 | A2.5 | Extract `loadStyles(t)` to `tui/page/testutil` | pages |
 | 2 | B2.1 | Add `theme.FgOnly(c)` and adopt in header + panel | chrome |
-| 3 | B1.7 | Merge `dispatcher.lookup` and `hasBinding` into one | chrome |
-| 4 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
+| 3 | C1.6 | Extract `vanilla.exec(req, dst)` to dedupe Get/Post/Delete | backend |
 
-Four items dropped at execution-time spot-check — B1.2
+Five items dropped at execution-time spot-check — B1.2
 (`app.quitting`), A1.4 (`alert.View` receiver), C1.3
 (`validateAuthExclusive` slice), C2.1 (factory ↔ vanilla doc was
-already in place at `mimir/client.go:74-80` and `factory.go:24-42`).
-See "Watched, not actioned" rows below for each rationale. B2.1
-went the other way — the audit named three sites; execution
+already in place at `mimir/client.go:74-80` and `factory.go:24-42`),
+B1.7 (`hasBinding` already delegates to `lookup`, no duplicate
+walk). See "Watched, not actioned" rows below for each rationale.
+B2.1 went the other way — the audit named three sites; execution
 surfaced ten more under the same shape, all converted in cecb8f4.
 
-Net Wave 1 false-positive rate (4 of 8) is a process lesson: the
-audit subagents didn't sweep existing tests / existing comments,
-and one item overstated the cost-benefit. Subsequent waves should
-expect a similar correction loop.
+Net Wave 1 false-positive rate (5 of 8) is a process lesson: the
+audit subagents didn't sweep existing tests / existing comments
+/ existing helper-delegation, and one item overstated the
+cost-benefit. Subsequent waves should expect a similar correction
+loop, and execution-time spot-check should precede every commit.
 
 ### Wave 2 — Page dedup extractions (M, all sit under `internal/tui/page/`)
 
@@ -240,7 +241,7 @@ under "Watched, not actioned" below for traceability.
 | B1.4 | `internal/tui/app/app.go:277-312` | S | Three help-catalogue funcs hand-list keybindings in parallel with `dispatcher.Set` calls | Source from `Dispatcher.Bindings(layer)` accessor |
 | B1.5 | `internal/tui/panel/panel.go:42-64` | S | `styleTitle` regex parsing has no tests | Add unit tests for `titleStructRE` edge cases (or simplify if regex is overkill) |
 | B1.6 | `internal/tui/theme/styles.go:240-620` | M | `compile()` plus 10 thick `compile*()` wrappers around cascading `firstSet(fg, bg)` chains | Collapse to table-driven `compileStyle(role, fgChain, bgChain)` |
-| B1.7 | `internal/tui/keys/dispatch.go:200-213` | S | `lookup()` and `hasBinding()` walk layer stack identically | Merge to one `lookup(key) (Handler, Layer, bool)` |
+| B1.7 | `internal/tui/keys/dispatch.go:200-213` | — | False positive: `hasBinding` already delegates to `lookup` (no duplicate walk), and the proposed merge adds a `Layer` return value no caller needs (speculative API surface) | **Closed** at execution-time spot-check |
 | B1.8 | `internal/tui/poll/poll.go:133-195` | M | 401 LOC inline state machine (idle → pending → retry); no helper extraction | Extract `backoffDelay`, `jitterize`, `handleResult(ok, err) tea.Cmd` |
 | B1.9 | `internal/tui/footer/prompt.go:160-280` | — | 12 methods on a stateful text buffer; `Update` handles all keys inline | **Keep** — coverage is strong (94.5%); not a smell, just dense |
 
@@ -317,6 +318,7 @@ re-discover them.
 | B1.2 | `app.quitting` field | Test observability seam for QuitMsg routing assertions (`app_test.go:297,348,357`). Removing it would require either restructuring three tests or adding an alternate test seam — net negative cleanup |
 | C1.3 | `validateAuthExclusive` slice | Runs once per backend at startup; common path (0-1 auth methods) allocates 0-1 times — immaterial. Sketched alternatives (counter + lazy slice; three booleans) were equal or worse on clarity. Audit overstated the smell |
 | C2.1 | factory ↔ vanilla doc | Already documented: `mimir/client.go:74-80` explains why `mimir.New` returns `*vanilla.Client`, `factory.go:24-42` documents the single-code-path decision. Audit subagent didn't read existing comments |
+| B1.7 | dispatcher `lookup`/`hasBinding` | `hasBinding` already delegates to `lookup` (no duplicate walk); merging by adding a `Layer` return value would expand API surface no current caller needs; helper's single call site is readability-positive vs. inlining |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
