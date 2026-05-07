@@ -11,7 +11,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -87,7 +86,7 @@ func (p *Page) View(width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render(p.emptyState())
 	}
 	maxRows := min(height-1, len(rows))
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(rows))
+	p.recomputeScroll()
 	end := min(p.topRow+maxRows, len(rows))
 	out := make([]string, 0, end-p.topRow+1)
 	out = append(out, p.renderHeader(width))

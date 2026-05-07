@@ -47,6 +47,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
 		p.snapshotFocus()
+		p.recomputeScroll()
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash so the user sees
@@ -126,11 +127,13 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	); handled {
 		p.cursor = newCursor
 		p.snapshotFocus()
+		p.recomputeScroll()
 		return p, nil
 	}
 	switch m.String() {
 	case "tab":
 		p.toggleExpandAll()
+		p.recomputeScroll()
 	case "enter":
 		return p.onEnter(rows)
 	case "s":
@@ -198,6 +201,7 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 	r := rows[p.cursor]
 	if r.alertIdx == -1 {
 		p.expanded[r.groupIdx] = !p.expanded[r.groupIdx]
+		p.recomputeScroll()
 		return p, nil
 	}
 	alert := p.flat[r.groupIdx].g.Alerts[r.alertIdx]

@@ -101,6 +101,7 @@ func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	case app.GoToFirstRowMsg:
 		p.cursor = 0
 		p.snapshotFocus()
+		p.recomputeScroll()
 		return true, nil
 	case app.ClearMarksMsg:
 		return true, p.handleClearMarks()
@@ -185,6 +186,7 @@ func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	}
 	p.cursor = newCursor
 	p.snapshotFocus()
+	p.recomputeScroll()
 	return true
 }
 

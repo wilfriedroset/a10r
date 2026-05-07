@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
 // totalSilences is the unfiltered silence count within the active
@@ -57,6 +58,7 @@ func (p *Page) showTenantColumn() bool {
 // scope and substring filters, then sorting. Cursor is preserved
 // across rebuilds by silence ID when possible — see snapshotFocus.
 func (p *Page) recompute() {
+	defer p.recomputeScroll()
 	flat := make([]silenceEntry, 0)
 	for tenant, sils := range p.byTenant {
 		if !p.scopeIncludes(tenant) {
@@ -80,6 +82,16 @@ func (p *Page) recompute() {
 		p.cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
+}
+
+// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// body height. Mirror of the alerts page's helper — see that file
+// for the rationale on keeping View as a pure reader.
+func (p *Page) recomputeScroll() {
+	if p.bodyHeight <= 0 {
+		return
+	}
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.view))
 }
 
 // filterSilences returns a fresh slice with the entries whose

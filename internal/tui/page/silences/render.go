@@ -12,7 +12,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -123,7 +122,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
+	p.recomputeScroll()
 	end := min(p.topRow+maxRows, len(p.view))
 	showMark := p.hasMarks()
 	var b strings.Builder

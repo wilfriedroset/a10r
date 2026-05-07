@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
 // totalAlerts is the unfiltered alert count within the current
@@ -57,6 +58,7 @@ func (p *Page) scopeIncludes(tenant string) bool {
 // data / scope / filter / sort change; cheap relative to the
 // poll cadence (O(N log N) on hundreds of alerts).
 func (p *Page) recompute() {
+	defer p.recomputeScroll()
 	flat := make([]alertEntry, 0)
 	for tenant, alerts := range p.byTenant {
 		if !p.scopeIncludes(tenant) {
@@ -82,6 +84,20 @@ func (p *Page) recompute() {
 		p.cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
+}
+
+// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// body height. Called from every state mutation that can move the
+// cursor or change len(p.view) so View can read p.topRow without
+// reconciling — keeps the render path side-effect-free as long as
+// bodyHeight hasn't changed since the last paint. View itself also
+// calls this as a backstop for the chrome-resize case where bodyHeight
+// shifts between frames without a cursor mutation.
+func (p *Page) recomputeScroll() {
+	if p.bodyHeight <= 0 {
+		return
+	}
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.view))
 }
 
 // snapshotFocus captures the fingerprint of the row currently

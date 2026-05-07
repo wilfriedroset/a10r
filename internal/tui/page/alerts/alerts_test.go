@@ -818,6 +818,40 @@ func TestPage_GoToFirstRowResetsCursorAndScroll(t *testing.T) {
 		"top of the table must be in view after GoToFirstRow + render")
 }
 
+// TestPage_HandleMotionUpdatesTopRowWithoutRender pins the contract
+// that cursor mutations proactively reconcile topRow, so handlers
+// don't depend on a subsequent View call to settle scroll state.
+// Failing this test means the page's Update→View ordering is
+// load-bearing: a headless test of motion + read-state would need
+// an out-of-band View() call to be correct.
+func TestPage_HandleMotionUpdatesTopRowWithoutRender(t *testing.T) {
+	t.Parallel()
+
+	alerts := make([]backend.Alert, 30)
+	for i := range alerts {
+		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
+	}
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+
+	// Seed bodyHeight as if a render had already established the
+	// viewport budget — handlers read this cache to compute scroll.
+	p.bodyHeight = 5
+
+	// Walk past the seeded viewport.
+	for range 20 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+
+	require.Positive(t, p.topRow,
+		"handleMotion must reconcile topRow without a subsequent View() call")
+	require.GreaterOrEqual(t, p.cursor, p.topRow,
+		"cursor must remain on or after the visible window's first row")
+	require.Less(t, p.cursor, p.topRow+p.bodyHeight,
+		"cursor must remain inside the visible window")
+}
+
 func TestPage_ViewportFollowsCursor(t *testing.T) {
 	t.Parallel()
 

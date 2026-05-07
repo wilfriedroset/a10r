@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
 // totalGroups is the in-scope count regardless of filter.
@@ -40,6 +41,7 @@ func (p *Page) scopeIncludes(tenant string) bool {
 // groups simply drop out. Sort is applied after the slice is
 // rebuilt so the active sort column + direction govern row order.
 func (p *Page) recompute() {
+	defer p.recomputeScroll()
 	prev := make(map[string]bool, len(p.flat))
 	for i, e := range p.flat {
 		prev[groupKey(e)] = i < len(p.expanded) && p.expanded[i]
@@ -136,6 +138,17 @@ func (p *Page) clampCursor() {
 	if p.cursor >= len(p.rows()) {
 		p.cursor = max(len(p.rows())-1, 0)
 	}
+	p.recomputeScroll()
+}
+
+// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// body height. Mirror of the alerts page's helper — see that file
+// for the rationale on keeping View as a pure reader.
+func (p *Page) recomputeScroll() {
+	if p.bodyHeight <= 0 {
+		return
+	}
+	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.rows()))
 }
 
 // row is one rendered line. groupIdx points at the parent group;
