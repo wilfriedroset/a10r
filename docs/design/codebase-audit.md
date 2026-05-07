@@ -420,3 +420,35 @@ Exit-criterion review:
 
 Cleanup is done. Feature work resumes per the per-candidate
 greenlight rule documented in the Context section.
+
+## Post-review follow-up
+
+A maintainability + Bubble Tea fitness review of the branch (run
+on top of the wave-5 wrap-up) surfaced six findings; all six were
+addressed in the same branch before merge:
+
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | Doc-orphans across the Wave 3 file splits — moved functions left their doc comments behind, now describing whatever code happens to follow | Re-attached each displaced doc to its function's actual home; deleted duplicates left behind. Affects pendingEdit, totalSilences/Alerts/Groups, Update, openBulkSilence, openExpireConfirm, flashExpireResult, openNewSilenceForm, renderRow |
+| 2 | `loadStyles` byte-identical clone in 11 test files — Wave 1 row A2.5 only adopted testutil.LoadStyles in alerts/silences/groups, leaving criterion #4 quietly unmet | Migrated all 11 stragglers (silence, tenant, tenantconfig, status, receivers, alert, panel, footer, yamlstyle, help, form/silence) to `testutil.LoadStyles`. Criterion #4 now holds genuinely |
+| 3 | `help.padRight` flagged as duplicate of `format.PadRight` | **Closed as false positive** — the bodies differ in the truncation branch: help calls SGR-aware `truncateVisible`, format calls byte-walking `format.Truncate`. The `format/text.go:41` doc itself directs SGR callers to `help.truncateVisible`. Replacing would break ANSI on the runaway-width branch |
+| 4 | `pendingEdit` defined in `silences/bulk.go` but consumed only in `silences/handlers.go` | Moved struct + doc to `handlers.go` next to `openEditorForCursor` / `handleEditorFinished` |
+| 5 | `replayCachedDataMsgs` dropped Cmds returned from page Updates — invariant relied on every page returning nil from DataMsg | Lifted helper to return `tea.Cmd`; pushPage / replacePage fold it into their existing return chain via `tea.Batch`. Pinned with `TestPollCache_PreservesReplayedCmd` |
+| 6 | `View` mutated `p.topRow` via inline `cursor.ReconcileScroll` — render path carried scroll-reconciliation responsibility, coupling Update→View ordering | Added `recomputeScroll()` helper per page, deferred from `recompute()` and called from every cursor-mutation hook (HandleMotion, GoToFirstRowMsg, expand toggles, clamp). View keeps the call as a chrome-resize backstop. Pinned with `TestPage_HandleMotionUpdatesTopRowWithoutRender` |
+
+The bodyHeight write inside View is intentionally kept: it caches
+the page's allocated body rectangle for handlers that compute
+motion steps (HalfPageStep / FullPageStep on `p.bodyHeight`). The
+page doesn't know its body rectangle from `tea.WindowSizeMsg`
+alone — only the App does, after computing chrome height — so a
+chrome-aware resize message would need new plumbing. The trade-off
+is documented at the View call site rather than papered over.
+
+Process note: items 1 and 2 were both audit-doc claims declared
+✓ at wrap-up that the post-review caught. Item 1 was a class of
+bug the original audit had no lens for (split-induced doc drift);
+item 2 was a methodology miss (A2.5 named three sites; the wider
+sweep was visible to grep). Future audits should add a "doc/
+function-name-mismatch" lens after any Wave 3-style structural
+move and a repo-wide grep pass before declaring duplication
+criteria green.
