@@ -182,13 +182,13 @@ review attention without meaningfully improving navigation. See
 
 ### Wave 4 — Chrome / backend tightening (M, independent)
 
-| # | ID | Title | Slice |
-|---|-----|---|---|
-| 18 | B1.3 | Collapse `registerGlobalBindings` / `registerTenantBindings` to a single helper | chrome |
-| 19 | B1.4 + B2.2 | Source help catalogues from the dispatcher's registered bindings | chrome |
-| 20 | B1.6 | Collapse `theme.compile*` into table-driven `compileStyle(role, fgChain, bgChain)` | chrome |
-| 21 | C2.5 | Generic K1 resolver helper (`cli > env > file > default`) | config |
-| 22 | C1.5 | Extract TUI build orchestration (optional — only if `cmd/tui.go` keeps growing) | cmd |
+| # | ID | Title | Slice | Status |
+|---|-----|---|---|---|
+| 18 | B1.3 | Collapse `registerGlobalBindings` / `registerTenantBindings` to a single helper | chrome | **Closed** as cosmetic — see "Watched, not actioned" |
+| 19 | B1.4 + B2.2 | Source help catalogues from the dispatcher's registered bindings | chrome | **Deferred** — needs dispatcher API growth |
+| 20 | B1.6 | Collapse `theme.compile*` ladders via styleGather | chrome | ✓ 3468c08 (~110 LOC saved on the if-err-return ladders) |
+| 21 | C2.5 | Generic K1 resolver helper (`cli > env > file > default`) | config | **Closed** — per-resolver differences load-bearing |
+| 22 | C1.5 | Extract TUI build orchestration | cmd | **Deferred** — under audit's own 700-LOC trigger (currently 615) |
 
 ### Wave 5 — Cross-package retry unification (L)
 
@@ -326,6 +326,10 @@ re-discover them.
 | B2.4 | modal Enter/Esc/nav scaffolding | Three modal impls have fundamentally different bodies (Confirm switch on y/n/Enter/Esc; Picker terminal/nav/query split; Help dismiss-on-any-key). Only shared scaffold is the standard `msg.(tea.KeyMsg)` idiom — extracting that hides a standard Bubbletea pattern rather than reducing duplication |
 | `alert.go` split | 845 LOC after the cursor extractions, 45 over the ceiling. Splitting into render / lifecycle would mechanically work but the file is one cohesive detail page; net win against the ~10 commits of churn (split + adoption) is small. Re-evaluate when a feature that needs to add to the page lands |
 | `form.go` split | 819 LOC, 19 over the ceiling. Single-page coherent form; splitting for 19 LOC of overrun is pure churn. Same re-evaluation trigger as alert.go |
+| B1.3 register-bindings helper | The "duplication" is just the standard `a.dispatcher.Set(keys.LayerGlobal, key, handler)` API call, not duplicated logic. Each binding has its own handler shape (closures, method refs, modal openers) and per-context comments. A helper would shave a 30-char prefix per line; net savings cosmetic only |
+| B1.4 + B2.2 help catalogues from dispatcher | The dispatcher stores Handler funcs, not descriptions (called out explicitly in registerGlobalBindings's comment). Sourcing help from it would require growing the Dispatcher API to carry per-binding descriptions — bigger than a Wave-4 commit, better landed when the help overlay needs touching for a feature |
+| C2.5 generic K1 resolver | Five resolvers but the differences are load-bearing (env-aware vs not, OR-semantics for read-only, `>0` time.Duration zero-check vs string-empty, varying defaults). A generic helper would either be a 6-parameter monstrosity or fit only 2 of 5 callers |
+| C1.5 cmd/tui.go orchestrator | 615 LOC; under the audit's own 700-LOC trigger for extraction. Deferred until the file grows past 700 (typically when a future `init` / `doctor` command lands) |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
