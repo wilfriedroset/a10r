@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
@@ -180,13 +181,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.scroll--
 		}
 	case "ctrl+d":
-		p.scroll += p.halfPageStep()
+		p.scroll += cursor.HalfPageStep(p.bodyHeight)
 	case "ctrl+u":
-		p.scroll = max(p.scroll-p.halfPageStep(), 0)
+		p.scroll = max(p.scroll-cursor.HalfPageStep(p.bodyHeight), 0)
 	case "ctrl+f":
-		p.scroll += p.fullPageStep()
+		p.scroll += cursor.FullPageStep(p.bodyHeight)
 	case "ctrl+b":
-		p.scroll = max(p.scroll-p.fullPageStep(), 0)
+		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
 	case "G":
 		p.scroll = 1 << 30 // renderer clamps against body length
 	}
@@ -212,28 +213,6 @@ func (p *Page) View(width, height int) string {
 	end := min(p.scroll+height, len(lines))
 	visible := lines[p.scroll:end]
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
-}
-
-// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
-// rendered viewport, with a 10-line cold-start fallback. Floored
-// at 1 so a future narrowing of the cold-start guard cannot turn
-// the binding into a no-op.
-func (p *Page) halfPageStep() int {
-	if p.bodyHeight < 2 {
-		return 10
-	}
-	return max(p.bodyHeight/2, 1)
-}
-
-// fullPageStep returns the Ctrl+F / Ctrl+B distance: viewport
-// minus two lines of context (vim's CTRL-F convention), with a
-// 20-line cold-start fallback. Floored at 1 for the same reason
-// as halfPageStep.
-func (p *Page) fullPageStep() int {
-	if p.bodyHeight < 4 {
-		return 20
-	}
-	return max(p.bodyHeight-2, 1)
 }
 
 // bodyLines composes the two sections into a flat line list.

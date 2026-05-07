@@ -39,6 +39,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -709,35 +710,18 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 }
 
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
-	switch m.String() {
-	case "j", "down":
-		if p.cursor < len(p.view)-1 {
-			p.cursor++
-			p.snapshotFocus()
-		}
-	case "k", "up":
-		if p.cursor > 0 {
-			p.cursor--
-			p.snapshotFocus()
-		}
-	case "G":
-		p.cursor = max(len(p.view)-1, 0)
-		p.snapshotFocus()
-	case "ctrl+d":
-		p.cursor = min(p.cursor+p.halfPageStep(), max(len(p.view)-1, 0))
-		p.snapshotFocus()
-	case "ctrl+u":
-		p.cursor = max(p.cursor-p.halfPageStep(), 0)
-		p.snapshotFocus()
-	case "ctrl+f":
-		p.cursor = min(p.cursor+p.fullPageStep(), max(len(p.view)-1, 0))
-		p.snapshotFocus()
-	case "ctrl+b":
-		p.cursor = max(p.cursor-p.fullPageStep(), 0)
-		p.snapshotFocus()
-	default:
+	newCursor, handled := cursor.HandleMotion(
+		m.String(),
+		p.cursor,
+		len(p.view),
+		cursor.HalfPageStep(p.bodyHeight),
+		cursor.FullPageStep(p.bodyHeight),
+	)
+	if !handled {
 		return false
 	}
+	p.cursor = newCursor
+	p.snapshotFocus()
 	return true
 }
 
@@ -1470,28 +1454,6 @@ func (p *Page) View(width, height int) string {
 	rows := p.renderRows(width, height-1)
 	body := headerLine + "\n" + rows
 	return lipgloss.NewStyle().Width(width).Render(body)
-}
-
-// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
-// rendered body height, with a 10-row cold-start fallback. Floored
-// at 1 so a future narrowing of the cold-start guard cannot turn
-// the binding into a no-op.
-func (p *Page) halfPageStep() int {
-	if p.bodyHeight < 2 {
-		return 10
-	}
-	return max(p.bodyHeight/2, 1)
-}
-
-// fullPageStep returns the Ctrl+F / Ctrl+B distance: body minus
-// two lines of context (vim's CTRL-F convention), with a 20-row
-// cold-start fallback. Floored at 1 for the same reason as
-// halfPageStep.
-func (p *Page) fullPageStep() int {
-	if p.bodyHeight < 4 {
-		return 20
-	}
-	return max(p.bodyHeight-2, 1)
 }
 
 // emptyState picks the right body for an empty list. The cold-

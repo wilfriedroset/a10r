@@ -18,6 +18,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -356,65 +357,26 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleSort(m) {
 		return p, nil
 	}
-	switch m.String() {
-	case "j", "down":
-		if p.cursor < len(p.view)-1 {
-			p.cursor++
-		}
-		p.snapshotFocus()
-	case "k", "up":
-		if p.cursor > 0 {
-			p.cursor--
-		}
-		p.snapshotFocus()
-	case "G":
-		p.cursor = max(len(p.view)-1, 0)
-		p.snapshotFocus()
 	// `g` alone is dead code — the dispatcher's chord buffer at
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
-	case "ctrl+d":
-		p.cursor = min(p.cursor+p.halfPageStep(), max(len(p.view)-1, 0))
+	if newCursor, handled := cursor.HandleMotion(
+		m.String(),
+		p.cursor,
+		len(p.view),
+		cursor.HalfPageStep(p.bodyHeight),
+		cursor.FullPageStep(p.bodyHeight),
+	); handled {
+		p.cursor = newCursor
 		p.snapshotFocus()
-	case "ctrl+u":
-		p.cursor = max(p.cursor-p.halfPageStep(), 0)
-		p.snapshotFocus()
-	case "ctrl+f":
-		p.cursor = min(p.cursor+p.fullPageStep(), max(len(p.view)-1, 0))
-		p.snapshotFocus()
-	case "ctrl+b":
-		p.cursor = max(p.cursor-p.fullPageStep(), 0)
-		p.snapshotFocus()
-	case "enter":
-		if p.cursor < len(p.view) {
-			rec := p.view[p.cursor]
-			return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
-		}
+		return p, nil
+	}
+	if m.String() == "enter" && p.cursor < len(p.view) {
+		rec := p.view[p.cursor]
+		return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 	}
 	return p, nil
-}
-
-// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
-// rendered body height, with a 10-row cold-start fallback. Floored
-// at 1 so a future narrowing of the cold-start guard cannot turn
-// the binding into a no-op.
-func (p *Page) halfPageStep() int {
-	if p.bodyHeight < 2 {
-		return 10
-	}
-	return max(p.bodyHeight/2, 1)
-}
-
-// fullPageStep returns the Ctrl+F / Ctrl+B distance: a full body
-// minus two lines of context (vim's CTRL-F convention), with a
-// 20-row cold-start fallback. Floored at 1 for the same reason as
-// halfPageStep.
-func (p *Page) fullPageStep() int {
-	if p.bodyHeight < 4 {
-		return 20
-	}
-	return max(p.bodyHeight-2, 1)
 }
 
 // reconcileScroll keeps p.cursor inside [topRow, topRow+maxRows).

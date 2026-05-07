@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -139,13 +140,13 @@ func (p *Page) handleKey(m tea.KeyPressMsg) app.Page {
 			p.scroll--
 		}
 	case "ctrl+d":
-		p.scroll = min(p.scroll+p.halfPageStep(), max(len(lines)-1, 0))
+		p.scroll = min(p.scroll+cursor.HalfPageStep(p.bodyHeight), max(len(lines)-1, 0))
 	case "ctrl+u":
-		p.scroll = max(p.scroll-p.halfPageStep(), 0)
+		p.scroll = max(p.scroll-cursor.HalfPageStep(p.bodyHeight), 0)
 	case "ctrl+f":
-		p.scroll = min(p.scroll+p.fullPageStep(), max(len(lines)-1, 0))
+		p.scroll = min(p.scroll+cursor.FullPageStep(p.bodyHeight), max(len(lines)-1, 0))
 	case "ctrl+b":
-		p.scroll = max(p.scroll-p.fullPageStep(), 0)
+		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
 	// `g` alone is dead code — the dispatcher's chord buffer at
 	// LayerTable consumes the first `g` waiting for the second.
 	// The chord-completed `gg` arrives as app.GoToFirstRowMsg and
@@ -182,28 +183,6 @@ func (p *Page) View(width, height int) string {
 	end := min(p.scroll+height, len(all))
 	visible := all[p.scroll:end]
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
-}
-
-// halfPageStep returns the Ctrl+D / Ctrl+U distance: half the
-// rendered viewport, with a 10-line cold-start fallback. Floored
-// at 1 so a future narrowing of the cold-start guard cannot turn
-// the binding into a no-op.
-func (p *Page) halfPageStep() int {
-	if p.bodyHeight < 2 {
-		return 10
-	}
-	return max(p.bodyHeight/2, 1)
-}
-
-// fullPageStep returns the Ctrl+F / Ctrl+B distance: viewport
-// minus two lines of context (vim's CTRL-F convention), with a
-// 20-line cold-start fallback. Floored at 1 for the same reason
-// as halfPageStep.
-func (p *Page) fullPageStep() int {
-	if p.bodyHeight < 4 {
-		return 20
-	}
-	return max(p.bodyHeight-2, 1)
 }
 
 // lines returns the rendered status as a flat line slice. The
