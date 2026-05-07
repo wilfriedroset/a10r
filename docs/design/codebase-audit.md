@@ -140,13 +140,13 @@ These create the small shared helpers package the file splits in
 Wave 3 will lean on. Each extraction is its own commit; downstream
 adoption follows in subsequent commits per page.
 
-| # | ID | Title | Output |
-|---|-----|---|---|
-| 9 | A2.1 | Extract motion handling | `internal/tui/page/cursor/motion.go` |
-| 10 | A2.3 | Extract scroll reconciliation | `internal/tui/page/cursor/scroll.go` |
-| 11 | A2.4 | Extract `padRight` / `truncate` | `internal/tui/page/format/text.go` |
-| 12 | A2.2 | Extract sort key dispatch with `clearFocus` callback | `internal/tui/page/cursor/sort.go` |
-| 13 | B2.4 | Factor modal Enter/Esc/nav boilerplate to a base helper | `tui/modal/base.go` |
+| # | ID | Title | Output | Status |
+|---|-----|---|---|---|
+| 9 | A2.1 | Extract motion handling | `internal/tui/page/cursor/motion.go` | ✓ 374b900 (also extracted Half/FullPageStep across 9 pages) |
+| 10 | A2.3 | Extract scroll reconciliation | `internal/tui/page/cursor/scroll.go` | ✓ a4ea22c |
+| 11 | A2.4 | Extract `padRight` / `truncate` | `internal/tui/page/format/text.go` | ✓ 06cede6 (scope grew to 8 sites) |
+| 12 | A2.2 | Extract sort key dispatch with `clearFocus` callback | `internal/tui/page/cursor/sort.go` | ✓ dea90e3 |
+| 13 | B2.4 | Factor modal Enter/Esc/nav boilerplate to a base helper | `tui/modal/base.go` | **Closed** as false positive (see "Watched, not actioned") |
 
 Adoption commits (one per page, per helper) follow each extraction.
 
@@ -252,7 +252,7 @@ under "Watched, not actioned" below for traceability.
 | B2.1 | `tui/header/header.go:146` + `tui/panel/panel.go:317` | S | Both define a foreground-only `lipgloss.Style` factory off a palette role (`Header.Default` and `Hint.Default`); two callers, one-liner pattern | Add `theme.FgOnly(c color.Color) lipgloss.Style`, adopt in both. (Audit also named `tui/footer/flash.go:124` but that's a palette-dispatch by level — different pattern, not in scope.) |
 | B2.2 | `tui/app/app.go:256-289` ↔ `tui/help/help.go:127-145` | M | Globals / table catalogues curated in `app.go`; `help.columns` rebuilds parallel static lists | Pass `[]action.Action` from app to help at open-time; help becomes pure view |
 | B2.3 | `tui/poll/poll.go:133-195` ↔ `backend/transport/transport.go:*` | L | Both implement exponential backoff + jitter independently | Extract `internal/retry/exponential.go`; adopt in both |
-| B2.4 | `tui/modal/picker.go` + `tui/modal/confirm.go` | S | Identical Enter/Esc/nav routing scaffolding | `tui/modal/base.go` helper; both modals embed |
+| B2.4 | `tui/modal/picker.go` + `tui/modal/confirm.go` | — | False positive at execution time. The three modal impls (Confirm 4-case switch, Picker terminal/nav/query split, Help dismiss-on-any-key) share only the standard Bubbletea `msg.(tea.KeyMsg)` type-assertion idiom. The Enter/Esc bodies differ fundamentally — Confirm resolves yes/no off `def`, Picker calls a multi-line `submit()`. Extracting the type-assert would hide a standard pattern rather than dedupe meaningful logic | **Closed** at execution-time spot-check |
 
 #### B.3 Anti-over-engineering
 
@@ -319,6 +319,7 @@ re-discover them.
 | C1.3 | `validateAuthExclusive` slice | Runs once per backend at startup; common path (0-1 auth methods) allocates 0-1 times — immaterial. Sketched alternatives (counter + lazy slice; three booleans) were equal or worse on clarity. Audit overstated the smell |
 | C2.1 | factory ↔ vanilla doc | Already documented: `mimir/client.go:74-80` explains why `mimir.New` returns `*vanilla.Client`, `factory.go:24-42` documents the single-code-path decision. Audit subagent didn't read existing comments |
 | B1.7 | dispatcher `lookup`/`hasBinding` | `hasBinding` already delegates to `lookup` (no duplicate walk); merging by adding a `Layer` return value would expand API surface no current caller needs; helper's single call site is readability-positive vs. inlining |
+| B2.4 | modal Enter/Esc/nav scaffolding | Three modal impls have fundamentally different bodies (Confirm switch on y/n/Enter/Esc; Picker terminal/nav/query split; Help dismiss-on-any-key). Only shared scaffold is the standard `msg.(tea.KeyMsg)` idiom — extracting that hides a standard Bubbletea pattern rather than reducing duplication |
 | A3.1 | `silences.Client` interface | Explicit per-page I/O boundary; small, cohesive |
 | A3.2 | `alert.Clipboard` / `Browser` | Nil-able external-side-effect interfaces; design-safe |
 | A3.3 | `tenantconfig.StatusFetcher` | Same pattern as A3.2 |
