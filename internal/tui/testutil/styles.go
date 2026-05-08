@@ -22,3 +22,13 @@ func LoadStyles(t *testing.T) *theme.Styles {
 	require.NoError(t, err)
 	return s
 }
+
+// LoadStylesB is the *testing.B counterpart to LoadStyles for
+// benchmarks. Same behaviour; separate signature keeps the benches
+// from shadowing testing.T idioms.
+func LoadStylesB(b *testing.B) *theme.Styles {
+	b.Helper()
+	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(b, err)
+	return s
+}
