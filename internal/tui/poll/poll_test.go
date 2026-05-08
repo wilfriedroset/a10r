@@ -199,6 +199,27 @@ func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 		"DataMsg must carry the constructor's Resource label so the App-level cache can key by (label, tenant)")
 }
 
+// TestPoller_NewFloorsBelowMinInterval locks P3d. New must clamp
+// any sub-100ms interval to the floor — defence in depth against
+// a config-layer regression that would otherwise saturate the
+// poll loop. Tests passing wall-clock-tiny intervals (intentional
+// in this package's other suites) keep working at the floor.
+func TestPoller_NewFloorsBelowMinInterval(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "alerts",
+		Interval: 5 * time.Millisecond,
+		Fetch:    stubFetch,
+		Send:     func(tea.Msg) {},
+		Clock:    newFakeClock(),
+		Backoff:  noJitter,
+	})
+	require.GreaterOrEqual(t, p.interval, minPollInterval,
+		"sub-floor interval must be clamped to %v", minPollInterval)
+}
+
 func TestPoller_TickIntervalRespected(t *testing.T) {
 	t.Parallel()
 

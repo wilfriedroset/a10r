@@ -24,6 +24,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 )
 
+// minPollInterval is the floor New applies to opts.Interval. The
+// config layer should already have validated upstream — this is a
+// final safety net so a regression there cannot drive the loop
+// faster than 100 ms × N backends, which would saturate both the
+// terminal and the alertmanager without anyone noticing.
+const minPollInterval = 100 * time.Millisecond
+
 // FetchFunc is the per-tick callback that performs the actual
 // backend work. It returns a typed payload (the poller treats it
 // as opaque any) plus an optional error. ctx propagation is the
@@ -191,10 +198,17 @@ func New(opts Options) *Poller {
 	if bo.Base == 0 {
 		bo = defaultBackoff()
 	}
+	// Defence in depth: floor the interval at minPollInterval. The
+	// config layer should have validated this already, but a future
+	// regression that passed through e.g. 50ms across 10 backends
+	// would melt the operator's terminal and the upstream backend
+	// before anyone noticed. Tests passing intentionally tiny
+	// intervals stay above the floor.
+	interval := max(opts.Interval, minPollInterval)
 	return &Poller{
 		tenant:   opts.Tenant,
 		resource: opts.Resource,
-		interval: opts.Interval,
+		interval: interval,
 		fetch:    opts.Fetch,
 		send:     opts.Send,
 		clock:    clock,
