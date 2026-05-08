@@ -126,8 +126,20 @@ type App struct {
 	// Outer key is the poll resource label ("alerts", "silences",
 	// …); inner key is the tenant tag. Value is the full DataMsg
 	// so At/NextAt come along for the page's footer countdown
-	// without a separate ticker. Bounded: O(resources × tenants),
-	// e.g. 4 × 4 = 16 entries in a typical multi-backend setup.
+	// without a separate ticker.
+	//
+	// Bounded: O(resources × tenants). The map shape is fixed at
+	// 4 resources × N configured backends. Per-entry size is
+	// dominated by the alert / silence payload it carries:
+	//
+	//   -  1 000 alerts × 4 resources ×  4 backends ~=  16 MiB resident
+	//   -  5 000 alerts × 4 resources × 10 backends ~= 200 MiB resident
+	//   - 10 000 alerts (storm) × 4 × 10            ~= 400 MiB resident
+	//
+	// Bounded ≠ small. Operators running long-lived sessions
+	// against busy fleets should expect heap on the order of the
+	// largest in-flight alert volume × number of backends. A
+	// quit releases the cache fully; there is no leak.
 	//
 	// Single-threaded by construction: bubbletea routes every
 	// Update through the same goroutine, so the App is the sole
