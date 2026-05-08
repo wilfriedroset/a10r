@@ -71,7 +71,11 @@ func (p *Page) recompute() {
 			continue
 		}
 		for _, s := range sils {
-			flat = append(flat, silenceEntry{s: s, tenant: tenant})
+			flat = append(flat, silenceEntry{
+				s:              s,
+				tenant:         tenant,
+				lowerComposite: silenceLowerComposite(s),
+			})
 		}
 	}
 	p.view = filterSilences(flat, p.filter)
@@ -101,8 +105,10 @@ func (p *Page) recomputeScroll() {
 }
 
 // filterSilences returns a fresh slice with the entries whose
-// rendered text contains the lowercased query as a substring.
-// Empty filter returns the input unchanged.
+// lower-cased composite (built at recompute) contains the
+// lowercased query as a substring. Empty filter returns the input
+// unchanged. The case-fold work runs once per ingest, not once per
+// keystroke per entry.
 func filterSilences(in []silenceEntry, query string) []silenceEntry {
 	if query == "" {
 		return in
@@ -110,31 +116,38 @@ func filterSilences(in []silenceEntry, query string) []silenceEntry {
 	q := strings.ToLower(query)
 	out := make([]silenceEntry, 0, len(in))
 	for _, e := range in {
-		if silenceMatches(e.s, q) {
+		if strings.Contains(e.lowerComposite, q) {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// silenceMatches walks the user-visible text fields. The query
-// caller must already be lowercased. ID is included so a UUID
-// prefix typed into the filter prompt finds the row whose UUID
-// column is clipped to 8 chars.
-func silenceMatches(s backend.Silence, q string) bool {
-	if strings.Contains(strings.ToLower(s.ID), q) ||
-		strings.Contains(strings.ToLower(s.CreatedBy), q) ||
-		strings.Contains(strings.ToLower(s.Comment), q) ||
-		strings.Contains(strings.ToLower(string(s.State)), q) {
-		return true
-	}
+// silenceLowerComposite concatenates every field the filter prompt
+// matches on (ID, CreatedBy, Comment, State, matcher Names and
+// Values) into a single lower-cased string. NUL-separated so a
+// query can't accidentally span field boundaries.
+func silenceLowerComposite(s backend.Silence) string {
+	var b strings.Builder
+	// Approximation: every field plus separators. Over-allocates
+	// slightly when matchers are short; cheap relative to the
+	// allocation churn the cache replaces.
+	estimate := len(s.ID) + len(s.CreatedBy) + len(s.Comment) + len(s.State) + len(s.Matchers)*16
+	b.Grow(estimate)
+	b.WriteString(strings.ToLower(s.ID))
+	b.WriteByte(0)
+	b.WriteString(strings.ToLower(s.CreatedBy))
+	b.WriteByte(0)
+	b.WriteString(strings.ToLower(s.Comment))
+	b.WriteByte(0)
+	b.WriteString(strings.ToLower(string(s.State)))
 	for _, m := range s.Matchers {
-		if strings.Contains(strings.ToLower(m.Name), q) ||
-			strings.Contains(strings.ToLower(m.Value), q) {
-			return true
-		}
+		b.WriteByte(0)
+		b.WriteString(strings.ToLower(m.Name))
+		b.WriteByte(0)
+		b.WriteString(strings.ToLower(m.Value))
 	}
-	return false
+	return b.String()
 }
 
 // snapshotFocus captures the silence ID under the cursor so the

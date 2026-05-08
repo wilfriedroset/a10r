@@ -71,7 +71,11 @@ func (p *Page) recompute() {
 			continue
 		}
 		for _, a := range alerts {
-			flat = append(flat, alertEntry{a: a, tenant: tenant})
+			flat = append(flat, alertEntry{
+				a:              a,
+				tenant:         tenant,
+				lowerComposite: alertLowerComposite(a),
+			})
 		}
 	}
 	p.view = filterEntries(flat, p.filter, p.stateFilter)
@@ -147,7 +151,7 @@ func filterEntries(in []alertEntry, substr, state string) []alertEntry {
 		if state != "" && string(e.a.State) != state {
 			continue
 		}
-		if substr != "" && !alertMatchesSubstr(e.a, needle) {
+		if substr != "" && !strings.Contains(e.lowerComposite, needle) {
 			continue
 		}
 		out = append(out, e)
@@ -155,21 +159,36 @@ func filterEntries(in []alertEntry, substr, state string) []alertEntry {
 	return out
 }
 
-// alertMatchesSubstr reports whether the needle (already
-// lower-cased by the caller) appears in any of a's label values
-// or annotation values. Annotations cover summary / description so
-// a "high cpu" filter hits an alert whose annotation contains
-// "High CPU usage" even when the alertname itself is opaque.
-func alertMatchesSubstr(a backend.Alert, needle string) bool {
+// alertLowerComposite concatenates the lower-cased label values
+// and annotation values into a single string. Annotations cover
+// summary / description so a "high cpu" filter hits an alert whose
+// annotation contains "High CPU usage" even when the alertname
+// itself is opaque. NUL-separated so a query can't accidentally
+// span field boundaries.
+func alertLowerComposite(a backend.Alert) string {
+	var b strings.Builder
+	estimate := 0
 	for _, v := range a.Labels {
-		if strings.Contains(strings.ToLower(v), needle) {
-			return true
-		}
+		estimate += len(v) + 1
 	}
 	for _, v := range a.Annotations {
-		if strings.Contains(strings.ToLower(v), needle) {
-			return true
-		}
+		estimate += len(v) + 1
 	}
-	return false
+	b.Grow(estimate)
+	first := true
+	for _, v := range a.Labels {
+		if !first {
+			b.WriteByte(0)
+		}
+		first = false
+		b.WriteString(strings.ToLower(v))
+	}
+	for _, v := range a.Annotations {
+		if !first {
+			b.WriteByte(0)
+		}
+		first = false
+		b.WriteString(strings.ToLower(v))
+	}
+	return b.String()
 }

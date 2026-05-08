@@ -95,6 +95,12 @@ type Client interface {
 type silenceEntry struct {
 	s      backend.Silence
 	tenant string
+	// lowerComposite is the lower-cased concatenation of every field
+	// silenceMatches would otherwise lower-case on every filter
+	// keystroke (ID, CreatedBy, Comment, State, plus matchers).
+	// Built once at recompute so the filter inner loop becomes a
+	// single strings.Contains.
+	lowerComposite string
 }
 
 // Page is the silences list view.

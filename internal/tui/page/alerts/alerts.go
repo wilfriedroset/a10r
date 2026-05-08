@@ -138,6 +138,11 @@ type Options struct {
 type alertEntry struct {
 	a      backend.Alert
 	tenant string
+	// lowerComposite is the lower-cased concatenation of every
+	// label and annotation value the filter would otherwise lower-
+	// case on every keystroke. Built once at recompute so the
+	// filter inner loop is a single strings.Contains.
+	lowerComposite string
 }
 
 // Page is the alerts list view. Implements app.Page.
