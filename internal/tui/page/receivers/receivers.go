@@ -63,7 +63,7 @@ func receiverSortColumns() []tablesort.Column[string] {
 // a row → DrillRequestMsg with the receiver name) since the
 // receiver name is unique per backend in practice.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 
 	// byTenant holds the most recent snapshot per backend, keyed
 	// by the poll.DataMsg.Tenant tag.
@@ -107,7 +107,7 @@ type Page struct {
 const scopeAll = "all"
 
 // New constructs an empty receivers page.
-func New(styles theme.Styles) *Page {
+func New(styles *theme.Styles) *Page {
 	return &Page{
 		styles:   styles,
 		byTenant: map[string][]string{},

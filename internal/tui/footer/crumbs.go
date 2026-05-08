@@ -52,7 +52,7 @@ func NewCrumbs() Crumbs { return Crumbs{} }
 //
 // Empty crumbs render as the empty string so the app shell can
 // omit the strip entirely.
-func (c Crumbs) Render(styles theme.Styles) string {
+func (c Crumbs) Render(styles *theme.Styles) string {
 	if len(c.entries) == 0 {
 		return ""
 	}

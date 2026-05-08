@@ -20,7 +20,7 @@ import (
 )
 
 // Body styles every line in body. Empty input returns "".
-func Body(body string, styles theme.Styles) string {
+func Body(body string, styles *theme.Styles) string {
 	if body == "" {
 		return ""
 	}
@@ -39,7 +39,7 @@ func Body(body string, styles theme.Styles) string {
 // pass through — that catches wrap continuations and \n-split
 // value segments like "LABELS = map[__name__:up]" that contain a
 // `:` purely incidentally.
-func Line(line string, styles theme.Styles) string {
+func Line(line string, styles *theme.Styles) string {
 	if isCommentLine(line) {
 		return line
 	}

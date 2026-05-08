@@ -25,7 +25,7 @@ func newTestApp(t *testing.T) *App {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	return NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 	})
@@ -78,7 +78,7 @@ func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Refresh: func(resource, scope string) {
@@ -199,7 +199,7 @@ func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging", "dev"},
@@ -242,7 +242,7 @@ func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
@@ -278,7 +278,7 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
@@ -329,7 +329,7 @@ func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod"},

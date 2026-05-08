@@ -73,7 +73,7 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},

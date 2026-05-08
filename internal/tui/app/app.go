@@ -40,7 +40,7 @@ import (
 type Options struct {
 	// Styles is the compiled theme. Re-rendered on every View call so
 	// a future :theme command can hot-swap by replacing this field.
-	Styles theme.Styles
+	Styles *theme.Styles
 	// Registry is the action registry. The app shell owns the global
 	// layer's bindings; pages register their own when pushed (#23).
 	Registry *action.Registry
@@ -79,7 +79,7 @@ type Options struct {
 // or pointer-rooted Models, and pointer reads cleaner when the
 // Dispatcher and Registry are themselves pointer-typed.
 type App struct {
-	styles     theme.Styles
+	styles     *theme.Styles
 	registry   *action.Registry
 	dispatcher *keys.Dispatcher
 	cmdbar     *cmdbar.Resolver

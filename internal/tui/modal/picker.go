@@ -232,7 +232,7 @@ func (p *Picker) refilter() {
 // accumulated without leaving the picker.
 //
 // TODO(theming): the picker currently styles only via lipgloss
-// width-fitting; a future commit will take theme.Styles via an
+// width-fitting; a future commit will take *theme.Styles via an
 // extended interface so the cursor row, marks, and title pick up
 // the active skin's modal colours. Today's plain-text fallback is
 // readable on every terminal and reviewable as-is.

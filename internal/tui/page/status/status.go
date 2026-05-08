@@ -23,7 +23,7 @@ import (
 
 // Page renders the AM /status output.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 	tenant string
 
 	have   bool
@@ -38,7 +38,7 @@ type Page struct {
 }
 
 // New constructs an empty status page.
-func New(styles theme.Styles, tenant string) *Page {
+func New(styles *theme.Styles, tenant string) *Page {
 	return &Page{styles: styles, tenant: tenant}
 }
 

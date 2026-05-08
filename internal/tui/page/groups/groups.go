@@ -102,7 +102,7 @@ type groupEntry struct {
 // pushing a broken form. Same shape the alerts / silences pages
 // consume.
 type Options struct {
-	Styles theme.Styles
+	Styles *theme.Styles
 	// Now injects the form's clock. nil falls back to time.Now in
 	// the silenceform constructor.
 	Now func() time.Time
@@ -120,7 +120,7 @@ type Options struct {
 
 // Page is the groups view.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 	now    func() time.Time
 
 	// clients is the per-tenant write surface for `s`; see Options.

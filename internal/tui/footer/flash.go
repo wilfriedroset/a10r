@@ -111,7 +111,7 @@ func (Flash) Owns(msg tea.Msg) bool {
 
 // Render produces the styled flash line. Returns "" when no flash
 // is active so the app shell can collapse the strip.
-func (f Flash) Render(styles theme.Styles) string {
+func (f Flash) Render(styles *theme.Styles) string {
 	if f.text == "" {
 		return ""
 	}
@@ -121,7 +121,7 @@ func (f Flash) Render(styles theme.Styles) string {
 
 // flashStyle returns the lipgloss style for the given level.
 // FlashInfo is the default fall-through.
-func flashStyle(level FlashLevel, styles theme.Styles) lipgloss.Style {
+func flashStyle(level FlashLevel, styles *theme.Styles) lipgloss.Style {
 	switch level {
 	case FlashSuccess:
 		return styles.Flash.Success

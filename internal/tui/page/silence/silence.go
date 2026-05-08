@@ -33,14 +33,14 @@ type Options struct {
 	// Tenant is the source-backend tag for the header strip.
 	Tenant string
 	// Styles is the compiled theme.
-	Styles theme.Styles
+	Styles *theme.Styles
 }
 
 // Page is the silence-detail view. Implements app.Page.
 type Page struct {
 	s      backend.Silence
 	tenant string
-	styles theme.Styles
+	styles *theme.Styles
 
 	// body is the pre-marshalled YAML body. Computed once at
 	// construction so re-renders don't re-marshal on every frame.

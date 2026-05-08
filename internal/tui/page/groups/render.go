@@ -279,7 +279,7 @@ func severityLabelByRank(rank int) string {
 // severityStyleByRank picks the lipgloss style for the SEVERITY
 // cell, mirroring alerts.severityStyle so a "critical" cell tints
 // the same on both pages.
-func severityStyleByRank(rank int, styles theme.Styles) lipgloss.Style {
+func severityStyleByRank(rank int, styles *theme.Styles) lipgloss.Style {
 	switch rank {
 	case 3:
 		return styles.Severity.Critical
@@ -311,7 +311,7 @@ func labelSummary(labels map[string]string) string {
 // k=v pair reads consistently across the TUI. Punctuation (= and
 // ,) uses theme.YAML.Punct so the visual hierarchy is name >
 // value > separator. Per Q5.2.
-func styledLabelSummary(labels map[string]string, styles theme.Styles) string {
+func styledLabelSummary(labels map[string]string, styles *theme.Styles) string {
 	keys := sortedLabelKeys(labels)
 	parts := make([]string, len(keys))
 	for i, k := range keys {

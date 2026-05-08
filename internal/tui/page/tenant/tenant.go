@@ -123,7 +123,7 @@ type Row struct {
 // Options bundles the constructor inputs.
 type Options struct {
 	// Styles is the compiled theme.
-	Styles theme.Styles
+	Styles *theme.Styles
 	// DrillFactory builds the destination page when the user
 	// presses Enter on a row. Returning a non-nil error makes the
 	// page flash the message instead of pushing — useful when
@@ -136,7 +136,7 @@ type Options struct {
 
 // Page is the tenant table view.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 	drill  func(name string) (app.Page, error)
 
 	// sorter governs the visible row order. Default NAME ASC matches

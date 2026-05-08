@@ -16,14 +16,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// loadDefaultStyles is the test bootstrap for theme.Styles. The
+// loadDefaultStyles is the test bootstrap for *theme.Styles. The
 // header tests don't care which skin — they just need a populated
 // Styles to render through.
-func loadDefaultStyles(t *testing.T) theme.Styles {
+func loadDefaultStyles(t *testing.T) *theme.Styles {
 	t.Helper()
 	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
-	return *styles
+	return styles
 }
 
 func TestRender_AllZonesAppear(t *testing.T) {

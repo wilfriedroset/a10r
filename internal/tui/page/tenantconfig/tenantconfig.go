@@ -44,7 +44,7 @@ type Options struct {
 	// "(no client available)" instead of crashing.
 	Fetcher StatusFetcher
 	// Styles is the compiled theme.
-	Styles theme.Styles
+	Styles *theme.Styles
 	// FetchTimeout caps the AM /status round-trip. Zero defaults to
 	// 30s, matching the vanilla client's request timeout.
 	FetchTimeout time.Duration
@@ -53,7 +53,7 @@ type Options struct {
 // Page is the tenant inspector.
 type Page struct {
 	tenant       string
-	styles       theme.Styles
+	styles       *theme.Styles
 	backendYAML  string
 	amConfig     string
 	amErr        error

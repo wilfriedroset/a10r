@@ -118,7 +118,7 @@ const MinSensibleWidth = 50
 // through). Painting `Header.Default`'s palette bg behind the line
 // would draw a coloured stripe inside an otherwise transparent
 // frame — same trap that bit the `:` / `/` prompt before.
-func Render(state State, styles theme.Styles) string {
+func Render(state State, styles *theme.Styles) string {
 	left := renderLeft(state, styles)
 	leftWidth := lipgloss.Width(left)
 
@@ -144,7 +144,7 @@ func Render(state State, styles theme.Styles) string {
 // entries until it fits the budget. Pages should register the most
 // important affordances first so the drop-from-end strategy keeps
 // the highest-priority hints visible at narrow widths.
-func renderHintsWithBudget(hints []action.Action, budget int, styles theme.Styles) string {
+func renderHintsWithBudget(hints []action.Action, budget int, styles *theme.Styles) string {
 	if len(hints) == 0 || budget <= 0 {
 		return ""
 	}
@@ -160,7 +160,7 @@ func renderHintsWithBudget(hints []action.Action, budget int, styles theme.Style
 }
 
 // renderLeft formats the tenant indicator + glyph + count + age.
-func renderLeft(state State, styles theme.Styles) string {
+func renderLeft(state State, styles *theme.Styles) string {
 	var b strings.Builder
 	fg := theme.FgOnly(styles.Header.Default.GetForeground())
 
@@ -187,7 +187,7 @@ func renderLeft(state State, styles theme.Styles) string {
 // Error are foreground-only per the theme spec, and the Default
 // fall-through goes through theme.FgOnly so it doesn't paint a
 // palette bg.
-func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
+func connStyle(c ConnState, styles *theme.Styles) lipgloss.Style {
 	switch c {
 	case ConnConnected:
 		return styles.Header.OK
@@ -201,7 +201,7 @@ func connStyle(c ConnState, styles theme.Styles) lipgloss.Style {
 
 // renderMiddle truncates content to fit budget columns. Returns
 // empty string when budget is below the minimum sensible width.
-func renderMiddle(content string, budget int, styles theme.Styles) string {
+func renderMiddle(content string, budget int, styles *theme.Styles) string {
 	if content == "" || budget < minMiddleWidth {
 		return ""
 	}
@@ -219,7 +219,7 @@ func renderMiddle(content string, budget int, styles theme.Styles) string {
 // other shortcuts get the regular key colour. Descriptions are
 // foreground-only (Hint.Default carries fg+bg, but the strip sits
 // in unstyled chrome — see Render's docstring).
-func renderHints(hints []action.Action, styles theme.Styles) string {
+func renderHints(hints []action.Action, styles *theme.Styles) string {
 	if len(hints) == 0 {
 		return ""
 	}

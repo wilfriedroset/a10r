@@ -166,7 +166,7 @@ func FuzzFrameResize(wIdx, hIdx byte) [FuzzFrameSize]byte {
 // return the cached copy. If the load fails, every caller (not
 // just the first) sees t.Fatalf — sync.Once would otherwise let
 // later iterations run with a zero-value Styles.
-func LoadFuzzStyles(t *testing.T) theme.Styles {
+func LoadFuzzStyles(t *testing.T) *theme.Styles {
 	t.Helper()
 	fuzzStylesOnce.Do(func() {
 		s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
@@ -174,7 +174,7 @@ func LoadFuzzStyles(t *testing.T) theme.Styles {
 			errFuzzStyles = err
 			return
 		}
-		fuzzStyles = *s
+		fuzzStyles = s
 	})
 	if errFuzzStyles != nil {
 		t.Fatalf("LoadFuzzStyles: %v", errFuzzStyles)
@@ -184,6 +184,6 @@ func LoadFuzzStyles(t *testing.T) theme.Styles {
 
 var (
 	fuzzStylesOnce sync.Once
-	fuzzStyles     theme.Styles
+	fuzzStyles     *theme.Styles
 	errFuzzStyles  error
 )

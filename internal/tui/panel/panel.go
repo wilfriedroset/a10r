@@ -40,7 +40,7 @@ var titleStructRE = regexp.MustCompile(`^(.*?)\(([^()]*)\)(\[(\d+)\])?(.*)$`)
 // Anything outside that shape (loading spinner, modal label) gets
 // a single-tone Frame.Title render — the title stays readable
 // instead of falling back to terminal default.
-func styleTitle(raw string, styles theme.Styles) string {
+func styleTitle(raw string, styles *theme.Styles) string {
 	m := titleStructRE.FindStringSubmatch(raw)
 	if m == nil {
 		return styles.Frame.Title.Bold(true).Render(raw)
@@ -127,7 +127,7 @@ const unboundedRows = 1 << 30
 // past the logo's height. Items past `gridCols × logoHeight`
 // silently clip — the panel never grows taller than the logo.
 // The output is exactly state.Width columns wide.
-func RenderTop(state State, styles theme.Styles) string {
+func RenderTop(state State, styles *theme.Styles) string {
 	if state.Width <= 0 {
 		return ""
 	}
@@ -231,7 +231,7 @@ func RenderTop(state State, styles theme.Styles) string {
 // logo. Each cell is styled with the hint key colour and bolded
 // to distinguish tenant / namespace shortcuts from regular action
 // shortcuts.
-func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles theme.Styles) []string {
+func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.Styles) []string {
 	if len(tenants) == 0 {
 		return nil
 	}
@@ -316,7 +316,7 @@ func clipLines(lines []string, maxRows int) []string {
 
 // renderInfoLines splits the info column into per-row lines, with
 // labels right-aligned to a common width so the values line up.
-func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
+func renderInfoLines(lines []InfoLine, styles *theme.Styles) []string {
 	if len(lines) == 0 {
 		return nil
 	}
@@ -344,7 +344,7 @@ func renderInfoLines(lines []InfoLine, styles theme.Styles) []string {
 // renderHintLines formats the hint column as a k9s-style column-
 // major grid of `<key> Description` cells, capped the same way
 // the tenant shortcuts are. Mirrors k9s's frame.menu zone.
-func renderHintLines(hints []action.Action, rowsBudget int, styles theme.Styles) []string {
+func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles) []string {
 	if len(hints) == 0 {
 		return nil
 	}
@@ -414,7 +414,7 @@ func maxWidth(lines []string) int {
 // `frame.border.fgColor` (k9s parity); the title text is tinted
 // with `frame.title.fgColor`. The inner content is left untouched
 // so per-cell colouring inside the body keeps showing through.
-func RenderBody(width, height int, body, title, footer string, styles theme.Styles) string {
+func RenderBody(width, height int, body, title, footer string, styles *theme.Styles) string {
 	if width < 4 || height < 2 {
 		return body
 	}
@@ -465,7 +465,7 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 // since the prompt is keyboard-driven and the user can only enter
 // what they see. Border is `frame.border.fgColor`-tinted so the
 // prompt panel matches the body panel's frame.
-func RenderFrame(width int, body string, styles theme.Styles) string {
+func RenderFrame(width int, body string, styles *theme.Styles) string {
 	if width < 4 {
 		return body
 	}
@@ -489,14 +489,14 @@ func RenderFrame(width int, body string, styles theme.Styles) string {
 // `frame.border.fgColor`. Falls back to a plain (still tinted)
 // border when the title is too long for the inner width (rare on
 // terminals ≥ 80 cols).
-func buildTitleBorder(innerWidth int, title string, styles theme.Styles) string {
+func buildTitleBorder(innerWidth int, title string, styles *theme.Styles) string {
 	return buildLabelBorder(innerWidth, title, "┌", "┐", styles)
 }
 
 // buildFooterBorder is the bottom-edge counterpart: same layout,
 // `└` / `┘` corners. Empty label renders a plain rule so pages
 // without ambient state to surface still get a clean frame.
-func buildFooterBorder(innerWidth int, footer string, styles theme.Styles) string {
+func buildFooterBorder(innerWidth int, footer string, styles *theme.Styles) string {
 	return buildLabelBorder(innerWidth, footer, "└", "┘", styles)
 }
 
@@ -508,7 +508,7 @@ func buildFooterBorder(innerWidth int, footer string, styles theme.Styles) strin
 // label glyphs without the SGR codes so centring stays correct.
 // Falls back to a plain (border-tinted) rule when label is empty
 // or would not leave at least 2 chars of border on each side.
-func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, styles theme.Styles) string {
+func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, styles *theme.Styles) string {
 	border := styles.Frame.Border
 	if label == "" {
 		return border.Render(leftCorner + strings.Repeat("─", innerWidth) + rightCorner)

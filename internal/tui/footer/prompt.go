@@ -277,7 +277,7 @@ func (p Prompt) changedCmd() tea.Cmd {
 // glyph + buffer would render as a coloured stripe inside the
 // otherwise transparent frame. The ghost segment obeys the same
 // rule — fg only via styles.Prompt.Suggestion.
-func (p Prompt) Render(styles theme.Styles) string {
+func (p Prompt) Render(styles *theme.Styles) string {
 	if !p.open {
 		return ""
 	}

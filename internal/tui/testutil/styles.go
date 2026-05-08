@@ -16,9 +16,9 @@ import (
 // file owning its own loader boilerplate. Most page-test assertions
 // strip styles before comparing, so the exact skin doesn't matter
 // — what matters is that a non-zero Styles is plumbed through.
-func LoadStyles(t *testing.T) theme.Styles {
+func LoadStyles(t *testing.T) *theme.Styles {
 	t.Helper()
 	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 	require.NoError(t, err)
-	return *s
+	return s
 }

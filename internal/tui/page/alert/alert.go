@@ -52,7 +52,7 @@ type Options struct {
 	// Tenant is the source-backend tag for the header strip.
 	Tenant string
 	// Styles is the compiled theme.
-	Styles theme.Styles
+	Styles *theme.Styles
 	// Clipboard handles the `y` (copy fingerprint) action. nil
 	// disables the binding gracefully — `y` flashes a "no clipboard
 	// integration" hint instead of crashing.
@@ -93,7 +93,7 @@ type Page struct {
 	// without mutating the cached Alert.
 	silencedBy []string
 	tenant     string
-	styles     theme.Styles
+	styles     *theme.Styles
 	clip       Clipboard
 	browser    Browser
 	now        func() time.Time

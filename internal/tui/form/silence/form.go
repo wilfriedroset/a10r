@@ -100,7 +100,7 @@ const (
 // submit; non-empty → UpdateSilence(editID, spec) on submit.
 type Form struct {
 	client Client
-	styles theme.Styles
+	styles *theme.Styles
 	now    func() time.Time
 
 	// matchers is the multi-line free-form buffer holding one
@@ -142,7 +142,7 @@ type Form struct {
 // scratch path.
 type Options struct {
 	Client Client
-	Styles theme.Styles
+	Styles *theme.Styles
 	// Now injects the clock used to default StartsAt and resolve
 	// duration shorthands like "2h". nil falls back to time.Now.
 	Now func() time.Time

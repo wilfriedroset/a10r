@@ -128,7 +128,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		}
 		return a.TimeFormat()
 	}
-	resolver := newResolver(cmd.Context(), *styles, scope, silenceClients, silenceWriteClients, creator,
+	resolver := newResolver(cmd.Context(), styles, scope, silenceClients, silenceWriteClients, creator,
 		tenantRows, &effCfg, clients, timeFormat, readOnly)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
@@ -161,7 +161,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// than the wiring shape.)
 	pollerReg := &pollerRegistry{}
 	a = app.NewApp(app.Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   registry,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
@@ -183,7 +183,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	go func() {
 		homeFactory := func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:          *styles,
+				Styles:          styles,
 				Now:             time.Now,
 				Scope:           scope,
 				Clients:         silenceClients,
@@ -510,7 +510,7 @@ func loadStylesFor(name, configDir string) (*theme.Styles, error) {
 // a write action.
 func newResolver(
 	editorCtx context.Context,
-	styles theme.Styles,
+	styles *theme.Styles,
 	scope string,
 	silenceClients map[string]silenceform.Client,
 	silenceWriteClients map[string]silences.Client,

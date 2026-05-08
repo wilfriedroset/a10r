@@ -265,7 +265,7 @@ func severityOf(a backend.Alert) string {
 // the renderer can foreground-tint the SEVERITY cell. Falls back to
 // Severity.Unknown for missing / unrecognised values so every cell
 // gets a consistent palette ref rather than a bare default.
-func severityStyle(a backend.Alert, styles theme.Styles) lipgloss.Style {
+func severityStyle(a backend.Alert, styles *theme.Styles) lipgloss.Style {
 	switch strings.ToLower(a.Labels["severity"]) {
 	case "critical":
 		return styles.Severity.Critical

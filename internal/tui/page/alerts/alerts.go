@@ -91,7 +91,7 @@ func alertSortColumns() []tablesort.Column[alertEntry] {
 
 // Options bundles the per-page constructor inputs.
 type Options struct {
-	Styles theme.Styles
+	Styles *theme.Styles
 	// Now injects the wall clock for the age column. nil falls
 	// back to time.Now.
 	Now func() time.Time
@@ -142,7 +142,7 @@ type alertEntry struct {
 
 // Page is the alerts list view. Implements app.Page.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 	now    func() time.Time
 	scope  string
 

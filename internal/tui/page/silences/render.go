@@ -285,7 +285,7 @@ func singleLine(s string) string {
 // silence's state. Used to drive the cursor row's bg per the k9s
 // pattern where the selected row's bg tracks the row's semantic
 // colour rather than a static cursorBgColor.
-func silenceStateColor(s backend.SilenceState, styles theme.Styles) color.Color {
+func silenceStateColor(s backend.SilenceState, styles *theme.Styles) color.Color {
 	switch s {
 	case backend.SilenceStateActive:
 		return styles.SilenceState.Active.GetForeground()

@@ -66,7 +66,7 @@ type Options struct {
 
 	// Styles is the compiled theme. Used for the column headers,
 	// key chips, and the bordered frame.
-	Styles theme.Styles
+	Styles *theme.Styles
 }
 
 // Help is the modal overlay.

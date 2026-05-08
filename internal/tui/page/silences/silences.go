@@ -99,7 +99,7 @@ type silenceEntry struct {
 
 // Page is the silences list view.
 type Page struct {
-	styles theme.Styles
+	styles *theme.Styles
 	now    func() time.Time
 
 	// byTenant holds the most recent snapshot for each backend
@@ -239,7 +239,7 @@ type Page struct {
 }
 
 type Options struct {
-	Styles  theme.Styles
+	Styles  *theme.Styles
 	Now     func() time.Time
 	Clients map[string]Client
 	// Creator is the default value the silence form opens with —

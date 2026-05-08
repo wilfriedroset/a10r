@@ -33,7 +33,7 @@ func newAppWithCmdbar(t *testing.T) (*App, *fakePage) {
 	})
 	resolver.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
@@ -129,7 +129,7 @@ func TestCmdBar_AmbiguousAliasFlashesWarn(t *testing.T) {
 	resolver.Register("status", func(_ []string) tea.Cmd { return nil })
 	resolver.Register("silences", func(_ []string) tea.Cmd { return nil })
 	a := NewApp(Options{
-		Styles:     *styles,
+		Styles:     styles,
 		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
