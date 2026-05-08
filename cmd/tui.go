@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
+	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
@@ -51,22 +53,50 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return err
 	}
 
+	// Resolve precedence (CLI > env > config > defaults) once per
+	// process so every downstream consumer (logger, theme loader,
+	// poll interval, page ReadOnly gate) reads the same effective
+	// state. F2/F3 of the security audit: bypassing this step
+	// silently dropped --read-only / --theme / --poll-interval.
+	effective, err := config.Resolve(*flags, os.Getenv, *cfg)
+	if err != nil {
+		return fmt.Errorf("resolve config: %w", err)
+	}
+	effCfg := effective.Config
+
+	// Initialise the structured logger from the resolved values
+	// before any subsystem can emit. F4: previously runTUI
+	// inherited slog.Default() (stderr) so silence write ops
+	// produced no audit trail and --log was dead. The closer flushes
+	// the lumberjack rotation buffer on shutdown.
+	logger, closer, err := a10rlog.New(a10rlog.Opts{
+		Path:   effCfg.Log.Path,
+		Format: a10rlog.Format(effCfg.Defaults.LogFormat),
+		Level:  levelFor(effective.Debug, effective.Quiet),
+	})
+	if err != nil {
+		return fmt.Errorf("init logger: %w", err)
+	}
+	defer closeLogger(closer, cmd.ErrOrStderr())
+	slog.SetDefault(logger)
+
 	configDir, err := config.ResolveDir(flags.ConfigDir)
 	if err != nil {
 		return fmt.Errorf("resolve config dir: %w", err)
 	}
-	styles, err := loadStylesFor(cfg.Theme.Name, configDir)
+	styles, err := loadStylesFor(effCfg.Theme.Name, configDir)
 	if err != nil {
 		return err
 	}
 
 	registry := action.New()
 	dispatcher := keys.New(nil)
-	scope := scopeFor(cfg)
-	clients := buildClients(cfg)
+	scope := scopeFor(&effCfg)
+	clients := buildClients(&effCfg)
 	silenceClients := silenceClientsFrom(clients)
 	silenceWriteClients := silenceWriteClientsFrom(clients)
 	creator := os.Getenv("USER")
+	readOnly := effCfg.Defaults.ReadOnly
 
 	// Fetch each backend's Alertmanager version once at startup
 	// so the tenant page can render a VERSION column without a
@@ -75,7 +105,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// aligned. Per Q4.2 — the version changes rarely, the cost of
 	// a separate poller isn't justified.
 	tenantVersions := fetchTenantVersions(cmd.Context(), clients)
-	tenantRows := buildTenantRows(cfg, tenantVersions)
+	tenantRows := buildTenantRows(&effCfg, tenantVersions)
 	// The resolver's page factories close over `a` so the active
 	// app-global TimeFormat reaches each newly-pushed page (issue
 	// raised in the post-batch review: pages pushed *after* the
@@ -90,7 +120,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return a.TimeFormat()
 	}
 	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator,
-		tenantRows, cfg, clients, timeFormat)
+		tenantRows, &effCfg, clients, timeFormat, readOnly)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
@@ -126,8 +156,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		Registry:   registry,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
-		Tenants:    backendNames(cfg),
+		Tenants:    backendNames(&effCfg),
 		Refresh:    pollerReg.Refresh,
+		ReadOnly:   readOnly,
 	})
 
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))
@@ -149,8 +180,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 				Clients:         silenceClients,
 				Creator:         creator,
 				TimeFormat:      timeFormat(),
-				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
+				BulkConcurrency: effCfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
+				ReadOnly:        readOnly,
 			})
 		}
 		prog.Send(app.PushPage(homeFactory)())
@@ -158,6 +190,34 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 
 	_, err = prog.Run()
 	return err
+}
+
+// levelFor folds the resolved --debug / --quiet bits into a slog
+// level. Default is Info; --debug bumps to Debug; --quiet drops to
+// Warn. The two cannot both be true here — reconcileLogLevelFlags
+// in root.go has already converted "both set" into "debug wins".
+func levelFor(debug, quiet bool) slog.Level {
+	switch {
+	case debug:
+		return slog.LevelDebug
+	case quiet:
+		return slog.LevelWarn
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// closeLogger flushes and releases the logger sink. Surfaces any
+// failure to errOut without escalating because Close() runs in a
+// defer where the program is already exiting; a non-fatal warning
+// is the most useful thing the operator can see.
+func closeLogger(closer io.Closer, errOut io.Writer) {
+	if closer == nil {
+		return
+	}
+	if err := closer.Close(); err != nil {
+		fmt.Fprintf(errOut, "warning: log file close failed: %v\n", err)
+	}
 }
 
 // silenceClientsFrom narrows the backend.Client map to the small
@@ -376,6 +436,7 @@ func newResolver(
 	cfg *config.Config,
 	clients map[string]backend.Client,
 	timeFormat func() app.TimeFormat,
+	readOnly bool,
 ) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(_ []string) tea.Cmd {
@@ -389,6 +450,7 @@ func newResolver(
 				TimeFormat:      timeFormat(),
 				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
+				ReadOnly:        readOnly,
 			})
 		})
 	})
@@ -404,6 +466,7 @@ func newResolver(
 				TimeFormat:      timeFormat(),
 				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
+				ReadOnly:        readOnly,
 			})
 		})
 	}
@@ -420,10 +483,11 @@ func newResolver(
 	groupsFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return groups.New(groups.Options{
-				Styles:  styles,
-				Now:     time.Now,
-				Clients: silenceClients,
-				Creator: creator,
+				Styles:   styles,
+				Now:      time.Now,
+				Clients:  silenceClients,
+				Creator:  creator,
+				ReadOnly: readOnly,
 			})
 		})
 	}

@@ -218,19 +218,13 @@ func (h *Help) headingLabel(name string) string {
 }
 
 // filterDangerous strips Dangerous-flagged actions when readOnly is
-// true; otherwise returns the slice unchanged. Pure helper so the
-// tests can exercise the filter without spinning up a Help.
+// true; otherwise returns the slice unchanged. Thin wrapper around
+// action.FilterDangerous so the existing tests keep their call shape.
 func filterDangerous(in []action.Action, readOnly bool) []action.Action {
 	if !readOnly {
 		return in
 	}
-	out := make([]action.Action, 0, len(in))
-	for _, a := range in {
-		if !a.Dangerous {
-			out = append(out, a)
-		}
-	}
-	return out
+	return action.FilterDangerous(in)
 }
 
 // padRight pads s with trailing spaces so it occupies exactly w

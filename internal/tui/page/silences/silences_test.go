@@ -258,6 +258,67 @@ func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
 	}
 }
 
+func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
+	t.Parallel()
+
+	// Build a read-only page and verify Bindings() omits every
+	// write verb. The hint strip / help overlay both consume this
+	// list, so dropping them here turns off the affordance in
+	// both surfaces without each consumer re-filtering.
+	p := New(Options{
+		Styles:   testutil.LoadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		ReadOnly: true,
+	})
+	for _, b := range p.Bindings() {
+		require.False(t, b.Dangerous,
+			"read-only Bindings() must NOT surface %s — Dangerous entries must be filtered out", b.Key)
+	}
+}
+
+func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
+	t.Parallel()
+
+	// Audit F2 regression: each write keypress (`n`, `e`, `x`,
+	// `Ctrl+E`, `Ctrl+N`) must flash a Warn hint rather than push
+	// a form, open the editor, or open the confirm modal. The
+	// returned Cmd carries a footer.FlashShowMsg{Level: FlashWarn};
+	// no PushPageMsg, no edit.OpenedMsg, no modal.OpenMsg.
+	cases := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "n new", key: tea.KeyPressMsg{Code: 'n', Text: "n"}},
+		{name: "e edit", key: tea.KeyPressMsg{Code: 'e', Text: "e"}},
+		{name: "x expire", key: tea.KeyPressMsg{Code: 'x', Text: "x"}},
+		{name: "ctrl+e editor", key: tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}},
+		{name: "ctrl+n recreate", key: tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{
+				Styles:   testutil.LoadStyles(t),
+				Now:      func() time.Time { return fixedNow },
+				ReadOnly: true,
+				Clients:  map[string]Client{"prod": &fakeSilenceClient{}},
+			})
+			// Land at least one row so the cursor isn't on an empty view.
+			_, _ = p.Update(poll.DataMsg{
+				Tenant:   "prod",
+				Resource: []backend.Silence{sil("a", "alice", backend.SilenceStateActive, time.Hour)},
+			})
+			_, cmd := p.Update(tc.key)
+			require.NotNil(t, cmd, "read-only must produce a flash Cmd, never a silent no-op")
+			msg := cmd()
+			fm, ok := msg.(footer.FlashShowMsg)
+			require.True(t, ok, "expected a footer.FlashShowMsg, got %T", msg)
+			require.Equal(t, footer.FlashWarn, fm.Level)
+			require.Contains(t, fm.Text, "read-only")
+		})
+	}
+}
+
 func TestPage_CtrlXBindingRemoved(t *testing.T) {
 	t.Parallel()
 

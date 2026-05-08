@@ -152,3 +152,21 @@ func (r *Registry) All() []Action {
 
 // Len returns the number of registered actions.
 func (r *Registry) Len() int { return len(r.actions) }
+
+// FilterDangerous returns a fresh slice containing every entry of
+// in whose Dangerous flag is unset. Pages call it on their
+// Bindings() output when read-only mode is active so the hint
+// strip and the help overlay drop the write verbs without each
+// consumer re-implementing the predicate.
+//
+// Returns the input slice's elements when none are Dangerous —
+// safe because callers treat the output as read-only.
+func FilterDangerous(in []Action) []Action {
+	out := make([]Action, 0, len(in))
+	for _, a := range in {
+		if !a.Dangerous {
+			out = append(out, a)
+		}
+	}
+	return out
+}

@@ -232,6 +232,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
+		if p.readOnly {
+			return p, flashFn(footer.FlashWarn, hintReadOnly)
+		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "r":
@@ -308,6 +311,11 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	})
 }
 
+// hintReadOnly is the flash text emitted on a Dangerous keypress
+// when the page is in read-only mode. Singular noun keeps it under
+// the 80-col footer width.
+const hintReadOnly = "read-only mode — alerts cannot be silenced"
+
 func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
@@ -364,6 +372,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 	clients := p.clients
 	creator := p.creator
 	tf := p.timeFormat
+	readOnly := p.readOnly
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
 			Alert:      entry.a,
@@ -373,6 +382,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 			Clients:    clients,
 			Creator:    creator,
 			TimeFormat: tf,
+			ReadOnly:   readOnly,
 		})
 	})
 }

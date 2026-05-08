@@ -102,6 +102,7 @@ func (a *App) registerGlobalBindings() {
 				Globals:      globalsCatalog(),
 				TableMotions: tableMotionsCatalog(),
 				Tenants:      a.tenants,
+				ReadOnly:     a.readOnly,
 				Styles:       a.styles,
 			})
 		})

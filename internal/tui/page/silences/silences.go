@@ -223,6 +223,12 @@ type Page struct {
 	// Tick chain is broken) outside of those two windows; see
 	// the spinner.TickMsg branch in Update.
 	spinner spinner.Model
+
+	// readOnly mirrors Options.ReadOnly. Bindings() filters
+	// Dangerous entries when set so the hint strip and help
+	// overlay drop them; handleAction also flashes a hint instead
+	// of dispatching the write so a stray keystroke is harmless.
+	readOnly bool
 }
 
 type Options struct {
@@ -251,6 +257,12 @@ type Options struct {
 	// surfaces individual ExpireSilence failures. Nil suppresses
 	// logging — the page never crashes on a missing logger.
 	Logger *slog.Logger
+	// ReadOnly hides the page's Dangerous bindings from the hint
+	// strip / help overlay and turns every write keystroke into a
+	// flash hint instead of pushing the form / confirm modal. Wired
+	// from the resolved defaults.read_only / --read-only / A10R_READ_ONLY
+	// chain so a misclick or stray paste cannot mutate state.
+	ReadOnly bool
 }
 
 // New constructs an empty silences page.
@@ -283,6 +295,7 @@ func New(opts Options) *Page {
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
+		readOnly:        opts.ReadOnly,
 	}
 }
 
@@ -420,6 +433,11 @@ func (*Page) PollResources() []string { return []string{"silences"} }
 // "bulk expire all marked rows" (one or more marks) — k9s-style
 // same-key-different-N. Ctrl+X is intentionally absent; the
 // single-binding rule is the whole point of this page's bulk UX.
+//
+// When the page is in read-only mode, Dangerous entries are
+// stripped before the slice is returned so the hint strip and
+// help overlay both render the read-only verb set without the
+// caller having to re-filter.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("silences")
 	out := make([]action.Action, 0, 8+len(sortBindings))
@@ -437,6 +455,9 @@ func (p *Page) Bindings() []action.Action {
 	// strip surfaces it here so the affordance also shows up next
 	// to the page-specific verbs.
 	out = append(out, action.Action{Key: "r", Description: "refresh", View: "silences"})
+	if p.readOnly {
+		return action.FilterDangerous(out)
+	}
 	return out
 }
 

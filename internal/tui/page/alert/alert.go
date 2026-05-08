@@ -74,6 +74,10 @@ type Options struct {
 	// so the detail body opens in the same mode the parent list
 	// page was already showing.
 	TimeFormat app.TimeFormat
+	// ReadOnly hides the page's Dangerous bindings (`s`) from the
+	// hint strip / help overlay and turns the keystroke into a
+	// flash hint. Wired from defaults.read_only / --read-only.
+	ReadOnly bool
 }
 
 // Page is the alert-detail view. Implements app.Page.
@@ -121,6 +125,11 @@ type Page struct {
 	// per-page state stays minimal — silenced-by IDs in
 	// backend.Alert are not cross-tenant.
 	silences map[string]backend.Silence
+
+	// readOnly mirrors Options.ReadOnly. Bindings() filters
+	// Dangerous entries when set; the `s` handler flashes a hint
+	// instead of pushing the silence form.
+	readOnly bool
 }
 
 // New constructs an alert-detail page.
@@ -141,6 +150,7 @@ func New(opts Options) *Page {
 		creator:    opts.Creator,
 		timeFormat: opts.TimeFormat,
 		silences:   map[string]backend.Silence{},
+		readOnly:   opts.ReadOnly,
 	}
 }
 
@@ -181,14 +191,21 @@ func (*Page) HeaderContent() string { return "" }
 // ambient state in the bottom border.
 func (*Page) Footer() string { return "" }
 
-// Bindings implements app.Page.
-func (*Page) Bindings() []action.Action {
-	return []action.Action{
+// Bindings implements app.Page. When the page is in read-only
+// mode the Dangerous entries (`s`) are stripped before the slice
+// is returned so the hint strip and help overlay both render the
+// read-only verb set.
+func (p *Page) Bindings() []action.Action {
+	out := []action.Action{
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
 		{Key: "S", Description: "open silence", View: "alert"},
 		{Key: "y", Description: "copy fp", View: "alert"},
 		{Key: "o", Description: "open URL", View: "alert"},
 	}
+	if p.readOnly {
+		return action.FilterDangerous(out)
+	}
+	return out
 }
 
 // Update implements app.Page. Esc is intentionally NOT handled
@@ -253,6 +270,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// actual body length on the next frame.
 		p.scroll = 1 << 30
 	case "s":
+		if p.readOnly {
+			return p, flashFn(footer.FlashWarn, hintReadOnly)
+		}
 		cmd := p.openSilenceForm()
 		return p, cmd
 	case "S":
@@ -320,6 +340,10 @@ func (p *Page) openSilenceForm() tea.Cmd {
 // shared internal/tui/footer string when the only consumers are
 // these two pages.
 const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
+
+// hintReadOnly is the flash text emitted when `s` fires on a
+// read-only alert detail page.
+const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
 // copyFingerprint returns the Cmd that asks the clipboard
 // integration to copy this alert's fingerprint, surfacing success

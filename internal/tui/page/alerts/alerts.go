@@ -125,6 +125,11 @@ type Options struct {
 	// fanout surfaces individual CreateSilence failures. Nil
 	// suppresses logging.
 	Logger *slog.Logger
+	// ReadOnly hides the page's Dangerous bindings (`s` for
+	// silence) from the hint strip / help overlay and turns the
+	// keystroke into a flash hint. Wired from the resolved
+	// defaults.read_only chain — see internal/config/resolve.go.
+	ReadOnly bool
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -245,6 +250,11 @@ type Page struct {
 	// (bubbles `Points`). Stopped (Tick chain broken) outside of
 	// those two windows; see the spinner.TickMsg branch in Update.
 	spinner spinner.Model
+
+	// readOnly mirrors Options.ReadOnly. Bindings() filters
+	// Dangerous entries when set; handleAction flashes a hint
+	// instead of opening the silence form.
+	readOnly bool
 }
 
 // New constructs a Page from the supplied Options. Initial
@@ -277,6 +287,7 @@ func New(opts Options) *Page {
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
+		readOnly:        opts.ReadOnly,
 	}
 }
 
@@ -441,6 +452,10 @@ func (*Page) PollResources() []string { return []string{"alerts"} }
 // same convention without each page hand-rolling the strings;
 // h/l column walk lives on every table view via TableMotions and
 // isn't repeated here.
+//
+// When the page is in read-only mode the Dangerous entries (`s`)
+// are stripped before the slice is returned so the hint strip and
+// help overlay both render the read-only verb set.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("alerts")
 	out := make([]action.Action, 0, 6+len(sortBindings))
@@ -456,5 +471,8 @@ func (p *Page) Bindings() []action.Action {
 	// strip so the affordance reads at a glance alongside the
 	// page-specific verbs. Same shape as silences.
 	out = append(out, action.Action{Key: "r", Description: "refresh", View: "alerts"})
+	if p.readOnly {
+		return action.FilterDangerous(out)
+	}
 	return out
 }

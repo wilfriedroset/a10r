@@ -224,21 +224,21 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "n":
-		cmd := p.openNewSilenceForm()
+		cmd := p.runWriteAction(p.openNewSilenceForm)
 		return p, cmd
 	case "e":
-		cmd := p.openEditSilenceForm()
+		cmd := p.runWriteAction(p.openEditSilenceForm)
 		return p, cmd
 	case "x":
-		cmd := p.openExpireConfirmUnified()
+		cmd := p.runWriteAction(p.openExpireConfirmUnified)
 		return p, cmd
 	case "space":
 		p.toggleMarkAtCursor()
 	case "ctrl+e":
-		cmd := p.openEditorForCursor()
+		cmd := p.runWriteAction(p.openEditorForCursor)
 		return p, cmd
 	case "ctrl+n":
-		cmd := p.openRecreateSilenceForm()
+		cmd := p.runWriteAction(p.openRecreateSilenceForm)
 		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
@@ -246,6 +246,23 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	}
 	return p, nil
 }
+
+// runWriteAction is the read-only gate applied to every Dangerous
+// keypress on the page. When the page is read-only it short-circuits
+// with a single Warn flash; otherwise it dispatches the wrapped
+// handler. Centralised here so the read-only contract has one
+// touch-point and a stray new write verb cannot bypass it.
+func (p *Page) runWriteAction(action func() tea.Cmd) tea.Cmd {
+	if p.readOnly {
+		return flashFn(footer.FlashWarn, hintReadOnly)
+	}
+	return action()
+}
+
+// hintReadOnly is the flash text emitted when a write keystroke
+// fires in read-only mode. Singular noun keeps it short enough to
+// fit the footer flash slot without wrapping on a 80-col terminal.
+const hintReadOnly = "read-only mode — silences cannot be modified"
 
 // drillToDetail returns a Cmd that pushes the silence-detail page
 // for the row under the cursor. Empty view falls through to a soft

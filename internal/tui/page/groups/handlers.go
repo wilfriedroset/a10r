@@ -137,6 +137,9 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "enter":
 		return p.onEnter(rows)
 	case "s":
+		if p.readOnly {
+			return p, flashFn(footer.FlashWarn, hintReadOnly)
+		}
 		return p.onSilence(rows)
 	case "r":
 		cmd := p.requestRefresh()
@@ -260,3 +263,8 @@ func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 // so the "configure a writeable backend" hint reads identically
 // across the three pages that push the silence form on `s`.
 const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
+
+// hintReadOnly is the flash text emitted when `s` fires on a
+// read-only page. Same intent as silences/alerts but worded for
+// the groups affordance ("silence group").
+const hintReadOnly = "read-only mode — groups cannot be silenced"

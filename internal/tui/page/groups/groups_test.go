@@ -311,6 +311,32 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	require.Contains(t, msg.Text, "no group under the cursor")
 }
 
+func TestPage_ReadOnlyDropsSilenceBinding(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t), ReadOnly: true})
+	for _, b := range p.Bindings() {
+		require.NotEqual(t, "s", b.Key,
+			"read-only Bindings() must drop the `s` silence verb")
+	}
+}
+
+func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:   testutil.LoadStyles(t),
+		Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator:  "wilfried",
+		ReadOnly: true,
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	fm, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, footer.FlashWarn, fm.Level)
+	require.Contains(t, fm.Text, "read-only")
+}
+
 func TestPage_TitleColdStartShowsLoading(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})

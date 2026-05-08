@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,39 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 )
+
+// TestLevelFor_DefaultIsInfo asserts the CLI flag fold:
+// neither --debug nor --quiet → Info.
+func TestLevelFor_DefaultIsInfo(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, slog.LevelInfo, levelFor(false, false))
+}
+
+// TestLevelFor_DebugWins asserts that --debug raises level to
+// Debug. Audit F4: previously slog.Default() (stderr) was used
+// regardless; a plumbed --debug must reach the file logger.
+func TestLevelFor_DebugWins(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, slog.LevelDebug, levelFor(true, false))
+}
+
+// TestLevelFor_QuietDropsToWarn asserts that --quiet drops level
+// to Warn so info-noise vanishes from operator logs.
+func TestLevelFor_QuietDropsToWarn(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, slog.LevelWarn, levelFor(false, true))
+}
+
+// TestLevelFor_DebugAndQuietPrefersDebug pins the both-set
+// behaviour: debug wins, mirroring reconcileLogLevelFlags's
+// "--debug overrides --quiet" warning. Defensive — root.go's
+// reconciler already collapses the case to (debug=true,
+// quiet=false), but levelFor must remain coherent if the inputs
+// arrive uncollapsed.
+func TestLevelFor_DebugAndQuietPrefersDebug(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, slog.LevelDebug, levelFor(true, true))
+}
 
 // TestUserAgent_DevBuild covers the goreleaser-skipped local
 // build (`go build` with no -X ldflags). The output should be a

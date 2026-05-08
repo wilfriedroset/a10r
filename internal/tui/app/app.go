@@ -63,6 +63,14 @@ type Options struct {
 	// Optional: nil falls back to a no-op so headless tests don't
 	// need to inject a dummy handler.
 	Refresh func(resource, scope string)
+	// ReadOnly is the resolved defaults.read_only / --read-only /
+	// A10R_READ_ONLY value. When true the help overlay drops every
+	// Dangerous binding from the rendered list and the per-page
+	// hint strip is filtered through action.FilterDangerous before
+	// being rendered. Page-level handlers also flash a hint instead
+	// of dispatching the write — that gate is plumbed in at page
+	// construction (each page's Options.ReadOnly).
+	ReadOnly bool
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -77,6 +85,7 @@ type App struct {
 	cmdbar     *cmdbar.Resolver
 	tenants    []string
 	refresh    func(resource, scope string)
+	readOnly   bool
 
 	crumbs footer.Crumbs
 	prompt footer.Prompt
@@ -143,6 +152,7 @@ func NewApp(opts Options) *App {
 		cmdbar:     resolver,
 		tenants:    opts.Tenants,
 		refresh:    opts.Refresh,
+		readOnly:   opts.ReadOnly,
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(resolver.Suggest),
 		flash:      footer.NewFlash(),

@@ -112,6 +112,10 @@ type Options struct {
 	Clients map[string]silenceform.Client
 	// Creator seeds the form's CreatedBy field; usually $USER.
 	Creator string
+	// ReadOnly hides the page's Dangerous bindings (`s`) from the
+	// hint strip / help overlay and turns the keystroke into a
+	// flash hint. Wired from defaults.read_only / --read-only.
+	ReadOnly bool
 }
 
 // Page is the groups view.
@@ -176,6 +180,11 @@ type Page struct {
 	nextRefresh   map[string]time.Time
 	refreshing    bool
 	spinner       spinner.Model
+
+	// readOnly mirrors Options.ReadOnly. Bindings() filters
+	// Dangerous entries when set; handleAction flashes a hint
+	// instead of pushing the silence form.
+	readOnly bool
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -202,6 +211,7 @@ func New(opts Options) *Page {
 		nextRefresh:   map[string]time.Time{},
 		spinner:       sp,
 		sorter:        tablesort.New(groupSortColumns(), sortKeyName),
+		readOnly:      opts.ReadOnly,
 	}
 }
 
@@ -318,6 +328,10 @@ func (*Page) PollResources() []string { return []string{"groups"} }
 // tablesort helper so all list pages emit them identically; the
 // page contributes the page-specific verbs (Enter / s / Tab / r)
 // around them.
+//
+// When the page is in read-only mode the Dangerous entries are
+// stripped before the slice is returned so the hint strip and
+// help overlay both render the read-only verb set.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("groups")
 	out := make([]action.Action, 0, 4+len(sortBindings))
@@ -328,5 +342,8 @@ func (p *Page) Bindings() []action.Action {
 	)
 	out = append(out, sortBindings...)
 	out = append(out, action.Action{Key: "r", Description: "refresh", View: "groups"})
+	if p.readOnly {
+		return action.FilterDangerous(out)
+	}
 	return out
 }

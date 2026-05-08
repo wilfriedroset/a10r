@@ -1247,6 +1247,40 @@ func TestPage_CrumbAndHeader(t *testing.T) {
 	require.Contains(t, p.HeaderContent(), "filter:high")
 }
 
+func TestPage_ReadOnlyDropsSilenceBinding(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:   testutil.LoadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		ReadOnly: true,
+	})
+	for _, a := range p.Bindings() {
+		require.NotEqual(t, "s", a.Key,
+			"read-only Bindings() must drop the `s` silence verb so the hint strip / help overlay reflect the read-only mode")
+	}
+}
+
+func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:   testutil.LoadStyles(t),
+		Now:      func() time.Time { return fixedNow },
+		ReadOnly: true,
+		Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Tenant:   "prod",
+		Resource: []backend.Alert{mkAlert("X", "warning", backend.AlertStateActive)},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	fm, ok := msg.(footer.FlashShowMsg)
+	require.True(t, ok, "expected a footer.FlashShowMsg, got %T", msg)
+	require.Equal(t, footer.FlashWarn, fm.Level)
+	require.Contains(t, fm.Text, "read-only")
+}
+
 func TestPage_BindingsContainSilenceAsDangerous(t *testing.T) {
 	t.Parallel()
 
