@@ -12,8 +12,13 @@ import "strings"
 // Lives on the backend package so multiple UI pages — the alerts
 // list, the groups list, anything that wants severity-aware
 // ordering — share the same weight table without re-deriving it.
-func SeverityRank(a Alert) int {
-	switch strings.ToLower(a.Labels["severity"]) {
+//
+// Takes the label map directly rather than a full Alert to skip
+// the per-call struct copy. The function only ever read
+// a.Labels["severity"]; this signature is the one the comparator
+// hot loop wants.
+func SeverityRank(labels map[string]string) int {
+	switch strings.ToLower(labels["severity"]) {
 	case "critical":
 		return 3
 	case "warning":

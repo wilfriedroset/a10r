@@ -120,7 +120,7 @@ func (p *Page) snapshotFocus() {
 func groupSeverityRank(g backend.AlertGroup) int {
 	worst := 0
 	for _, a := range g.Alerts {
-		if r := backend.SeverityRank(a); r > worst {
+		if r := backend.SeverityRank(a.Labels); r > worst {
 			worst = r
 		}
 	}

@@ -26,7 +26,7 @@ func TestSeverityRank(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := SeverityRank(Alert{Labels: tc.labels})
+			got := SeverityRank(tc.labels)
 			require.Equal(t, tc.want, got)
 		})
 	}

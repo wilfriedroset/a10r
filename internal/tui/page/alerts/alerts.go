@@ -69,7 +69,7 @@ func alertSortColumns() []tablesort.Column[alertEntry] {
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
 			Less: func(a, b *alertEntry) bool {
-				return backend.SeverityRank(a.a) < backend.SeverityRank(b.a)
+				return backend.SeverityRank(a.a.Labels) < backend.SeverityRank(b.a.Labels)
 			},
 		},
 		{
