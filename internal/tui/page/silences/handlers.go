@@ -458,30 +458,55 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 		ResourceID: entry.s.ID,
 		Initial:    string(body),
 		Extension:  "yaml",
+		Ctx:        p.editorCtx,
 	})
 }
 
 // handleEditorFinished consumes a FinishedMsg arriving after an
-// $EDITOR session. Three branches:
+// $EDITOR session. Branches:
 //   - Err set: flash and clear pending state. The silence stays
 //     unchanged.
 //   - Empty / unchanged content: silent no-op (the user :q'd
 //     without writing).
+//   - YAML id != pending.id (audit F8): refuse the update, flash
+//     an error, and reopen the editor with the user's buffer
+//     preserved so they can fix the typo without losing their work.
+//     pendingEdit is intentionally left in place so the second
+//     attempt updates the same silence.
 //   - Otherwise: parse YAML, call UpdateSilence on the pending
 //     tenant's client, flash success / error.
 func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
-	pending := p.pendingEdit
-	p.pendingEdit = pendingEdit{}
 	if m.Err != nil {
+		p.pendingEdit = pendingEdit{}
 		return flashFn(footer.FlashError, "editor: "+m.Err.Error())
 	}
 	if strings.TrimSpace(m.Content) == "" {
+		p.pendingEdit = pendingEdit{}
 		return nil
 	}
+	pending := p.pendingEdit
 	id, spec, err := silenceFromYAML([]byte(m.Content))
 	if err != nil {
+		p.pendingEdit = pendingEdit{}
 		return flashFn(footer.FlashError, "yaml: "+err.Error())
 	}
+	if pending.id != "" && id != "" && id != pending.id {
+		// Keep pendingEdit so the reopened editor session updates
+		// the same silence the original `Ctrl+E` targeted. Pre-fill
+		// the editor with the user's just-edited content rather
+		// than the original snapshot — losing their work to a typo
+		// would be hostile UX.
+		flash := flashFn(footer.FlashError,
+			"silence id mismatch — expected "+pending.id+", got "+id+"; reopening editor")
+		reopen := p.editor.Edit(edit.Request{
+			ResourceID: pending.id,
+			Initial:    m.Content,
+			Extension:  "yaml",
+			Ctx:        p.editorCtx,
+		})
+		return tea.Batch(flash, reopen)
+	}
+	p.pendingEdit = pendingEdit{}
 	tenant := pending.tenant
 	if tenant == "" {
 		// Defensive — pending was cleared between open and finish

@@ -3,11 +3,13 @@
 package edit
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -197,4 +199,124 @@ func TestEdit_NoEditorConfigured(t *testing.T) {
 	cmd := r.Edit(Request{Initial: "x"})
 	fin := cmd().(FinishedMsg)
 	require.Error(t, fin.Err)
+}
+
+// TestEdit_TempfileNameUsesRandomSuffix pins audit F10's
+// resolution: each Edit call must produce a tempfile whose
+// basename is unguessable from the resource id alone. Two calls
+// with the same id must yield different paths so a co-tenant
+// pre-creating a symlink at the obvious legacy path
+// (`edit-<sanitized-id>.yaml`) cannot intercept the buffer.
+func TestEdit_TempfileNameUsesRandomSuffix(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("relies on POSIX `true`")
+	}
+	cache := t.TempDir()
+
+	// Capture the path of the tempfile each Edit produces by
+	// reading the cache dir contents from inside a recording
+	// ExecRunner. The runner doesn't actually exec; it records
+	// the path argument the editor would have received.
+	var capturedPaths []string
+	runner := func(c *exec.Cmd, fn func(error) tea.Msg) tea.Cmd {
+		require.NotEmpty(t, c.Args, "editor cmd must have arguments")
+		capturedPaths = append(capturedPaths, c.Args[len(c.Args)-1])
+		return func() tea.Msg { return fn(nil) }
+	}
+	r := Resolver{
+		DefaultEditor: "/bin/true",
+		CacheDir:      cache,
+		LookupEnv:     func(string) (string, bool) { return "", false },
+		ExecRunner:    runner,
+	}
+	cmd1 := r.Edit(Request{ResourceID: "sil-x", Initial: "a"})
+	_ = cmd1()
+	cmd2 := r.Edit(Request{ResourceID: "sil-x", Initial: "b"})
+	_ = cmd2()
+	require.Len(t, capturedPaths, 2)
+	require.NotEqual(t, capturedPaths[0], capturedPaths[1],
+		"two Edit() calls for the same resource must produce distinct tempfile paths so a symlink swap cannot target the next call")
+	require.Contains(t, filepath.Base(capturedPaths[0]), "edit-sil-x-",
+		"tempfile basename must still embed the sanitized id for operator-side debugging")
+}
+
+// TestEdit_RejectsSymlinkAtTempfilePath belt-and-braces the
+// CreateTemp O_EXCL guard: even on a filesystem where O_EXCL is
+// somehow misbehaving, an Lstat-detected non-regular file aborts
+// the edit before exec'ing the editor. Tested by pre-populating
+// the cache with a symlink at the deterministic legacy path AND
+// configuring the resolver to use that path — guarded against
+// by the random-suffix pattern, but the assertion proves the
+// safety net exists.
+func TestEdit_RejectsTempfileNotRegular(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("symlink semantics differ on windows")
+	}
+	// A path that exists as a symlink to /dev/null. The test
+	// drives assertRegularFile directly because the resolver's
+	// CreateTemp path is now random-suffix and unreachable from
+	// a fixed pre-created symlink — the assertion proves the
+	// helper itself rejects symlinks.
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	require.NoError(t, os.Symlink("/dev/null", link))
+	err := assertRegularFile(link)
+	require.ErrorIs(t, err, ErrTempfileNotRegular)
+}
+
+// TestEdit_CtxAbortsEditor pins audit F16: a cancelled parent
+// ctx kills the editor subprocess. Without the fix, the editor
+// inherited context.Background() and a parent shutdown couldn't
+// abort a hung session.
+func TestEdit_CtxAbortsEditor(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("relies on POSIX `sleep`")
+	}
+	cache := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	r := Resolver{
+		DefaultEditor: "/bin/sleep 60", // hangs until killed
+		CacheDir:      cache,
+		LookupEnv:     func(string) (string, bool) { return "", false },
+		ExecRunner:    syncRunner,
+	}
+	cmd := r.Edit(Request{ResourceID: "sil-z", Initial: "x", Ctx: ctx})
+	// Cancel before draining the cmd so the in-flight editor
+	// observes ctx.Done. syncRunner waits on cmd.Run(), which
+	// returns once the SIGKILL lands.
+	go func() {
+		// Give exec a moment to start the child.
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	fin := cmd().(FinishedMsg)
+	require.Error(t, fin.Err, "cancelled ctx must surface a non-nil Err on FinishedMsg")
+}
+
+// TestEdit_CacheDirCreatedAt0o700 pins audit F10's cache-dir
+// permission requirement: a fresh CacheDir is created mode 0o700
+// so a local co-tenant cannot list / pre-populate the directory.
+func TestEdit_CacheDirCreatedAt0o700(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("posix-mode assertions don't apply on windows")
+	}
+	parent := t.TempDir()
+	cache := filepath.Join(parent, "fresh-cache")
+	r := Resolver{
+		DefaultEditor: "/bin/true",
+		CacheDir:      cache,
+		LookupEnv:     func(string) (string, bool) { return "", false },
+		ExecRunner:    syncRunner,
+	}
+	cmd := r.Edit(Request{ResourceID: "id", Initial: "x"})
+	_ = cmd()
+	info, err := os.Stat(cache)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
+		"cache dir must be created at 0o700 so a local co-tenant cannot list or pre-populate it")
 }

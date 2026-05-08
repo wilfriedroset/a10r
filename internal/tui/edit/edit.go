@@ -52,6 +52,13 @@ type Request struct {
 	// Extension picks the tempfile extension so editor syntax
 	// highlighting kicks in. Empty defaults to "yaml".
 	Extension string
+	// Ctx is the parent context the editor subprocess inherits.
+	// Cancelling Ctx kills the editor. Closes audit F16: prior
+	// behaviour wired exec.CommandContext to context.Background()
+	// so a parent shutdown could not abort a hung editor session.
+	// nil falls back to context.Background() for tests that don't
+	// care about cancellation.
+	Ctx context.Context //nolint:containedctx // intentional: this is the editor subprocess's ctx, not session state.
 }
 
 // Resolver injects the path lookups the package needs. Tests
@@ -118,10 +125,14 @@ func (r Resolver) Editor() []string {
 }
 
 // cacheRoot returns the tempfile parent directory, creating it
-// if it doesn't exist.
+// if it doesn't exist. Audit F10: directory mode is 0o700 so a
+// local co-tenant cannot pre-create symlinks under the directory
+// even on shared hosts. Pre-existing directories with looser
+// modes are left alone — running `chmod 700` on a path the user
+// already populated would surprise them.
 func (r Resolver) cacheRoot() (string, error) {
 	if r.CacheDir != "" {
-		if err := os.MkdirAll(r.CacheDir, 0o755); err != nil {
+		if err := os.MkdirAll(r.CacheDir, 0o700); err != nil {
 			return "", err
 		}
 		return r.CacheDir, nil
@@ -131,7 +142,7 @@ func (r Resolver) cacheRoot() (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(base, "a10r")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -141,6 +152,16 @@ func (r Resolver) cacheRoot() (string, error) {
 // the initial buffer to a tempfile, runs the editor against it,
 // reads the post-edit content, removes the tempfile, and returns
 // FinishedMsg.
+//
+// Audit F10 (predictable tempfile, no O_EXCL, no symlink check):
+// the tempfile is created via os.CreateTemp with a random suffix
+// so a local co-tenant cannot pre-create a symlink at the path,
+// and the resulting handle is Lstat'd as belt-and-braces — a
+// non-regular result aborts the edit.
+//
+// Audit F16 (editor inherits context.Background()): the subprocess
+// is wired to req.Ctx so a parent shutdown can abort a hung editor
+// session.
 //
 // On any preparation error (tempfile create, editor exec) the
 // returned Cmd produces a FinishedMsg with Err set and Content
@@ -158,15 +179,39 @@ func (r Resolver) Edit(req Request) tea.Cmd {
 	if id == "" {
 		id = "draft"
 	}
-	path := filepath.Join(root, "edit-"+sanitize(id)+"."+ext)
-	if err := os.WriteFile(path, []byte(req.Initial), 0o600); err != nil {
+	// os.CreateTemp combines O_EXCL + O_CREATE under the hood and
+	// embeds a random suffix in the basename; a pre-existing
+	// symlink at the candidate path causes the create to fail
+	// rather than silently following the symlink to its target.
+	pattern := "edit-" + sanitize(id) + "-*." + ext
+	tmp, err := os.CreateTemp(root, pattern)
+	if err != nil {
+		return failed(req.ResourceID, err)
+	}
+	path := tmp.Name()
+	if _, err := tmp.WriteString(req.Initial); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(path)
+		return failed(req.ResourceID, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(path)
+		return failed(req.ResourceID, err)
+	}
+	if err := assertRegularFile(path); err != nil {
+		_ = os.Remove(path)
 		return failed(req.ResourceID, err)
 	}
 	editor := r.Editor()
 	if len(editor) == 0 {
+		_ = os.Remove(path)
 		return failed(req.ResourceID, errors.New("no editor configured"))
 	}
-	c := exec.CommandContext(context.Background(), editor[0], append(editor[1:], path)...) //nolint:gosec // editor command + tempfile path are trusted; the user controls $EDITOR.
+	ctx := req.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	c := exec.CommandContext(ctx, editor[0], append(editor[1:], path)...) //nolint:gosec // editor command + tempfile path are trusted; the user controls $EDITOR.
 	runner := r.ExecRunner
 	if runner == nil {
 		runner = func(cmd *exec.Cmd, fn func(error) tea.Msg) tea.Cmd {
@@ -189,6 +234,28 @@ func (r Resolver) Edit(req Request) tea.Cmd {
 			Err:        execErr,
 		}
 	})
+}
+
+// ErrTempfileNotRegular is returned when the path os.CreateTemp
+// produced is not a regular file. CreateTemp itself prevents the
+// symlink-swap attack via O_EXCL, but Lstat'ing the result lets
+// us reject any post-create surprise (e.g. an OS-level corruption
+// or a deeply unusual filesystem) without trusting the editor to
+// notice.
+var ErrTempfileNotRegular = errors.New("editor tempfile is not a regular file")
+
+// assertRegularFile fails when path is not a plain regular file —
+// in particular, when it is a symlink. Defense-in-depth alongside
+// os.CreateTemp's O_EXCL.
+func assertRegularFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeType != 0 {
+		return ErrTempfileNotRegular
+	}
+	return nil
 }
 
 // failed returns a Cmd that emits a FinishedMsg with the given

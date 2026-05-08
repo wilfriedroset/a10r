@@ -127,7 +127,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		}
 		return a.TimeFormat()
 	}
-	resolver := newResolver(*styles, scope, silenceClients, silenceWriteClients, creator,
+	resolver := newResolver(cmd.Context(), *styles, scope, silenceClients, silenceWriteClients, creator,
 		tenantRows, &effCfg, clients, timeFormat, readOnly)
 
 	// `gg` is a chord — the dispatcher buffers the first `g` and
@@ -467,6 +467,7 @@ func loadStylesFor(name, configDir string) (*theme.Styles, error) {
 // surface pages) the right backend.Client when the user invokes
 // a write action.
 func newResolver(
+	editorCtx context.Context,
 	styles theme.Styles,
 	scope string,
 	silenceClients map[string]silenceform.Client,
@@ -507,6 +508,7 @@ func newResolver(
 				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
+				EditorCtx:       editorCtx,
 			})
 		})
 	}

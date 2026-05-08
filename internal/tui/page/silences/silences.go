@@ -229,6 +229,13 @@ type Page struct {
 	// overlay drop them; handleAction also flashes a hint instead
 	// of dispatching the write so a stray keystroke is harmless.
 	readOnly bool
+
+	// editorCtx is the parent context the editor subprocess
+	// inherits when the user presses Ctrl+E. Wired to the
+	// program's RunE ctx so a parent shutdown aborts a hung
+	// editor session (audit F16). nil falls back to
+	// context.Background() inside edit.Edit.
+	editorCtx context.Context //nolint:containedctx // editor subprocess ctx, not session state.
 }
 
 type Options struct {
@@ -263,6 +270,10 @@ type Options struct {
 	// from the resolved defaults.read_only / --read-only / A10R_READ_ONLY
 	// chain so a misclick or stray paste cannot mutate state.
 	ReadOnly bool
+	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
+	// inherits. Cancelling kills the editor — audit F16. nil
+	// falls back to context.Background() inside edit.Edit.
+	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
 }
 
 // New constructs an empty silences page.
@@ -296,6 +307,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		editorCtx:       opts.EditorCtx,
 	}
 }
 
