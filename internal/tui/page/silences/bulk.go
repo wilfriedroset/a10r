@@ -200,7 +200,11 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		// cancel() is then a no-op (idempotent).
 		p.cancelBulk()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := p.bulkCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	p.cancelBulk = cancel
 	clients := p.clients
 	concurrency := p.bulkConcurrency

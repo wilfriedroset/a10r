@@ -130,6 +130,11 @@ type Options struct {
 	// keystroke into a flash hint. Wired from the resolved
 	// defaults.read_only chain — see internal/config/resolve.go.
 	ReadOnly bool
+	// BulkCtx is the parent ctx the bulk-silence fanout inherits.
+	// Cancelling cancels every in-flight worker — important for
+	// multi-day sessions where a quit must not orphan goroutines.
+	// nil falls back to context.Background().
+	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -260,6 +265,9 @@ type Page struct {
 	// Dangerous entries when set; handleAction flashes a hint
 	// instead of opening the silence form.
 	readOnly bool
+
+	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
+	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 }
 
 // New constructs a Page from the supplied Options. Initial
@@ -293,6 +301,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		bulkCtx:         opts.BulkCtx,
 	}
 }
 

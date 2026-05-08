@@ -242,6 +242,13 @@ type Page struct {
 	// editor session (audit F16). nil falls back to
 	// context.Background() inside edit.Edit.
 	editorCtx context.Context //nolint:containedctx // editor subprocess ctx, not session state.
+	// bulkCtx is the parent context the bulk-expire fanout
+	// inherits. Wired to the program's RunE ctx so a quit
+	// cancels the in-flight workers instead of orphaning their
+	// goroutines for a multi-day session. nil falls back to
+	// context.Background() (preserves the pre-fix behaviour for
+	// callers that haven't plumbed it yet).
+	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 }
 
 type Options struct {
@@ -280,6 +287,11 @@ type Options struct {
 	// inherits. Cancelling kills the editor — audit F16. nil
 	// falls back to context.Background() inside edit.Edit.
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
+	// BulkCtx is the parent ctx the bulk-expire fanout inherits.
+	// Cancelling cancels every in-flight worker — important for
+	// multi-day sessions where a quit must not orphan goroutines.
+	// nil falls back to context.Background().
+	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 }
 
 // New constructs an empty silences page.
@@ -314,6 +326,7 @@ func New(opts Options) *Page {
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
 		editorCtx:       opts.EditorCtx,
+		bulkCtx:         opts.BulkCtx,
 	}
 }
 

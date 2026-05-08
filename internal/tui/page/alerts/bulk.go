@@ -241,7 +241,11 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		// if it already ran.
 		p.cancelBulk()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := p.bulkCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	p.cancelBulk = cancel
 	clients := p.clients
 	concurrency := p.bulkConcurrency

@@ -192,6 +192,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 				BulkConcurrency: effCfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
+				BulkCtx:         cmd.Context(),
 			})
 		}
 		prog.Send(app.PushPage(homeFactory)())
@@ -534,6 +535,7 @@ func newResolver(
 				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
+				BulkCtx:         editorCtx,
 			})
 		})
 	})
@@ -551,6 +553,7 @@ func newResolver(
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
 				EditorCtx:       editorCtx,
+				BulkCtx:         editorCtx,
 			})
 		})
 	}
