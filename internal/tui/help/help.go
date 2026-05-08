@@ -250,6 +250,7 @@ func truncateVisible(s string, w int) string {
 		return s
 	}
 	var b strings.Builder
+	b.Grow(len(s))
 	used := 0
 	inEsc := false
 	for _, r := range s {
@@ -263,7 +264,7 @@ func truncateVisible(s string, w int) string {
 				inEsc = false
 			}
 		default:
-			rw := lipgloss.Width(string(r))
+			rw := runeCellWidth(r)
 			if used+rw > w {
 				return b.String()
 			}
@@ -272,6 +273,17 @@ func truncateVisible(s string, w int) string {
 		}
 	}
 	return b.String()
+}
+
+// runeCellWidth returns r's terminal-cell width, biased for the
+// printable-ASCII fast path. See format.runeWidth for rationale —
+// kept private here so the help package doesn't pull format just to
+// compute one width.
+func runeCellWidth(r rune) int {
+	if r >= 0x20 && r < 0x7F {
+		return 1
+	}
+	return lipgloss.Width(string(r))
 }
 
 // itoa is a small allocation-free int → string for the numeric

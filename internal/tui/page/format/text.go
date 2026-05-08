@@ -48,9 +48,10 @@ func Truncate(s string, w int) string {
 		return s
 	}
 	var b strings.Builder
+	b.Grow(len(s))
 	used := 0
 	for _, r := range s {
-		rw := lipgloss.Width(string(r))
+		rw := runeWidth(r)
 		if used+rw > w {
 			break
 		}
@@ -58,4 +59,18 @@ func Truncate(s string, w int) string {
 		used += rw
 	}
 	return b.String()
+}
+
+// runeWidth returns r's terminal-cell width, biased for the common
+// ASCII case. Printable ASCII (0x20-0x7E) is unconditionally width 1
+// — matches lipgloss.Width on every supported terminal and avoids
+// the per-rune string(r) allocation + Width call that dominates
+// table-cell rendering at thousands of cells per frame. Non-ASCII
+// (control chars, CJK, emoji) falls through to lipgloss so width
+// stays correct on every input the fast path would mis-classify.
+func runeWidth(r rune) int {
+	if r >= 0x20 && r < 0x7F {
+		return 1
+	}
+	return lipgloss.Width(string(r))
 }
