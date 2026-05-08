@@ -180,6 +180,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// Push the alerts home page once the program is running. The
 	// app.PushPage Cmd is invoked once to extract its message,
 	// which Send routes through the Update loop on the next tick.
+	// Guarded by cmd.Context() so a Ctrl+C between Run start and
+	// the first Send doesn't leak the goroutine for the rest of
+	// the session — defence-in-depth for multi-day usage.
 	go func() {
 		homeFactory := func() app.Page {
 			return alerts.New(alerts.Options{
@@ -195,7 +198,11 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 				BulkCtx:         cmd.Context(),
 			})
 		}
-		prog.Send(app.PushPage(homeFactory)())
+		msg := app.PushPage(homeFactory)()
+		if cmd.Context().Err() != nil {
+			return
+		}
+		prog.Send(msg)
 	}()
 
 	_, err = prog.Run()
