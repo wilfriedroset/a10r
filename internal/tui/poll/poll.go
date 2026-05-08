@@ -286,15 +286,24 @@ func (p *Poller) run(ctx context.Context) {
 		return
 	}
 	for {
+		t := p.clock.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			if !t.Stop() {
+				<-t.C()
+			}
 			return
 		case <-p.refresh:
 			// Manual refresh: skip the scheduled wait and tick now.
 			// We deliberately do not reset p.failures — a refresh
 			// against a flaky upstream shouldn't pretend the previous
-			// failures didn't happen.
-		case <-p.clock.After(delay):
+			// failures didn't happen. Stop the timer so a pressed
+			// refresh against a tenant in backoff doesn't leave a
+			// runtime timer outstanding for the full backoff window.
+			if !t.Stop() {
+				<-t.C()
+			}
+		case <-t.C():
 		}
 		delay, ok = p.tickOnce(ctx)
 		if !ok {

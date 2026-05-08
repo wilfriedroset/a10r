@@ -49,6 +49,43 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	return ch
 }
 
+// NewTimer returns a stoppable Timer that observes the same fire-on-
+// fireNext discipline as After. Stop drops the pending entry from the
+// scheduler so cancelled timers don't get force-fired by a later
+// fireNext call (matches the production NewTimer contract).
+func (c *fakeClock) NewTimer(d time.Duration) Timer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ch := make(chan time.Time, 1)
+	c.pending = append(c.pending, ch)
+	c.delays = append(c.delays, d)
+	return &fakeTimer{clock: c, ch: ch}
+}
+
+// fakeTimer is the channel-backed Timer the fake clock returns from
+// NewTimer. Stop walks the parent's pending list to drop this
+// timer's entry so a fireNext after Stop fires the next live timer
+// instead of a cancelled one.
+type fakeTimer struct {
+	clock *fakeClock
+	ch    chan time.Time
+}
+
+func (t *fakeTimer) C() <-chan time.Time { return t.ch }
+
+func (t *fakeTimer) Stop() bool {
+	t.clock.mu.Lock()
+	defer t.clock.mu.Unlock()
+	for i, ch := range t.clock.pending {
+		if ch == t.ch {
+			t.clock.pending = append(t.clock.pending[:i], t.clock.pending[i+1:]...)
+			t.clock.delays = append(t.clock.delays[:i], t.clock.delays[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // fireNext fires the oldest pending After channel and returns the
 // duration the poller asked for, so tests can assert the schedule.
 // Blocks (with a generous timeout) until at least one pending
@@ -738,6 +775,77 @@ func TestPoller_RefreshTriggersImmediateTick(t *testing.T) {
 	data, ok := rec.next(t).(DataMsg)
 	require.True(t, ok, "Refresh must produce a DataMsg without firing the schedule")
 	require.Equal(t, "payload", data.Resource)
+}
+
+// TestPoller_RefreshDropsPendingTimer locks F10. Mashing Refresh
+// while a tenant is in backoff must not leak a pending timer per
+// press — the loop releases the previous Timer via Stop before
+// arming the next one. Asserted by counting pending entries on the
+// fake clock after a refresh storm: each refresh consumes one
+// pending entry (the live timer), arms one more, so the count is
+// stable at 1.
+func TestPoller_RefreshDropsPendingTimer(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+	clock := newFakeClock()
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "alerts",
+		Interval: time.Hour,
+		Fetch:    func(_ context.Context) (any, error) { return "payload", nil },
+		Send:     rec.Send,
+		Clock:    clock,
+		Backoff:  noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	// Drain cold-start emissions.
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
+	require.IsType(t, DataMsg{}, rec.next(t))
+
+	// Wait until the loop enters its select with a timer armed.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		clock.mu.Lock()
+		pending := len(clock.pending)
+		clock.mu.Unlock()
+		if pending == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("loop never armed the initial timer")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	for range 10 {
+		p.Refresh()
+		// Each refresh produces one DataMsg; drain so the loop
+		// re-arms a fresh timer before the next refresh.
+		require.IsType(t, DataMsg{}, rec.next(t))
+	}
+
+	// After 10 refreshes, the loop should still hold exactly one
+	// pending timer — the freshly armed one. Every prior timer was
+	// stopped before being replaced.
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		clock.mu.Lock()
+		pending := len(clock.pending)
+		clock.mu.Unlock()
+		if pending == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected exactly 1 pending timer after refresh storm, got %d", pending)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func TestPoller_RefreshIsNonBlocking(t *testing.T) {
