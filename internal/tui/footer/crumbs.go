@@ -12,8 +12,6 @@ package footer
 import (
 	"strings"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -56,11 +54,8 @@ func (c Crumbs) Render(styles *theme.Styles) string {
 	if len(c.entries) == 0 {
 		return ""
 	}
-	defaultStyle := styles.Crumbs.Default.Bold(true)
-	activeStyle := lipgloss.NewStyle().
-		Foreground(styles.Crumbs.Default.GetForeground()).
-		Background(styles.Crumbs.Active.GetForeground()).
-		Bold(true)
+	defaultStyle := styles.Crumbs.DefaultBold
+	activeStyle := styles.Crumbs.ActivePill
 	parts := make([]string, len(c.entries))
 	last := len(c.entries) - 1
 	for i, e := range c.entries {

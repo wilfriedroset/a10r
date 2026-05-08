@@ -107,8 +107,8 @@ func (p *Page) renderHeader(width int) string {
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a
 	// coloured stripe.
-	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
-	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := p.styles.Table.HeaderFg
+	activeFg := p.styles.Table.HeaderActiveFg
 
 	render := func(label, key string, w int) string {
 		if arrow := p.sorter.ArrowFor(key); arrow != "" {

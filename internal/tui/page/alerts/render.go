@@ -60,8 +60,8 @@ func (p *Page) renderHeader(width int) string {
 	// background — painting palette bg inside the unstyled body
 	// frame creates a coloured stripe (see feedback memory on
 	// chrome rendering).
-	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
-	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := p.styles.Table.HeaderFg
+	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", rowPrefixCols))
@@ -176,13 +176,9 @@ func (p *Page) renderRows(width, maxRows int) string {
 			rowColor := severityStyle(a, p.styles).GetForeground()
 			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case marked:
-			line = lipgloss.NewStyle().
-				Foreground(p.styles.Table.Marked.GetForeground()).
-				Render(line)
+			line = p.styles.Table.MarkedFg.Render(line)
 		case a.State == backend.AlertStateSuppressed:
-			line = lipgloss.NewStyle().
-				Foreground(p.styles.Table.Dimmed.GetForeground()).
-				Render(line)
+			line = p.styles.Table.DimmedFg.Render(line)
 		}
 		b.WriteString(line)
 		if i < end-1 {

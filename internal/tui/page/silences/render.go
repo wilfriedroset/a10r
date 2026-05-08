@@ -86,8 +86,8 @@ func (p *Page) renderHeader(width int) string {
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a
 	// coloured stripe.
-	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
-	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := p.styles.Table.HeaderFg
+	activeFg := p.styles.Table.HeaderActiveFg
 	parts := make([]string, len(cols))
 	for i, c := range cols {
 		label := c.label
@@ -177,13 +177,9 @@ func (p *Page) renderRows(width, maxRows int) string {
 			rowColor := silenceStateColor(e.s.State, p.styles)
 			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case marked:
-			line = lipgloss.NewStyle().
-				Foreground(p.styles.Table.Marked.GetForeground()).
-				Render(line)
+			line = p.styles.Table.MarkedFg.Render(line)
 		case e.s.State == backend.SilenceStateExpired:
-			line = lipgloss.NewStyle().
-				Foreground(p.styles.Table.Dimmed.GetForeground()).
-				Render(line)
+			line = p.styles.Table.DimmedFg.Render(line)
 		}
 		b.WriteString(line)
 		if i < end-1 {

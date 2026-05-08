@@ -391,9 +391,7 @@ func (p *Page) View(width, height int) string {
 			rowColor := p.styles.Severity.Info.GetForeground()
 			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case p.scopeIncludes(row.Name):
-			line = lipgloss.NewStyle().
-				Foreground(p.styles.Table.Marked.GetForeground()).
-				Render(line)
+			line = p.styles.Table.MarkedFg.Render(line)
 		}
 		out = append(out, line)
 	}
@@ -415,8 +413,8 @@ func (p *Page) renderHeader(width int) string {
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a
 	// coloured stripe.
-	headerFg := theme.FgOnly(p.styles.Table.Header.GetForeground())
-	activeFg := theme.FgOnly(p.styles.Table.HeaderActive.GetForeground())
+	headerFg := p.styles.Table.HeaderFg
+	activeFg := p.styles.Table.HeaderActiveFg
 	parts := make([]string, len(cols))
 	widths := tenantColumnWidths(width)
 	for i, c := range cols {

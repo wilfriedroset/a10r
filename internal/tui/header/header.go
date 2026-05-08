@@ -162,7 +162,7 @@ func renderHintsWithBudget(hints []action.Action, budget int, styles *theme.Styl
 // renderLeft formats the tenant indicator + glyph + count + age.
 func renderLeft(state State, styles *theme.Styles) string {
 	var b strings.Builder
-	fg := theme.FgOnly(styles.Header.Default.GetForeground())
+	fg := styles.Header.DefaultFg
 
 	b.WriteString(fg.Render("tenants: "))
 	if state.Tenants != "" {
@@ -196,7 +196,7 @@ func connStyle(c ConnState, styles *theme.Styles) lipgloss.Style {
 	case ConnUnreachable:
 		return styles.Header.Error
 	}
-	return theme.FgOnly(styles.Header.Default.GetForeground())
+	return styles.Header.DefaultFg
 }
 
 // renderMiddle truncates content to fit budget columns. Returns
@@ -205,7 +205,7 @@ func renderMiddle(content string, budget int, styles *theme.Styles) string {
 	if content == "" || budget < minMiddleWidth {
 		return ""
 	}
-	fg := theme.FgOnly(styles.Header.Default.GetForeground())
+	fg := styles.Header.DefaultFg
 	if lipgloss.Width(content) <= budget {
 		return fg.Render(content)
 	}
@@ -223,7 +223,7 @@ func renderHints(hints []action.Action, styles *theme.Styles) string {
 	if len(hints) == 0 {
 		return ""
 	}
-	descStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
+	descStyle := styles.Hint.DefaultFg
 	var b strings.Builder
 	for i, a := range hints {
 		if i > 0 {

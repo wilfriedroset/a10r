@@ -7,7 +7,6 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -281,13 +280,11 @@ func (p Prompt) Render(styles *theme.Styles) string {
 	if !p.open {
 		return ""
 	}
-	main := lipgloss.NewStyle().
-		Foreground(styles.Prompt.Default.GetForeground()).
-		Bold(true)
-	out := main.Render(" " + p.mode.prefixGlyph() + p.value)
+	out := styles.Prompt.DefaultFgBold.Render(" " + p.mode.prefixGlyph() + p.value)
 	if p.suggestion != "" {
-		ghost := theme.FgOnly(styles.Prompt.Suggestion.GetForeground())
-		out += ghost.Render(strings.TrimPrefix(p.suggestion, p.value))
+		// Suggestion is already FgOnly at theme-load (see compilePrompt),
+		// so reading it directly is the fg-only ghost the chrome wants.
+		out += styles.Prompt.Suggestion.Render(strings.TrimPrefix(p.suggestion, p.value))
 	}
 	return out
 }

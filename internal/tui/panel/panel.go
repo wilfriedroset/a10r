@@ -43,11 +43,11 @@ var titleStructRE = regexp.MustCompile(`^(.*?)\(([^()]*)\)(\[(\d+)\])?(.*)$`)
 func styleTitle(raw string, styles *theme.Styles) string {
 	m := titleStructRE.FindStringSubmatch(raw)
 	if m == nil {
-		return styles.Frame.Title.Bold(true).Render(raw)
+		return styles.Frame.TitleBold.Render(raw)
 	}
 	subject, scope, count, trailing := m[1], m[2], m[4], m[5]
-	titleBold := styles.Frame.Title.Bold(true)
-	hiliteBold := styles.Frame.TitleHighlight.Bold(true)
+	titleBold := styles.Frame.TitleBold
+	hiliteBold := styles.Frame.TitleHighlightBold
 	titlePlain := styles.Frame.Title
 	var b strings.Builder
 	b.WriteString(titleBold.Render(subject + "("))
@@ -55,7 +55,7 @@ func styleTitle(raw string, styles *theme.Styles) string {
 	b.WriteString(titlePlain.Render(")"))
 	if count != "" {
 		b.WriteString(titlePlain.Render("["))
-		b.WriteString(styles.Frame.TitleCounter.Bold(true).Render(count))
+		b.WriteString(styles.Frame.TitleCounterBold.Render(count))
 		b.WriteString(titlePlain.Render("]"))
 	}
 	if trailing != "" {
@@ -242,8 +242,8 @@ func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.St
 			maxKey = w
 		}
 	}
-	keyStyle := styles.Hint.HelpKey.Bold(true)
-	nameStyle := theme.FgOnly(styles.Hint.Default.GetForeground()).Bold(true)
+	keyStyle := styles.Hint.HelpKeyBold
+	nameStyle := styles.Hint.DefaultFgBold
 	cells := make([]string, len(tenants))
 	for i, t := range tenants {
 		key := keyStyle.Render("<" + t.Key + ">")
@@ -327,13 +327,13 @@ func renderInfoLines(lines []InfoLine, styles *theme.Styles) []string {
 		}
 	}
 	out := make([]string, len(lines))
-	labelStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
+	labelStyle := styles.Hint.DefaultFg
 	// Values use the body's foreground only — same fg-only
 	// treatment the labels get above. Calling Body.Default would
 	// paint the body's bg behind the value, which renders as a
 	// stripe of mismatched colour against the surrounding empty
 	// cells in the panel zone.
-	valueStyle := theme.FgOnly(styles.Body.Default.GetForeground())
+	valueStyle := styles.Body.DefaultFg
 	for i, l := range lines {
 		pad := strings.Repeat(" ", maxLabel-lipgloss.Width(l.Label))
 		out[i] = labelStyle.Render(l.Label+":") + pad + " " + valueStyle.Render(l.Value)
@@ -355,12 +355,12 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 			maxKey = w
 		}
 	}
-	descStyle := theme.FgOnly(styles.Hint.Default.GetForeground())
+	descStyle := styles.Hint.DefaultFg
 	cells := make([]string, len(hints))
 	for i, a := range hints {
-		keyStyle := styles.Hint.Key.Bold(true)
+		keyStyle := styles.Hint.KeyBold
 		if a.Key == "?" {
-			keyStyle = styles.Hint.HelpKey.Bold(true)
+			keyStyle = styles.Hint.HelpKeyBold
 		}
 		key := keyStyle.Render("<" + a.Key + ">")
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)

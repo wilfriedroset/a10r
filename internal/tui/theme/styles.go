@@ -34,6 +34,10 @@ type Styles struct {
 type BodyStyle struct {
 	Default lipgloss.Style
 	Logo    lipgloss.Style
+	// DefaultFg is the precomputed fg-only sibling of Default — the
+	// panel info column reads it on every frame to colour values
+	// without painting the body bg behind them.
+	DefaultFg lipgloss.Style
 }
 
 // FrameStyle covers the page frame: the border characters around
@@ -49,6 +53,12 @@ type FrameStyle struct {
 	TitleHighlight lipgloss.Style
 	TitleCounter   lipgloss.Style
 	TitleFilter    lipgloss.Style
+	// *Bold variants are pre-computed Bold(true) siblings so the panel
+	// title hot path doesn't reconstruct a new lipgloss.Style on every
+	// frame. Identical to the corresponding plain field with bold set.
+	TitleBold          lipgloss.Style
+	TitleHighlightBold lipgloss.Style
+	TitleCounterBold   lipgloss.Style
 }
 
 // HeaderStyle drives the J1 three-zone header: Default carries the
@@ -60,6 +70,9 @@ type HeaderStyle struct {
 	OK      lipgloss.Style
 	Warn    lipgloss.Style
 	Error   lipgloss.Style
+	// DefaultFg is the precomputed fg-only sibling of Default — the
+	// header chrome reads it on every frame.
+	DefaultFg lipgloss.Style
 }
 
 // TableStyle covers every table-row state: the column header, the
@@ -75,6 +88,15 @@ type TableStyle struct {
 	Cursor       lipgloss.Style
 	Marked       lipgloss.Style
 	Dimmed       lipgloss.Style
+	// *Fg variants are foreground-only siblings of the parent style.
+	// Pages that paint cells without an inherited bg (header rows
+	// rendered inside the column-header line, marked / dimmed cells
+	// stacked over a row-level cursor wrap) read these instead of
+	// reconstructing a fresh FgOnly Style on every frame. See F12.
+	HeaderFg       lipgloss.Style
+	HeaderActiveFg lipgloss.Style
+	MarkedFg       lipgloss.Style
+	DimmedFg       lipgloss.Style
 }
 
 // CursorOver returns the cursor style with bg overridden to the
@@ -112,6 +134,10 @@ type SilenceStateStyle struct {
 type PromptStyle struct {
 	Default    lipgloss.Style
 	Suggestion lipgloss.Style
+	// DefaultFgBold is the fg-only bold sibling of Default. The
+	// prompt main glyph reads it on every keystroke; the surrounding
+	// chrome is unstyled so painting Default's bg would draw a stripe.
+	DefaultFgBold lipgloss.Style
 }
 
 // FlashStyle colours the bottom-strip ephemeral messages by level.
@@ -127,6 +153,14 @@ type FlashStyle struct {
 type CrumbsStyle struct {
 	Default lipgloss.Style
 	Active  lipgloss.Style
+	// DefaultBold and ActivePill are precomputed siblings the
+	// breadcrumb renderer reads on every frame; ActivePill is the
+	// composite "default fg over active bg, bold" pill that decorates
+	// the top-of-stack crumb (see footer.Crumbs.Render). Baked at
+	// load to avoid rebuilding the same lipgloss.Style on every
+	// page push.
+	DefaultBold lipgloss.Style
+	ActivePill  lipgloss.Style
 }
 
 // HintStyle drives the J1 right-zone keybinding hint strip. Key
@@ -136,6 +170,15 @@ type HintStyle struct {
 	Default lipgloss.Style
 	Key     lipgloss.Style
 	HelpKey lipgloss.Style
+	// DefaultFg + DefaultFgBold are precomputed fg-only siblings of
+	// Default — the panel hint and tenant strips read them on every
+	// frame instead of reconstructing FgOnly + Bold from scratch.
+	DefaultFg     lipgloss.Style
+	DefaultFgBold lipgloss.Style
+	// KeyBold / HelpKeyBold mirror their plain counterparts with
+	// Bold(true) baked in — same hot-path rationale.
+	KeyBold     lipgloss.Style
+	HelpKeyBold lipgloss.Style
 }
 
 // ModalStyle covers the confirm-dialog / picker / help overlays.
@@ -355,8 +398,9 @@ func compileBody(f *k9sSkinFile) (BodyStyle, error) {
 		return BodyStyle{}, g.err
 	}
 	return BodyStyle{
-		Default: fgBgStyle(fg, bg),
-		Logo:    FgOnly(logo),
+		Default:   fgBgStyle(fg, bg),
+		Logo:      FgOnly(logo),
+		DefaultFg: FgOnly(fg),
 	}, nil
 }
 
@@ -372,12 +416,18 @@ func compileFrame(f *k9sSkinFile) (FrameStyle, error) {
 	if g.err != nil {
 		return FrameStyle{}, g.err
 	}
+	titleStyle := FgOnly(title)
+	titleHighlight := FgOnly(highlight)
+	titleCounter := FgOnly(counter)
 	return FrameStyle{
-		Border:         FgOnly(border),
-		Title:          FgOnly(title),
-		TitleHighlight: FgOnly(highlight),
-		TitleCounter:   FgOnly(counter),
-		TitleFilter:    FgOnly(filter),
+		Border:             FgOnly(border),
+		Title:              titleStyle,
+		TitleHighlight:     titleHighlight,
+		TitleCounter:       titleCounter,
+		TitleFilter:        FgOnly(filter),
+		TitleBold:          titleStyle.Bold(true),
+		TitleHighlightBold: titleHighlight.Bold(true),
+		TitleCounterBold:   titleCounter.Bold(true),
 	}, nil
 }
 
@@ -393,11 +443,12 @@ func compileHeader(f *k9sSkinFile) (HeaderStyle, error) {
 		return HeaderStyle{}, g.err
 	}
 	return HeaderStyle{
-		Default: fgBgStyle(fg, bg),
-		Accent:  FgOnly(accent),
-		OK:      FgOnly(ok),
-		Warn:    FgOnly(warn),
-		Error:   FgOnly(errC),
+		Default:   fgBgStyle(fg, bg),
+		Accent:    FgOnly(accent),
+		OK:        FgOnly(ok),
+		Warn:      FgOnly(warn),
+		Error:     FgOnly(errC),
+		DefaultFg: FgOnly(fg),
 	}, nil
 }
 
@@ -444,9 +495,13 @@ func compileTable(f *k9sSkinFile) (TableStyle, error) {
 		// k9s applies tcell.AttrBold to its selected (cursor) row
 		// (internal/ui/table.go:337). Match that for parity so a
 		// side-by-side comparison reads identically.
-		Cursor: fgBgStyle(cursorFg, cursorBg).Bold(true),
-		Marked: fgBgStyle(markedFg, bodyBg),
-		Dimmed: fgBgStyle(dimmedFg, bodyBg),
+		Cursor:         fgBgStyle(cursorFg, cursorBg).Bold(true),
+		Marked:         fgBgStyle(markedFg, bodyBg),
+		Dimmed:         fgBgStyle(dimmedFg, bodyBg),
+		HeaderFg:       FgOnly(headerFg),
+		HeaderActiveFg: FgOnly(headerActiveFg),
+		MarkedFg:       FgOnly(markedFg),
+		DimmedFg:       FgOnly(dimmedFg),
 	}, nil
 }
 
@@ -491,8 +546,9 @@ func compilePrompt(f *k9sSkinFile) (PromptStyle, error) {
 		return PromptStyle{}, g.err
 	}
 	return PromptStyle{
-		Default:    fgBgStyle(fg, bg),
-		Suggestion: FgOnly(suggestion),
+		Default:       fgBgStyle(fg, bg),
+		Suggestion:    FgOnly(suggestion),
+		DefaultFgBold: FgOnly(fg).Bold(true),
 	}, nil
 }
 
@@ -522,9 +578,16 @@ func compileCrumbs(f *k9sSkinFile) (CrumbsStyle, error) {
 	if g.err != nil {
 		return CrumbsStyle{}, g.err
 	}
+	defaultStyle := fgBgStyle(fg, bg)
+	activeStyle := FgOnly(active)
 	return CrumbsStyle{
-		Default: fgBgStyle(fg, bg),
-		Active:  FgOnly(active),
+		Default:     defaultStyle,
+		Active:      activeStyle,
+		DefaultBold: defaultStyle.Bold(true),
+		ActivePill: lipgloss.NewStyle().
+			Foreground(defaultStyle.GetForeground()).
+			Background(activeStyle.GetForeground()).
+			Bold(true),
 	}, nil
 }
 
@@ -547,10 +610,17 @@ func compileHint(f *k9sSkinFile) (HintStyle, error) {
 	if g.err != nil {
 		return HintStyle{}, g.err
 	}
+	defaultFg := FgOnly(fg)
+	keyStyle := FgOnly(keyC)
+	helpStyle := FgOnly(helpC)
 	return HintStyle{
-		Default: fgBgStyle(fg, bg),
-		Key:     FgOnly(keyC),
-		HelpKey: FgOnly(helpC),
+		Default:       fgBgStyle(fg, bg),
+		Key:           keyStyle,
+		HelpKey:       helpStyle,
+		DefaultFg:     defaultFg,
+		DefaultFgBold: defaultFg.Bold(true),
+		KeyBold:       keyStyle.Bold(true),
+		HelpKeyBold:   helpStyle.Bold(true),
 	}, nil
 }
 
