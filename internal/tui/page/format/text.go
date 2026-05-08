@@ -68,6 +68,14 @@ func Truncate(s string, w int) string {
 // styling — pre-styled body lines, lipgloss-rendered cells embedded
 // in a wider clamp.
 //
+// When truncation lands inside a styled run, SGRTruncate appends an
+// explicit `\x1b[0m` reset so the active style does not bleed into
+// the surrounding chrome. Today's chrome callers (panel.RenderBody,
+// help.padRight) wrap the result in their own styled segment, which
+// would override most leaks — but a future caller without that
+// wrapper would otherwise see the next column tinted by the cut
+// style. Defensive insurance.
+//
 // Returns "" for w <= 0; returns s unchanged when its visible width
 // already fits.
 func SGRTruncate(s string, w int) string {
@@ -78,13 +86,15 @@ func SGRTruncate(s string, w int) string {
 		return s
 	}
 	var b strings.Builder
-	b.Grow(len(s))
+	b.Grow(len(s) + sgrResetLen)
 	used := 0
 	inEsc := false
+	sawSGR := false
 	for _, r := range s {
 		switch {
 		case r == 0x1b:
 			inEsc = true
+			sawSGR = true
 			b.WriteRune(r)
 		case inEsc:
 			b.WriteRune(r)
@@ -94,6 +104,9 @@ func SGRTruncate(s string, w int) string {
 		default:
 			rw := runeWidth(r)
 			if used+rw > w {
+				if sawSGR {
+					b.WriteString(sgrReset)
+				}
 				return b.String()
 			}
 			b.WriteRune(r)
@@ -102,6 +115,11 @@ func SGRTruncate(s string, w int) string {
 	}
 	return b.String()
 }
+
+const (
+	sgrReset    = "\x1b[0m"
+	sgrResetLen = len(sgrReset)
+)
 
 // runeWidth returns r's terminal-cell width, biased for the common
 // ASCII case. Printable ASCII (0x20-0x7E) is unconditionally width 1

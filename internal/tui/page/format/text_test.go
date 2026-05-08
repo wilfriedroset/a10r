@@ -54,8 +54,8 @@ func TestSGRTruncate(t *testing.T) {
 	}{
 		{name: "no escapes truncates same as Truncate", s: "abcdef", w: 3, want: "abc"},
 		{name: "fits returns unchanged with escapes", s: red + "abc" + reset, w: 5, want: red + "abc" + reset},
-		{name: "escape preserved verbatim across truncation", s: red + "abcdef" + reset, w: 3, want: red + "abc"},
-		{name: "escape after content stays attached", s: "abc" + red + "def" + reset, w: 4, want: "abc" + red + "d"},
+		{name: "escape preserved verbatim across truncation closes with reset", s: red + "abcdef" + reset, w: 3, want: red + "abc" + reset},
+		{name: "escape after content stays attached and closes with reset", s: "abc" + red + "def" + reset, w: 4, want: "abc" + red + "d" + reset},
 		{name: "zero width returns empty", s: red + "abc" + reset, w: 0, want: ""},
 		{name: "negative width returns empty", s: red + "abc" + reset, w: -1, want: ""},
 	}
