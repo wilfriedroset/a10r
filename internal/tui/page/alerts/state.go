@@ -59,7 +59,13 @@ func (p *Page) scopeIncludes(tenant string) bool {
 // poll cadence (O(N log N) on hundreds of alerts).
 func (p *Page) recompute() {
 	defer p.recomputeScroll()
-	flat := make([]alertEntry, 0)
+	total := 0
+	for tenant, alerts := range p.byTenant {
+		if p.scopeIncludes(tenant) {
+			total += len(alerts)
+		}
+	}
+	flat := make([]alertEntry, 0, total)
 	for tenant, alerts := range p.byTenant {
 		if !p.scopeIncludes(tenant) {
 			continue
@@ -130,9 +136,10 @@ func (p *Page) cycleStateFilter() {
 // annotation values.
 func filterEntries(in []alertEntry, substr, state string) []alertEntry {
 	if substr == "" && state == "" {
-		out := make([]alertEntry, len(in))
-		copy(out, in)
-		return out
+		// Caller's `flat` slice is local to recompute and assigned
+		// straight to p.view; sharing the backing avoids an O(N)
+		// copy that fires every poll tick.
+		return in
 	}
 	needle := strings.ToLower(substr)
 	out := make([]alertEntry, 0, len(in))

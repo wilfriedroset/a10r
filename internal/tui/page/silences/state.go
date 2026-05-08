@@ -59,7 +59,13 @@ func (p *Page) showTenantColumn() bool {
 // across rebuilds by silence ID when possible — see snapshotFocus.
 func (p *Page) recompute() {
 	defer p.recomputeScroll()
-	flat := make([]silenceEntry, 0)
+	total := 0
+	for tenant, sils := range p.byTenant {
+		if p.scopeIncludes(tenant) {
+			total += len(sils)
+		}
+	}
+	flat := make([]silenceEntry, 0, total)
 	for tenant, sils := range p.byTenant {
 		if !p.scopeIncludes(tenant) {
 			continue
