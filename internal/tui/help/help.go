@@ -27,6 +27,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -235,55 +236,9 @@ func padRight(s string, w int) string {
 	}
 	cur := lipgloss.Width(s)
 	if cur >= w {
-		return truncateVisible(s, w)
+		return format.SGRTruncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-cur)
-}
-
-// truncateVisible cuts s to at most w visible columns. Lipgloss-
-// aware to keep ANSI sequences intact.
-func truncateVisible(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s))
-	used := 0
-	inEsc := false
-	for _, r := range s {
-		switch {
-		case r == 0x1b:
-			inEsc = true
-			b.WriteRune(r)
-		case inEsc:
-			b.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-			}
-		default:
-			rw := runeCellWidth(r)
-			if used+rw > w {
-				return b.String()
-			}
-			b.WriteRune(r)
-			used += rw
-		}
-	}
-	return b.String()
-}
-
-// runeCellWidth returns r's terminal-cell width, biased for the
-// printable-ASCII fast path. See format.runeWidth for rationale —
-// kept private here so the help package doesn't pull format just to
-// compute one width.
-func runeCellWidth(r rune) int {
-	if r >= 0x20 && r < 0x7F {
-		return 1
-	}
-	return lipgloss.Width(string(r))
 }
 
 // itoa is a small allocation-free int → string for the numeric

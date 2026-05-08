@@ -40,6 +40,38 @@ func TestPadRight(t *testing.T) {
 	}
 }
 
+func TestSGRTruncate(t *testing.T) {
+	t.Parallel()
+
+	red := "\x1b[31m"
+	reset := "\x1b[0m"
+
+	cases := []struct {
+		name string
+		s    string
+		w    int
+		want string
+	}{
+		{name: "no escapes truncates same as Truncate", s: "abcdef", w: 3, want: "abc"},
+		{name: "fits returns unchanged with escapes", s: red + "abc" + reset, w: 5, want: red + "abc" + reset},
+		{name: "escape preserved verbatim across truncation", s: red + "abcdef" + reset, w: 3, want: red + "abc"},
+		{name: "escape after content stays attached", s: "abc" + red + "def" + reset, w: 4, want: "abc" + red + "d"},
+		{name: "zero width returns empty", s: red + "abc" + reset, w: 0, want: ""},
+		{name: "negative width returns empty", s: red + "abc" + reset, w: -1, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := format.SGRTruncate(tc.s, tc.w)
+			require.Equal(t, tc.want, got)
+			if tc.w > 0 {
+				require.LessOrEqual(t, lipgloss.Width(got), tc.w,
+					"SGRTruncate must not exceed w cells of visible width")
+			}
+		})
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	t.Parallel()
 

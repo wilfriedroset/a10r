@@ -38,8 +38,7 @@ func PadRight(s string, w int) string {
 // Not SGR-aware: a string carrying ANSI escape sequences will have
 // the escape bytes counted as ordinary runes, mid-truncation can
 // land inside an unterminated escape. For pre-styled input use
-// internal/tui/help.truncateVisible (kept package-local until a
-// second consumer arrives).
+// SGRTruncate.
 func Truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -57,6 +56,49 @@ func Truncate(s string, w int) string {
 		}
 		b.WriteRune(r)
 		used += rw
+	}
+	return b.String()
+}
+
+// SGRTruncate clips s to at most w visible cells while keeping ANSI
+// (SGR) escape sequences intact. Where Truncate counts every byte as
+// content and may slice mid-escape, SGRTruncate skips over the bytes
+// between ESC and the terminator `m`, copying them verbatim into the
+// output without consuming budget. Use this for input that carries
+// styling — pre-styled body lines, lipgloss-rendered cells embedded
+// in a wider clamp.
+//
+// Returns "" for w <= 0; returns s unchanged when its visible width
+// already fits.
+func SGRTruncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	used := 0
+	inEsc := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			inEsc = true
+			b.WriteRune(r)
+		case inEsc:
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+		default:
+			rw := runeWidth(r)
+			if used+rw > w {
+				return b.String()
+			}
+			b.WriteRune(r)
+			used += rw
+		}
 	}
 	return b.String()
 }

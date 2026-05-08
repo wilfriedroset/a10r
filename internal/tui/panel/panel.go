@@ -433,7 +433,10 @@ func RenderBody(width, height int, body, title, footer string, styles theme.Styl
 	for i, l := range lines {
 		w := lipgloss.Width(l)
 		if w > innerWidth {
-			l = format.Truncate(l, innerWidth)
+			// Body lines arrive pre-styled (e.g. severity-coloured
+			// alert names); the SGR-aware clamp keeps escape sequences
+			// intact when truncation lands inside one.
+			l = format.SGRTruncate(l, innerWidth)
 		} else if w < innerWidth {
 			l += strings.Repeat(" ", innerWidth-w)
 		}
