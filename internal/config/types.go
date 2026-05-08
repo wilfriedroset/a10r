@@ -270,6 +270,19 @@ type Authorization struct {
 // `key:` are accepted by the schema but rejected by the validator
 // until the mTLS work in F2 lands — the slot is reserved so a future
 // addition is non-breaking.
+//
+// Inline `ca:` REPLACES the system root pool for that backend
+// (Prometheus parity, audit F6). When set the system CAs are not
+// consulted: only certificates chained to the inline PEM are
+// accepted. runTUI emits an INFO log at startup so the operator
+// sees the implication every run rather than inheriting the
+// override silently.
+//
+// `min_version` / `max_version` accept TLS10–TLS13 to support
+// connecting to legacy Alertmanager backends the operator may not
+// control (audit F7). Selecting TLS10 or TLS11 emits a WARN at
+// config load — the deprecated escape hatch stays usable but is
+// loud in the logs.
 type TLSConfig struct {
 	CA                 string `yaml:"ca,omitempty"`
 	Cert               string `yaml:"cert,omitempty"`

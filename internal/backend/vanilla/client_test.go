@@ -339,6 +339,45 @@ func TestClient_ContextCancelStopsRequest(t *testing.T) {
 		"cancelled request must surface as ctx.Canceled or ErrUnreachable, got %v", err)
 }
 
+// TestClient_LimitsResponseBodySize is the audit F14 regression:
+// the JSON decoder must never read more than maxResponseBodyBytes
+// from the response body so a hostile backend cannot OOM the TUI
+// by streaming a multi-gigabyte payload. The test temporarily
+// shrinks the cap so the assertion runs in O(KB) rather than O(MB).
+func TestClient_LimitsResponseBodySize(t *testing.T) {
+	// Mutating the package-level cap means we can't run in
+	// parallel with the other vanilla tests, so this one is
+	// intentionally sequential.
+
+	original := maxResponseBodyBytes
+	maxResponseBodyBytes = 64 // 64 bytes — well below any real payload
+	t.Cleanup(func() { maxResponseBodyBytes = original })
+
+	// Server emits a JSON array large enough that decoding would
+	// require reading past the cap. The decoder hits EOF (from
+	// LimitReader) before the closing bracket and surfaces a
+	// decode error.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// 1 KiB body — much larger than the 64-byte test cap.
+		_, _ = w.Write([]byte("[" + repeat(`{"fingerprint":"abcdef0123456789","labels":{}},`, 32) + "{}]"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.Error(t, err, "decode must fail when the response exceeds maxResponseBodyBytes")
+}
+
+func repeat(s string, n int) string {
+	out := make([]byte, 0, len(s)*n)
+	for range n {
+		out = append(out, s...)
+	}
+	return string(out)
+}
+
 // TestClient_RefusesCrossOriginRedirect is the audit's
 // belt-and-braces regression for F1: a 302 to a different origin
 // must produce an ErrCrossOriginRedirect rather than a successful

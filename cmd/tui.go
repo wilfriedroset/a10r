@@ -80,6 +80,14 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	defer closeLogger(closer, cmd.ErrOrStderr())
 	slog.SetDefault(logger)
 
+	// Surface deprecated / surprising transport defaults once per
+	// startup so the operator sees the implication on every run
+	// instead of inheriting a stale setting silently. Closes audit
+	// findings F6 (inline tls_config.ca replaces the system root
+	// pool) and F7 (TLS 1.0/1.1 are accepted as opt-in escape
+	// hatches but should be visible whenever they're selected).
+	logTransportSurprises(logger, effCfg.Backends)
+
 	configDir, err := config.ResolveDir(flags.ConfigDir)
 	if err != nil {
 		return fmt.Errorf("resolve config dir: %w", err)
@@ -217,6 +225,38 @@ func closeLogger(closer io.Closer, errOut io.Writer) {
 	}
 	if err := closer.Close(); err != nil {
 		fmt.Fprintf(errOut, "warning: log file close failed: %v\n", err)
+	}
+}
+
+// logTransportSurprises emits one log line per backend whose TLS
+// config carries a deprecated min/max version (F7) or an inline
+// CA bundle that overrides the system root pool (F6). Both are
+// "config is doing what you asked but you should know" affordances
+// — INFO for the CA case (operator opt-in to pin a self-signed
+// root), WARN for TLS 1.0/1.1 (opt-in to a deprecated protocol).
+//
+// Static inspection of the resolved Config is enough; we do not
+// need to wait for a per-backend connection to fire these. The
+// loop tolerates a nil TLS block — the common case.
+func logTransportSurprises(logger *slog.Logger, backends []config.Backend) {
+	for _, be := range backends {
+		if be.TLSConfig == nil {
+			continue
+		}
+		if be.TLSConfig.CA != "" {
+			logger.Info("backend tls_config.ca set, system CA roots not used",
+				slog.String("backend", be.Name))
+		}
+		if v := be.TLSConfig.MinVersion; v == "TLS10" || v == "TLS11" {
+			logger.Warn("backend tls_config.min_version is deprecated",
+				slog.String("backend", be.Name),
+				slog.String("min_version", v))
+		}
+		if v := be.TLSConfig.MaxVersion; v == "TLS10" || v == "TLS11" {
+			logger.Warn("backend tls_config.max_version is deprecated",
+				slog.String("backend", be.Name),
+				slog.String("max_version", v))
+		}
 	}
 }
 

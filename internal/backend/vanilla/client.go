@@ -46,6 +46,19 @@ var (
 // (1 m default).
 const defaultRequestTimeout = 30 * time.Second
 
+// maxResponseBodyBytes caps the response body the JSON decoder will
+// read. Closes audit F14: a hostile backend that streams a
+// multi-gigabyte payload would otherwise OOM the TUI process.
+// 64 MiB is chosen high enough to handle every realistic /api/v2/
+// response (the largest, alerts at production scale, tops out in
+// single-digit MB) and low enough that a slow leak surfaces as a
+// decode error rather than memory pressure.
+//
+// Declared as var (not const) so the cap can be lowered in tests
+// without spinning up a multi-megabyte fake response — production
+// callers do not mutate it.
+var maxResponseBodyBytes int64 = 64 << 20
+
 // ClientConfig is the constructor input for New. Fields:
 //
 //   - BaseURL: scheme + host + port (no trailing slash, no /api/v2).
@@ -231,7 +244,8 @@ func (c *Client) exec(req *http.Request, dst any) error {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+	limited := io.LimitReader(resp.Body, maxResponseBodyBytes)
+	if err := json.NewDecoder(limited).Decode(dst); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil

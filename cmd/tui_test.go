@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,61 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 )
+
+// TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins audit
+// F7's resolution: TLS 1.0/1.1 stay in the schema as a connectivity
+// escape hatch for legacy backends, but every selection must emit
+// a WARN at startup so the operator sees the deprecation on every
+// run.
+func TestLogTransportSurprises_TLS10MinVersionEmitsWarn(t *testing.T) {
+	t.Parallel()
+	buf := &strings.Builder{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTransportSurprises(logger, []config.Backend{
+		{Name: "legacy", TLSConfig: &config.TLSConfig{MinVersion: "TLS10"}},
+	})
+
+	out := buf.String()
+	require.Contains(t, out, "level=WARN", "deprecated TLS version must surface as WARN")
+	require.Contains(t, out, "min_version=TLS10")
+	require.Contains(t, out, "backend=legacy")
+}
+
+// TestLogTransportSurprises_InlineCAEmitsInfo pins audit F6's
+// resolution: keep the Prometheus-parity replace semantics but
+// log INFO once per backend so the operator sees that the inline
+// CA pinning is in effect.
+func TestLogTransportSurprises_InlineCAEmitsInfo(t *testing.T) {
+	t.Parallel()
+	buf := &strings.Builder{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTransportSurprises(logger, []config.Backend{
+		{Name: "self-signed", TLSConfig: &config.TLSConfig{CA: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"}},
+	})
+
+	out := buf.String()
+	require.Contains(t, out, "level=INFO", "inline CA pinning must surface as INFO")
+	require.Contains(t, out, "system CA roots not used")
+	require.Contains(t, out, "backend=self-signed")
+}
+
+// TestLogTransportSurprises_NoTLSStaysSilent guards against
+// noise creep: a backend without a TLS block must not emit any
+// log line.
+func TestLogTransportSurprises_NoTLSStaysSilent(t *testing.T) {
+	t.Parallel()
+	buf := &strings.Builder{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTransportSurprises(logger, []config.Backend{
+		{Name: "plain"},
+		{Name: "modern", TLSConfig: &config.TLSConfig{MinVersion: "TLS12"}},
+	})
+
+	require.Empty(t, buf.String(), "no surprises in scope must produce no log lines")
+}
 
 // TestLevelFor_DefaultIsInfo asserts the CLI flag fold:
 // neither --debug nor --quiet → Info.
