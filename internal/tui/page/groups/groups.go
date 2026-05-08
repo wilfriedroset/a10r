@@ -94,6 +94,11 @@ type groupEntry struct {
 	tenant       string
 	severityRank int
 	common       map[string]string
+	// lowerSummary caches the lower-cased labelSummary used by the
+	// substring filter. Computed once at recompute so rows() and
+	// visibleGroups() don't re-run strings.ToLower(labelSummary())
+	// on every frame.
+	lowerSummary string
 }
 
 // Options bundles the page's constructor inputs. Clients is the
@@ -137,6 +142,12 @@ type Page struct {
 	expanded []bool // per-group flag, indexed against p.flat
 	cursor   int    // index into the visible row list
 	topRow   int    // first visible row; reconciled in renderRows
+
+	// cachedRows is the materialised rows() result. Invalidated
+	// (set to nil) by every state change that would alter the
+	// rendered row list: recompute, filter change, expand toggle.
+	// rows() rebuilds and re-caches when it sees a nil cache.
+	cachedRows []row
 
 	// bodyHeight is the row capacity snapshotted on the most recent
 	// View. Ctrl+D / Ctrl+U step half this; Ctrl+F / Ctrl+B step

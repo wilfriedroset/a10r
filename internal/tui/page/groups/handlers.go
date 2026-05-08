@@ -85,6 +85,7 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		p.preFilter = &snap
 		if p.filter != "" {
 			p.filter = ""
+			p.cachedRows = nil
 			p.clampCursor()
 		}
 	case footer.PromptChangedMsg:
@@ -92,6 +93,7 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 			return
 		}
 		p.filter = m.Value
+		p.cachedRows = nil
 		p.clampCursor()
 	case footer.PromptSubmittedMsg:
 		if m.Mode != footer.PromptFilter {
@@ -99,6 +101,7 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		}
 		p.filter = m.Value
 		p.preFilter = nil
+		p.cachedRows = nil
 		p.clampCursor()
 	case footer.PromptCancelledMsg:
 		if m.Mode != footer.PromptFilter || p.preFilter == nil {
@@ -106,6 +109,7 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		}
 		p.filter = *p.preFilter
 		p.preFilter = nil
+		p.cachedRows = nil
 		p.clampCursor()
 	}
 }
@@ -199,6 +203,7 @@ func (p *Page) toggleExpandAll() {
 	for i := range p.expanded {
 		p.expanded[i] = wantExpand
 	}
+	p.cachedRows = nil
 }
 
 // onEnter expands / collapses a group header or drills to a leaf
@@ -210,6 +215,7 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 	r := rows[p.cursor]
 	if r.alertIdx == -1 {
 		p.expanded[r.groupIdx] = !p.expanded[r.groupIdx]
+		p.cachedRows = nil
 		p.recomputeScroll()
 		return p, nil
 	}

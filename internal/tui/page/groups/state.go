@@ -57,9 +57,11 @@ func (p *Page) recompute() {
 				tenant:       tenant,
 				severityRank: groupSeverityRank(g),
 				common:       commonLabels(g.Alerts),
+				lowerSummary: strings.ToLower(labelSummary(g.Labels)),
 			})
 		}
 	}
+	p.cachedRows = nil
 	p.sorter.Apply(p.flat)
 	p.expanded = make([]bool, len(p.flat))
 	for i, e := range p.flat {
@@ -164,11 +166,21 @@ type row struct {
 // the user expands a matched group, every alert in it shows up
 // regardless of whether the alert's labels would match the filter
 // in isolation.
+//
+// Cached: callers (View, navigation handlers, snapshotFocus) hit
+// rows() many times per frame. State mutations that change the
+// rendered set invalidate p.cachedRows; this method rebuilds and
+// re-caches on the next call. Filter is matched against the
+// per-entry lowerSummary populated at recompute, so the inner loop
+// avoids a fresh strings.ToLower(labelSummary(...)) per call.
 func (p *Page) rows() []row {
+	if p.cachedRows != nil {
+		return p.cachedRows
+	}
 	q := strings.ToLower(p.filter)
 	out := make([]row, 0, len(p.flat))
 	for gi, e := range p.flat {
-		if q != "" && !strings.Contains(strings.ToLower(labelSummary(e.g.Labels)), q) {
+		if q != "" && !strings.Contains(e.lowerSummary, q) {
 			continue
 		}
 		out = append(out, row{groupIdx: gi, alertIdx: -1})
@@ -178,12 +190,15 @@ func (p *Page) rows() []row {
 			}
 		}
 	}
+	p.cachedRows = out
 	return out
 }
 
 // visibleGroups returns the slice of in-scope groups whose
 // label-set matches p.filter — same predicate rows() uses for
-// headers.
+// headers. Reads the per-entry lowerSummary cache populated at
+// recompute to avoid re-running strings.ToLower(labelSummary())
+// on every call.
 func (p *Page) visibleGroups() []backend.AlertGroup {
 	if p.filter == "" {
 		out := make([]backend.AlertGroup, len(p.flat))
@@ -195,7 +210,7 @@ func (p *Page) visibleGroups() []backend.AlertGroup {
 	q := strings.ToLower(p.filter)
 	out := make([]backend.AlertGroup, 0, len(p.flat))
 	for _, e := range p.flat {
-		if strings.Contains(strings.ToLower(labelSummary(e.g.Labels)), q) {
+		if strings.Contains(e.lowerSummary, q) {
 			out = append(out, e.g)
 		}
 	}
