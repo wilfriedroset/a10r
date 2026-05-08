@@ -339,6 +339,85 @@ func TestClient_ContextCancelStopsRequest(t *testing.T) {
 		"cancelled request must surface as ctx.Canceled or ErrUnreachable, got %v", err)
 }
 
+// TestClient_RefusesCrossOriginRedirect is the audit's
+// belt-and-braces regression for F1: a 302 to a different origin
+// must produce an ErrCrossOriginRedirect rather than a successful
+// request to the attacker target. Same shape as the transport-level
+// host-pin tests but exercises the http.Client.CheckRedirect path
+// installed by ClientConfig.ExpectedHost.
+func TestClient_RefusesCrossOriginRedirect(t *testing.T) {
+	t.Parallel()
+
+	// attacker is the redirect target — its handler should never
+	// fire; the test asserts the redirect was refused before it
+	// could be followed.
+	attackerCalled := false
+	attackerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerCalled = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(attackerSrv.Close)
+
+	configured := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attackerSrv.URL, http.StatusFound)
+	}))
+	t.Cleanup(configured.Close)
+
+	configuredURL, err := url.Parse(configured.URL)
+	require.NoError(t, err)
+
+	c, err := New(ClientConfig{
+		BaseURL:      configured.URL,
+		ExpectedHost: configuredURL.Host,
+		Timeout:      2 * time.Second,
+	})
+	require.NoError(t, err)
+
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.Error(t, err)
+	require.False(t, attackerCalled,
+		"attacker handler must NOT be reached — CheckRedirect must abort the redirect chain")
+	require.ErrorIs(t, err, ErrCrossOriginRedirect,
+		"cross-origin refusal must surface as ErrCrossOriginRedirect")
+}
+
+// TestClient_AllowsSameHostRedirect pins the positive case so the
+// CheckRedirect callback doesn't accidentally block legitimate
+// same-origin redirects (e.g. /api -> /api/v2 path normalisation).
+func TestClient_AllowsSameHostRedirect(t *testing.T) {
+	t.Parallel()
+
+	// Same-host redirect: /redirect -> /api/v2/alerts on the same
+	// server. Should follow and produce a normal response.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/api/v2/alerts", http.StatusFound)
+	})
+	mux.Handle("/api/v2/alerts", fixtureHandler(t, map[string]string{
+		"/api/v2/alerts": "list_alerts.json",
+	}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	srvURL, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	c, err := New(ClientConfig{
+		BaseURL:      srv.URL,
+		ExpectedHost: srvURL.Host,
+		Timeout:      2 * time.Second,
+	})
+	require.NoError(t, err)
+
+	// Drill the redirect by issuing a raw GET against /redirect.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/redirect", http.NoBody)
+	require.NoError(t, err)
+	resp, err := c.http.Do(req)
+	require.NoError(t, err, "same-host redirect must be allowed by CheckRedirect")
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func TestClient_Capabilities_PassThrough(t *testing.T) {
 	t.Parallel()
 

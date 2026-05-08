@@ -11,7 +11,9 @@
 package mimir
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -79,6 +81,17 @@ type ClientConfig struct {
 // dedicated type that embeds or wraps vanilla.Client and overrides
 // the capability stubs.
 func New(cfg ClientConfig) (*vanilla.Client, error) {
+	// Capture the configured backend's host so the auth/header
+	// RoundTrippers can refuse to replay credentials onto a redirect
+	// target with a different origin (audit F1/F18). url.Parse
+	// failure surfaces here rather than at first request — vanilla.New
+	// will catch BaseURL problems independently, but we need the
+	// parsed host for transport pinning regardless.
+	expectedHost, err := parseExpectedHost(cfg.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+
 	base := cfg.Transport
 	if base == nil {
 		built, err := transport.NewBase(transport.BaseOptions{
@@ -97,18 +110,35 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 		BasicAuth:     cfg.BasicAuth,
 		Authorization: cfg.Authorization,
 		BearerToken:   cfg.BearerToken,
+		ExpectedHost:  expectedHost,
 	}, base)
 	if err != nil {
 		return nil, err
 	}
-	headeredRT := transport.WithHeaders(authedRT, cfg.Headers)
+	headeredRT := transport.WithHostPinnedHeaders(authedRT, cfg.Headers, expectedHost)
 	uaRT := transport.WithUserAgent(headeredRT, cfg.UserAgent)
 
 	return vanilla.New(vanilla.ClientConfig{
-		BaseURL:   cfg.BaseURL,
-		Prefix:    cfg.Prefix,
-		Transport: uaRT,
-		Timeout:   cfg.Timeout,
-		Caps:      cfg.Caps,
+		BaseURL:      cfg.BaseURL,
+		Prefix:       cfg.Prefix,
+		Transport:    uaRT,
+		Timeout:      cfg.Timeout,
+		Caps:         cfg.Caps,
+		ExpectedHost: expectedHost,
 	})
+}
+
+// parseExpectedHost extracts the host portion of cfg.BaseURL for
+// the host-pinning checks downstream. Empty BaseURL returns empty
+// host with no error so the caller's existing "BaseURL is required"
+// validation in vanilla.New keeps emitting its own message.
+func parseExpectedHost(baseURL string) (string, error) {
+	if baseURL == "" {
+		return "", nil
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse base URL %q: %w", baseURL, err)
+	}
+	return u.Host, nil
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -452,6 +453,190 @@ func TestCompileNoProxy_EmptyReturnsNil(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, compileNoProxy(""), "empty input must return nil so callers can short-circuit")
 	require.Nil(t, compileNoProxy(",,,"), "all-empty entries must return nil")
+}
+
+// TestNewAuth_BasicAuth_HostPinDropsOnMismatch exercises the audit
+// F1 fix: when AuthOptions.ExpectedHost is set, basicRT must skip
+// the SetBasicAuth call on any request whose req.URL.Host doesn't
+// match. This is the single most important regression test in the
+// package — the prior behaviour replayed credentials onto an
+// attacker-controlled redirect target.
+func TestNewAuth_BasicAuth_HostPinDropsOnMismatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt, err := NewAuth(AuthOptions{
+		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
+		ExpectedHost: "configured.example:9093",
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	roundTripOnce(t, rt, srv) // srv.URL.Host is 127.0.0.1:<port>, never "configured.example:9093"
+
+	require.Empty(t, srvCap.headers.Get(headerAuthorization),
+		"basic auth must NOT be injected when req.URL.Host differs from ExpectedHost")
+}
+
+// TestNewAuth_BasicAuth_HostPinAppliesOnMatch is the positive
+// counterpart: when the expected host equals the request host
+// (case-insensitive), basicRT continues to inject Authorization.
+func TestNewAuth_BasicAuth_HostPinAppliesOnMatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	srvURL, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	rt, err := NewAuth(AuthOptions{
+		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
+		ExpectedHost: srvURL.Host,
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	roundTripOnce(t, rt, srv)
+
+	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
+	require.Equal(t, want, srvCap.headers.Get(headerAuthorization),
+		"matching ExpectedHost must inject Authorization unchanged")
+}
+
+// TestNewAuth_Bearer_HostPinDropsOnMismatch covers the same fix
+// for the bearer token RoundTripper, which the audit's F1
+// recommendation explicitly enumerated.
+func TestNewAuth_Bearer_HostPinDropsOnMismatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt, err := NewAuth(AuthOptions{
+		BearerToken:  "abc.def.ghi",
+		ExpectedHost: "configured.example:9093",
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	roundTripOnce(t, rt, srv)
+
+	require.Empty(t, srvCap.headers.Get(headerAuthorization),
+		"bearer token must NOT be injected when req.URL.Host differs from ExpectedHost")
+}
+
+// TestNewAuth_Authorization_HostPinDropsOnMismatch covers the
+// generic Authorization spec (custom Type) — the third RT
+// surfaced in the audit's F1 enumeration.
+func TestNewAuth_Authorization_HostPinDropsOnMismatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt, err := NewAuth(AuthOptions{
+		Authorization: &config.Authorization{Type: "Token", Credentials: "abcdef"},
+		ExpectedHost:  "configured.example:9093",
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	roundTripOnce(t, rt, srv)
+
+	require.Empty(t, srvCap.headers.Get(headerAuthorization),
+		"Authorization header must NOT be injected when req.URL.Host differs from ExpectedHost")
+}
+
+// TestWithHostPinnedHeaders_DropsOnMismatch covers audit F18: the
+// tenant header (and any user-supplied auth-bearing header) must
+// not leak across origins. Mirrors the F1 host-pin tests for the
+// auth RTs, applied to the headers RoundTripper.
+func TestWithHostPinnedHeaders_DropsOnMismatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	rt := WithHostPinnedHeaders(http.DefaultTransport, map[string]string{
+		"X-Scope-OrgID":   "tenant-a",
+		"X-Gateway-Token": "g1",
+	}, "configured.example:9093")
+	roundTripOnce(t, rt, srv)
+
+	require.Empty(t, srvCap.headers.Get("X-Scope-Orgid"),
+		"tenant header must NOT be injected on a request to a non-matching host")
+	require.Empty(t, srvCap.headers.Get("X-Gateway-Token"),
+		"arbitrary auth-bearing headers must NOT be injected on a non-matching host either")
+}
+
+// TestWithHostPinnedHeaders_AppliesOnMatch is the positive case:
+// configured backend host = request host = headers reach the wire.
+func TestWithHostPinnedHeaders_AppliesOnMatch(t *testing.T) {
+	t.Parallel()
+
+	srvCap := &captureHandler{}
+	srv := httptest.NewServer(srvCap)
+	t.Cleanup(srv.Close)
+
+	srvURL, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	rt := WithHostPinnedHeaders(http.DefaultTransport, map[string]string{
+		"X-Scope-OrgID": "tenant-a",
+	}, srvURL.Host)
+	roundTripOnce(t, rt, srv)
+
+	require.Equal(t, "tenant-a", srvCap.headers.Get("X-Scope-Orgid"),
+		"matching ExpectedHost must inject the tenant header unchanged")
+}
+
+// TestRedirectChain_BasicAuthRTDoesNotReplayCredentials is the
+// audit's prescribed end-to-end regression test for F1: a 302
+// from the configured backend to a second httptest server must
+// not see the Authorization header on the redirect target.
+func TestRedirectChain_BasicAuthRTDoesNotReplayCredentials(t *testing.T) {
+	t.Parallel()
+
+	// attacker is the redirect target: it captures every header
+	// received so the test can assert what arrived.
+	attacker := &captureHandler{}
+	attackerSrv := httptest.NewServer(attacker)
+	t.Cleanup(attackerSrv.Close)
+
+	// configured is the backend the operator pointed a10r at: it
+	// responds 302 to the attacker URL on every request.
+	configured := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attackerSrv.URL, http.StatusFound)
+	}))
+	t.Cleanup(configured.Close)
+
+	configuredURL, err := url.Parse(configured.URL)
+	require.NoError(t, err)
+
+	authedRT, err := NewAuth(AuthOptions{
+		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
+		ExpectedHost: configuredURL.Host,
+	}, http.DefaultTransport)
+	require.NoError(t, err)
+
+	// Drive the redirect through a stock http.Client so the
+	// stdlib's redirect-following is the only thing under test
+	// here. The vanilla.Client variant adds CheckRedirect on top
+	// — exercised separately in vanilla/client_test.go.
+	client := &http.Client{Transport: authedRT}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, configured.URL, http.NoBody)
+	require.NoError(t, err)
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	require.Empty(t, attacker.headers.Get(headerAuthorization),
+		"basic auth must NOT be replayed on the cross-origin redirect target — audit F1")
 }
 
 func TestNewBase_AssertsErrorTypeStability(t *testing.T) {

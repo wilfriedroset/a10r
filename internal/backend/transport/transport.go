@@ -57,10 +57,19 @@ var (
 // The struct shape mirrors Prometheus's HTTPClientConfig peers so
 // the factory can copy fields straight off `config.Backend` without
 // translation.
+//
+// ExpectedHost is the host portion of the configured BaseURL (as
+// parsed by url.URL.Host). When set, the auth RoundTripper only
+// injects credentials on requests whose req.URL.Host matches —
+// closing audit finding F1: a hostile / hijacked backend that
+// returns `302 Location: https://attacker/` cannot replay the
+// Authorization header on the redirect target. Empty ExpectedHost
+// preserves the unrestricted legacy behaviour for tests.
 type AuthOptions struct {
 	BasicAuth     *config.BasicAuth
 	Authorization *config.Authorization
 	BearerToken   string
+	ExpectedHost  string
 }
 
 // NewAuth returns a RoundTripper that wraps base with the auth
@@ -75,11 +84,11 @@ func NewAuth(opts AuthOptions, base http.RoundTripper) (http.RoundTripper, error
 	}
 	switch {
 	case opts.BasicAuth != nil:
-		return newBasic(opts.BasicAuth, base)
+		return newBasic(opts.BasicAuth, opts.ExpectedHost, base)
 	case opts.Authorization != nil:
-		return newAuthorization(opts.Authorization, base)
+		return newAuthorization(opts.Authorization, opts.ExpectedHost, base)
 	case opts.BearerToken != "":
-		return newBearer(opts.BearerToken, base)
+		return newBearer(opts.BearerToken, opts.ExpectedHost, base)
 	default:
 		return base, nil
 	}
@@ -93,7 +102,23 @@ func NewAuth(opts AuthOptions, base http.RoundTripper) (http.RoundTripper, error
 // config.validateHeaders) so this layer can trust whatever it
 // receives. Order of injection across many headers is not specified;
 // callers must not rely on it.
+//
+// Equivalent to WithHostPinnedHeaders(base, headers, "") — leaves
+// the headers RT unrestricted, matching the legacy behaviour for
+// existing tests. Production callers should use the pinned variant
+// so a hijacked redirect target does not see the headers.
 func WithHeaders(base http.RoundTripper, headers map[string]string) http.RoundTripper {
+	return WithHostPinnedHeaders(base, headers, "")
+}
+
+// WithHostPinnedHeaders is the variant of WithHeaders that closes
+// audit finding F18: when expectedHost is non-empty, the headers
+// (which include the tenant identifier on Mimir setups) are only
+// injected on requests whose req.URL.Host matches. A hijacked
+// backend that responds 302 to attacker.example never sees the
+// X-Scope-OrgID / arbitrary auth-bearing headers a configured
+// backend would have sent.
+func WithHostPinnedHeaders(base http.RoundTripper, headers map[string]string, expectedHost string) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
 	}
@@ -104,7 +129,7 @@ func WithHeaders(base http.RoundTripper, headers map[string]string) http.RoundTr
 	// into in-flight requests.
 	snap := make(map[string]string, len(headers))
 	maps.Copy(snap, headers)
-	return &headersRT{base: base, headers: snap}
+	return &headersRT{base: base, headers: snap, expectedHost: expectedHost}
 }
 
 // WithUserAgent wraps base in a RoundTripper that sets the User-Agent
@@ -176,21 +201,21 @@ func NewBase(opts BaseOptions) (http.RoundTripper, error) {
 	return t, nil
 }
 
-func newBasic(spec *config.BasicAuth, base http.RoundTripper) (http.RoundTripper, error) {
+func newBasic(spec *config.BasicAuth, expectedHost string, base http.RoundTripper) (http.RoundTripper, error) {
 	if spec.Username == "" || spec.Password == "" {
 		return nil, ErrMissingBasicCreds
 	}
-	return &basicRT{base: base, user: spec.Username, pass: spec.Password}, nil
+	return &basicRT{base: base, user: spec.Username, pass: spec.Password, expectedHost: expectedHost}, nil
 }
 
-func newBearer(token string, base http.RoundTripper) (http.RoundTripper, error) {
+func newBearer(token, expectedHost string, base http.RoundTripper) (http.RoundTripper, error) {
 	if token == "" {
 		return nil, ErrMissingBearerToken
 	}
-	return &addHeaderRT{base: base, name: headerAuthorization, value: bearerPrefix + token}, nil
+	return &addHeaderRT{base: base, name: headerAuthorization, value: bearerPrefix + token, expectedHost: expectedHost}, nil
 }
 
-func newAuthorization(spec *config.Authorization, base http.RoundTripper) (http.RoundTripper, error) {
+func newAuthorization(spec *config.Authorization, expectedHost string, base http.RoundTripper) (http.RoundTripper, error) {
 	if spec.Credentials == "" {
 		return nil, ErrMissingAuthCreds
 	}
@@ -198,7 +223,7 @@ func newAuthorization(spec *config.Authorization, base http.RoundTripper) (http.
 	if t == "" {
 		t = config.DefaultAuthorizationType
 	}
-	return &addHeaderRT{base: base, name: headerAuthorization, value: t + " " + spec.Credentials}, nil
+	return &addHeaderRT{base: base, name: headerAuthorization, value: t + " " + spec.Credentials, expectedHost: expectedHost}, nil
 }
 
 func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
@@ -330,45 +355,81 @@ func splitComma(s string) []string {
 
 // basicRT injects HTTP Basic auth via http.Request.SetBasicAuth so
 // the base64 encoding lives in stdlib rather than this package.
+//
+// expectedHost is the host portion of the originally-configured
+// BaseURL. When non-empty, basicRT skips injection on any request
+// targeted at a different host so a redirect chain cannot replay
+// the credentials at an attacker-controlled origin (audit F1).
 type basicRT struct {
-	base       http.RoundTripper
-	user, pass string
+	base         http.RoundTripper
+	user, pass   string
+	expectedHost string
 }
 
 func (rt *basicRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	cloned.SetBasicAuth(rt.user, rt.pass)
+	if hostMatches(rt.expectedHost, cloned.URL.Host) {
+		cloned.SetBasicAuth(rt.user, rt.pass)
+	}
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }
 
 // addHeaderRT sets a single (name, value) header on every request.
 // Used both for bearer auth (with name=Authorization, value=Bearer
 // <token>) and for the generic Authorization spec.
+//
+// expectedHost has the same semantics as basicRT.expectedHost —
+// non-empty means "only inject when req.URL.Host matches".
 type addHeaderRT struct {
-	base        http.RoundTripper
-	name, value string
+	base         http.RoundTripper
+	name, value  string
+	expectedHost string
 }
 
 func (rt *addHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	cloned.Header.Set(rt.name, rt.value)
+	if hostMatches(rt.expectedHost, cloned.URL.Host) {
+		cloned.Header.Set(rt.name, rt.value)
+	}
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }
 
 // headersRT applies a fixed set of headers to every request. Distinct
 // from addHeaderRT because callers commonly want a multi-key map and
 // chaining N addHeaderRTs would be O(N) Clone calls per request.
+//
+// expectedHost gates injection the same way basicRT / addHeaderRT
+// do — closes audit F18 (the tenant header / arbitrary auth-bearing
+// headers must not leak across redirects).
 type headersRT struct {
-	base    http.RoundTripper
-	headers map[string]string
+	base         http.RoundTripper
+	headers      map[string]string
+	expectedHost string
 }
 
 func (rt *headersRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
-	for k, v := range rt.headers {
-		cloned.Header.Set(k, v)
+	if hostMatches(rt.expectedHost, cloned.URL.Host) {
+		for k, v := range rt.headers {
+			cloned.Header.Set(k, v)
+		}
 	}
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
+}
+
+// hostMatches reports whether reqHost belongs to the expected
+// origin. Empty expected = "no pinning configured" so the caller
+// behaves as it did before audit F1 (always inject) — used by
+// tests and the legacy WithHeaders path. Non-empty performs a
+// case-insensitive comparison; the http.Request.URL.Host fields
+// already include any port, and the constructor receives whatever
+// url.URL.Host produced from the configured BaseURL, so the two
+// strings line up.
+func hostMatches(expected, reqHost string) bool {
+	if expected == "" {
+		return true
+	}
+	return strings.EqualFold(expected, reqHost)
 }
 
 // userAgentRT injects a fixed User-Agent on every request. Distinct

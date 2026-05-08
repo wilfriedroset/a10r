@@ -65,6 +65,15 @@ type ClientConfig struct {
 	Transport http.RoundTripper
 	Timeout   time.Duration
 	Caps      backend.Caps
+	// ExpectedHost is the host portion of BaseURL. When non-empty,
+	// the constructed *http.Client installs a CheckRedirect that
+	// refuses any redirect to a different origin — defense-in-depth
+	// for audit F1: even if a future RoundTripper bug re-injected
+	// credentials, the cross-origin redirect itself never fires.
+	// Empty preserves the legacy behaviour (Go's default
+	// CheckRedirect, which strips Authorization on cross-origin
+	// but happily follows up to ten redirects).
+	ExpectedHost string
 }
 
 // Client is the vanilla Alertmanager v2 backend. Constructed via
@@ -102,9 +111,45 @@ func New(cfg ClientConfig) (*Client, error) {
 
 	return &Client{
 		base: cfg.BaseURL + cfg.Prefix,
-		http: &http.Client{Transport: transport, Timeout: timeout},
+		http: &http.Client{
+			Transport:     transport,
+			Timeout:       timeout,
+			CheckRedirect: refuseCrossOriginRedirect(cfg.ExpectedHost),
+		},
 		caps: cfg.Caps,
 	}, nil
+}
+
+// ErrCrossOriginRedirect is returned through http.Client.Do when
+// the server responds with a redirect to a different origin. The
+// classifier wraps it as ErrUnreachable's family so callers see a
+// transport-level failure rather than a successful cross-origin
+// fetch.
+var ErrCrossOriginRedirect = errors.New("redirect to a different origin refused")
+
+// refuseCrossOriginRedirect returns the http.Client.CheckRedirect
+// callback that hard-stops a redirect chain whenever the next-hop
+// host differs from the originally configured BaseURL host. Empty
+// expectedHost short-circuits to a nil callback so http.Client
+// keeps its default redirect behaviour (cap 10, strip Authorization
+// on cross-origin) — used by tests that don't set ExpectedHost.
+//
+// Belt-and-braces with the auth/header RoundTrippers' host-pinning
+// (see internal/backend/transport): the RTs already refuse to
+// inject credentials on a mismatch, but a redirect itself can still
+// hand the user's tenant identity to an attacker via the request
+// path / cookie. This callback turns the entire redirect into a
+// loud transport-level error instead.
+func refuseCrossOriginRedirect(expectedHost string) func(*http.Request, []*http.Request) error {
+	if expectedHost == "" {
+		return nil
+	}
+	return func(req *http.Request, _ []*http.Request) error {
+		if !strings.EqualFold(req.URL.Host, expectedHost) {
+			return fmt.Errorf("%w: %s -> %s", ErrCrossOriginRedirect, expectedHost, req.URL.Host)
+		}
+		return nil
+	}
 }
 
 // Capabilities returns the caps the client was constructed with.
