@@ -49,7 +49,7 @@ func receiverSortColumns() []tablesort.Column[string] {
 	return []tablesort.Column[string]{
 		{
 			Key: sortKeyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true,
-			Less: func(a, b string) bool { return a < b },
+			Less: func(a, b *string) bool { return *a < *b },
 		},
 	}
 }

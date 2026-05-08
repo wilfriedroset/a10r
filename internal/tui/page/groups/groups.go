@@ -42,7 +42,7 @@ const (
 // order). Ties on count / severity fall back to name-asc so the
 // ordering stays deterministic across refreshes.
 func groupSortColumns() []tablesort.Column[groupEntry] {
-	nameLess := func(a, b groupEntry) bool {
+	nameLess := func(a, b *groupEntry) bool {
 		return labelSummary(a.g.Labels) < labelSummary(b.g.Labels)
 	}
 	return []tablesort.Column[groupEntry]{
@@ -53,7 +53,7 @@ func groupSortColumns() []tablesort.Column[groupEntry] {
 		{
 			Key: sortKeyCount, Title: "COUNT", Hotkey: 'C', DefaultAsc: false,
 			Description: "sort by alert count",
-			Less: func(a, b groupEntry) bool {
+			Less: func(a, b *groupEntry) bool {
 				ai, bi := len(a.g.Alerts), len(b.g.Alerts)
 				if ai != bi {
 					return ai < bi
@@ -66,7 +66,7 @@ func groupSortColumns() []tablesort.Column[groupEntry] {
 			// Shift+V (mnemonic for "severity") to dodge the
 			// collision.
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'V', DefaultAsc: false,
-			Less: func(a, b groupEntry) bool {
+			Less: func(a, b *groupEntry) bool {
 				if a.severityRank != b.severityRank {
 					return a.severityRank < b.severityRank
 				}

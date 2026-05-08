@@ -28,6 +28,10 @@ import (
 
 // Column describes one sortable axis on a table page. Less is the
 // strict ASCENDING comparator — Apply flips arguments when DESC.
+// Less takes pointers so the comparator does not copy each entry on
+// every comparison; for entry types holding label maps and slices
+// (alerts, silences) the per-cmp copy ran into hundreds of bytes
+// and dominated sort cost on large views.
 //
 // Hotkey is the uppercase rune that selects the column. Zero means
 // "no shift+letter shortcut for this column" — the column is still
@@ -39,7 +43,7 @@ type Column[T any] struct {
 	Title      string
 	Hotkey     rune
 	DefaultAsc bool
-	Less       func(a, b T) bool
+	Less       func(a, b *T) bool
 	// Description overrides the help-overlay text for this column's
 	// hotkey. Empty falls back to "sort by <lowercased title>" —
 	// most pages get the right description for free, but a column
@@ -89,9 +93,9 @@ func (s *Sorter[T]) Apply(in []T) {
 	asc := s.asc
 	sort.SliceStable(in, func(i, j int) bool {
 		if asc {
-			return less(in[i], in[j])
+			return less(&in[i], &in[j])
 		}
-		return less(in[j], in[i])
+		return less(&in[j], &in[i])
 	})
 }
 

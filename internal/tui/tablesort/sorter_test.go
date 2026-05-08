@@ -26,8 +26,8 @@ const (
 // nameLess and scoreLess are the canonical ASC comparators for the
 // fixture columns. Score is unsigned-style — higher score wins when
 // the column defaults to DESC.
-func nameLess(a, b row) bool  { return a.Name < b.Name }
-func scoreLess(a, b row) bool { return a.Score < b.Score }
+func nameLess(a, b *row) bool  { return a.Name < b.Name }
+func scoreLess(a, b *row) bool { return a.Score < b.Score }
 
 // fixtureCols returns a two-column setup: NAME (ASC default,
 // hotkey N) and SCORE (DESC default, hotkey C). Two columns

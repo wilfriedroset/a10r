@@ -68,23 +68,23 @@ func alertSortColumns() []tablesort.Column[alertEntry] {
 	return []tablesort.Column[alertEntry]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
-			Less: func(a, b alertEntry) bool {
+			Less: func(a, b *alertEntry) bool {
 				return backend.SeverityRank(a.a) < backend.SeverityRank(b.a)
 			},
 		},
 		{
 			Key: sortKeyName, Title: "ALERTNAME", Hotkey: 'N', DefaultAsc: true,
-			Less: func(a, b alertEntry) bool {
+			Less: func(a, b *alertEntry) bool {
 				return a.a.Labels["alertname"] < b.a.Labels["alertname"]
 			},
 		},
 		{
 			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
-			Less: func(a, b alertEntry) bool { return a.a.State < b.a.State },
+			Less: func(a, b *alertEntry) bool { return a.a.State < b.a.State },
 		},
 		{
 			Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
-			Less: func(a, b alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) },
+			Less: func(a, b *alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) },
 		},
 	}
 }

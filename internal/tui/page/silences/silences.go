@@ -58,21 +58,21 @@ func silenceSortColumns() []tablesort.Column[silenceEntry] {
 		{
 			Key: sortKeyCreatedBy, Title: "BY", Hotkey: 'C', DefaultAsc: true,
 			Description: "sort by creator",
-			Less:        func(a, b silenceEntry) bool { return a.s.CreatedBy < b.s.CreatedBy },
+			Less:        func(a, b *silenceEntry) bool { return a.s.CreatedBy < b.s.CreatedBy },
 		},
 		{
 			Key: sortKeyStartsAt, Title: "STARTS", Hotkey: 'S', DefaultAsc: true,
 			Description: "sort by startsAt",
-			Less:        func(a, b silenceEntry) bool { return a.s.StartsAt.Before(b.s.StartsAt) },
+			Less:        func(a, b *silenceEntry) bool { return a.s.StartsAt.Before(b.s.StartsAt) },
 		},
 		{
 			Key: sortKeyEndsAt, Title: "ENDS", Hotkey: 'E', DefaultAsc: true,
 			Description: "sort by endsAt",
-			Less:        func(a, b silenceEntry) bool { return a.s.EndsAt.Before(b.s.EndsAt) },
+			Less:        func(a, b *silenceEntry) bool { return a.s.EndsAt.Before(b.s.EndsAt) },
 		},
 		{
 			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
-			Less: func(a, b silenceEntry) bool { return a.s.State < b.s.State },
+			Less: func(a, b *silenceEntry) bool { return a.s.State < b.s.State },
 		},
 	}
 }

@@ -49,11 +49,11 @@ func tenantSortColumns() []tablesort.Column[Row] {
 	return []tablesort.Column[Row]{
 		{
 			Key: sortKeyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true,
-			Less: func(a, b Row) bool { return a.Name < b.Name },
+			Less: func(a, b *Row) bool { return a.Name < b.Name },
 		},
 		{
 			Key: sortKeyURL, Title: "URL", Hotkey: 'U', DefaultAsc: true,
-			Less: func(a, b Row) bool {
+			Less: func(a, b *Row) bool {
 				if a.URL != b.URL {
 					return a.URL < b.URL
 				}
@@ -62,7 +62,7 @@ func tenantSortColumns() []tablesort.Column[Row] {
 		},
 		{
 			Key: sortKeyVersion, Title: "VERSION", Hotkey: 'V', DefaultAsc: true,
-			Less: func(a, b Row) bool {
+			Less: func(a, b *Row) bool {
 				if a.Version == "" && b.Version != "" {
 					return false
 				}
