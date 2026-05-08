@@ -374,6 +374,9 @@ func (*Form) Bindings() []action.Action {
 // blink Cmd Focus() returns produces a tea.Msg the form
 // otherwise swallows.
 func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if m, ok := msg.(submitDoneMsg); ok {
+		return f, f.applySubmitDone(m)
+	}
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "tab":
@@ -468,11 +471,25 @@ func (f *Form) activeBlur() {
 	}
 }
 
+// submitDoneMsg is the result of an async CreateSilence /
+// UpdateSilence round-trip. Update routes it back through f.fail or
+// emits SubmittedMsg on the next tick. Kept private — the form is
+// the only producer and consumer.
+type submitDoneMsg struct {
+	id      string
+	updated bool
+	err     error
+}
+
 // submit parses the buffers and routes to one of three shapes:
 // bulk-create emits BulkSubmittedMsg (the page fans out per-target);
-// edit calls UpdateSilence; create calls CreateSilence. On success
-// emits the appropriate message; on failure surfaces the error as a
-// flash and stays on the form.
+// edit calls UpdateSilence; create calls CreateSilence.
+//
+// Validation runs synchronously (cheap, no I/O). The HTTP round-trip
+// runs inside the returned tea.Cmd so bubbletea executes it on its
+// own goroutine — without this indirection, a slow tenant would
+// freeze the Update loop for up to the transport timeout. Result is
+// posted as submitDoneMsg and translated by Update.
 func (f *Form) submit() tea.Cmd {
 	spec, err := f.parseSpec()
 	if err != nil {
@@ -494,17 +511,31 @@ func (f *Form) submit() tea.Cmd {
 		return f.fail("client not configured")
 	}
 	if f.editID != "" {
-		if err := f.client.UpdateSilence(context.Background(), f.editID, spec); err != nil {
-			return f.fail(err.Error())
-		}
+		client := f.client
 		id := f.editID
-		return func() tea.Msg { return SubmittedMsg{ID: id, Updated: true} }
+		return func() tea.Msg {
+			err := client.UpdateSilence(context.Background(), id, spec)
+			return submitDoneMsg{id: id, updated: true, err: err}
+		}
 	}
-	id, err := f.client.CreateSilence(context.Background(), spec)
-	if err != nil {
-		return f.fail(err.Error())
+	client := f.client
+	return func() tea.Msg {
+		id, err := client.CreateSilence(context.Background(), spec)
+		return submitDoneMsg{id: id, err: err}
 	}
-	return func() tea.Msg { return SubmittedMsg{ID: id} }
+}
+
+// applySubmitDone routes a submitDoneMsg back into the form. Errors
+// flash + keep the form open; success emits the appropriate auto-pop
+// message. Runs on the Update goroutine so f.err / f.fail mutations
+// are race-free.
+func (f *Form) applySubmitDone(m submitDoneMsg) tea.Cmd {
+	if m.err != nil {
+		return f.fail(m.err.Error())
+	}
+	id := m.id
+	updated := m.updated
+	return func() tea.Msg { return SubmittedMsg{ID: id, Updated: updated} }
 }
 
 // fail records the error on the form and returns a Cmd that

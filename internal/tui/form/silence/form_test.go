@@ -69,6 +69,28 @@ func type_(f *Form, s string) {
 	}
 }
 
+// drainSubmit walks the async submit cycle: fires Ctrl+S, runs the
+// returned cmd to get the submitDoneMsg the worker goroutine would
+// post, and feeds it back through Update so the second cmd carries
+// the user-facing SubmittedMsg / FlashShowMsg. Validation failures
+// short-circuit before submitDoneMsg — in that case the first cmd
+// already carries the flash, and the second leg is skipped.
+func drainSubmit(t *testing.T, f *Form) tea.Msg {
+	t.Helper()
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd, "submit must return a cmd")
+	first := cmd()
+	done, ok := first.(submitDoneMsg)
+	if !ok {
+		// Validation / nil-client / bulk paths return their final
+		// message directly — no async leg to drain.
+		return first
+	}
+	_, cmd2 := f.Update(done)
+	require.NotNil(t, cmd2, "submitDoneMsg handling must return a cmd")
+	return cmd2()
+}
+
 func TestForm_DefaultEnds(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
@@ -315,6 +337,65 @@ func TestForm_EnterInOtherFieldsIsNoOp(t *testing.T) {
 		"Enter must NOT modify the value of single-line inputs")
 }
 
+// blockingClient gates CreateSilence on a release channel so the
+// test can prove submit() does not perform HTTP on the Update
+// goroutine. If the form regresses to a synchronous call, Update
+// blocks forever and the test deadlocks (caught by t.Deadline).
+type blockingClient struct {
+	gate    chan struct{}
+	started chan struct{}
+}
+
+func (b *blockingClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+	close(b.started)
+	<-b.gate
+	return "sil-async", nil
+}
+
+func (b *blockingClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
+	close(b.started)
+	<-b.gate
+	return nil
+}
+
+func TestForm_SubmitDoesNotBlockUpdateGoroutine(t *testing.T) {
+	t.Parallel()
+	client := &blockingClient{
+		gate:    make(chan struct{}),
+		started: make(chan struct{}),
+	}
+	f := newForm(t, client)
+	type_(f, "alertname=A")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	// Update must return without waiting for CreateSilence.
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+
+	// Run cmd on a goroutine so the test goroutine stays free.
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("CreateSilence never started — submit returned without scheduling the round-trip")
+	}
+
+	// Releasing the gate must let cmd produce submitDoneMsg.
+	close(client.gate)
+	select {
+	case msg := <-done:
+		_, ok := msg.(submitDoneMsg)
+		require.True(t, ok, "expected submitDoneMsg, got %T", msg)
+	case <-time.After(time.Second):
+		t.Fatal("cmd never returned after gate released")
+	}
+}
+
 func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{wantID: "sil-42"}
@@ -326,9 +407,7 @@ func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	}
 	type_(f, "ack while patching")
 
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	msg := cmd().(SubmittedMsg)
+	msg := drainSubmit(t, f).(SubmittedMsg)
 	require.Equal(t, "sil-42", msg.ID)
 	require.Equal(t, 1, client.createCalls)
 	require.Equal(t, 0, client.updateCalls)
@@ -375,8 +454,7 @@ func TestForm_SubmitClientErrorFlashesAndKeepsForm(t *testing.T) {
 		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}
 	type_(f, "comment")
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	msg := cmd().(footer.FlashShowMsg)
+	msg := drainSubmit(t, f).(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "boom")
 	require.Equal(t, "boom", f.err,
@@ -403,8 +481,7 @@ func TestForm_EndsAtAcceptsRFC3339(t *testing.T) {
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // creator
 	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // comment
 	type_(f, "ack")
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	_, ok := cmd().(SubmittedMsg)
+	_, ok := drainSubmit(t, f).(SubmittedMsg)
 	require.True(t, ok)
 	require.Equal(t,
 		time.Date(2026, 4, 25, 18, 0, 0, 0, time.UTC),
@@ -526,9 +603,7 @@ func TestForm_EditModeCallsUpdate(t *testing.T) {
 		EditID:   "sil-7",
 	})
 
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	msg, ok := cmd().(SubmittedMsg)
+	msg, ok := drainSubmit(t, f).(SubmittedMsg)
 	require.True(t, ok)
 	require.Equal(t, "sil-7", msg.ID, "SubmittedMsg in edit mode echoes the EditID")
 	require.True(t, msg.Updated, "Updated must be true so parent page flashes \"updated\" not \"created\"")
@@ -550,8 +625,7 @@ func TestForm_EditModeClientErrorFlashesAndKeepsForm(t *testing.T) {
 		Comment:  "ack",
 		EditID:   "sil-7",
 	})
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	msg, ok := cmd().(footer.FlashShowMsg)
+	msg, ok := drainSubmit(t, f).(footer.FlashShowMsg)
 	require.True(t, ok)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "update boom")
