@@ -126,6 +126,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	end := min(p.topRow+maxRows, len(p.view))
 	showMark := p.hasMarks()
 	var b strings.Builder
+	b.Grow((end - p.topRow) * width * 2)
 	for i := p.topRow; i < end; i++ {
 		e := p.view[i]
 		row := make([]string, 0, 7)

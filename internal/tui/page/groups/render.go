@@ -144,6 +144,7 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 	tenantW, nameW, countW, sevW := p.columnWidths(width)
 
 	var b strings.Builder
+	b.Grow(width + 64)
 	// Leading TENANT slot: present on every row when the scope
 	// spans multiple tenants so columns line up regardless of
 	// row kind. Group rows fill it; leaf rows leave it blank

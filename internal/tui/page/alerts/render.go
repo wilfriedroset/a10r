@@ -111,6 +111,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 
 	showTenant := p.showTenantColumn()
 	var b strings.Builder
+	// Reserve enough capacity for the visible page (rows × width)
+	// plus per-row styling overhead so the Builder doesn't realloc
+	// while every row appends. Multiplying by 2 covers the SGR
+	// bytes lipgloss.Render injects per cell on coloured rows.
+	b.Grow((end - p.topRow) * width * 2)
 	for i := p.topRow; i < end; i++ {
 		entry := p.view[i]
 		a := entry.a

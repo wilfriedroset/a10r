@@ -476,6 +476,7 @@ func (p *Page) padTenantColumns(parts []string, width int) string {
 	}
 	cols := tenantColumnWidths(width)
 	var b strings.Builder
+	b.Grow(width + 64)
 	for i, v := range parts {
 		if i >= len(cols) {
 			break

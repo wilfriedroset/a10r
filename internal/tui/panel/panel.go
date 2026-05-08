@@ -195,6 +195,7 @@ func RenderTop(state State, styles theme.Styles) string {
 		// Build left-to-right, inserting a 2-space gap only when
 		// the next column is non-empty.
 		var sb strings.Builder
+		sb.Grow(state.Width + 64)
 		first := true
 		appendCol := func(s string, w int) {
 			if w == 0 {
@@ -282,8 +283,10 @@ func gridLines(cells []string, rowsBudget int) []string {
 	}
 	const colGap = 2
 	out := make([]string, rows)
+	rowCap := cols*cellW + (cols-1)*colGap
 	for r := range rows {
 		var sb strings.Builder
+		sb.Grow(rowCap)
 		for col := range cols {
 			idx := col*rows + r
 			if idx >= len(cells) {
