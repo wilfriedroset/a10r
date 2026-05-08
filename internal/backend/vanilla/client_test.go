@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -254,6 +256,62 @@ func TestClient_Status(t *testing.T) {
 	require.Equal(t, "0.28.1", got.Version.Version)
 	require.Contains(t, got.Config, "resolve_timeout")
 	require.Greater(t, got.Uptime, time.Duration(0), "uptime must be a positive duration")
+}
+
+// TestClient_ReusesConnectionAcrossRequests locks F5: after exec
+// reads the JSON body it must drain the trailing bytes the decoder
+// left in place so http.Transport returns the connection to its
+// idle pool. Without the drain Transport closes the conn on Body
+// .Close, and every poll opens a fresh TCP/TLS handshake.
+func TestClient_ReusesConnectionAcrossRequests(t *testing.T) {
+	t.Parallel()
+
+	// Track distinct remote addresses the server sees. Each new
+	// connection appears with a unique RemoteAddr; reuse keeps the
+	// same address.
+	var (
+		seen = map[string]struct{}{}
+		mu   sync.Mutex
+	)
+	// Trailing payload large enough to defeat Go's body.Close
+	// auto-drain (small prefix only). A real Alertmanager response
+	// at scale exceeds it many times over; this test approximates
+	// the smallest body where the bug surfaces.
+	trailing := strings.Repeat(" ", 200_000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.RemoteAddr] = struct{}{}
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(trailing))
+	}))
+	t.Cleanup(srv.Close)
+
+	// Use a dedicated transport so the assertion isn't sensitive to
+	// idle-pool churn from parallel tests sharing http.DefaultTransport.
+	transport := &http.Transport{
+		MaxIdleConnsPerHost: 4,
+		IdleConnTimeout:     30 * time.Second,
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	c, err := New(ClientConfig{
+		BaseURL:   srv.URL,
+		Timeout:   5 * time.Second,
+		Transport: transport,
+	})
+	require.NoError(t, err)
+
+	for range 5 {
+		_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
+		require.NoError(t, err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Lenf(t, seen, 1,
+		"expected a single reused TCP connection, saw %d distinct RemoteAddr values: %v",
+		len(seen), seen)
 }
 
 func TestClient_EmptyListDecodesAsEmptySlice(t *testing.T) {

@@ -248,6 +248,14 @@ func (c *Client) exec(req *http.Request, dst any) error {
 	if err := json.NewDecoder(limited).Decode(dst); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
+	// Drain trailing bytes the decoder didn't consume so http.Transport
+	// can return the connection to its idle pool. Go's body.Close
+	// auto-drains only a small prefix; with a non-trivial alert payload
+	// the trailing whitespace / chunked-framing past the closing `]`
+	// pushes the body past that limit and Close terminates the conn
+	// instead. At 15s polling × 10 tenants that's a fresh TCP/TLS
+	// handshake on every tick.
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
