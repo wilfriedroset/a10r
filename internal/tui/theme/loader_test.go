@@ -115,6 +115,36 @@ func TestLoad_UnknownNameFallsBackToDefault(t *testing.T) {
 	require.Contains(t, out, `default=catppuccin-mocha`)
 }
 
+// TestLoad_RejectsPathTraversalNames is the audit F13 regression:
+// theme.name flows into filepath.Join(UserDir, name+".yaml"), so
+// a `..` segment would escape the skins directory and let a hostile
+// config read arbitrary files. Loader rejects names outside the
+// allowed alphabet by treating them as unknown — falling back to
+// the bundled default with a warning rather than the malicious
+// candidate path.
+func TestLoad_RejectsPathTraversalNames(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	cases := []string{
+		"../../etc/passwd",
+		"foo/bar",
+		"foo bar",
+		"foo$bar",
+	}
+	for _, name := range cases {
+		styles, err := (&Loader{UserDir: dir, Logger: logger}).Load(name)
+		require.NoError(t, err, "must fall back rather than error on %q", name)
+		require.NotNil(t, styles)
+	}
+	out := buf.String()
+	require.Contains(t, out, "unknown skin",
+		"path-traversal names must be treated as unknown so the loader never resolves them")
+}
+
 func TestLoad_UserSkinShadowsBundledLogsWarning(t *testing.T) {
 	t.Parallel()
 

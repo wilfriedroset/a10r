@@ -257,6 +257,13 @@ func (c *Client) exec(req *http.Request, dst any) error {
 // message (Alertmanager surfaces validation failures as plain-text
 // 400 bodies). Reading consumes resp.Body — only safe to call on
 // errors, where downstream JSON decoding would not run anyway.
+//
+// Audit F17: the body is server-controlled, so it is sanitised
+// before landing in an error string. Without this, a hostile
+// backend could embed ANSI escape sequences in a 400 response
+// body and rewrite the operator's terminal title / cursor on
+// every retry. cleanErrorBody strips control characters and caps
+// the result at maxErrorBodyLen.
 func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -267,10 +274,40 @@ func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return &transientError{status: resp.StatusCode}
 	}
-	body, _ := io.ReadAll(resp.Body)
-	msg := strings.TrimSpace(string(body))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	msg := cleanErrorBody(body)
 	if msg == "" {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return fmt.Errorf("HTTP %d: %s", resp.StatusCode, msg)
+}
+
+// maxErrorBodyLen caps the bytes of a server-supplied error body
+// that land in a wrapped error. Long enough for an Alertmanager
+// validation message ("missing matcher: alertname") and short
+// enough that a multi-line stack trace doesn't flood the operator's
+// flash strip.
+const maxErrorBodyLen = 512
+
+// cleanErrorBody sanitises a server-controlled response body so it
+// is safe to embed in an error string / log line: control
+// characters (incl. ANSI escapes, CR, LF, tab) become spaces, runs
+// of whitespace collapse to single spaces, and the result is
+// trimmed and capped at maxErrorBodyLen with a trailing ellipsis on
+// truncation. Closes audit F17.
+func cleanErrorBody(in []byte) string {
+	out := make([]byte, 0, len(in))
+	for _, b := range in {
+		switch {
+		case b < 0x20, b == 0x7f:
+			out = append(out, ' ')
+		default:
+			out = append(out, b)
+		}
+	}
+	collapsed := strings.Join(strings.Fields(string(out)), " ")
+	if len(collapsed) > maxErrorBodyLen {
+		collapsed = collapsed[:maxErrorBodyLen] + "…"
+	}
+	return collapsed
 }

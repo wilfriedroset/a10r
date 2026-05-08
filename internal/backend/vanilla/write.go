@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
@@ -33,7 +34,7 @@ func (c *Client) ExpireSilence(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("expire silence: id is required")
 	}
-	if err := c.doDelete(ctx, c.urlFor("/silence/"+id, nil)); err != nil {
+	if err := c.doDelete(ctx, c.urlFor("/silence/"+url.PathEscape(id), nil)); err != nil {
 		return fmt.Errorf("expire silence %q: %w", id, err)
 	}
 	return nil

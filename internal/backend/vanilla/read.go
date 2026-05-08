@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -58,7 +59,7 @@ func (c *Client) GetSilence(ctx context.Context, id string) (backend.Silence, er
 	if id == "" {
 		return backend.Silence{}, errors.New("get silence: id is required")
 	}
-	u := c.urlFor("/silence/"+id, nil)
+	u := c.urlFor("/silence/"+url.PathEscape(id), nil)
 	var raw wireSilence
 	if err := c.doGet(ctx, u, &raw); err != nil {
 		return backend.Silence{}, fmt.Errorf("get silence %q: %w", id, err)

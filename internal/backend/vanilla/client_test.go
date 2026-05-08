@@ -179,6 +179,50 @@ func TestClient_GetSilence_RequiresID(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestClient_GetSilence_PathEscapesID is the audit F11 regression:
+// silence IDs (UUIDs in v0.1, but operator-controllable in
+// principle) must be URL-escaped before being concatenated into
+// the request path, otherwise a slash-bearing id would silently
+// reroute the GET to a different endpoint.
+//
+// The assertion reads r.URL.RawPath because Go's http.Request
+// decodes Path back into its plain form for routing — RawPath
+// preserves the original on-the-wire bytes when they differ.
+func TestClient_GetSilence_PathEscapesID(t *testing.T) {
+	t.Parallel()
+
+	var rawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawPath = r.URL.RawPath
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, _ = c.GetSilence(t.Context(), "weird/with spaces")
+	require.Contains(t, rawPath, "weird%2Fwith%20spaces",
+		"silence ID must be url.PathEscape'd before being interpolated into the request path")
+}
+
+// TestClient_ExpireSilence_PathEscapesID extends F11 to the
+// DELETE path. Same shape — the wire-level expectation is that
+// the id segment is escaped, never raw.
+func TestClient_ExpireSilence_PathEscapesID(t *testing.T) {
+	t.Parallel()
+
+	var rawPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rawPath = r.URL.RawPath
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_ = c.ExpireSilence(t.Context(), "id/with/slashes")
+	require.Contains(t, rawPath, "id%2Fwith%2Fslashes",
+		"silence ID must be url.PathEscape'd before being interpolated into the DELETE path")
+}
+
 func TestClient_ListReceivers(t *testing.T) {
 	t.Parallel()
 
@@ -376,6 +420,35 @@ func repeat(s string, n int) string {
 		out = append(out, s...)
 	}
 	return string(out)
+}
+
+// TestClient_400ResponseStripsControlCharsFromError pins audit
+// F17: a hostile backend embedding ANSI escape sequences in a 4xx
+// body must not be able to rewrite the operator's terminal title
+// or cursor when classifyStatus surfaces the body in an error.
+func TestClient_400ResponseStripsControlCharsFromError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		// ESC ] sequences would normally rewrite the terminal title
+		// on a careless display. \r\n on multiple lines turns into a
+		// flooded flash strip without the cap.
+		_, _ = w.Write([]byte("\x1b]0;hostile-title\x07validation failed\nbecause reasons\r\n"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "\x1b",
+		"ANSI escape characters must be stripped from server-controlled error bodies")
+	require.NotContains(t, err.Error(), "\r",
+		"CR characters must be stripped from server-controlled error bodies")
+	require.NotContains(t, err.Error(), "\n",
+		"LF characters must be stripped from server-controlled error bodies")
+	require.Contains(t, err.Error(), "validation failed",
+		"the human-readable portion of the body must still surface")
 }
 
 // TestClient_RefusesCrossOriginRedirect is the audit's

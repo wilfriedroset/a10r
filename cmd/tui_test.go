@@ -56,6 +56,31 @@ func TestLogTransportSurprises_InlineCAEmitsInfo(t *testing.T) {
 	require.Contains(t, out, "backend=self-signed")
 }
 
+// TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved
+// pins audit F9: a backend that opts into proxy_from_environment
+// logs which proxy URL the OS env actually resolves to, so the
+// operator can spot a HTTPS_PROXY hijack chain on startup. The
+// test sets HTTPS_PROXY in the env and asserts the resolved URL
+// reaches the structured log.
+func TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved(t *testing.T) {
+	// Sequential because env mutation is process-wide.
+	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+	t.Setenv("HTTP_PROXY", "http://proxy.internal:3128")
+
+	buf := &strings.Builder{}
+	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	logTransportSurprises(logger, []config.Backend{
+		{Name: "via-proxy", URL: "https://am.example", ProxyFromEnvironment: true},
+	})
+
+	out := buf.String()
+	require.Contains(t, out, "level=INFO")
+	require.Contains(t, out, "proxy_from_environment active")
+	require.Contains(t, out, "backend=via-proxy")
+	require.Contains(t, out, "proxy=http://proxy.internal:3128")
+}
+
 // TestLogTransportSurprises_NoTLSStaysSilent guards against
 // noise creep: a backend without a TLS block must not emit any
 // log line.

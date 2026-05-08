@@ -47,10 +47,34 @@ func TestRedactedBackendYAML_RedactsBasicPassword(t *testing.T) {
 	// the absence of the secret literal in the rendered text.
 	var got config.Backend
 	require.NoError(t, yamlUnmarshal(body, &got))
-	require.Equal(t, "alice", got.BasicAuth.Username)
+	// Audit F12 partial-redact rule: keep first 2 chars, mask the
+	// remainder with the redaction marker so the operator can
+	// disambiguate similar configs without fully exposing the
+	// account name to over-the-shoulder observers.
+	require.Equal(t, "al"+redactionMarker, got.BasicAuth.Username)
 	require.Equal(t, redactionMarker, got.BasicAuth.Password)
 	require.NotContains(t, body, "hunter2",
 		"the password must never reach the rendered output")
+	require.NotContains(t, body, "alice",
+		"the full username must never reach the rendered output once partial-redact is in effect")
+}
+
+// TestRedactedBackendYAML_PartialRedactsShortUsernameFully pins
+// the F12 length-floor rule: usernames shorter than 4 characters
+// fully redact to the marker so a 2-char account name never
+// reveals every character.
+func TestRedactedBackendYAML_PartialRedactsShortUsernameFully(t *testing.T) {
+	t.Parallel()
+	body, err := redactedBackendYAML(config.Backend{
+		Name:      "prod",
+		URL:       "http://am",
+		BasicAuth: &config.BasicAuth{Username: "wr", Password: "x"},
+	})
+	require.NoError(t, err)
+	var got config.Backend
+	require.NoError(t, yamlUnmarshal(body, &got))
+	require.Equal(t, redactionMarker, got.BasicAuth.Username,
+		"usernames < 4 chars fully redact to avoid leaking 100%% of the field")
 }
 
 func TestRedactedBackendYAML_RedactsBearerToken(t *testing.T) {

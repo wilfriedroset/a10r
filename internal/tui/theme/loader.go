@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -76,7 +77,17 @@ func (l *Loader) Load(name string) (*Styles, error) {
 
 // findSkin returns the raw bytes of the named skin. fromUser is
 // true when the file came from UserDir.
+//
+// Audit F13: theme.name is filepath.Join'd into UserDir without
+// validation, so `..` segments would escape the skins directory
+// and let a hostile config read arbitrary files via the embedded
+// or user-skin lookup. validSkinName below pins the accepted
+// alphabet — Loader rejects anything else outright rather than
+// silently falling back to DefaultSkinName.
 func (l *Loader) findSkin(name string) (raw []byte, fromUser, ok bool) {
+	if !validSkinName.MatchString(name) {
+		return nil, false, false
+	}
 	if l.UserDir != "" {
 		path := filepath.Join(l.UserDir, name+".yaml")
 
@@ -89,6 +100,13 @@ func (l *Loader) findSkin(name string) (raw []byte, fromUser, ok bool) {
 	}
 	return nil, false, false
 }
+
+// validSkinName is the alphabet permitted in a theme name. The
+// pattern is intentionally narrow — the bundled skin set uses only
+// alphanumerics, hyphens, and dots ("catppuccin-mocha",
+// "catppuccin-mocha-transparent") so anything outside that set is
+// either a typo or a path-traversal attempt.
+var validSkinName = regexp.MustCompile(`^[a-zA-Z0-9_.-]+$`)
 
 // loadBundled is the fallback path used when the requested skin is
 // unknown. It MUST succeed for DefaultSkinName since that file ships

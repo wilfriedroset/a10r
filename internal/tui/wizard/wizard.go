@@ -11,6 +11,7 @@ package wizard
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,10 +130,57 @@ func Write(configDir string, cfg *config.Config) (string, error) {
 // Run is the convenience that combines Build + Write. Used by the
 // wiring layer (cmd/tui.go) once it has captured Input from
 // whatever UI surface drives the wizard.
-func Run(configDir string, in Input) (string, error) {
+//
+// hintOut, when non-nil, receives a one-line nudge after a
+// successful write pointing at ${VAR} interpolation as an
+// alternative to the plaintext credentials Build accepted (audit
+// F5 — accepted with a discoverability hint rather than wizard-
+// time friction). Empty hintOut suppresses the line; tests pass
+// nil to keep stdout clean.
+func Run(configDir string, in Input, hintOut io.Writer) (string, error) {
 	cfg, err := Build(in)
 	if err != nil {
 		return "", err
 	}
-	return Write(configDir, cfg)
+	path, err := Write(configDir, cfg)
+	if err != nil {
+		return "", err
+	}
+	if hintOut != nil && carriesPlainSecret(in) {
+		fmt.Fprintln(hintOut, ExportHint(in))
+	}
+	return path, nil
+}
+
+// ExportHint returns the one-line nudge printed after a wizard
+// write that captured a plaintext credential. Pure helper so the
+// caller can print it through any io.Writer (stderr in production,
+// a buffer in tests).
+//
+// The hint references the backend name verbatim because the typical
+// next operator action is `export A10R_BACKEND_<NAME>_PASSWORD=...`
+// — naming the variable spares the operator one round-trip with the
+// docs.
+func ExportHint(in Input) string {
+	name := strings.ToUpper(in.Name)
+	return "NOTE: credentials stored in plaintext. To use env-var interpolation instead, " +
+		"replace the value with ${A10R_BACKEND_" + name + "_PASSWORD} (or any other name) " +
+		"and export that variable. See docs."
+}
+
+// carriesPlainSecret reports whether in produced a YAML file with
+// at least one plaintext credential field. Empty inputs (no auth
+// configured) suppress the hint so the user does not see noise
+// on a no-auth setup.
+func carriesPlainSecret(in Input) bool {
+	switch in.AuthType {
+	case AuthBasic:
+		return in.BasicPass != ""
+	case AuthBearer:
+		return in.BearerToken != ""
+	case AuthHeader:
+		return in.HeaderValue != ""
+	default:
+		return false
+	}
 }

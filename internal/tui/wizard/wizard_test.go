@@ -5,6 +5,7 @@ package wizard
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -131,7 +132,7 @@ func TestWrite_RefusesOverwrite(t *testing.T) {
 func TestRun_CombinesBuildAndWrite(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path, err := Run(dir, Input{Name: "prod", URL: "https://am"})
+	path, err := Run(dir, Input{Name: "prod", URL: "https://am"}, nil)
 	require.NoError(t, err)
 	require.FileExists(t, path)
 }
@@ -139,9 +140,45 @@ func TestRun_CombinesBuildAndWrite(t *testing.T) {
 func TestRun_ValidationErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	_, err := Run(dir, Input{})
+	_, err := Run(dir, Input{}, nil)
 	require.ErrorContains(t, err, "URL is required")
 	// Tempdir is empty — the failed Build must NOT have written anything.
 	entries, _ := os.ReadDir(dir)
 	require.Empty(t, entries)
+}
+
+// TestRun_PrintsExportHintAfterBasicAuth pins audit F5: the
+// wizard captured plaintext credentials, so it nudges the user
+// toward ${VAR} interpolation as a follow-up. The hint references
+// the backend name verbatim so the operator can copy-paste the
+// export line.
+func TestRun_PrintsExportHintAfterBasicAuth(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var buf strings.Builder
+	in := Input{
+		Name:      "prod",
+		URL:       "https://am",
+		AuthType:  AuthBasic,
+		BasicUser: "alice",
+		BasicPass: "hunter2",
+	}
+	_, err := Run(dir, in, &buf)
+	require.NoError(t, err)
+	out := buf.String()
+	require.Contains(t, out, "${A10R_BACKEND_PROD_PASSWORD}",
+		"hint must reference the backend name in upper-case so the export line is copy-paste ready")
+	require.Contains(t, out, "plaintext")
+}
+
+// TestRun_NoHintForAuthlessConfig keeps the noise floor low: no
+// auth means no plaintext to nudge about.
+func TestRun_NoHintForAuthlessConfig(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var buf strings.Builder
+	_, err := Run(dir, Input{Name: "open", URL: "https://am"}, &buf)
+	require.NoError(t, err)
+	require.Empty(t, buf.String(),
+		"no plaintext credential captured -> no hint printed")
 }

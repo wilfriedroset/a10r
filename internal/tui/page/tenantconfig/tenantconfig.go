@@ -285,7 +285,30 @@ func redactBasic(in *config.BasicAuth) *config.BasicAuth {
 	if out.Password != "" {
 		out.Password = redactionMarker
 	}
+	out.Username = partialRedact(out.Username)
 	return &out
+}
+
+// partialRedact masks a non-secret-but-identifying field. Audit
+// F12: BasicAuth.Username was previously emitted unchanged in the
+// tenantconfig inspector, leaking the configured account name to
+// over-the-shoulder observers. The fix keeps the first two
+// characters visible when the field is at least four characters
+// long ("admin" -> "ad***", "prod-svc" -> "pr***") so the operator
+// can still disambiguate between similarly-shaped configs (prod
+// vs. staging vs. dev) without giving up the full identifier.
+// Shorter strings fully redact — exposing two of two characters
+// would be no redaction at all.
+func partialRedact(s string) string {
+	if s == "" {
+		return ""
+	}
+	const exposeLen = 2
+	const minLen = 4
+	if len(s) < minLen {
+		return redactionMarker
+	}
+	return s[:exposeLen] + redactionMarker
 }
 
 func redactAuthorization(in *config.Authorization) *config.Authorization {
