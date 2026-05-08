@@ -396,6 +396,60 @@ func TestForm_SubmitDoesNotBlockUpdateGoroutine(t *testing.T) {
 	}
 }
 
+// TestForm_DoubleCtrlSDropsSecondSubmit locks the re-entry guard:
+// a second Ctrl+S while the first round-trip is still in flight
+// must not start a second backend call. Regression catcher for the
+// "user hammers Ctrl+S on a slow tenant" failure mode the async
+// fix would otherwise expose — without the guard the operator
+// quietly creates duplicate silences.
+func TestForm_DoubleCtrlSDropsSecondSubmit(t *testing.T) {
+	t.Parallel()
+	client := &blockingClient{
+		gate:    make(chan struct{}),
+		started: make(chan struct{}),
+	}
+	f := newForm(t, client)
+	type_(f, "alertname=A")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	// First Ctrl+S queues the goroutine.
+	_, cmd1 := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd1)
+	go func() { _ = cmd1() }()
+	<-client.started
+
+	// Second Ctrl+S must NOT call CreateSilence again. The cmd it
+	// returns is a flash, not a submitDoneMsg-producing closure.
+	_, cmd2 := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd2)
+	msg2 := cmd2()
+	flash, ok := msg2.(footer.FlashShowMsg)
+	require.Truef(t, ok, "second Ctrl+S during in-flight submit must produce a flash, got %T", msg2)
+	require.Equal(t, footer.FlashWarn, flash.Level)
+	require.Contains(t, flash.Text, "in flight")
+
+	// Releasing the gate must let the first submit complete cleanly.
+	close(client.gate)
+}
+
+// TestForm_StaleSubmitDoneMsgIsDropped locks the generation token:
+// if the user hits Esc and the form is later destroyed / re-pushed,
+// the in-flight goroutine's submitDoneMsg must NOT auto-pop the new
+// form or flash on the page on top of the stack. We model this by
+// re-creating the form between submit and applySubmitDone; the new
+// instance starts at gen=0 while the stale message carries gen=1,
+// so applySubmitDone discards it.
+func TestForm_StaleSubmitDoneMsgIsDropped(t *testing.T) {
+	t.Parallel()
+	stale := submitDoneMsg{gen: 99, id: "sil-stale"}
+	f := newForm(t, &fakeClient{})
+	_, cmd := f.Update(stale)
+	require.Nil(t, cmd, "stale submitDoneMsg must produce no Cmd; current gen is 0, stale carries 99")
+}
+
 func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{wantID: "sil-42"}

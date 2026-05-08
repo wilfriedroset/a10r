@@ -130,6 +130,22 @@ type Form struct {
 
 	focus fieldIndex
 	err   string // last submit error; cleared on next keystroke
+
+	// submitting is true between the user pressing Ctrl+S and the
+	// async round-trip's submitDoneMsg landing. While set, a second
+	// Ctrl+S is dropped (with a flash hint) so a slow tenant cannot
+	// be double-submitted by an impatient operator hammering the
+	// key. submitDoneMsg clears it.
+	submitting bool
+
+	// submitGen is bumped on every Ctrl+S. The active submit's
+	// goroutine carries the value at the time it was queued; on
+	// arrival applySubmitDone discards the message if the
+	// generation no longer matches — the operator pressed Esc and
+	// the form was popped before this round-trip completed, so the
+	// result must not be projected onto whatever page is on top now
+	// (or a freshly-pushed second silence form).
+	submitGen int
 }
 
 // Options captures the dependency surface. The prefill fields
@@ -474,8 +490,12 @@ func (f *Form) activeBlur() {
 // submitDoneMsg is the result of an async CreateSilence /
 // UpdateSilence round-trip. Update routes it back through f.fail or
 // emits SubmittedMsg on the next tick. Kept private — the form is
-// the only producer and consumer.
+// the only producer and consumer. gen pins the submit attempt this
+// message belongs to; if the form was popped (Esc) and a fresh form
+// pushed, the generation no longer matches and the message is
+// discarded so it can't auto-pop the new form with stale content.
 type submitDoneMsg struct {
+	gen     int
 	id      string
 	updated bool
 	err     error
@@ -490,7 +510,16 @@ type submitDoneMsg struct {
 // own goroutine — without this indirection, a slow tenant would
 // freeze the Update loop for up to the transport timeout. Result is
 // posted as submitDoneMsg and translated by Update.
+//
+// Re-entry guard: a second Ctrl+S while a submit is already in
+// flight flashes a hint and drops the new attempt. Without this an
+// impatient operator on a slow tenant would post duplicate
+// CreateSilence requests by reflex; the existing submit is going to
+// land in the transport timeout anyway.
 func (f *Form) submit() tea.Cmd {
+	if f.submitting {
+		return flashFn("silence: submit already in flight")
+	}
 	spec, err := f.parseSpec()
 	if err != nil {
 		return f.fail(err.Error())
@@ -510,32 +539,52 @@ func (f *Form) submit() tea.Cmd {
 	if f.client == nil {
 		return f.fail("client not configured")
 	}
+	f.submitGen++
+	gen := f.submitGen
+	f.submitting = true
 	if f.editID != "" {
 		client := f.client
 		id := f.editID
 		return func() tea.Msg {
 			err := client.UpdateSilence(context.Background(), id, spec)
-			return submitDoneMsg{id: id, updated: true, err: err}
+			return submitDoneMsg{gen: gen, id: id, updated: true, err: err}
 		}
 	}
 	client := f.client
 	return func() tea.Msg {
 		id, err := client.CreateSilence(context.Background(), spec)
-		return submitDoneMsg{id: id, err: err}
+		return submitDoneMsg{gen: gen, id: id, err: err}
 	}
 }
 
-// applySubmitDone routes a submitDoneMsg back into the form. Errors
-// flash + keep the form open; success emits the appropriate auto-pop
-// message. Runs on the Update goroutine so f.err / f.fail mutations
-// are race-free.
+// applySubmitDone routes a submitDoneMsg back into the form. Stale
+// generations (the user hit Esc and a new form may now be live) are
+// silently dropped — the message must not auto-pop a different
+// form or flash a stale "silence created" on whatever page is on
+// top. Errors flash + keep the form open; success emits the
+// appropriate auto-pop message. Runs on the Update goroutine so
+// f.err / f.fail mutations are race-free.
 func (f *Form) applySubmitDone(m submitDoneMsg) tea.Cmd {
+	if m.gen != f.submitGen {
+		return nil
+	}
+	f.submitting = false
 	if m.err != nil {
 		return f.fail(m.err.Error())
 	}
 	id := m.id
 	updated := m.updated
 	return func() tea.Msg { return SubmittedMsg{ID: id, Updated: updated} }
+}
+
+// flashFn is a tiny helper for surfacing a single ephemeral hint
+// without touching f.err — used when the form rejects a keystroke
+// (e.g. duplicate Ctrl+S during an in-flight submit) without
+// recording it as the persistent submit error.
+func flashFn(text string) tea.Cmd {
+	return func() tea.Msg {
+		return footer.FlashShowMsg{Level: footer.FlashWarn, Text: text}
+	}
 }
 
 // fail records the error on the form and returns a Cmd that
