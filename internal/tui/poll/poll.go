@@ -14,6 +14,7 @@ package poll
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -204,7 +205,19 @@ func New(opts Options) *Poller {
 	// would melt the operator's terminal and the upstream backend
 	// before anyone noticed. Tests passing intentionally tiny
 	// intervals stay above the floor.
-	interval := max(opts.Interval, minPollInterval)
+	interval := opts.Interval
+	if interval < minPollInterval {
+		// Loud-but-not-fatal: log so an operator sees the silent
+		// clamp instead of wondering why the configured 50ms
+		// behaves like 100ms.
+		slog.Warn("poll: interval below floor; clamping",
+			slog.String("tenant", opts.Tenant),
+			slog.String("resource", opts.Resource),
+			slog.Duration("requested", interval),
+			slog.Duration("floor", minPollInterval),
+		)
+		interval = minPollInterval
+	}
 	return &Poller{
 		tenant:   opts.Tenant,
 		resource: opts.Resource,
