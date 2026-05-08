@@ -125,24 +125,36 @@ func (r Resolver) Editor() []string {
 }
 
 // cacheRoot returns the tempfile parent directory, creating it
-// if it doesn't exist. Audit F10: directory mode is 0o700 so a
-// local co-tenant cannot pre-create symlinks under the directory
-// even on shared hosts. Pre-existing directories with looser
-// modes are left alone — running `chmod 700` on a path the user
-// already populated would surprise them.
+// if it doesn't exist. Audit F10 / re-audit G3: directory mode is
+// 0o700 — both newly-created (via MkdirAll) and pre-existing (via
+// the explicit Chmod that follows). Tightening pre-existing dirs
+// matters on hosts where ~/.cache/a10r predates the upgrade or
+// was set up by another tool: without the chmod, a co-tenant
+// keeps directory listing rights, which leaks the sanitised
+// silence ids embedded in tempfile basenames. Owner-only access
+// is the same trust level the operator already has on the rest
+// of their cache dirs (.cache itself defaults to 0o700 on most
+// distros), so the upgrade is not surprising.
 func (r Resolver) cacheRoot() (string, error) {
 	if r.CacheDir != "" {
-		if err := os.MkdirAll(r.CacheDir, 0o700); err != nil {
-			return "", err
-		}
-		return r.CacheDir, nil
+		return ensureMode0700(r.CacheDir)
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(base, "a10r")
+	return ensureMode0700(filepath.Join(base, "a10r"))
+}
+
+// ensureMode0700 creates dir at mode 0o700 if missing, then
+// chmods it down to 0o700 unconditionally so pre-existing
+// directories with looser modes are tightened. The chmod is a
+// no-op when the directory was just created by MkdirAll.
+func ensureMode0700(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err
 	}
 	return dir, nil

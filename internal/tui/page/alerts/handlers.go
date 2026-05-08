@@ -3,6 +3,8 @@
 package alerts
 
 import (
+	"log/slog"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -62,6 +64,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash the new silence ID so the
 		// user has confirmation. Same shape the silences page uses.
+		slog.Default().Info("silence write succeeded",
+			slog.String("op", "created"),
+			slog.String("id", m.ID),
+			slog.String("surface", "alerts-form"))
 		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. Esc on the form is a non-event.

@@ -233,8 +233,13 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 // already deferred its own cancel(), so the local ctx is released
 // without the handler having to disambiguate.
 func (p *Page) handleBulkExpireDone(m bulkExpireDoneMsg) tea.Cmd {
+	source := "expire-confirm"
+	if m.bulk {
+		source = "bulk-expire"
+	}
 	for _, id := range m.successes {
 		delete(p.marks, id)
+		auditSilenceWrite("expired", id, source)
 	}
 	failed := m.total - len(m.successes)
 	return p.flashExpireResult(m.bulk, len(m.successes), failed)

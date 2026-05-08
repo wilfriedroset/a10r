@@ -4,6 +4,7 @@ package silences
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -97,6 +98,7 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 		if m.Updated {
 			verb = "updated"
 		}
+		auditSilenceWrite(verb, m.ID, "form")
 		return flashFn(footer.FlashSuccess, "silence "+verb+": "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — form Esc is a
@@ -526,6 +528,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	if err := client.UpdateSilence(context.Background(), id, spec); err != nil {
 		return flashFn(footer.FlashError, "update: "+err.Error())
 	}
+	auditSilenceWrite("updated", id, "editor")
 	return flashFn(footer.FlashSuccess, "silence updated: "+id)
 }
 
@@ -600,4 +603,27 @@ func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
 	}
+}
+
+// auditSilenceWrite emits the structured "silence write succeeded"
+// log line surfaced on every successful silence mutation so an
+// operator can reconstruct the day's activity from the --log file.
+// Closes the F4 attack-chain tail flagged in the re-audit's G1
+// (logger plumbing was wired but no success-path entry existed).
+//
+// Routed through slog.Default() — runTUI calls slog.SetDefault on
+// the program's logger before any page is constructed, so every
+// page sees the same sink without each having to thread a pointer.
+//
+// op is the verb ("created", "updated", "expired"); surface
+// records the screen/handler that drove it ("form", "editor",
+// "bulk-expire") so a future correlation against the user's input
+// stays unambiguous. The wire-level key is "surface" (not "source")
+// because slog reserves "source" for the SourceKey caller-info
+// attribute, and sloglint forbids re-using the name.
+func auditSilenceWrite(op, id, surface string) {
+	slog.Default().Info("silence write succeeded",
+		slog.String("op", op),
+		slog.String("id", id),
+		slog.String("surface", surface))
 }

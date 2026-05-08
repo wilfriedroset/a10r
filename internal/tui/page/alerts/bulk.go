@@ -274,6 +274,15 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 func (p *Page) handleBulkSilenceDone(m bulkSilenceDoneMsg) tea.Cmd {
 	for _, fp := range m.successes {
 		delete(p.marks, fp)
+		// successes carries alert fingerprints (the bulk fanout
+		// emits one CreateSilence per alert; the resulting silence
+		// IDs are not propagated back). The audit log uses the
+		// fingerprint as the identifier so reconstruction can
+		// correlate against the alerts list / backend snapshot.
+		slog.Default().Info("silence write succeeded",
+			slog.String("op", "created"),
+			slog.String("alert_fingerprint", fp),
+			slog.String("surface", "bulk-silence"))
 	}
 	failed := m.total - len(m.successes)
 	return flashBulkSilenceResult(m.total, len(m.successes), failed)

@@ -3,6 +3,8 @@
 package groups
 
 import (
+	"log/slog"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -52,6 +54,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash so the user sees
 		// confirmation. Same shape alerts / silences use.
+		slog.Default().Info("silence write succeeded",
+			slog.String("op", "created"),
+			slog.String("id", m.ID),
+			slog.String("surface", "groups-form"))
 		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		return p, nil

@@ -9,6 +9,7 @@ package alert
 
 import (
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -226,6 +227,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// Form auto-popped; flash the new silence ID so the user
 		// sees confirmation. Same shape the alerts list / silences
 		// page use.
+		slog.Default().Info("silence write succeeded",
+			slog.String("op", "created"),
+			slog.String("id", m.ID),
+			slog.String("surface", "alert-detail-form"))
 		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
@@ -30,6 +31,22 @@ import (
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+
+// newAuditLogBuf swaps slog.Default() for a text-handler writing
+// into the returned strings.Builder for the duration of t. The
+// audit-log helper (auditSilenceWrite) routes through slog.Default,
+// so this is the cheapest way to assert what reached the sink
+// without leaking handler state across tests. The cleanup restores
+// the prior default; tests run sequentially because the swap is
+// process-wide.
+func newAuditLogBuf(t *testing.T) *strings.Builder {
+	t.Helper()
+	buf := &strings.Builder{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return buf
+}
 
 func newPage(t *testing.T) *Page {
 	t.Helper()
@@ -419,6 +436,48 @@ func TestPage_FinishedMsgErrorFlashes(t *testing.T) {
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "vim crashed")
 	require.Empty(t, fake.lastUpdateID)
+}
+
+// TestPage_FinishedMsgSuccessAuditLogs pins re-audit G1: a
+// successful editor-driven UpdateSilence emits a structured log
+// entry naming op=updated, the silence id, and surface=editor so
+// an operator can reconstruct the day's silence mutations from
+// `--log`.
+func TestPage_FinishedMsgSuccessAuditLogs(t *testing.T) {
+	// Sequential because newAuditLogBuf swaps slog.Default
+	// process-wide.
+	buf := newAuditLogBuf(t)
+	fake := &fakeSilenceClient{}
+	p := editorPage(t, fake, &recordingResolver{})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	body, err := silenceToYAML(p.view[0].s)
+	require.NoError(t, err)
+	cmd := func() tea.Cmd {
+		_, c := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+		return c
+	}()
+	require.NotNil(t, cmd)
+	cmd()
+	out := buf.String()
+	require.Contains(t, out, "silence write succeeded")
+	require.Contains(t, out, "op=updated")
+	require.Contains(t, out, "id=sil-a")
+	require.Contains(t, out, "surface=editor")
+}
+
+// TestPage_SubmittedMsgAuditLogs pins the form-driven success
+// path. Editor and bulk paths have their own tests; this one
+// covers single-row form Create / Update.
+func TestPage_SubmittedMsgAuditLogs(t *testing.T) {
+	// Sequential — see TestPage_FinishedMsgSuccessAuditLogs.
+	buf := newAuditLogBuf(t)
+	p := newPage(t)
+	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-new"})
+	require.NotNil(t, cmd)
+	out := buf.String()
+	require.Contains(t, out, "op=created")
+	require.Contains(t, out, "id=sil-new")
+	require.Contains(t, out, "surface=form")
 }
 
 func TestPage_FinishedMsgSuccessCallsUpdateSilence(t *testing.T) {

@@ -297,6 +297,37 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	require.Error(t, fin.Err, "cancelled ctx must surface a non-nil Err on FinishedMsg")
 }
 
+// TestEdit_CacheDirTightensPreExistingPerm pins re-audit G3:
+// when ~/.cache/a10r predates the upgrade (or was created by
+// another tool at 0o755), Edit must chmod the directory down to
+// 0o700 so a co-tenant loses listing rights on a system that has
+// already been running a10r before this fix landed.
+func TestEdit_CacheDirTightensPreExistingPerm(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("posix-mode assertions don't apply on windows")
+	}
+	parent := t.TempDir()
+	cache := filepath.Join(parent, "legacy-cache")
+	require.NoError(t, os.MkdirAll(cache, 0o755),
+		"simulate a pre-existing cache dir with the looser mode")
+	require.NoError(t, os.Chmod(cache, 0o755),
+		"MkdirAll respects umask; force the legacy mode explicitly")
+
+	r := Resolver{
+		DefaultEditor: "/bin/true",
+		CacheDir:      cache,
+		LookupEnv:     func(string) (string, bool) { return "", false },
+		ExecRunner:    syncRunner,
+	}
+	cmd := r.Edit(Request{ResourceID: "id", Initial: "x"})
+	_ = cmd()
+	info, err := os.Stat(cache)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o700), info.Mode().Perm(),
+		"pre-existing cache dir must be tightened to 0o700 on first Edit")
+}
+
 // TestEdit_CacheDirCreatedAt0o700 pins audit F10's cache-dir
 // permission requirement: a fresh CacheDir is created mode 0o700
 // so a local co-tenant cannot list / pre-populate the directory.
