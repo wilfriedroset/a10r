@@ -21,9 +21,10 @@ import (
 // they are in).
 func newInfoCmd(flags *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "info",
-		Short: "Print resolved config dir, log path, and configured backends",
-		Args:  cobra.NoArgs,
+		Use:     "info",
+		Short:   "Print resolved config dir, log path, and configured backends",
+		GroupID: groupDiag,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runInfo(cmd.OutOrStdout(), flags)
 		},

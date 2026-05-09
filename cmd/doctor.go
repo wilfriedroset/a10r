@@ -29,8 +29,9 @@ func newDoctorCmd(flags *GlobalFlags) *cobra.Command {
 		only      []string
 	)
 	cmd := &cobra.Command{
-		Use:   "doctor",
-		Short: "Run preflight health checks against every configured backend",
+		Use:     "doctor",
+		Short:   "Run preflight health checks against every configured backend",
+		GroupID: groupDiag,
 		Long: `Run a small suite of preflight checks (reachability, auth,
 version-floor) against every backend listed in a10r.yaml and report
 per-(backend, check) severity. Use --output=json|yaml to consume

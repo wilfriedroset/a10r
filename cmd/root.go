@@ -44,6 +44,17 @@ Run with no subcommand to launch the TUI.`,
 		},
 		PersistentPreRunE: persistentPreRun(flags),
 	}
+	// Group definitions live here so every code path that builds a
+	// root command (Execute + tests that register subcommands
+	// directly) sees them — otherwise cobra panics when a command
+	// declares a GroupID that the root has not registered.
+	rootCmd.AddGroup(
+		&cobra.Group{ID: groupRead, Title: "Read:"},
+		&cobra.Group{ID: groupDiag, Title: "Diagnostics:"},
+		&cobra.Group{ID: groupSetup, Title: "Setup:"},
+	)
+	rootCmd.SetCompletionCommandGroupID(groupSetup)
+	rootCmd.SetHelpCommandGroupID(groupSetup)
 
 	f := rootCmd.PersistentFlags()
 	f.StringVarP(&flags.ConfigPath, "config", "c", "",

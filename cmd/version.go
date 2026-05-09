@@ -14,9 +14,10 @@ import (
 // (e.g. `a10r version | awk '{print $2}'` to extract the version).
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "version",
-		Short: "Print version information and exit",
-		Args:  cobra.NoArgs,
+		Use:     "version",
+		Short:   "Print version information and exit",
+		GroupID: groupDiag,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return printVersion(cmd.OutOrStdout())
 		},

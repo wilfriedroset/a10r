@@ -18,12 +18,27 @@ var (
 	date    = "unknown"
 )
 
-// Execute builds the cobra root command, registers every subcommand
-// explicitly (no init() side effects), and runs it. main() in the
-// repo root simply forwards an error from this function.
+// Subcommand groups for `a10r --help` (cobra GroupID). The IDs are
+// stable wire identifiers — renaming requires updating each
+// subcommand's GroupID assignment below — while the Title is the
+// label cobra renders in the help output. New commands must pick
+// one of these groups so the help reads coherently.
+const (
+	groupRead  = "read"
+	groupDiag  = "diag"
+	groupSetup = "setup"
+)
+
+// Execute builds the cobra root command, registers groups +
+// subcommands explicitly (no init() side effects), and runs it.
+// main() in the repo root simply forwards an error from this
+// function.
 func Execute() error {
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags, nil)
+	// Group definitions and the completion / help GroupID pins live
+	// in newRootCmd so every code path (Execute + tests that build
+	// a root directly) sees them.
 	rootCmd.AddCommand(
 		newVersionCmd(),
 		newInfoCmd(&flags),

@@ -22,9 +22,10 @@ import (
 // specific file regardless of --config-dir / A10R_CONFIG_DIR.
 func newValidateCmd(flags *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
-		Use:   "validate [path/to/a10r.yaml]",
-		Short: "Parse the config file and report errors",
-		Args:  cobra.MaximumNArgs(1),
+		Use:     "validate [path/to/a10r.yaml]",
+		Short:   "Parse the config file and report errors",
+		GroupID: groupDiag,
+		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runValidate(cmd.OutOrStdout(), flags, args)
 		},
