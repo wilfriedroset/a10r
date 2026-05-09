@@ -14,12 +14,33 @@ package factory
 
 import (
 	"fmt"
+	"log/slog"
 	"maps"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/mimir"
 	"github.com/wilfriedroset/a10r/internal/config"
 )
+
+// Option mutates Build's optional configuration. Functional options
+// keep the existing positional signature stable for the many test
+// callers while letting new behaviour layer in additively.
+type Option func(*options)
+
+// options collects every Build optional field. Zero value is
+// valid: every field is "do nothing" by default.
+type options struct {
+	debugLog *slog.Logger
+}
+
+// WithDebugLog wires per-request HTTP debug logging via
+// transport.WithDebugLog on the resulting client. Pass the
+// production *slog.Logger only when --debug-http is set; nil-safe.
+// Header redaction comes from the logger's own ReplaceAttr hook
+// (ADR 0008) — this option just enables the capture.
+func WithDebugLog(log *slog.Logger) Option {
+	return func(o *options) { o.debugLog = log }
+}
 
 // Build constructs a backend.Client from one entry of the user's
 // `backends:` array. There is no NewVanilla / NewMimir split — the
@@ -40,9 +61,14 @@ import (
 // outgoing HTTP request. Pass an empty string to disable injection
 // (tests do; production callers should always pass a meaningful
 // value built from the cmd build vars).
-func Build(cfg config.Backend, userAgent string) (backend.Client, error) {
+func Build(cfg config.Backend, userAgent string, opts ...Option) (backend.Client, error) {
 	if cfg.URL == "" {
 		return nil, fmt.Errorf("backend %q: url is required", cfg.Name)
+	}
+
+	o := options{}
+	for _, apply := range opts {
+		apply(&o)
 	}
 
 	c, err := mimir.New(mimir.ClientConfig{
@@ -59,6 +85,7 @@ func Build(cfg config.Backend, userAgent string) (backend.Client, error) {
 		Timeout:              cfg.RemoteTimeout,
 		Caps:                 cfg.Capabilities,
 		UserAgent:            userAgent,
+		DebugLog:             o.debugLog,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("backend %q: %w", cfg.Name, err)

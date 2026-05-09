@@ -165,9 +165,14 @@ func openSink(opts Opts) (io.Writer, io.Closer, string, error) {
 }
 
 // newHandler returns the slog.Handler matching format, configured at
-// the requested level.
+// the requested level. ReplaceAttr is wired to redactAttr so every
+// log call masks the fixed secret-key set centrally — see ADR 0008
+// and internal/log/redact.go.
 func newHandler(format Format, level slog.Level, w io.Writer) slog.Handler {
-	handlerOpts := &slog.HandlerOptions{Level: level}
+	handlerOpts := &slog.HandlerOptions{
+		Level:       level,
+		ReplaceAttr: redactAttr,
+	}
 	if format == FormatJSON {
 		return slog.NewJSONHandler(w, handlerOpts)
 	}

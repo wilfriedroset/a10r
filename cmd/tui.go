@@ -101,7 +101,11 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	registry := action.New()
 	dispatcher := keys.New(nil)
 	scope := scopeFor(&effCfg)
-	clients := buildClients(&effCfg)
+	var debugLog *slog.Logger
+	if flags.DebugHTTP {
+		debugLog = logger
+	}
+	clients := buildClients(&effCfg, debugLog)
 	silenceClients := silenceClientsFrom(clients)
 	silenceWriteClients := silenceWriteClientsFrom(clients)
 	creator := os.Getenv("USER")
@@ -344,11 +348,15 @@ func silenceWriteClientsFrom(in map[string]backend.Client) map[string]silences.C
 // The User-Agent is identical for every backend per RFC 9110 §10.1.5
 // — backends differentiate via the existing tenant header, so a
 // per-backend UA would only add noise to backend access logs.
-func buildClients(cfg *config.Config) map[string]backend.Client {
+func buildClients(cfg *config.Config, debugLog *slog.Logger) map[string]backend.Client {
 	ua := userAgent(version, commit)
 	out := make(map[string]backend.Client, len(cfg.Backends))
+	var opts []factory.Option
+	if debugLog != nil {
+		opts = append(opts, factory.WithDebugLog(debugLog))
+	}
 	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua)
+		c, err := factory.Build(be, ua, opts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "backend %q: build failed: %v\n", be.Name, err)
 			continue

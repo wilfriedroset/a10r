@@ -204,6 +204,17 @@ func TestReconcileLogLevelFlags(t *testing.T) {
 			want:     GlobalFlags{Debug: true},
 			wantWarn: true,
 		},
+		{
+			name:  "debug-http implies debug",
+			input: GlobalFlags{DebugHTTP: true},
+			want:  GlobalFlags{Debug: true, DebugHTTP: true},
+		},
+		{
+			name:     "debug-http with --quiet — implied debug still wins",
+			input:    GlobalFlags{DebugHTTP: true, Quiet: true},
+			want:     GlobalFlags{Debug: true, DebugHTTP: true},
+			wantWarn: true,
+		},
 	}
 
 	for _, tc := range cases {

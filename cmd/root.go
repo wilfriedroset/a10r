@@ -58,6 +58,8 @@ Run with no subcommand to launch the TUI.`,
 		"set log level to debug")
 	f.BoolVar(&flags.Quiet, "quiet", false,
 		"set log level to warn (silences info)")
+	f.BoolVar(&flags.DebugHTTP, "debug-http", false,
+		"log every HTTP request/response with redacted credentials (implies --debug)")
 	f.BoolVar(&flags.ReadOnly, "read-only", false,
 		"force read-only mode across the session (no silence create/update/expire)")
 	f.StringVar(&flags.Tenant, "tenant", "",
@@ -85,7 +87,15 @@ func persistentPreRun(flags *GlobalFlags) func(*cobra.Command, []string) error {
 // --quiet are set, --debug wins and a warning is logged". The reset
 // is intentional so downstream resolution sees a single coherent
 // level rather than two contradictory bits.
+//
+// --debug-http implies --debug because the WithDebugLog wrapper
+// emits at LevelDebug; without the level bump the lines never reach
+// disk. When --debug-http is set alongside --quiet, the implied
+// debug-level wins by the same precedence above.
 func reconcileLogLevelFlags(flags *GlobalFlags, errOut io.Writer) error {
+	if flags.DebugHTTP {
+		flags.Debug = true
+	}
 	if flags.Debug && flags.Quiet {
 		if _, err := fmt.Fprintln(errOut, "warning: --debug overrides --quiet"); err != nil {
 			return fmt.Errorf("write log-level warning: %w", err)

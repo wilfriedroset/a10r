@@ -12,6 +12,7 @@ package mimir
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -71,6 +72,15 @@ type ClientConfig struct {
 	// and tenant layers so a downstream proxy that strips Authorization
 	// still sees the identifying UA.
 	UserAgent string
+
+	// DebugLog, when non-nil, enables transport.WithDebugLog at the
+	// innermost layer of the RoundTripper chain (between NewBase and
+	// NewAuth). Each request/response emits one structured log line
+	// at LevelDebug; secret-bearing header values are masked by the
+	// logger's ReplaceAttr hook (ADR 0008). nil disables logging
+	// entirely so production callers without --debug-http pay no
+	// per-request overhead.
+	DebugLog *slog.Logger
 }
 
 // New constructs a *vanilla.Client wrapped with the Mimir-specific
@@ -105,6 +115,12 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 		}
 		base = built
 	}
+
+	// Slot debug logging at the innermost layer (closest to wire) so
+	// the captured request reflects everything upstream RoundTrippers
+	// have injected (auth, headers, user-agent). nil DebugLog
+	// short-circuits to base unchanged — see ADR 0008.
+	base = transport.WithDebugLog(base, cfg.DebugLog)
 
 	authedRT, err := transport.NewAuth(transport.AuthOptions{
 		BasicAuth:     cfg.BasicAuth,

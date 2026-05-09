@@ -47,6 +47,19 @@ type CLIFlags struct {
 	Tenant       string
 	PollInterval time.Duration
 	Theme        string
+	// DebugHTTP enables transport.WithDebugLog wrapping per backend
+	// (ADR 0008). Implies Debug log level — the wrapper emits at
+	// LevelDebug, so without it the lines never reach disk. The two
+	// flags compose: --debug-http alone bumps level to Debug;
+	// --debug-http --debug is redundant but harmless.
+	//
+	// CLI-only: DebugHTTP intentionally bypasses K1 precedence — it
+	// has no env-var equivalent and no file-side knob. Debug
+	// transport logging is a runtime-only, ephemeral concern (like
+	// Tenant) that should never be persisted into a10r.yaml. Resolve
+	// passes it through unchanged so cmd-layer callers read the same
+	// value they bound to cobra.
+	DebugHTTP bool
 }
 
 // EnvSource looks up an env var by name. The host implementation is

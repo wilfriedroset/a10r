@@ -3,6 +3,8 @@
 package factory
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -258,4 +260,57 @@ func TestBuild_ImplementsClient(t *testing.T) {
 	c, err = Build(config.Backend{Name: "x", URL: "http://x"}, "")
 	require.NoError(t, err)
 	require.NotNil(t, c)
+}
+
+// TestBuild_WithDebugLogEmitsRequestLog proves the WithDebugLog
+// option threads through to the constructed client's RoundTripper:
+// a real request emits a structured log line at LevelDebug. The
+// redaction half is covered in transport package tests; this one
+// only confirms the wiring is alive.
+func TestBuild_WithDebugLogEmitsRequestLog(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	c, err := Build(
+		config.Backend{Name: "prod", URL: srv.URL},
+		"a10r/test",
+		WithDebugLog(logger),
+	)
+	require.NoError(t, err)
+
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+
+	out := buf.String()
+	require.Contains(t, out, "level=DEBUG", "WithDebugLog must wire the debug RoundTripper")
+	require.Contains(t, out, "msg=http")
+	require.Contains(t, out, "method=GET")
+	require.Contains(t, out, "/api/v2/alerts")
+}
+
+// TestBuild_NilDebugLogDoesNotPanic confirms a nil logger
+// short-circuits the WithDebugLog wrapper: the resulting client
+// successfully services a request without panicking on a nil log
+// dereference inside RoundTrip.
+func TestBuild_NilDebugLogDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	c, err := Build(
+		config.Backend{Name: "prod", URL: srv.URL},
+		"",
+		WithDebugLog(nil),
+	)
+	require.NoError(t, err)
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
 }
