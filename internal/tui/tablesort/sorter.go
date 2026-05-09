@@ -57,9 +57,10 @@ type Column[T any] struct {
 // Sorter is the per-page sort-state machine. Construct via New;
 // the zero value is not usable.
 type Sorter[T any] struct {
-	cols   []Column[T]
-	active int
-	asc    bool
+	cols       []Column[T]
+	active     int
+	asc        bool
+	defaultIdx int
 }
 
 // New constructs a Sorter over the supplied columns. defaultKey
@@ -80,6 +81,12 @@ func New[T any](cols []Column[T], defaultKey string) *Sorter[T] {
 	if i := indexOf(cols, defaultKey); i >= 0 {
 		s.active = i
 	}
+	// defaultIdx pins the New-time resolved index so Reset can
+	// return here regardless of subsequent SelectBy/Walk
+	// transitions; the resolved index is the source of truth
+	// because defaultKey may have been unknown and silently
+	// fallen back to 0.
+	s.defaultIdx = s.active
 	s.asc = cols[s.active].DefaultAsc
 	return s
 }
@@ -127,6 +134,19 @@ func (s *Sorter[T]) SelectByKey(key string) bool {
 		return true
 	}
 	return false
+}
+
+// Reset returns the Sorter to the column and direction it was
+// constructed with — the New-time defaultKey resolved to its
+// column index, or column 0 if unknown, and that column's
+// DefaultAsc. Does NOT consult `cols[defaultIdx].DefaultAsc` from
+// any subsequent column-mutation path because Sorter has none;
+// the field is fixed at construction.
+//
+// Bound to `-` per the user-visible keybindings doc.
+func (s *Sorter[T]) Reset() {
+	s.active = s.defaultIdx
+	s.asc = s.cols[s.defaultIdx].DefaultAsc
 }
 
 // selectIndex is the shared transition: same-column flips, new
@@ -184,6 +204,9 @@ func (s *Sorter[T]) HandleKey(key string) bool {
 		return s.WalkLeft()
 	case "l", "right":
 		return s.WalkRight()
+	case "-":
+		s.Reset()
+		return true
 	}
 	if r, ok := singleUpperRune(key); ok {
 		return s.SelectByHotkey(r)
@@ -217,12 +240,12 @@ func (s *Sorter[T]) IsActive(key string) bool {
 }
 
 // Bindings returns one action.Action per column with a non-zero
-// Hotkey, ready to register with the supplied view name. Description
-// is "sort by <lowercased title>" — the help overlay then reads
-// uniformly across pages without each page hand-rolling its own
-// description string.
+// Hotkey plus a single "-" entry advertising Reset. Ready to
+// register with the supplied view name; the help overlay then
+// reads uniformly across pages without each page hand-rolling
+// its own description string.
 func (s *Sorter[T]) Bindings(view string) []action.Action {
-	out := make([]action.Action, 0, len(s.cols))
+	out := make([]action.Action, 0, len(s.cols)+1)
 	for _, c := range s.cols {
 		if c.Hotkey == 0 {
 			continue
@@ -237,6 +260,11 @@ func (s *Sorter[T]) Bindings(view string) []action.Action {
 			View:        view,
 		})
 	}
+	out = append(out, action.Action{
+		Key:         "-",
+		Description: "reset sort to default",
+		View:        view,
+	})
 	return out
 }
 

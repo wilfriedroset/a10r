@@ -255,6 +255,102 @@ func TestArrowFor(t *testing.T) {
 	}
 }
 
+func TestReset_ReturnsToConstructionDefault(t *testing.T) {
+	t.Parallel()
+
+	s := tablesort.New(fixtureCols(), keyScore)
+
+	// Walk to a different column AND flip direction, so Reset has
+	// to undo both.
+	s.SelectByHotkey('N') // active=name, asc=true
+	s.SelectByHotkey('N') // active=name, asc=false (flip)
+	if s.ActiveKey() != keyName || s.Asc() {
+		t.Fatalf("setup failed: ActiveKey=%q asc=%v", s.ActiveKey(), s.Asc())
+	}
+
+	s.Reset()
+
+	if got := s.ActiveKey(); got != keyScore {
+		t.Fatalf("Reset ActiveKey = %q, want %q (New-time default)", got, keyScore)
+	}
+	if s.Asc() {
+		t.Fatalf("Reset Asc = true, want false (score column defaults DESC)")
+	}
+}
+
+func TestReset_FromUnknownDefaultKeyReturnsToFirstColumn(t *testing.T) {
+	t.Parallel()
+
+	// New falls back to column 0 when defaultKey is unknown;
+	// Reset must return to that resolved index, not re-attempt
+	// the lookup (defaultKey isn't stored).
+	s := tablesort.New(fixtureCols(), "bogus")
+	s.SelectByHotkey('C') // active=score
+	s.Reset()
+	if got := s.ActiveKey(); got != keyName {
+		t.Fatalf("Reset after unknown defaultKey ActiveKey = %q, want %q", got, keyName)
+	}
+	if !s.Asc() {
+		t.Fatalf("Reset Asc = false, want true (name column defaults ASC)")
+	}
+}
+
+func TestReset_IdempotentWhenAlreadyAtDefault(t *testing.T) {
+	t.Parallel()
+
+	// Calling Reset twice from the New-time default must be a no-op.
+	s := tablesort.New(fixtureCols(), keyName)
+	s.Reset()
+	s.Reset()
+	if got := s.ActiveKey(); got != keyName {
+		t.Fatalf("ActiveKey after double-reset = %q, want %q", got, keyName)
+	}
+	if !s.Asc() {
+		t.Fatalf("Asc after double-reset = false, want true")
+	}
+}
+
+func TestHandleKey_DashTriggersReset(t *testing.T) {
+	t.Parallel()
+
+	s := tablesort.New(fixtureCols(), keyScore)
+	s.SelectByHotkey('N') // jump away from default
+	s.SelectByHotkey('N') // and flip
+	if !s.HandleKey("-") {
+		t.Fatalf("HandleKey(\"-\") = false, want true")
+	}
+	if got := s.ActiveKey(); got != keyScore {
+		t.Fatalf("after HandleKey(-) ActiveKey = %q, want %q", got, keyScore)
+	}
+	if s.Asc() {
+		t.Fatalf("after HandleKey(-) Asc = true, want false")
+	}
+}
+
+func TestBindings_IncludesResetEntry(t *testing.T) {
+	t.Parallel()
+
+	s := tablesort.New(fixtureCols(), keyName)
+	bindings := s.Bindings("alerts")
+
+	var found bool
+	for _, b := range bindings {
+		if b.Key == "-" {
+			found = true
+			if b.Description != "reset sort to default" {
+				t.Fatalf("dash binding desc = %q, want %q", b.Description, "reset sort to default")
+			}
+			if b.View != "alerts" {
+				t.Fatalf("dash binding view = %q, want alerts", b.View)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Bindings did not include the `-` reset entry")
+	}
+}
+
 func TestIsActive(t *testing.T) {
 	t.Parallel()
 	s := tablesort.New(fixtureCols(), keyName)
@@ -354,12 +450,13 @@ func TestBindingsEmitsShiftLetterPerColumn(t *testing.T) {
 	t.Parallel()
 	s := tablesort.New(fixtureCols(), keyName)
 	got := s.Bindings("alerts")
-	if len(got) != 2 {
-		t.Fatalf("Bindings len = %d, want 2", len(got))
-	}
 	want := []action.Action{
 		{Key: "Shift+N", Description: "sort by name", View: "alerts"},
 		{Key: "Shift+C", Description: "sort by score", View: "alerts"},
+		{Key: "-", Description: "reset sort to default", View: "alerts"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("Bindings len = %d, want %d", len(got), len(want))
 	}
 	for i, a := range got {
 		if a != want[i] {
@@ -399,8 +496,9 @@ func TestBindingsSkipsZeroHotkeyColumns(t *testing.T) {
 	}
 	s := tablesort.New(cols, keyName)
 	got := s.Bindings("alerts")
-	if len(got) != 1 {
-		t.Fatalf("Bindings len = %d, want 1 (zero-hotkey column omitted)", len(got))
+	// 1 hotkeyed column + the always-present `-` reset entry.
+	if len(got) != 2 {
+		t.Fatalf("Bindings len = %d, want 2 (zero-hotkey column omitted)", len(got))
 	}
 	if got[0].Key != "Shift+N" {
 		t.Fatalf("Bindings[0].Key = %q, want Shift+N", got[0].Key)
