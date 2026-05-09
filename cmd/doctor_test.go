@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/doctor"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -122,6 +123,131 @@ func TestIsStdoutTerminal_NonFile(t *testing.T) {
 	// renderDoctor falls through to the json default for pipes.
 	var buf bytes.Buffer
 	require.False(t, isStdoutTerminal(&buf))
+}
+
+func TestDoctorExitFromResults(t *testing.T) {
+	t.Parallel()
+
+	prod := config.Backend{Name: "prod"}
+	staging := config.Backend{Name: "staging"}
+
+	cases := []struct {
+		name     string
+		backends []config.Backend
+		results  []doctor.Result
+		wantCode int    // 0 = nil error
+		wantErr  string // "" = exit code only, otherwise contains substring
+	}{
+		{
+			name:     "no backends → nil",
+			backends: nil,
+			wantCode: 0,
+		},
+		{
+			name:     "all clean → nil",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Severity: doctor.SeverityOK},
+				{Backend: "staging", Severity: doctor.SeverityOK},
+			},
+			wantCode: 0,
+		},
+		{
+			name:     "partial failure → nil per ADR 0009",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "reachability", Severity: doctor.SeverityError},
+				{Backend: "staging", Severity: doctor.SeverityOK},
+			},
+			wantCode: 0,
+		},
+		{
+			name:     "all unreachable → exit 3",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "reachability", Severity: doctor.SeverityError},
+				{Backend: "staging", Check: "reachability", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitUnreachable,
+			wantErr:  "unreachable",
+		},
+		{
+			name:     "all auth-failed → exit 4",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "auth", Severity: doctor.SeverityError},
+				{Backend: "staging", Check: "auth", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitAuthFailed,
+			wantErr:  "rejected authentication",
+		},
+		{
+			name:     "all failed but mixed → generic exit 1",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "reachability", Severity: doctor.SeverityError},
+				{Backend: "staging", Check: "auth", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitRuntimeError,
+			wantErr:  "doctor checks failed",
+		},
+		{
+			name:     "build-failure counts as unreachable",
+			backends: []config.Backend{prod},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "build", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitUnreachable,
+			wantErr:  "unreachable",
+		},
+		{
+			// version-floor isn't bucketed, so an all-backend
+			// version-floor failure routes through the generic
+			// "checks failed" code rather than 3 or 4. Pinning
+			// this so a future "promote version-floor to its own
+			// code" change has to update the test deliberately.
+			name:     "all version-floor → generic exit 1",
+			backends: []config.Backend{prod, staging},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "version-floor", Severity: doctor.SeverityError},
+				{Backend: "staging", Check: "version-floor", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitRuntimeError,
+			wantErr:  "doctor checks failed",
+		},
+		{
+			// One backend hits BOTH unreachable AND auth at once
+			// (e.g. a transport that returns 401 only after a
+			// successful TCP handshake on the second probe).
+			// len(unreachable) == len(backends) AND
+			// len(authFailed) != 0, so the strict-equality
+			// branches don't match and we fall to generic.
+			name:     "single backend, both unreachable and auth",
+			backends: []config.Backend{prod},
+			results: []doctor.Result{
+				{Backend: "prod", Check: "reachability", Severity: doctor.SeverityError},
+				{Backend: "prod", Check: "auth", Severity: doctor.SeverityError},
+			},
+			wantCode: ExitRuntimeError,
+			wantErr:  "doctor checks failed",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := doctorExitFromResults(tc.backends, tc.results)
+			if tc.wantCode == 0 {
+				require.NoError(t, got)
+				return
+			}
+			var ee *ExitError
+			require.ErrorAs(t, got, &ee, "want *ExitError, got %T", got)
+			require.Equal(t, tc.wantCode, ee.Code)
+			require.Contains(t, ee.Error(), tc.wantErr)
+		})
+	}
 }
 
 func TestSelectCheckers_ErrorMessageDeterministic(t *testing.T) {

@@ -33,11 +33,15 @@ func newValidateCmd(flags *GlobalFlags) *cobra.Command {
 
 // runValidate is split out of the cobra closure so tests can drive it
 // against a captured writer without invoking cobra's machinery.
+//
+// Config errors return an ExitConfigInvalid-coded error so CI
+// wrappers can branch on exit code 2 to surface "the config file
+// is broken" without parsing stderr — see ADR 0009.
 func runValidate(out io.Writer, flags *GlobalFlags, args []string) error {
 	opts := loadOptsFromArgs(flags, args)
 	cfg, err := config.Load(opts)
 	if err != nil {
-		return fmt.Errorf("validate: %w", err)
+		return NewExitError(ExitConfigInvalid, fmt.Errorf("validate: %w", err))
 	}
 	if _, err := fmt.Fprintf(out, "config valid: %d backend(s) configured\n", len(cfg.Backends)); err != nil {
 		return fmt.Errorf("write validate output: %w", err)

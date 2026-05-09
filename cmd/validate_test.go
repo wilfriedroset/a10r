@@ -60,6 +60,10 @@ func TestRunValidate_MissingFileReturnsError(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, config.ErrNotFound,
 		"validate must surface ErrNotFound — pipelines treat exit-non-zero as failure")
+	// Per ADR 0009 the missing file case is a config error → exit 2.
+	var ee *ExitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, ExitConfigInvalid, ee.Code)
 }
 
 func TestRunValidate_ParseError(t *testing.T) {
@@ -72,6 +76,10 @@ func TestRunValidate_ParseError(t *testing.T) {
 	err := runValidate(io.Discard, flags, nil)
 	require.Error(t, err, "strict-mode rejects unknown fields")
 	require.NotErrorIs(t, err, config.ErrNotFound)
+	// Same exit code as missing file — both are config-side failures.
+	var ee *ExitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, ExitConfigInvalid, ee.Code)
 }
 
 func TestLoadOptsFromArgs(t *testing.T) {

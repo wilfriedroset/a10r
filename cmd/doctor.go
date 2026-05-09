@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -81,8 +82,78 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 	results = append(buildFailures, results...)
 
 	resolved := output.Resolve(format, isStdoutTerminal(out))
-	return renderDoctor(out, results, resolved)
+	if err := renderDoctor(out, results, resolved); err != nil {
+		return err
+	}
+	return doctorExitFromResults(cfg.Backends, results)
 }
+
+// doctorExitFromResults applies ADR 0009's lenient partial-
+// failure rule: codes 3 (unreachable) and 4 (auth-failed) fire
+// only when EVERY backend in scope failed in that one way. A
+// single-tenant blip with other tenants ok exits ExitOK with
+// the warning band already in the rendered output.
+//
+// When at least one backend is fully clean and no
+// universal-failure pattern is detected, ExitOK is the right
+// answer even if other backends had warnings — partial degradation
+// is the operator's call to react to, not the wrapper's.
+func doctorExitFromResults(backends []config.Backend, results []doctor.Result) error {
+	if len(backends) == 0 {
+		return nil
+	}
+	// Per backend: did THIS backend hit ANY error severity?
+	// version-floor (and any future check that lacks a dedicated
+	// exit code) is intentionally not promoted: the operator's
+	// remediation is "upgrade your AM" which doesn't fit cleanly
+	// into the network/auth buckets the table reserves codes for.
+	// Such failures still bump `failed[name]`, so an all-backend
+	// version-floor failure routes through the generic
+	// ExitRuntimeError path with the table carrying the
+	// per-backend diagnostic.
+	failed := map[string]bool{}
+	unreachable := map[string]bool{}
+	authFailed := map[string]bool{}
+	for _, r := range results {
+		if r.Severity != doctor.SeverityError {
+			continue
+		}
+		failed[r.Backend] = true
+		switch r.Check {
+		case "reachability", "build":
+			unreachable[r.Backend] = true
+		case "auth":
+			authFailed[r.Backend] = true
+		}
+	}
+	if len(failed) < len(backends) {
+		return nil
+	}
+	// Every backend failed. Decide between Unreachable and AuthFailed:
+	// auth-failed if EVERY backend's failure was auth-only;
+	// unreachable if EVERY backend's failure was reachability-only;
+	// otherwise generic ExitRuntimeError so the operator inspects
+	// the table.
+	switch {
+	case len(authFailed) == len(backends) && len(unreachable) == 0:
+		return NewExitError(ExitAuthFailed, errDoctorAllAuthFailed)
+	case len(unreachable) == len(backends) && len(authFailed) == 0:
+		return NewExitError(ExitUnreachable, errDoctorAllUnreachable)
+	default:
+		return NewExitError(ExitRuntimeError, errDoctorChecksFailed)
+	}
+}
+
+// Sentinel errors for the doctor exit-code translation. Their
+// Error() text is what main.go prints to stderr after the
+// rendered table — short on purpose so the table carries the
+// per-(backend, check) diagnostic and the trailing line is just
+// the "and that's why we're exiting non-zero" footer.
+var (
+	errDoctorAllAuthFailed  = errors.New("all configured backends rejected authentication")
+	errDoctorAllUnreachable = errors.New("all configured backends are unreachable")
+	errDoctorChecksFailed   = errors.New("one or more doctor checks failed")
+)
 
 // buildDoctorClients constructs one backend.Client per configured
 // backend. Unlike the TUI's buildClients this caller does not
