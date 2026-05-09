@@ -58,11 +58,37 @@ const (
 // reserved for post-v0.1 user-defined keybinding overrides (J2) and
 // is intentionally empty so the schema slot is locked in.
 type Config struct {
-	Backends []Backend `yaml:"backends,omitempty"`
-	Defaults Defaults  `yaml:"defaults,omitempty"`
-	Theme    Theme     `yaml:"theme,omitempty"`
-	Log      Log       `yaml:"log,omitempty"`
-	Keys     Keys      `yaml:"keys,omitempty"`
+	Backends []Backend     `yaml:"backends,omitempty"`
+	Defaults Defaults      `yaml:"defaults,omitempty"`
+	Theme    Theme         `yaml:"theme,omitempty"`
+	Log      Log           `yaml:"log,omitempty"`
+	Keys     Keys          `yaml:"keys,omitempty"`
+	Pages    PageOverrides `yaml:"pages,omitempty"`
+}
+
+// PageOverrides carries per-page runtime knobs that a user can
+// tune without touching the per-backend config. v0.0.1 ships
+// only the poll-interval override; future fields (default
+// filter, error-band threshold) compose here under the same
+// `pages.<name>.*` shape.
+//
+// An empty PageOverrides leaves every page on its backend-derived
+// default. Each non-zero field overrides the backend's value for
+// that page only.
+type PageOverrides struct {
+	Alerts    PageConfig `yaml:"alerts,omitempty"`
+	Silences  PageConfig `yaml:"silences,omitempty"`
+	Groups    PageConfig `yaml:"groups,omitempty"`
+	Receivers PageConfig `yaml:"receivers,omitempty"`
+	Status    PageConfig `yaml:"status,omitempty"`
+}
+
+// PageConfig is the per-page knob set. PollInterval, when non-zero,
+// overrides the resolved poll interval (CLI > backend > defaults
+// > floor) for the named page. Zero means "use the page's
+// resolved default".
+type PageConfig struct {
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
 }
 
 // Backend describes one Alertmanager (or Mimir) endpoint a10r polls.

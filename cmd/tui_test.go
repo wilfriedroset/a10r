@@ -349,3 +349,58 @@ func TestTenantConfigIndex_KeyedByBackendName(t *testing.T) {
 	_, hasMissing := got["dev"]
 	require.False(t, hasMissing)
 }
+
+func TestPageInterval_PageOverrideWins(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Defaults: config.Defaults{PollInterval: 30 * time.Second},
+		Pages:    config.PageOverrides{Alerts: config.PageConfig{PollInterval: 5 * time.Second}},
+	}
+	be := config.Backend{Name: "prod", URL: "http://am", PollInterval: 60 * time.Second}
+
+	require.Equal(t, 5*time.Second, pageInterval(be, cfg, "alerts"),
+		"page override beats both backend and defaults")
+	require.Equal(t, 60*time.Second, pageInterval(be, cfg, "silences"),
+		"page without override falls through to backend interval")
+}
+
+func TestPageInterval_FallsThroughToBackendThenDefaultsThenFloor(t *testing.T) {
+	t.Parallel()
+
+	// No page override, no per-backend interval, no default —
+	// hits the 1-minute floor.
+	cfgFloor := &config.Config{}
+	require.Equal(t, time.Minute,
+		pageInterval(config.Backend{Name: "x", URL: "http://x"}, cfgFloor, "alerts"))
+
+	// Per-backend wins over defaults when no page override.
+	cfgBE := &config.Config{Defaults: config.Defaults{PollInterval: 30 * time.Second}}
+	be := config.Backend{Name: "x", URL: "http://x", PollInterval: 10 * time.Second}
+	require.Equal(t, 10*time.Second, pageInterval(be, cfgBE, "alerts"))
+
+	// Defaults win over floor when no page override and no
+	// per-backend value.
+	cfgDef := &config.Config{Defaults: config.Defaults{PollInterval: 15 * time.Second}}
+	require.Equal(t, 15*time.Second,
+		pageInterval(config.Backend{Name: "x", URL: "http://x"}, cfgDef, "alerts"))
+}
+
+func TestPageOverride_AllResources(t *testing.T) {
+	t.Parallel()
+
+	p := config.PageOverrides{
+		Alerts:    config.PageConfig{PollInterval: 1 * time.Second},
+		Silences:  config.PageConfig{PollInterval: 2 * time.Second},
+		Groups:    config.PageConfig{PollInterval: 3 * time.Second},
+		Receivers: config.PageConfig{PollInterval: 4 * time.Second},
+		Status:    config.PageConfig{PollInterval: 5 * time.Second},
+	}
+	require.Equal(t, 1*time.Second, pageOverride(p, "alerts"))
+	require.Equal(t, 2*time.Second, pageOverride(p, "silences"))
+	require.Equal(t, 3*time.Second, pageOverride(p, "groups"))
+	require.Equal(t, 4*time.Second, pageOverride(p, "receivers"))
+	require.Equal(t, 5*time.Second, pageOverride(p, "status"))
+	require.Zero(t, pageOverride(p, "unknown"),
+		"unknown resource returns zero so caller falls through to backend")
+}

@@ -652,13 +652,12 @@ func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[str
 		if !ok {
 			continue // factory.Build failed in buildClients; warning already emitted
 		}
-		interval := backendInterval(be, cfg)
 		name := be.Name
 		for _, entry := range backendFetchers(c) {
 			p := poll.New(poll.Options{
 				Tenant:   name,
 				Resource: entry.resource,
-				Interval: interval,
+				Interval: pageInterval(be, cfg, entry.resource),
 				Fetch:    entry.fetch,
 				Send:     prog.Send,
 			})
@@ -674,9 +673,10 @@ func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[str
 	}
 }
 
-// backendInterval picks the active poll interval for a backend.
-// Per-backend `poll_interval` wins; falls back to the global
-// default; ultimate fallback is 1 minute (audit §5.1, I3).
+// backendInterval picks the active poll interval for a backend
+// without considering page-level overrides. Per-backend
+// `poll_interval` wins; falls back to the global default;
+// ultimate fallback is 1 minute (audit §5.1, I3).
 func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 	if be.PollInterval > 0 {
 		return be.PollInterval
@@ -685,6 +685,45 @@ func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 		return cfg.Defaults.PollInterval
 	}
 	return time.Minute
+}
+
+// pageInterval layers the per-page override (cfg.Pages.<page>) on
+// top of backendInterval. The resource argument matches the
+// labels backendFetchers emits ("alerts", "silences",
+// "receivers", "groups") and the per-page YAML field names. A
+// non-zero override wins over both the per-backend value and the
+// global default.
+//
+// Resources that are NOT user-overrideable (an unknown label,
+// e.g. a future resource a user hasn't pinned) silently fall
+// through to backendInterval — the page-override config is
+// strictly additive, never required.
+func pageInterval(be config.Backend, cfg *config.Config, resource string) time.Duration {
+	if override := pageOverride(cfg.Pages, resource); override > 0 {
+		return override
+	}
+	return backendInterval(be, cfg)
+}
+
+// pageOverride extracts the per-page poll-interval override for
+// the named resource. Returns 0 when the user has not configured
+// the page or the resource is unknown — the caller treats either
+// case as "use the resolved default".
+func pageOverride(p config.PageOverrides, resource string) time.Duration {
+	switch resource {
+	case "alerts":
+		return p.Alerts.PollInterval
+	case "silences":
+		return p.Silences.PollInterval
+	case "groups":
+		return p.Groups.PollInterval
+	case "receivers":
+		return p.Receivers.PollInterval
+	case "status":
+		return p.Status.PollInterval
+	default:
+		return 0
+	}
 }
 
 // fetcherEntry pairs a poll-resource label with its fetch func.

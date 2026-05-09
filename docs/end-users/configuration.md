@@ -133,6 +133,34 @@ tenant is selected, the alerts and silences tables surface a
 synthetic `tenant` column so you know which backend each row
 came from.
 
+## Per-page poll intervals
+
+The poll interval is resolved in priority order: `pages.<page>.poll_interval`
+> per-backend `poll_interval` > `defaults.poll_interval` > 1 minute. A
+non-zero per-page value wins for that page only — the same backend's
+other pages keep their backend-derived defaults.
+
+```yaml
+defaults:
+  poll_interval: 30s
+
+backends:
+  - name: prod
+    url: https://am-prod.example
+    poll_interval: 60s     # backend-wide override
+
+pages:
+  alerts:
+    poll_interval: 5s      # alerts page polls every 5s
+  silences:
+    poll_interval: 30s
+  status:
+    poll_interval: 5m
+```
+
+Recognised page names: `alerts`, `silences`, `groups`, `receivers`,
+`status`. Omitted pages keep their backend-derived default.
+
 ## Themes
 
 Three skins ship bundled: `catppuccin-mocha` (default),
