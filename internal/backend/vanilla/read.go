@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -91,4 +92,25 @@ func (c *Client) Status(ctx context.Context) (backend.Status, error) {
 		return backend.Status{}, fmt.Errorf("status: %w", err)
 	}
 	return toStatus(raw, time.Now), nil
+}
+
+// ProbeReady implements backend.Prober. Targets `/-/ready` —
+// outside the /api/v2 prefix, so urlFor isn't reused here. A 2xx
+// response returns nil; everything else surfaces as a wrapped
+// transport-or-classified error matching exec's contract (most
+// commonly ErrUnreachable for a transport failure or
+// ErrUnauthorized for 401/403).
+//
+// Used by `a10r doctor` for the reachability check; not on the
+// poll path so the per-request overhead does not matter.
+func (c *Client) ProbeReady(ctx context.Context) error {
+	endpoint := c.base + "/-/ready"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("probe ready: build request: %w", err)
+	}
+	if err := c.exec(req, nil); err != nil {
+		return fmt.Errorf("probe ready: %w", err)
+	}
+	return nil
 }

@@ -28,6 +28,7 @@ func Execute() error {
 		newVersionCmd(),
 		newInfoCmd(&flags),
 		newValidateCmd(&flags),
+		newDoctorCmd(&flags),
 	)
 	return rootCmd.Execute()
 }

@@ -77,3 +77,20 @@ type Client interface {
 // schema surfaces here at compile time — keeps the two views in
 // lockstep without a converter that could drift.
 type Caps = config.Capabilities
+
+// Prober is the small surface `a10r doctor` consumes for liveness
+// probes. Defined separately from Reader so the existing test
+// fakes (which implement Reader) do not need to grow a new method,
+// and so that future probe-style consumers (e.g. a TUI status
+// pane refresh button) can take just this interface.
+//
+// vanilla.Client implements it. The mimir constructor wraps a
+// vanilla.Client, so Mimir backends satisfy Prober for free.
+type Prober interface {
+	// ProbeReady issues GET /-/ready against the backend's base URL
+	// and returns nil on a 2xx response. Non-2xx responses and
+	// transport errors surface as wrapped ErrUnreachable —
+	// callers should not assume a specific error type beyond
+	// "the backend is not currently serving".
+	ProbeReady(ctx context.Context) error
+}
