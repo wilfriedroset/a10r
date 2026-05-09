@@ -179,6 +179,34 @@ func TestRenderTop_PanelHeightMatchesLogo(t *testing.T) {
 		"panel must not exceed the logo's height even with overflowing tenants")
 }
 
+func TestRenderBody_NarrowSubstitutesPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	// Width below MinBodyWidth → body is replaced by the
+	// "terminal too narrow" placeholder, but chrome (border +
+	// title) still renders so the operator sees which view they
+	// are on.
+	body := "row1\nrow2"
+	out := RenderBody(MinBodyWidth-10, 6, body, "alerts(all)[2]", "", testutil.LoadStyles(t))
+
+	require.Contains(t, plain(out), "narrow",
+		"narrow viewport must show the resize-hint placeholder")
+	require.NotContains(t, plain(out), "row1",
+		"actual body content must be hidden when narrow")
+	require.Contains(t, plain(out), "alerts(all)[2]",
+		"title chrome still renders so the operator sees the view")
+}
+
+func TestRenderBody_AtMinWidthRendersBody(t *testing.T) {
+	t.Parallel()
+
+	// At exactly MinBodyWidth the placeholder branch must NOT fire
+	// — the threshold is "below", not "below or equal".
+	out := RenderBody(MinBodyWidth, 4, "row1", "x", "", testutil.LoadStyles(t))
+	require.Contains(t, plain(out), "row1")
+	require.NotContains(t, plain(out), "narrow")
+}
+
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	t.Parallel()
 	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", testutil.LoadStyles(t))

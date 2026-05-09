@@ -397,6 +397,20 @@ func maxWidth(lines []string) int {
 	return w
 }
 
+// MinBodyWidth is the smallest viewport width at which a10r's
+// table-based pages render legibly — the k9s 3-column shortcut
+// grid was the canary, but every listing page is squeezed when
+// the inner width is < ~58 columns. Below the threshold
+// RenderBody substitutes a centered "resize" placeholder for the
+// body, preserving the panel chrome so the operator still sees
+// the page title.
+//
+// 60 is the value chosen by the 2026-05-08 triage — wide enough
+// to clear known cell-width footguns, narrow enough that a
+// half-screen tmux pane still works. Promote/demote in one place
+// per CLAUDE.md's "no magic numbers" rule.
+const MinBodyWidth = 60
+
 // RenderBody wraps the page's body content in a single-line
 // border with title centred in the top edge and an optional
 // footer label centred in the bottom edge — the k9s look:
@@ -410,6 +424,11 @@ func maxWidth(lines []string) int {
 // inner rectangle (width-2, height-2). Empty footer renders the
 // bottom edge as a plain rule.
 //
+// When width < MinBodyWidth the body content is replaced by a
+// short "terminal too narrow" placeholder so the page does not
+// corrupt; the chrome (title + footer) is still rendered so the
+// operator sees which view they are on.
+//
 // Border characters are foreground-tinted with the skin's
 // `frame.border.fgColor` (k9s parity); the title text is tinted
 // with `frame.title.fgColor`. The inner content is left untouched
@@ -417,6 +436,9 @@ func maxWidth(lines []string) int {
 func RenderBody(width, height int, body, title, footer string, styles *theme.Styles) string {
 	if width < 4 || height < 2 {
 		return body
+	}
+	if width < MinBodyWidth {
+		body = narrowPlaceholder(width-2, height-2)
 	}
 	innerWidth := width - 2
 	innerHeight := height - 2
@@ -524,6 +546,39 @@ func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, sty
 	leftRule := border.Render(leftCorner + strings.Repeat("─", left))
 	rightRule := border.Render(strings.Repeat("─", right) + rightCorner)
 	return leftRule + wrapped + rightRule
+}
+
+// narrowPlaceholder returns the body string substituted when the
+// viewport is too narrow for normal rendering. innerWidth +
+// innerHeight are the dimensions inside the panel chrome
+// (RenderBody passes width-2 / height-2). The message is
+// short-form so it survives the worst case (innerWidth=2 from a
+// width=4 viewport that just barely cleared the chrome
+// short-circuit); when there is more room the message gets a
+// suggested minimum-cols hint.
+//
+// The result is left-justified rather than centered so the
+// truncation, when it happens at all, drops the suggestion
+// rather than the message itself.
+func narrowPlaceholder(innerWidth, innerHeight int) string {
+	short := "narrow"
+	full := fmt.Sprintf("terminal too narrow — resize to >= %d cols", MinBodyWidth)
+	msg := full
+	if lipgloss.Width(msg) > innerWidth {
+		msg = short
+	}
+	if innerHeight <= 0 {
+		return msg
+	}
+	// Center vertically by prepending blank lines; the body slot
+	// pads to height with empty strings so any prefix carries.
+	pad := max(innerHeight/2, 0)
+	lines := make([]string, 0, pad+1)
+	for range pad {
+		lines = append(lines, "")
+	}
+	lines = append(lines, msg)
+	return strings.Join(lines, "\n")
 }
 
 // Title formats the standard "<crumb>(<scope>)[<count>]" body
