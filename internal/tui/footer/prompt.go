@@ -105,6 +105,15 @@ type Prompt struct {
 	// every text-changing branch in Update so Render is purely a
 	// function of cached state.
 	suggestion string
+
+	// history is the recent-submissions ring backing the
+	// Up/Down/Tab/Shift-Tab cycle keys. Attached at Open() time by
+	// the App because the right ring depends on the active page
+	// (silences `/` walks a different class than `/` on every
+	// other page) and the prompt mode (`:` always uses cmd-history).
+	// nil disables cycling — the prompt stays usable in headless /
+	// wizard flows that build a prompt without an XDG home.
+	history *History
 }
 
 // NewPrompt constructs a closed Prompt with the given suggester.
@@ -116,12 +125,25 @@ func NewPrompt(suggester func(string) string) Prompt {
 
 // Open opens the prompt in the given mode with an empty value.
 // Returns the new state; callers should reassign because Prompt is
-// a value type.
+// a value type. The previously-attached history (if any) stays
+// detached — call OpenWithHistory to enable Up/Down/Tab cycling.
 func (p Prompt) Open(mode PromptMode) Prompt {
+	return p.OpenWithHistory(mode, nil)
+}
+
+// OpenWithHistory opens the prompt and attaches a History ring so
+// Up/Down (and Tab when there's no ghost-text suggestion) cycle
+// through prior submissions for the relevant matcher class. Pass
+// nil to open without cycling. The supplied ring is reset so a
+// fresh prompt session starts uncycled regardless of where the
+// previous user left off.
+func (p Prompt) OpenWithHistory(mode PromptMode, history *History) Prompt {
 	p.open = true
 	p.mode = mode
 	p.value = ""
 	p.suggestion = ""
+	p.history = history
+	p.history.Reset()
 	return p
 }
 
@@ -132,6 +154,8 @@ func (p Prompt) Close() Prompt {
 	p.open = false
 	p.value = ""
 	p.suggestion = ""
+	p.history.Reset()
+	p.history = nil
 	return p
 }
 
@@ -174,15 +198,19 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	case "enter":
 		submitted := p.value
 		mode := p.mode
+		p.history.Append(submitted)
 		p.open = false
 		p.value = ""
 		p.suggestion = ""
+		p.history = nil
 		return p, func() tea.Msg { return PromptSubmittedMsg{Mode: mode, Value: submitted} }
 	case "esc":
 		mode := p.mode
+		p.history.Reset()
 		p.open = false
 		p.value = ""
 		p.suggestion = ""
+		p.history = nil
 		return p, func() tea.Msg { return PromptCancelledMsg{Mode: mode} }
 	case "backspace":
 		if p.value != "" {
@@ -200,17 +228,28 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		p.recomputeSuggestion()
 		return p, p.changedCmd()
 	case "tab", "ctrl+f":
-		// Accept the ghost-text completion. The mode guard is
-		// belt-and-braces with recomputeSuggestion (which clears
-		// the cache outside command mode) — keeps Tab consumption
-		// safe even if a future code path mutates p.mode without
-		// going through Open/Close.
-		if p.mode != PromptCommand || p.suggestion == "" {
-			return p, nil
+		// Tab is dual-purpose: accept the ghost-text completion
+		// when one is showing, otherwise step backward through
+		// history. The completion path runs first because the user
+		// typed a prefix and the ghost is the immediate visible
+		// affordance — surprising them by cycling instead would
+		// shadow the more obvious action. Ctrl+F mirrors Tab here
+		// for users who can't easily reach Tab; same precedence.
+		if p.mode == PromptCommand && p.suggestion != "" {
+			p.value = p.suggestion + " "
+			p.recomputeSuggestion()
+			return p, p.changedCmd()
 		}
-		p.value = p.suggestion + " "
-		p.recomputeSuggestion()
-		return p, p.changedCmd()
+		return p.cyclePrev()
+	case "up":
+		// Up always means "older" — works even when a ghost
+		// completion is active (Tab would accept it; Up still
+		// walks history).
+		return p.cyclePrev()
+	case "shift+tab", "down":
+		// Inverse pair to Tab / Up. Shift+Tab steps newer mid-
+		// cycle so the user can back out without committing.
+		return p.cycleNext()
 	}
 	// Append the printable character. Prefer Text (the actual entered
 	// rune as the terminal reports it, post-IME / shift / dead key);
@@ -228,6 +267,52 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if p.value == prev {
 		return p, nil
 	}
+	p.recomputeSuggestion()
+	return p, p.changedCmd()
+}
+
+// cyclePrev steps the history cursor toward older entries and
+// replaces the buffer with the entry under the new cursor. Returns
+// the unmodified prompt + nil when the prompt has no history wired
+// or the cursor is already on the oldest entry — both are quiet
+// no-ops, not errors. The first Prev in a cycle session stashes the
+// current buffer so cycle-past-newest can restore it later.
+func (p Prompt) cyclePrev() (Prompt, tea.Cmd) {
+	if p.history == nil {
+		return p, nil
+	}
+	v, ok := p.history.Prev(p.value)
+	if !ok {
+		return p, nil
+	}
+	if v == p.value {
+		// No-op: the entry under the new cursor matches what's
+		// already in the buffer. Don't broadcast a Changed for a
+		// non-mutation — pages would otherwise re-filter for
+		// nothing.
+		return p, nil
+	}
+	p.value = v
+	p.recomputeSuggestion()
+	return p, p.changedCmd()
+}
+
+// cycleNext steps toward newer entries; returns the stashed draft
+// and ends the cycle session when the cursor crosses the newest
+// entry. Same no-mutation guard as cyclePrev so a draft equal to
+// the entry just before "present" doesn't double-broadcast.
+func (p Prompt) cycleNext() (Prompt, tea.Cmd) {
+	if p.history == nil {
+		return p, nil
+	}
+	v, ok := p.history.Next()
+	if !ok {
+		return p, nil
+	}
+	if v == p.value {
+		return p, nil
+	}
+	p.value = v
 	p.recomputeSuggestion()
 	return p, p.changedCmd()
 }

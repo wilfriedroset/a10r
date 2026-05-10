@@ -71,6 +71,13 @@ type Options struct {
 	// of dispatching the write — that gate is plumbed in at page
 	// construction (each page's Options.ReadOnly).
 	ReadOnly bool
+	// HistoryDir is the resolved state directory for the prompt
+	// history rings (`$XDG_STATE_HOME/a10r/` by default). Empty
+	// disables persistence — each ring stays in-memory only, which
+	// is what tests and headless flows want. The wiring layer
+	// (cmd/tui.go) calls footer.DefaultHistoryDir to populate this
+	// for the production binary.
+	HistoryDir string
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -90,6 +97,13 @@ type App struct {
 	crumbs footer.Crumbs
 	prompt footer.Prompt
 	flash  footer.Flash
+
+	// histories backs the per-class recent-submissions rings
+	// (P2.W1.8 / G4). Three classes — `:` always picks cmd, `/`
+	// picks silence-matcher on the silences page and filter
+	// elsewhere. nil rings are quiet no-ops, so a missing histories
+	// entry simply disables cycling for that class.
+	histories appHistories
 
 	// stack is the page stack. Index 0 is the home page; the last
 	// element is the active top-of-stack. Empty until the cmd
@@ -147,6 +161,46 @@ type App struct {
 	pollCache map[string]map[string]poll.DataMsg
 }
 
+// appHistories bundles the three per-class history rings the App
+// hands to the prompt at Open time. Pulled out into a named struct
+// so the picker (historyFor) reads as a small switch rather than a
+// nested field path.
+type appHistories struct {
+	cmd            *footer.History
+	filter         *footer.History
+	silenceMatcher *footer.History
+}
+
+// newAppHistories loads (or creates lazily) the three rings under
+// dir. An empty dir disables persistence — every ring stays
+// in-memory, which is the test default. A non-empty dir is the
+// production path; missing or malformed ring files degrade
+// gracefully inside footer.NewHistory so this constructor is
+// infallible.
+func newAppHistories(dir string) appHistories {
+	return appHistories{
+		cmd:            footer.NewHistory(dir, footer.HistoryCmd),
+		filter:         footer.NewHistory(dir, footer.HistoryFilter),
+		silenceMatcher: footer.NewHistory(dir, footer.HistorySilenceMatcher),
+	}
+}
+
+// historyFor picks the right ring for a (mode, top page label)
+// pair. `:` always lands on cmd-history. `/` lands on
+// silence-matcher-history when the silences page is on top —
+// that page's filter walks Prom-style fields (creator / comment /
+// matcher labels) and shouldn't share entries with the alerts
+// substring filter — and on filter-history otherwise.
+func (h appHistories) historyFor(mode footer.PromptMode, pageLabel string) *footer.History {
+	if mode == footer.PromptCommand {
+		return h.cmd
+	}
+	if pageLabel == "silences" {
+		return h.silenceMatcher
+	}
+	return h.filter
+}
+
 // NewApp constructs an App with the supplied dependencies. Registers
 // the always-on global bindings (Ctrl+C, q, ?, t, Esc, :, /, Ctrl+T)
 // on the dispatcher's global layer so the app is usable before any
@@ -169,6 +223,7 @@ func NewApp(opts Options) *App {
 		prompt:     footer.NewPrompt(resolver.Suggest),
 		flash:      footer.NewFlash(),
 		pollCache:  map[string]map[string]poll.DataMsg{},
+		histories:  newAppHistories(opts.HistoryDir),
 	}
 	a.registerGlobalBindings()
 	a.registerTenantBindings()

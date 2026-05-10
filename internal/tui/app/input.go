@@ -186,9 +186,15 @@ func (a *App) activePageBindings() []action.Action {
 // the dispatcher fires; for filter mode, an Opened message
 // reaches the top page so it can snapshot pre-filter state per
 // PromptOpenedMsg's contract.
+//
+// The matching history ring is picked at open-time (not at
+// constructor time) because `/` on the silences page walks a
+// different ring than `/` on the alerts page — the active page is
+// only known when the user presses the key.
 func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
 	return func() tea.Cmd {
-		a.prompt = a.prompt.Open(mode)
+		hist := a.histories.historyFor(mode, a.activeViewLabel())
+		a.prompt = a.prompt.OpenWithHistory(mode, hist)
 		if mode == footer.PromptFilter {
 			return func() tea.Msg { return footer.PromptOpenedMsg{Mode: mode} }
 		}

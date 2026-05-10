@@ -573,6 +573,180 @@ func TestPrompt_RenderHasNoBackgroundFillWithGhost(t *testing.T) {
 		"ghost must not paint a background colour even when chained with fg")
 }
 
+// ----- prompt + history -----
+
+func TestPrompt_UpCyclesHistoryPrev(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	h.Append("alerts")
+	h.Append("silences")
+
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	for _, r := range "draft" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Equal(t, "silences", p.Value(),
+		"first Up must surface the newest history entry")
+	require.NotNil(t, cmd, "history cycle must broadcast Changed so the page re-filters")
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptFilter, Value: "silences"},
+		cmd())
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Equal(t, "alerts", p.Value())
+}
+
+func TestPrompt_DownRestoresDraftAtPresent(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	h.Append("alerts")
+
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	for _, r := range "wip" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Equal(t, "alerts", p.Value())
+
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	require.Equal(t, "wip", p.Value(),
+		"crossing past the newest must restore the pre-cycle draft")
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		PromptChangedMsg{Mode: PromptFilter, Value: "wip"},
+		cmd())
+}
+
+func TestPrompt_ShiftTabAndDownAreEquivalent(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	h.Append("a")
+	h.Append("b")
+
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Equal(t, "a", p.Value())
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	require.Equal(t, "b", p.Value(),
+		"Shift+Tab is the inverse pair to Up; must walk newer")
+}
+
+func TestPrompt_TabPrefersGhostOverHistory(t *testing.T) {
+	t.Parallel()
+
+	// Tab with an active ghost-text completion accepts the ghost,
+	// not the history. History cycling is the fallback when no
+	// ghost is showing — surprising the user by cycling instead of
+	// completing would shadow the obvious affordance.
+	sug := stubSuggester(t, map[string]string{"s": "silences"})
+	h := NewHistory("", HistoryCmd)
+	h.Append("alerts")
+
+	p := NewPrompt(sug).OpenWithHistory(PromptCommand, h)
+	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Equal(t, "silences", p.Suggestion())
+
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, "silences ", p.Value(),
+		"Tab with a live ghost accepts the suggestion, not a history walk")
+}
+
+func TestPrompt_TabFallsThroughToHistoryWhenNoGhost(t *testing.T) {
+	t.Parallel()
+
+	// Empty buffer → no ghost → Tab should walk history backward.
+	h := NewHistory("", HistoryCmd)
+	h.Append("alerts")
+
+	p := NewPrompt(nil).OpenWithHistory(PromptCommand, h)
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	require.Equal(t, "alerts", p.Value(),
+		"Tab without a ghost must fall through to history cycling")
+}
+
+func TestPrompt_SubmitAppendsToHistory(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	for _, r := range "high" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	require.Equal(t, 1, h.Len(),
+		"Enter must commit the buffer to the attached history ring")
+
+	// Second prompt session: Up surfaces the last submission.
+	p = NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Equal(t, "high", p.Value())
+}
+
+func TestPrompt_EscDoesNotAppendToHistory(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	for _, r := range "throwaway" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	require.Zero(t, h.Len(),
+		"Esc bails — the buffer must not pollute the history ring")
+}
+
+func TestPrompt_SubmitEmptyDoesNotAppendToHistory(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Zero(t, h.Len(),
+		"submitting an empty buffer is the user's escape hatch — must not pollute history")
+}
+
+func TestPrompt_NilHistoryNeverPanics(t *testing.T) {
+	t.Parallel()
+
+	// Up/Down/Tab on a prompt opened without a history (legacy
+	// Open()) must be quiet no-ops, not panics.
+	p := NewPrompt(nil).Open(PromptFilter)
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	require.Empty(t, p.Value())
+	require.Nil(t, cmd)
+
+	p, cmd = p.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	require.Empty(t, p.Value())
+	require.Nil(t, cmd)
+}
+
+func TestPrompt_OpenResetsHistoryCycle(t *testing.T) {
+	t.Parallel()
+
+	// A pre-cycled history (from a prior prompt session that walked
+	// some entries) must rewind to "not cycling" when a fresh
+	// prompt opens — the user expects Up to start at the newest,
+	// not wherever the previous session left the cursor.
+	h := NewHistory("", HistoryFilter)
+	h.Append("a")
+	h.Append("b")
+	_, _ = h.Prev("")
+	require.True(t, h.Cycling())
+
+	_ = NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	require.False(t, h.Cycling(),
+		"OpenWithHistory must Reset the ring so the cursor starts at present")
+}
+
 // ----- flash -----
 
 func TestFlash_NewIsInactive(t *testing.T) {

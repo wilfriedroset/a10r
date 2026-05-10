@@ -367,6 +367,111 @@ func TestCmdBar_TabInFilterModeIsNoOp(t *testing.T) {
 	}
 }
 
+func TestApp_HistoryFor_CommandModeAlwaysCmd(t *testing.T) {
+	t.Parallel()
+
+	h := newAppHistories("")
+	require.Same(t, h.cmd, h.historyFor(footer.PromptCommand, "alerts"))
+	require.Same(t, h.cmd, h.historyFor(footer.PromptCommand, "silences"))
+	require.Same(t, h.cmd, h.historyFor(footer.PromptCommand, ""),
+		"`:` always picks cmd-history regardless of which page is on top")
+}
+
+func TestApp_HistoryFor_FilterModeRoutesPerPage(t *testing.T) {
+	t.Parallel()
+
+	h := newAppHistories("")
+	require.Same(t, h.silenceMatcher,
+		h.historyFor(footer.PromptFilter, "silences"),
+		"silences page's `/` walks the silence-matcher ring (Prom-style fields)")
+	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, "alerts"))
+	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, "groups"))
+	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, ""),
+		"unknown / no top page falls back to the generic filter ring")
+}
+
+func TestCmdBar_FilterCyclePersistsAcrossSessions(t *testing.T) {
+	t.Parallel()
+	a, _ := newAppWithCmdbar(t)
+
+	// Submit `/foo`. The filter ring should pick that up and a
+	// re-opened `/` prompt with Up should surface "foo".
+	updated, _ := a.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	a = updated.(*App)
+	for _, r := range "foo" {
+		updated, _ = a.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		a = updated.(*App)
+	}
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = updated.(*App)
+	drive(t, a, cmd)
+
+	// Re-open `/` and press Up. The ring is the same instance the
+	// App holds, so Up surfaces "foo" without disk I/O.
+	updated, cmd = a.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	updated, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = updated.(*App)
+	require.Equal(t, "foo", a.prompt.Value(),
+		"a fresh `/` prompt must walk the same ring the previous submission populated")
+}
+
+func TestCmdBar_SilencesFilterUsesSeparateRing(t *testing.T) {
+	t.Parallel()
+	a, _ := newAppWithCmdbar(t)
+
+	// Push a fake silences page (crumb = "silences") and submit a
+	// filter. The submission must land in the silence-matcher ring,
+	// not the generic filter ring — typing alerts-flavoured queries
+	// on the silences page would otherwise leak into the alerts
+	// page's recall set on a future session, which is the whole
+	// point of having three classes.
+	silencesPage := newFakePage("silences")
+	drive(t, a, PushPage(func() Page { return silencesPage }))
+
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	for _, r := range "creator=bob" {
+		updated, _ = a.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		a = updated.(*App)
+	}
+	updated, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = updated.(*App)
+	drive(t, a, cmd)
+
+	require.Equal(t, 1, a.histories.silenceMatcher.Len(),
+		"silences page submission must land in silence-matcher ring")
+	require.Zero(t, a.histories.filter.Len(),
+		"the generic filter ring must be untouched")
+}
+
+func TestCmdBar_CommandRingIndependentOfFilterRing(t *testing.T) {
+	t.Parallel()
+	a, _ := newAppWithCmdbar(t)
+
+	// Submit `:alerts`, then open `/`. Up on the filter prompt must
+	// NOT surface "alerts" — the rings are independent classes.
+	updated, _ := a.Update(tea.KeyPressMsg{Code: ':', Text: ":"})
+	a = updated.(*App)
+	for _, r := range "alerts" {
+		updated, _ = a.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		a = updated.(*App)
+	}
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	a = updated.(*App)
+	drive(t, a, cmd)
+
+	updated, cmd = a.Update(tea.KeyPressMsg{Code: '/', Text: "/"})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	updated, _ = a.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	a = updated.(*App)
+	require.Empty(t, a.prompt.Value(),
+		"`:` and `/` rings must not cross-pollinate")
+}
+
 func TestCmdBar_CommandCancelDoesNotReachPage(t *testing.T) {
 	t.Parallel()
 	a, page := newAppWithCmdbar(t)

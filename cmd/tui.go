@@ -26,6 +26,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
@@ -172,6 +173,14 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// be deferred. We defer the membership of the slice rather
 	// than the wiring shape.)
 	pollerReg := &pollerRegistry{}
+	// Resolve the prompt-history state dir best-effort. A failure
+	// (no $HOME, unwriteable XDG path) leaves persistence disabled —
+	// the rings stay in-memory for the session, the user keeps
+	// cycling within the lifetime of the process. We don't surface
+	// the error: there's nothing actionable for the user, and the
+	// startup path already has plenty of more-important diagnostics
+	// competing for screen space.
+	historyDir, _ := footer.DefaultHistoryDir()
 	a = app.NewApp(app.Options{
 		Styles:     styles,
 		Registry:   registry,
@@ -180,6 +189,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		Tenants:    backendNames(&effCfg),
 		Refresh:    pollerReg.Refresh,
 		ReadOnly:   readOnly,
+		HistoryDir: historyDir,
 	})
 
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))
