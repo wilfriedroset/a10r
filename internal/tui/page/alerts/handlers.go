@@ -25,6 +25,17 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, cmd
 	}
 	switch m := msg.(type) {
+	case poll.BackendStatusMsg:
+		// Track per-tenant transport errors for the error band.
+		// A successful transition (Detail empty) clears the row;
+		// failure transitions overwrite with the latest detail
+		// the operator should see.
+		if m.Detail == "" {
+			delete(p.lastErrors, m.Tenant)
+		} else {
+			p.lastErrors[m.Tenant] = m.Detail
+		}
+		return p, nil
 	case poll.DataMsg:
 		alerts, ok := m.Resource.([]backend.Alert)
 		if !ok {

@@ -69,9 +69,21 @@ type DataMsg struct {
 // BackendStatusMsg is emitted only when the connection state
 // actually changes. This avoids re-rendering the header on every
 // successful tick when nothing visually changed.
+//
+// Detail carries a short, operator-facing error message for the
+// transition that triggered the state change — empty on
+// transitions to ConnConnected (the success case has no detail
+// to show). Pages render Detail in the per-page error band so
+// the operator sees what's wrong without opening the log file.
+// The string is the err.Error() form returned by the fetch and
+// is therefore subject to redaction at the underlying transport
+// layer (ADR 0008): no caller may pass a raw bearer token here
+// because the transport's auth wrapper prefixes a sanitised form
+// upstream.
 type BackendStatusMsg struct {
 	Tenant string
 	State  header.ConnState
+	Detail string
 }
 
 // Backoff controls how the poller spaces out attempts after a
@@ -366,11 +378,11 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	}
 	if err != nil {
 		p.failures++
-		p.transition(stateFromErr(err))
+		p.transition(stateFromErr(err), err.Error())
 		return p.nextDelay(), true
 	}
 	p.failures = 0
-	p.transition(header.ConnConnected)
+	p.transition(header.ConnConnected, "")
 	now := p.clock.Now()
 	delay := p.nextDelay()
 	p.send(DataMsg{
@@ -384,13 +396,15 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 }
 
 // transition emits a BackendStatusMsg only when state actually
-// changes from the last emitted value.
-func (p *Poller) transition(next header.ConnState) {
+// changes from the last emitted value. detail carries the err's
+// Error() text on failure transitions; empty on successful
+// transitions where there is no diagnostic to surface.
+func (p *Poller) transition(next header.ConnState, detail string) {
 	if next == p.state {
 		return
 	}
 	p.state = next
-	p.send(BackendStatusMsg{Tenant: p.tenant, State: next})
+	p.send(BackendStatusMsg{Tenant: p.tenant, State: next, Detail: detail})
 }
 
 // nextDelay returns the wait before the next tick. Success → full

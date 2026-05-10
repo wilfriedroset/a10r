@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -2024,4 +2025,56 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	require.Contains(t, p.Footer(), "WATCH OFF",
 		"paused page footer leads with WATCH OFF")
+}
+
+func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+
+	// No errors → empty band.
+	require.Empty(t, p.ErrorBand())
+
+	// Failure transition with a Detail string surfaces it.
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnUnreachable,
+		Detail: "connection refused",
+	})
+	require.Equal(t, "connection refused", p.ErrorBand(),
+		"single-tenant scope renders detail verbatim (no tenant prefix)")
+
+	// Recovery transition (Detail empty) clears the row.
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnConnected,
+		Detail: "",
+	})
+	require.Empty(t, p.ErrorBand(),
+		"recovery clears the band so transient blips don't linger")
+}
+
+func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	p.scope = "all"
+
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnUnreachable,
+		Detail: "401 unauthorised",
+	})
+	require.Equal(t, "prod: 401 unauthorised", p.ErrorBand(),
+		"all-scope view prefixes tenant so the operator knows which one")
+}
+
+func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	p.scope = "all"
+
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
+
+	// Sorted-by-tenant: alpha is the first offender.
+	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
 }

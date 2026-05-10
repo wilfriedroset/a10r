@@ -19,7 +19,12 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height - 1 // header takes one line; the rest is table-row budget
+	band := p.renderErrorBand(width)
+	bandLines := 0
+	if band != "" {
+		bandLines = 1
+	}
+	p.bodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
 	if len(p.view) == 0 {
 		// Render bg-less so the empty state matches the regular
 		// table view's framing — both use the terminal default
@@ -27,12 +32,45 @@ func (p *Page) View(width, height int) string {
 		// palette behind the empty pane, which renders as a
 		// coloured patch the populated view doesn't have, breaking
 		// the visual parity between "loading" and "loaded" frames.
-		return lipgloss.NewStyle().Width(width).Height(height).Render(p.emptyState())
+		body := p.emptyState()
+		if band != "" {
+			body = band + "\n" + body
+		}
+		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
 	headerLine := p.renderHeader(width)
-	rows := p.renderRows(width, height-1)
+	rows := p.renderRows(width, height-1-bandLines)
 	body := headerLine + "\n" + rows
+	if band != "" {
+		body = band + "\n" + body
+	}
 	return lipgloss.NewStyle().Width(width).Render(body)
+}
+
+// renderErrorBand returns a one-line styled error message for the
+// View to prepend, or "" when no in-scope tenant is reporting an
+// error. The band is fg-tinted via theme.Body.Default with the
+// severity-error palette so it reads as a warning without
+// painting a background that would clash with the panel chrome.
+//
+// Truncation: the band fits exactly width columns. Long upstream
+// errors (e.g. nested transport-error chains) are clipped to keep
+// the page layout stable.
+func (p *Page) renderErrorBand(width int) string {
+	msg := p.ErrorBand()
+	if msg == "" {
+		return ""
+	}
+	prefix := "! "
+	full := prefix + msg
+	if lipgloss.Width(full) > width {
+		full = format.SGRTruncate(full, width)
+	}
+	// Theme: reuse the severity-critical fg so the band is loud but
+	// stays fg-only (no painted background — see feedback memory
+	// on chrome rendering).
+	style := lipgloss.NewStyle().Foreground(p.styles.Severity.Critical.GetForeground())
+	return style.Render(full)
 }
 
 // emptyState is the body content shown when no alerts match. Two

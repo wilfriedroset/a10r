@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -269,6 +270,14 @@ type Page struct {
 	// after the first DataMsg consumes it. Lets the operator hold
 	// pause but pull a single fresh snapshot on demand.
 	pausedRefresh bool
+
+	// lastErrors holds the most recent per-tenant transport error
+	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
+	// pruned (a successful tick clears the row). Renderer collapses
+	// the in-scope subset into a single one-line error band above
+	// the table so the operator sees what's wrong without leaving
+	// the page.
+	lastErrors map[string]string
 	// spinner is the cold-start / refresh-in-flight indicator
 	// (bubbles `Points`). Stopped (Tick chain broken) outside of
 	// those two windows; see the spinner.TickMsg branch in Update.
@@ -310,6 +319,7 @@ func New(opts Options) *Page {
 		marks:           map[string]struct{}{},
 		polledTenants:   map[string]struct{}{},
 		nextRefresh:     map[string]time.Time{},
+		lastErrors:      map[string]string{},
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -420,6 +430,48 @@ func (p *Page) Footer() string {
 		return ""
 	}
 	return "next refresh " + nextRefreshLabel(p.now(), next)
+}
+
+// ErrorBand returns the one-line message rendered above the
+// table when at least one in-scope tenant is reporting a
+// transport error. Empty when every in-scope tenant is healthy
+// (or unpolled) so the renderer can short-circuit.
+//
+// Single-tenant scope: surfaces that tenant's detail verbatim.
+// Multi-tenant scope with one offender: prefixes the tenant
+// name. Multi-tenant scope with several offenders: collapses to
+// a count plus the first detail so the band stays one line.
+func (p *Page) ErrorBand() string {
+	type entry struct {
+		tenant string
+		detail string
+	}
+	var bad []entry
+	for tenant, detail := range p.lastErrors {
+		if detail == "" {
+			continue
+		}
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		bad = append(bad, entry{tenant: tenant, detail: detail})
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	// Sort by tenant for deterministic output across runs (map
+	// iteration order is unspecified).
+	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
+	if len(bad) == 1 {
+		// Single offender: tenant prefix only useful when scope
+		// covers >1 tenant (avoids "prod: …" noise on a
+		// single-tenant view).
+		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+			return bad[0].tenant + ": " + bad[0].detail
+		}
+		return bad[0].detail
+	}
+	return fmt.Sprintf("%d backends erroring; %s: %s", len(bad), bad[0].tenant, bad[0].detail)
 }
 
 // soonestNextRefresh returns the earliest DataMsg.NextAt across
