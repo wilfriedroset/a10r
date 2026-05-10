@@ -29,6 +29,9 @@ func buildHelpRoot(t *testing.T) *cobra.Command {
 		newDoctorCmd(&flags),
 		newInitCmd(&flags),
 		newAlertsCmd(&flags),
+		newSilencesCmd(&flags),
+		newGroupsCmd(&flags),
+		newReceiversCmd(&flags),
 	)
 	return root
 }
@@ -48,7 +51,9 @@ func TestExecute_HelpGroupsSubcommands(t *testing.T) {
 	require.Contains(t, out, "Read:")
 	require.Contains(t, out, "Diagnostics:")
 	require.Contains(t, out, "Setup:")
-	require.Contains(t, out, "alerts", "alerts command appears under Read")
+	for _, cmd := range []string{"alerts", "silences", "groups", "receivers"} {
+		require.Contains(t, out, cmd, "command %q must appear under Read", cmd)
+	}
 
 	// Diagnostics group carries every command we registered there.
 	for _, cmd := range []string{"validate", "version", "info", "doctor"} {

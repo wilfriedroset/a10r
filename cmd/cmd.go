@@ -46,6 +46,9 @@ func Execute() error {
 		newDoctorCmd(&flags),
 		newInitCmd(&flags),
 		newAlertsCmd(&flags),
+		newSilencesCmd(&flags),
+		newGroupsCmd(&flags),
+		newReceiversCmd(&flags),
 	)
 	return rootCmd.Execute()
 }

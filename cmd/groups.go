@@ -1,0 +1,319 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package cmd
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/factory"
+	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/output"
+)
+
+// newGroupsCmd returns the `a10r groups` parent command. Mirror of
+// newAlertsCmd / newSilencesCmd: a single `list` verb today, future
+// verbs (e.g. silence-from-group) reserved on the same shape so the
+// help reads consistently across the read-list pages.
+func newGroupsCmd(flags *GlobalFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "groups",
+		Short:   "Inspect alert groups across configured backends",
+		GroupID: groupRead,
+		Args:    cobra.NoArgs,
+	}
+	cmd.AddCommand(newGroupsListCmd(flags))
+	return cmd
+}
+
+// newGroupsListCmd is the headless complement to the groups page.
+// Fans out ListAlertGroups across every configured backend in scope
+// and renders one row per group (NOT per alert — the value of the
+// view is seeing how alerts cluster by their common label set).
+//
+// --receiver filters on the AM Receiver field of the contained
+// alerts: a group survives when at least one of its alerts targets
+// the named receiver. This keeps the predicate simple to reason
+// about and matches the natural "show me groups feeding pager-duty"
+// question. --fail returns ExitFailMatched (10) when at least one
+// group survived the filters; ExitOK (0) otherwise. Label-selector
+// filtering is deferred to a follow-up — see TODO in the package
+// docs.
+func newGroupsListCmd(flags *GlobalFlags) *cobra.Command {
+	var (
+		outputFmt string
+		receiver  string
+		failOnAny bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List alert groups across configured backends",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runGroupsList(cmd.Context(), cmd.OutOrStdout(), flags, groupsListOptions{
+				Output:    outputFmt,
+				Receiver:  receiver,
+				FailOnAny: failOnAny,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
+	cmd.Flags().StringVar(&receiver, "receiver", "",
+		"keep only groups whose alerts target the named receiver (case-insensitive)")
+	cmd.Flags().BoolVar(&failOnAny, "fail", false,
+		"exit with code 10 when at least one group matches the filters")
+	return cmd
+}
+
+// groupsListOptions bundles the flag values so runGroupsList stays
+// test-friendly without a cobra dependency.
+type groupsListOptions struct {
+	Output    string
+	Receiver  string
+	FailOnAny bool
+}
+
+// groupRow is the row shape JSON / YAML / table all flatten the
+// alert-group payload into. Mirrors alertRow's documentation
+// contract: the struct tags pin the JSON key set as the v0.0.1
+// stability snapshot per docs/end-users/output-formats.md.
+//
+// Receivers is the union of receivers across every alert in the
+// group, deduplicated. Carried as a first-class field rather than a
+// derived rendering so the JSON / YAML output is self-describing
+// for downstream consumers.
+type groupRow struct {
+	Tenant    string            `json:"tenant" yaml:"tenant"`
+	Labels    map[string]string `json:"labels" yaml:"labels"`
+	Count     int               `json:"count" yaml:"count"`
+	Receivers []string          `json:"receivers" yaml:"receivers"`
+}
+
+// runGroupsList loads config, fans out ListAlertGroups across every
+// configured backend, applies the user's filters, and renders. Same
+// lenient partial-failure rule as runAlertsList (ADR 0009).
+func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts groupsListOptions) error {
+	format, err := output.ParseFormat(opts.Output)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.Load(loadOptsFromFlags(flags))
+	if err != nil {
+		return NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+	}
+
+	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+
+	rows, allFailed, fetchErrs := fetchGroupRows(ctx, cfg, debugLog)
+	for _, e := range fetchErrs {
+		fmt.Fprintln(os.Stderr, e)
+	}
+
+	rows = filterGroupRows(rows, opts.Receiver)
+	sortGroupRows(rows)
+
+	tty := isStdoutTerminal(out)
+	resolved := output.Resolve(format, tty)
+	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
+	if err != nil {
+		return err
+	}
+	if err := renderGroupRows(pager, rows, resolved); err != nil {
+		_ = pager.Close()
+		return err
+	}
+	if err := pager.Close(); err != nil {
+		return err
+	}
+
+	if opts.FailOnAny && len(rows) > 0 {
+		return NewExitError(ExitFailMatched,
+			fmt.Errorf("--fail: %d group(s) matched the filter", len(rows)))
+	}
+	if allFailed {
+		return NewExitError(ExitUnreachable, errors.New("every configured backend failed to list alert groups"))
+	}
+	return nil
+}
+
+// fetchGroupRows fans out ListAlertGroups across every configured
+// backend, flattening each AlertGroup into a groupRow tagged with
+// the backend's name. Same partial-failure semantics as
+// fetchAlertRows.
+func fetchGroupRows(ctx context.Context, cfg *config.Config, debugLog *slog.Logger) (rows []groupRow, allFailed bool, errs []error) {
+	if len(cfg.Backends) == 0 {
+		return nil, false, nil
+	}
+	failed := 0
+	ua := userAgent(version, commit)
+	var opts []factory.Option
+	if debugLog != nil {
+		opts = append(opts, factory.WithDebugLog(debugLog))
+	}
+	for _, be := range cfg.Backends {
+		c, err := factory.Build(be, ua, opts...)
+		if err != nil {
+			failed++
+			errs = append(errs, fmt.Errorf("backend %q: build: %w", be.Name, err))
+			continue
+		}
+		groups, err := c.ListAlertGroups(ctx, backend.AlertFilter{})
+		if err != nil {
+			failed++
+			errs = append(errs, fmt.Errorf("backend %q: list: %w", be.Name, err))
+			continue
+		}
+		for _, g := range groups {
+			rows = append(rows, toGroupRow(be.Name, g))
+		}
+	}
+	return rows, failed == len(cfg.Backends), errs
+}
+
+// toGroupRow flattens one backend.AlertGroup into the headless row
+// shape. Receivers is the dedup'd union across the contained
+// alerts so the table can show "where does this group fan out to"
+// without expanding the alerts. Sort the receiver list so the
+// rendered output is deterministic across polls.
+func toGroupRow(tenant string, g backend.AlertGroup) groupRow {
+	seen := map[string]struct{}{}
+	receivers := make([]string, 0)
+	for _, a := range g.Alerts {
+		for _, r := range a.Receivers {
+			if r == "" {
+				continue
+			}
+			if _, ok := seen[r]; ok {
+				continue
+			}
+			seen[r] = struct{}{}
+			receivers = append(receivers, r)
+		}
+	}
+	sort.Strings(receivers)
+	return groupRow{
+		Tenant:    tenant,
+		Labels:    g.Labels,
+		Count:     len(g.Alerts),
+		Receivers: receivers,
+	}
+}
+
+// filterGroupRows applies the --receiver filter in place. Empty
+// filter is a no-op. Match is case-insensitive against the
+// receiver names; a group survives when at least one of its alerts
+// targets the named receiver.
+func filterGroupRows(rows []groupRow, receiver string) []groupRow {
+	if receiver == "" {
+		return rows
+	}
+	out := rows[:0]
+	for _, r := range rows {
+		if !rowHasReceiver(r, receiver) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// rowHasReceiver reports whether row's Receivers union contains
+// name (case-insensitive). Tiny predicate kept on its own seam so
+// the filter loop reads as a single "skip when no match" line.
+func rowHasReceiver(row groupRow, name string) bool {
+	for _, r := range row.Receivers {
+		if strings.EqualFold(r, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// sortGroupRows orders rows for stable rendering: by tenant, then
+// the rendered label summary, then count as a tiebreaker.
+// Deterministic output makes diffs in CI logs meaningful.
+func sortGroupRows(rows []groupRow) {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Tenant != rows[j].Tenant {
+			return rows[i].Tenant < rows[j].Tenant
+		}
+		li, lj := summariseLabels(rows[i].Labels), summariseLabels(rows[j].Labels)
+		if li != lj {
+			return li < lj
+		}
+		return rows[i].Count < rows[j].Count
+	})
+}
+
+// renderGroupRows dispatches to the chosen format. Table flattens
+// to TENANT / LABELS / COUNT / RECEIVERS columns; JSON / YAML emit
+// the full groupRow shape including the labels map and receiver
+// union.
+func renderGroupRows(out io.Writer, rows []groupRow, format output.Format) error {
+	switch format {
+	case output.FormatJSON:
+		return output.WriteJSON(out, rows)
+	case output.FormatYAML:
+		return output.WriteYAML(out, rows)
+	case output.FormatTable:
+		// Fall through to table.
+	}
+	tbl := output.Table{
+		Cols: []string{"tenant", "labels", "count", "receivers"},
+		Rows: groupTableRows(rows),
+	}
+	return tbl.Write(out)
+}
+
+// groupTableRows flattens to the column shape the Table helper
+// consumes. Labels collapse to a deterministic comma-separated
+// k=v summary so a multi-label group still fits one row;
+// receivers join on `,` for the same reason.
+func groupTableRows(rows []groupRow) [][]string {
+	out := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, []string{
+			r.Tenant,
+			summariseLabels(r.Labels),
+			strconv.Itoa(r.Count),
+			strings.Join(r.Receivers, ","),
+		})
+	}
+	return out
+}
+
+// summariseLabels renders a label map as a deterministic
+// comma-separated `k=v` summary. Keys are sorted so the output is
+// reproducible across map iteration randomness, and shared between
+// the sort comparator and the table cell so the two views agree on
+// row identity.
+func summariseLabels(labels map[string]string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+labels[k])
+	}
+	return strings.Join(parts, ",")
+}
