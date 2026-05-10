@@ -8,6 +8,7 @@
 package alert
 
 import (
+	"bytes"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -53,9 +55,10 @@ type Options struct {
 	Tenant string
 	// Styles is the compiled theme.
 	Styles *theme.Styles
-	// Clipboard handles the `y` (copy fingerprint) action. nil
-	// disables the binding gracefully — `y` flashes a "no clipboard
-	// integration" hint instead of crashing.
+	// Clipboard handles the `c` (copy fingerprint) action. nil
+	// disables the binding gracefully — `c` flashes a "no clipboard
+	// integration" hint instead of crashing. Was wired to `y` pre-G5;
+	// `y` now owns the raw-YAML toggle.
 	Clipboard Clipboard
 	// Browser handles the `o` (open generatorURL) action. nil
 	// disables the binding the same way.
@@ -131,6 +134,14 @@ type Page struct {
 	// Dangerous entries when set; the `s` handler flashes a hint
 	// instead of pushing the silence form.
 	readOnly bool
+
+	// rawYAML toggles the body between the structured render
+	// (default) and a raw alert payload dumped via output.WriteYAML.
+	// k9s-style escape hatch for "what does the API actually
+	// return?" debugging. The toggle is per-page (does not persist
+	// across pushes) so a fresh drill-in always opens structured —
+	// the structured view is the more legible default for triage.
+	rawYAML bool
 }
 
 // New constructs an alert-detail page.
@@ -173,13 +184,21 @@ func (*Page) Close() tea.Cmd { return nil }
 func (*Page) Crumb() string { return "detail" }
 
 // Title implements app.Page — "Describe(<scope>/<alertname>)"
-// mirrors the k9s pod-detail header.
+// mirrors the k9s pod-detail header. Appends ` [raw yaml]` when the
+// page is in the `y`-toggled raw mode so the operator can tell at a
+// glance which view they're looking at — the QA-driven G5 nit: the
+// two modes rendered identically apart from the body, leaving the
+// user with no signal which one was active.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
 		scope = "—"
 	}
-	return "Describe(" + scope + "/" + p.a.Labels["alertname"] + ")"
+	base := "Describe(" + scope + "/" + p.a.Labels["alertname"] + ")"
+	if p.rawYAML {
+		base += " [raw yaml]"
+	}
+	return base
 }
 
 // HeaderContent implements app.Page. The title already shows
@@ -196,11 +215,16 @@ func (*Page) Footer() string { return "" }
 // mode the Dangerous entries (`s`) are stripped before the slice
 // is returned so the hint strip and help overlay both render the
 // read-only verb set.
+//
+// `y` toggles the raw-YAML escape hatch (k9s convention); `c`
+// owns copy-to-clipboard. `y` was historically copy-fp but moved
+// to `c` so the YAML toggle could land on the canonical key.
 func (p *Page) Bindings() []action.Action {
 	out := []action.Action{
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
 		{Key: "S", Description: "open silence", View: "alert"},
-		{Key: "y", Description: "copy fp", View: "alert"},
+		{Key: "y", Description: "yaml", View: "alert"},
+		{Key: "c", Description: "copy fp", View: "alert"},
 		{Key: "o", Description: "open URL", View: "alert"},
 	}
 	if p.readOnly {
@@ -251,6 +275,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	}
 	switch keyMsg.String() {
 	case "y":
+		// Toggle the raw-YAML body. Resetting scroll keeps the
+		// switch unsurprising — a long structured view scrolled
+		// halfway down would otherwise land the user mid-document
+		// in a YAML payload of a different length.
+		p.rawYAML = !p.rawYAML
+		p.scroll = 0
+		return p, nil
+	case "c":
 		cmd := p.copyFingerprint()
 		return p, cmd
 	case "o":
@@ -387,12 +419,21 @@ func (p *Page) openGeneratorURL() tea.Cmd {
 // View implements app.Page. Builds a flat line list, hanging-
 // indent-wraps any line that overflows width, then slices the
 // visible window starting at p.scroll.
+//
+// The rawYAML toggle swaps the line list for a raw-payload dump
+// produced by output.WriteYAML; the scroll / styling / clamping
+// machinery is untouched so the two modes share one viewport.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
 	p.bodyHeight = height
-	lines := p.bodyLines(width)
+	var lines []string
+	if p.rawYAML {
+		lines = p.rawYAMLLines()
+	} else {
+		lines = p.bodyLines(width)
+	}
 	p.reconcileScroll(len(lines), height)
 	end := min(p.scroll+height, len(lines))
 	if p.scroll > end {
@@ -434,6 +475,67 @@ func (p *Page) bodyLines(width int) []string {
 		out = append(out, p.suppressionLines(width)...)
 	}
 	return out
+}
+
+// alertYAML is the shape rendered when the user toggles raw mode
+// with `y`. Field order and key names mirror the Alertmanager v2
+// /api/v2/alerts wire payload so the body reads close to what the
+// API actually returns — that's the whole point of the escape
+// hatch (matches the scout doc §G5 framing). Empty optional
+// collections elide via `omitempty` so a non-suppressed alert
+// doesn't carry empty silencedBy / inhibitedBy / mutedBy noise.
+type alertYAML struct {
+	Fingerprint  string             `yaml:"fingerprint,omitempty"`
+	State        backend.AlertState `yaml:"state"`
+	StartsAt     string             `yaml:"startsAt,omitempty"`
+	EndsAt       string             `yaml:"endsAt,omitempty"`
+	GeneratorURL string             `yaml:"generatorURL,omitempty"`
+	Labels       map[string]string  `yaml:"labels"`
+	Annotations  map[string]string  `yaml:"annotations,omitempty"`
+	SilencedBy   []string           `yaml:"silencedBy,omitempty"`
+	InhibitedBy  []string           `yaml:"inhibitedBy,omitempty"`
+	MutedBy      []string           `yaml:"mutedBy,omitempty"`
+	Receivers    []string           `yaml:"receivers,omitempty"`
+}
+
+// rawYAMLLines marshals the alert as raw-mode YAML and returns it
+// as a flat line slice, ready for the same scroll / style pipeline
+// the structured render uses. Marshal failures surface inline as
+// a single descriptive line — the page never blanks; the user can
+// still toggle back to structured. WriteYAML drives the encoder so
+// indent / dep choice stays consistent with the headless `--output=yaml`
+// path (silence detail uses yaml.Marshal directly because it
+// pre-marshals once at construction; the alert page re-marshals on
+// every View — cheap given the payload size — so the live
+// app-global TimeFormat-toggled timestamp on the alert can flow
+// through if a future revision threads it).
+func (p *Page) rawYAMLLines() []string {
+	doc := alertYAML{
+		Fingerprint:  p.a.Fingerprint,
+		State:        p.a.State,
+		GeneratorURL: p.a.GeneratorURL,
+		Labels:       p.a.Labels,
+		Annotations:  p.a.Annotations,
+		SilencedBy:   p.silencedBy,
+		InhibitedBy:  p.a.InhibitedBy,
+		MutedBy:      p.a.MutedBy,
+		Receivers:    p.a.Receivers,
+	}
+	if !p.a.StartsAt.IsZero() {
+		doc.StartsAt = p.a.StartsAt.UTC().Format(time.RFC3339)
+	}
+	if !p.a.EndsAt.IsZero() {
+		doc.EndsAt = p.a.EndsAt.UTC().Format(time.RFC3339)
+	}
+	var buf bytes.Buffer
+	if err := output.WriteYAML(&buf, doc); err != nil {
+		return []string{fmt.Sprintf("(failed to render raw yaml: %v)", err)}
+	}
+	body := strings.TrimRight(buf.String(), "\n")
+	if body == "" {
+		return nil
+	}
+	return strings.Split(body, "\n")
 }
 
 // suppressionLines renders the silenced-by / inhibited-by /

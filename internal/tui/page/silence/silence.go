@@ -10,6 +10,7 @@
 package silence
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
@@ -46,6 +48,19 @@ type Page struct {
 	// construction so re-renders don't re-marshal on every frame.
 	body string
 
+	// rawBody is the pre-marshalled raw-payload YAML body — a
+	// straight output.WriteYAML dump of the cached backend.Silence
+	// struct, rendered when the user presses `y` to flip into the
+	// k9s-style raw view. Pre-marshalled at construction for the
+	// same reason as `body`: re-rendering on every View would burn
+	// CPU on a static payload.
+	rawBody string
+
+	// rawYAML toggles between body (default) and rawBody. The flip
+	// is per-page (does not persist across pushes); a fresh drill
+	// always opens structured because that's the curated shape.
+	rawYAML bool
+
 	// scroll is the index of the first visible body line. j/k/G/gg
 	// walk it; the renderer reconciles against the body height
 	// every frame so the user can never scroll past the bottom.
@@ -64,11 +79,16 @@ func New(opts Options) *Page {
 	if err != nil {
 		body = fmt.Sprintf("(failed to render silence: %v)", err)
 	}
+	raw, rawErr := marshalRawSilence(opts.Silence)
+	if rawErr != nil {
+		raw = fmt.Sprintf("(failed to render raw silence: %v)", rawErr)
+	}
 	return &Page{
-		s:      opts.Silence,
-		tenant: opts.Tenant,
-		styles: opts.Styles,
-		body:   body,
+		s:       opts.Silence,
+		tenant:  opts.Tenant,
+		styles:  opts.Styles,
+		body:    body,
+		rawBody: raw,
 	}
 }
 
@@ -82,13 +102,22 @@ func (*Page) Close() tea.Cmd { return nil }
 func (*Page) Crumb() string { return "silence" }
 
 // Title implements app.Page — "Describe(<scope>/<id>)" mirrors the
-// alert-detail header so the two read consistently.
+// alert-detail header so the two read consistently. Appends
+// ` [raw yaml]` when the page is in the `y`-toggled raw mode so the
+// operator can tell at a glance which view they're looking at —
+// the structured curated view and the raw payload both render as
+// YAML, so without the marker the two modes are visually identical
+// except for the body content.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
 		scope = "—"
 	}
-	return "Describe(" + scope + "/" + p.s.ID + ")"
+	base := "Describe(" + scope + "/" + p.s.ID + ")"
+	if p.rawYAML {
+		base += " [raw yaml]"
+	}
+	return base
 }
 
 // HeaderContent implements app.Page. The title already shows
@@ -100,8 +129,15 @@ func (*Page) HeaderContent() string { return "" }
 // ambient state in the bottom border.
 func (*Page) Footer() string { return "" }
 
-// Bindings implements app.Page.
-func (*Page) Bindings() []action.Action { return nil }
+// Bindings implements app.Page. The only verb the silence-detail
+// page exposes is the `y` raw-YAML toggle (k9s convention). Scroll
+// keys ride on the global vim-motion list — no need to advertise
+// them here.
+func (*Page) Bindings() []action.Action {
+	return []action.Action{
+		{Key: "y", Description: "yaml", View: "silence"},
+	}
+}
 
 // Update implements app.Page. Esc is intentionally NOT handled
 // here — the App's global LayerGlobal Esc binding pops the stack,
@@ -116,6 +152,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	}
 	switch keyMsg.String() {
+	case "y":
+		// Toggle between the curated structured YAML and the raw
+		// backend.Silence dump. Reset scroll so the user lands at
+		// the top of the new mode rather than mid-document at an
+		// offset that came from a body of a different length.
+		p.rawYAML = !p.rawYAML
+		p.scroll = 0
 	case "j", "down":
 		p.scroll++
 	case "k", "up":
@@ -161,8 +204,14 @@ func (p *Page) View(width, height int) string {
 
 // bodyLines returns the styled YAML split per line so View can
 // slice and scroll machinery can clamp against an exact length.
+// Branches on p.rawYAML so the same scroll / styling pipeline
+// drives both modes.
 func (p *Page) bodyLines() []string {
-	styled := yamlstyle.Body(p.body, p.styles)
+	src := p.body
+	if p.rawYAML {
+		src = p.rawBody
+	}
+	styled := yamlstyle.Body(src, p.styles)
 	if styled == "" {
 		return nil
 	}
@@ -218,4 +267,21 @@ func marshalSilence(s backend.Silence) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// marshalRawSilence renders the cached backend.Silence directly
+// via output.WriteYAML — the k9s-style "what does the API
+// actually return?" escape hatch. Distinct from marshalSilence:
+// no curated key set, no RFC3339 timestamp formatting, no zero-
+// value omission. The point of the toggle is showing the raw
+// payload, complete with go-default lowercased field names and
+// any zero-valued timestamps the upstream emitted. Sharing the
+// indent / encoder choice with the headless `--output=yaml` path
+// keeps the two views internally consistent.
+func marshalRawSilence(s backend.Silence) (string, error) {
+	var buf bytes.Buffer
+	if err := output.WriteYAML(&buf, s); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
 }

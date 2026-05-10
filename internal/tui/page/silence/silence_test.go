@@ -195,6 +195,103 @@ func TestPage_NoOpKeysAreSilent(t *testing.T) {
 	require.Nil(t, cmd)
 }
 
+func TestPage_BindingsAdvertisesYAMLToggle(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+	keys := map[string]string{}
+	for _, b := range p.Bindings() {
+		keys[b.Key] = b.Description
+	}
+	require.Equal(t, "yaml", keys["y"],
+		"silence detail must advertise the y raw-YAML toggle so the "+
+			"help overlay's RESOURCE column lists the verb")
+}
+
+func TestPage_RawYAMLToggleSwapsBody(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Silence: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
+
+	// Default: structured render — RFC3339 timestamps, curated key
+	// set, no `updatedat:` (zero value omitted from the curated
+	// shape — see TestMarshalSilence_OmitsZeroUpdatedAt).
+	structured := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, structured, "id: sil-1",
+		"structured view surfaces the curated `id` key")
+	require.Contains(t, structured, `startsAt: "2026-04-25T11:00:00Z"`,
+		"structured view formats timestamps as RFC3339")
+
+	// Press y → raw mode. The raw dump uses the go-default lowercased
+	// field names (`createdat`, `updatedat`, etc.) and includes the
+	// zero-valued UpdatedAt that the structured shape elides.
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Nil(t, cmd, "the yaml toggle is local state — no Cmd expected")
+	raw := testutil.StripStyle(p.View(120, 40))
+
+	// The raw render reflects the raw struct dump — no `id:` (the go
+	// field is `ID`, lowercased to `id` ... actually identical here),
+	// but timestamps render in time.Time native form (e.g. `0001-01-01T00:00:00Z`
+	// for a zero UpdatedAt). The cleanest non-fragile assertion is
+	// that a key the curated shape omits surfaces in the raw view.
+	require.Contains(t, raw, "updatedat:",
+		"raw view dumps every struct field, including the zero UpdatedAt "+
+			"that the curated shape elides")
+
+	// Press y again → back to structured. Symmetric toggle.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	again := testutil.StripStyle(p.View(120, 40))
+	require.NotContains(t, again, "updatedat:",
+		"toggling y back must restore the curated structured render")
+	require.Contains(t, again, "id: sil-1")
+}
+
+func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+	// Walk down a few lines so a non-zero scroll offset is meaningful.
+	for range 3 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Equal(t, 3, p.scroll)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Equal(t, 0, p.scroll,
+		"toggling raw must reset scroll so the user lands at the top "+
+			"of the new mode rather than mid-document")
+}
+
+// TestPage_TitleMarksRawYAMLMode covers the QA-driven G5 nit: the
+// silence detail page renders YAML in both modes, so without a
+// title indicator the operator had no signal which one was active.
+// Title now appends ` [raw yaml]` exactly when rawYAML is on.
+func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"structured mode must not carry the raw indicator")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Contains(t, p.Title(), "[raw yaml]",
+		"raw mode must surface the indicator so the operator can tell which view is active")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"a second toggle drops the indicator alongside the body flip")
+}
+
+func TestMarshalRawSilence_DumpsZeroUpdatedAt(t *testing.T) {
+	t.Parallel()
+	body, err := marshalRawSilence(sample())
+	require.NoError(t, err)
+	// The curated marshalSilence elides a zero UpdatedAt. The raw
+	// dump must NOT — the whole point is showing what the upstream
+	// actually emitted, including the zero-value sentinel.
+	require.Contains(t, body, "updatedat:",
+		"raw silence dump must include every struct field, even zero values")
+}
+
 func TestPage_ImplementsAppPageInterface(t *testing.T) {
 	t.Parallel()
 	var _ app.Page = New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})

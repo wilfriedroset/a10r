@@ -179,7 +179,7 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 		Styles:    testutil.LoadStyles(t),
 		Clipboard: clip,
 	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
@@ -191,7 +191,7 @@ func TestPage_CopyFingerprintWithoutClipboardFlashesWarn(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
 	require.Contains(t, msg.Text, "clipboard")
@@ -202,7 +202,7 @@ func TestPage_CopyFingerprintErrorFlashesError(t *testing.T) {
 
 	clip := &fakeClipboard{wantErr: errors.New("display server unreachable")}
 	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t), Clipboard: clip})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "display server unreachable")
@@ -319,17 +319,18 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
-func TestPage_BindingsHaveCopyOpenSilence(t *testing.T) {
+func TestPage_BindingsHaveCopyOpenSilenceYAML(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
-	keys := map[string]bool{}
+	keys := map[string]string{}
 	for _, b := range p.Bindings() {
-		keys[b.Key] = true
+		keys[b.Key] = b.Description
 	}
-	require.True(t, keys["s"])
-	require.True(t, keys["y"])
-	require.True(t, keys["o"])
+	require.Equal(t, "silence", keys["s"])
+	require.Equal(t, "yaml", keys["y"], "y must advertise the raw-YAML toggle (k9s convention)")
+	require.Equal(t, "copy fp", keys["c"], "c owns copy-fingerprint after y was reclaimed for yaml")
+	require.Equal(t, "open URL", keys["o"])
 }
 
 func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
@@ -964,4 +965,135 @@ func TestFormatRemaining(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestPage_RawYAMLToggleSwapsBody(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.SilencedBy = []string{"sil-A", "sil-B", "sil-A"}
+	a.InhibitedBy = []string{"fp-1"}
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: testutil.LoadStyles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+
+	// Default render is the structured view: section headers and
+	// the human-friendly age line are present, the YAML wire-shape
+	// keys (`generatorURL:`, `silencedBy:`) are not.
+	structured := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, structured, "Labels:",
+		"structured view must surface the section header")
+	require.Contains(t, structured, "alertname:   HighCPU",
+		"structured view formats the summary block")
+	require.NotContains(t, structured, "generatorURL:",
+		"structured view must not surface camelCase wire keys")
+
+	// Press y → raw mode. The raw payload uses the AM v2 wire keys
+	// and lists fingerprint / state / generatorURL inline.
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Nil(t, cmd, "the yaml toggle is local state — no Cmd expected")
+	raw := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, raw, "fingerprint: abc123")
+	require.Contains(t, raw, "generatorURL: https://example.test/graph?abc")
+	require.Contains(t, raw, "state: active")
+	require.NotContains(t, raw, "Labels:",
+		"raw view drops the structured section headers")
+	require.NotContains(t, raw, "5m ago",
+		"raw view replaces the relative age with an RFC3339 timestamp")
+	require.Contains(t, raw, "startsAt:")
+
+	// SilencedBy in the raw payload reflects the constructor-deduped
+	// list — `sil-A` appears once even though the upstream alert
+	// repeats it. Locks in that the two body modes share the same
+	// canonical list (the structured render walks p.silencedBy too).
+	require.Contains(t, raw, "silencedBy:",
+		"raw view must surface the silencedBy section when the list is non-empty")
+	require.Equal(t, 1, strings.Count(raw, "sil-A"),
+		"raw silencedBy list must mirror the dedup applied to the structured view")
+	require.Contains(t, raw, "sil-B")
+
+	// Press y again → back to structured. The toggle is symmetric.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	again := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, again, "Labels:")
+	require.NotContains(t, again, "generatorURL:")
+}
+
+func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
+	t.Parallel()
+
+	// Pad annotations so the structured view exceeds a small
+	// viewport and a non-zero scroll offset is meaningful.
+	a := sample()
+	a.Annotations = map[string]string{}
+	for i := range 50 {
+		a.Annotations[fmt.Sprintf("k%02d", i)] = fmt.Sprintf("v%02d", i)
+	}
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
+	// G pins past the end; the next View clamps it to a positive offset.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	_ = p.View(80, 15)
+	require.Positive(t, p.scroll, "G must scroll the structured body")
+
+	// Toggling y must reset scroll so the user lands at the top of
+	// the new mode rather than mid-document at an offset that came
+	// from a body of a different length.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Equal(t, 0, p.scroll, "raw toggle resets scroll")
+}
+
+func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {
+	t.Parallel()
+
+	// A bare active alert (no annotations, no suppression-related
+	// lists) must NOT carry empty collection keys in the raw view —
+	// noisy `silencedBy: []` lines on every active alert defeat the
+	// "what does the API actually return?" framing.
+	a := backend.Alert{
+		Labels: map[string]string{"alertname": "Bare"},
+		State:  backend.AlertStateActive,
+	}
+	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	out := testutil.StripStyle(p.View(80, 30))
+
+	require.Contains(t, out, "alertname: Bare",
+		"labels always carry at least the alertname")
+	require.Contains(t, out, "state: active")
+	for _, key := range []string{
+		"annotations:",
+		"silencedBy:",
+		"inhibitedBy:",
+		"mutedBy:",
+		"receivers:",
+		"generatorURL:",
+		"fingerprint:",
+	} {
+		require.NotContains(t, out, key,
+			"empty / zero-value field %q must elide via omitempty", key)
+	}
+}
+
+// TestPage_TitleMarksRawYAMLMode covers the QA-driven G5 nit: with
+// no in-title indicator, structured and raw modes looked identical
+// apart from the body. The operator had no signal which one was
+// active. Title now appends ` [raw yaml]` exactly when rawYAML is
+// on; the marker drops on a second toggle.
+func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
+
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"structured mode must not carry the raw indicator")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Contains(t, p.Title(), "[raw yaml]",
+		"raw mode must surface the indicator so the operator can tell which view is active")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"a second toggle drops the indicator alongside the body flip")
 }

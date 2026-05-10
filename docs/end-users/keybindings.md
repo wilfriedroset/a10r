@@ -88,7 +88,8 @@ Switching to a new column resets to that column's *default* direction. Severity 
 | Key | What |
 | --- | --- |
 | `s` | Silence this alert |
-| `y` | Copy fingerprint to clipboard |
+| `y` | Toggle raw alert payload as YAML (k9s-style escape hatch). The title appends ` [raw yaml]` while raw mode is active so the two views are visually distinguishable at a glance. |
+| `c` | Copy fingerprint to clipboard |
 | `o` | Open `generatorURL` in the default browser |
 | `Esc` | Back |
 
@@ -111,6 +112,7 @@ Switching to a new column resets to that column's *default* direction. Severity 
 
 | Key | What |
 | --- | --- |
+| `y` | Toggle raw silence payload as YAML (k9s-style escape hatch); structured curated view by default. The title appends ` [raw yaml]` while raw mode is active so the two YAML views are visually distinguishable at a glance. |
 | `j` / `k` | Scroll down / up one line |
 | `Ctrl+D` / `Ctrl+U` | Half-page down / up |
 | `Ctrl+F` / `Ctrl+B` | Full-page down / up |

@@ -145,7 +145,8 @@ Navigation to the groups view goes through the command bar (`:gr` / `:groups`), 
 | Key | Action | Tag |
 | --- | --- | --- |
 | `s` | Silence this alert (push form) | Dangerous |
-| `y` | Copy fingerprint to clipboard | |
+| `y` | Toggle raw alert payload as YAML | k9s convention; was copy-fp, moved to `c` (per phase-2 G5) |
+| `c` | Copy fingerprint to clipboard | Was `y` pre-G5 |
 | `o` | Open `generatorURL` in browser | No-op if unset |
 | `Esc` / `q` | Back | |
 
@@ -162,6 +163,14 @@ Navigation to the groups view goes through the command bar (`:gr` / `:groups`), 
 | `Shift+S` | Sort by state (active → pending → expired) | |
 | `Shift+C` | Sort by creator | |
 | `Shift+T` | Sort by `startsAt` | |
+
+### Silence detail (push from a row)
+
+| Key | Action | Tag |
+| --- | --- | --- |
+| `y` | Toggle raw silence payload as YAML | k9s convention; structured curated YAML by default (per phase-2 G5) |
+| `j` / `k` / `Ctrl+D` / `Ctrl+U` / `Ctrl+F` / `Ctrl+B` / `G` / `gg` | Scroll viewport | Vim |
+| `Esc` / `q` | Back | |
 
 ### Silence form (push)
 
