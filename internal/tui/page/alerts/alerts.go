@@ -256,6 +256,19 @@ type Page struct {
 	// poll.DataMsg arrival so the renderer keeps the spinner up
 	// while the caller's nudge is in flight.
 	refreshing bool
+	// paused, when true, suppresses the byTenant/recompute branch
+	// on incoming poll.DataMsg so the table stops updating under
+	// the cursor mid-read. Toggled by `w` ("watch mode"); manual
+	// `r` refresh still emits a RefreshRequestedMsg and the next
+	// DataMsg under that nudge is honoured (the watch-off window
+	// for one tick) so the operator can deliberately re-pull
+	// without leaving paused state.
+	paused bool
+	// pausedRefresh, when true, signals "the next DataMsg is from
+	// an explicit r-press; honour it even though paused". Cleared
+	// after the first DataMsg consumes it. Lets the operator hold
+	// pause but pull a single fresh snapshot on demand.
+	pausedRefresh bool
 	// spinner is the cold-start / refresh-in-flight indicator
 	// (bubbles `Points`). Stopped (Tick chain broken) outside of
 	// those two windows; see the spinner.TickMsg branch in Update.
@@ -386,6 +399,16 @@ func (p *Page) HeaderContent() string {
 // list pages frame identically. Empty pre-poll so the cold-start
 // frame stays quiet (the spinner already says "loading").
 func (p *Page) Footer() string {
+	if p.paused {
+		// Paused state takes precedence over the refresh countdown
+		// so the operator immediately sees that auto-poll is off.
+		// The refreshing indicator is kept too — a pausedRefresh
+		// in flight is still informative.
+		if p.refreshing {
+			return "WATCH OFF · refreshing…"
+		}
+		return "WATCH OFF"
+	}
 	if p.refreshing {
 		return "refreshing…"
 	}
@@ -485,6 +508,7 @@ func (p *Page) Bindings() []action.Action {
 	// strip so the affordance reads at a glance alongside the
 	// page-specific verbs. Same shape as silences.
 	out = append(out, action.Action{Key: "r", Description: "refresh", View: "alerts"})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "alerts"})
 	if p.readOnly {
 		return action.FilterDangerous(out)
 	}
