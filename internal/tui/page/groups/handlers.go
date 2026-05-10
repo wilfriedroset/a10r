@@ -25,6 +25,15 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
+		// Watch-mode: paused pages drop the snapshot so the table
+		// does not move under the cursor mid-read. A pending
+		// pausedRefresh from a manual `r` press lets a single tick
+		// through and clears itself, so the operator can pull
+		// fresh data on demand without leaving paused state.
+		if p.paused && !p.pausedRefresh {
+			return p, nil
+		}
+		p.pausedRefresh = false
 		p.byTenant[m.Tenant] = groups
 		if !m.NextAt.IsZero() {
 			p.nextRefresh[m.Tenant] = m.NextAt
@@ -154,8 +163,24 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "r":
 		cmd := p.requestRefresh()
 		return p, cmd
+	case "w":
+		p.toggleWatch()
+		return p, nil
 	}
 	return p, nil
+}
+
+// toggleWatch flips paused state. When un-pausing, also clear any
+// pending pausedRefresh — the next DataMsg should be treated
+// normally because the page is no longer paused. When pausing
+// without an in-flight `r` press, leave pausedRefresh false so
+// the next ordinary DataMsg is silently dropped. Mirrors the
+// alerts page's helper.
+func (p *Page) toggleWatch() {
+	p.paused = !p.paused
+	if !p.paused {
+		p.pausedRefresh = false
+	}
 }
 
 // handleSort processes sort-axis shortcuts (h/l walk plus
@@ -177,8 +202,15 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 
 // requestRefresh emits RefreshRequestedMsg and re-arms the
 // spinner. Same shape as alerts / silences.
+//
+// When paused, sets pausedRefresh so the next incoming DataMsg
+// is honoured exactly once — the operator pulled it deliberately
+// and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
 	p.refreshing = true
+	if p.paused {
+		p.pausedRefresh = true
+	}
 	scope := p.scope
 	if scope == "" {
 		scope = scopeAll

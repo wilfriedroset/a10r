@@ -101,6 +101,15 @@ type Page struct {
 	// refresh. Mirrors focusFingerprint / focusID / focusKey on
 	// the alerts / silences / groups pages.
 	focusName string
+
+	// paused, when true, suppresses the byTenant/recompute branch
+	// on incoming poll.DataMsg so the table stops updating under
+	// the cursor mid-read. Toggled by `w` ("watch mode"). Mirrors
+	// the alerts page — see internal/tui/page/alerts/alerts.go for
+	// the design notes. Receivers has no manual `r` refresh so the
+	// alerts-page pausedRefresh one-shot escape hatch does not
+	// apply here; while paused, every DataMsg is dropped.
+	paused bool
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -185,9 +194,16 @@ func (p *Page) HeaderContent() string {
 	return ""
 }
 
-// Footer implements app.Page. Receivers list doesn't surface
-// ambient state in the bottom border.
-func (*Page) Footer() string { return "" }
+// Footer implements app.Page. Receivers list surfaces only the
+// watch-mode marker — there is no per-tenant refresh countdown
+// to render (unlike alerts / silences / groups) so the bottom
+// border stays empty in the normal case.
+func (p *Page) Footer() string {
+	if p.paused {
+		return "WATCH OFF"
+	}
+	return ""
+}
 
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
@@ -200,9 +216,10 @@ func (*Page) PollResources() []string { return []string{"receivers"} }
 // up identically to the multi-axis pages.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("receivers")
-	out := make([]action.Action, 0, 1+len(sortBindings))
+	out := make([]action.Action, 0, 2+len(sortBindings))
 	out = append(out, action.Action{Key: "Enter", Description: "drill", View: "receivers"})
 	out = append(out, sortBindings...)
+	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "receivers"})
 	return out
 }
 
@@ -212,6 +229,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case poll.DataMsg:
 		recs, ok := m.Resource.([]backend.Receiver)
 		if !ok {
+			return p, nil
+		}
+		// Watch-mode: paused pages drop the snapshot so the table
+		// does not move under the cursor mid-read. Receivers has
+		// no manual `r` refresh, so there is no pausedRefresh
+		// escape hatch — every incoming DataMsg is dropped while
+		// paused. Press `w` again to resume.
+		if p.paused {
 			return p, nil
 		}
 		names := make([]string, len(recs))
@@ -374,7 +399,18 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		rec := p.view[p.cursor]
 		return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 	}
+	if m.String() == "w" {
+		p.toggleWatch()
+		return p, nil
+	}
 	return p, nil
+}
+
+// toggleWatch flips paused state. Mirrors the alerts page's
+// helper, minus the pausedRefresh handling — receivers has no
+// manual `r` refresh so the one-shot escape hatch does not apply.
+func (p *Page) toggleWatch() {
+	p.paused = !p.paused
 }
 
 

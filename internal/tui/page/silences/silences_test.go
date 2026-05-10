@@ -2182,3 +2182,97 @@ func TestPage_FormatTenantBreakdown(t *testing.T) {
 		})
 	}
 }
+
+func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	// First snapshot lands normally.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Tenant:   "prod",
+	})
+	require.NotEmpty(t, p.byTenant["prod"], "first DataMsg must populate byTenant")
+
+	// `w` pauses watch.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.True(t, p.paused, "w must toggle paused on")
+
+	// Subsequent DataMsg is swallowed: byTenant stays at the old snapshot.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{
+			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
+			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
+		},
+		Tenant: "prod",
+	})
+	require.Len(t, p.byTenant["prod"], 1,
+		"paused page must drop incoming DataMsg")
+
+	// `w` again resumes; the next DataMsg lands.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.False(t, p.paused)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{
+			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
+			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
+			sil("sil-3", "carol", backend.SilenceStateActive, 3*time.Hour),
+		},
+		Tenant: "prod",
+	})
+	require.Len(t, p.byTenant["prod"], 3, "resumed page accepts the next DataMsg")
+}
+
+func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Tenant:   "prod",
+	})
+
+	// Pause watch.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.True(t, p.paused)
+
+	// Manual `r` press — sets pausedRefresh, returns a Cmd that
+	// emits a RefreshRequestedMsg. The next DataMsg is honoured
+	// (the operator deliberately pulled it).
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
+	require.NotNil(t, cmd)
+	require.True(t, p.pausedRefresh, "r press while paused must set pausedRefresh")
+
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{
+			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
+			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
+		},
+		Tenant: "prod",
+	})
+	require.Len(t, p.byTenant["prod"], 2,
+		"r press while paused must pass through the next DataMsg")
+	require.False(t, p.pausedRefresh, "pausedRefresh must clear after one tick")
+	require.True(t, p.paused, "manual refresh does NOT exit paused state")
+
+	// Subsequent ordinary tick is dropped again (paused, no
+	// pending refresh).
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{},
+		Tenant:   "prod",
+	})
+	require.Len(t, p.byTenant["prod"], 2, "subsequent ticks resume being dropped")
+}
+
+func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Tenant:   "prod",
+	})
+	require.NotContains(t, p.Footer(), "WATCH OFF",
+		"baseline footer omits WATCH OFF")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.Contains(t, p.Footer(), "WATCH OFF",
+		"paused page footer leads with WATCH OFF")
+}

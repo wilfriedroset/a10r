@@ -191,6 +191,20 @@ type Page struct {
 	nextRefresh   map[string]time.Time
 	refreshing    bool
 	spinner       spinner.Model
+	// paused, when true, suppresses the byTenant/recompute branch
+	// on incoming poll.DataMsg so the table stops updating under
+	// the cursor mid-read. Toggled by `w` ("watch mode"); manual
+	// `r` refresh still emits a RefreshRequestedMsg and the next
+	// DataMsg under that nudge is honoured (the watch-off window
+	// for one tick) so the operator can deliberately re-pull
+	// without leaving paused state. Mirrors the alerts page —
+	// see internal/tui/page/alerts/alerts.go for the design notes.
+	paused bool
+	// pausedRefresh, when true, signals "the next DataMsg is from
+	// an explicit r-press; honour it even though paused". Cleared
+	// after the first DataMsg consumes it. Lets the operator hold
+	// pause but pull a single fresh snapshot on demand.
+	pausedRefresh bool
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint
@@ -269,6 +283,16 @@ func (p *Page) HeaderContent() string {
 // — or "refreshing…" while a manual `r` is in flight — into the
 // bordered body's bottom edge. Same shape as alerts / silences.
 func (p *Page) Footer() string {
+	if p.paused {
+		// Paused state takes precedence over the refresh countdown
+		// so the operator immediately sees that auto-poll is off.
+		// The refreshing indicator is kept too — a pausedRefresh
+		// in flight is still informative.
+		if p.refreshing {
+			return "WATCH OFF · refreshing…"
+		}
+		return "WATCH OFF"
+	}
 	if p.refreshing {
 		return "refreshing…"
 	}
@@ -353,6 +377,7 @@ func (p *Page) Bindings() []action.Action {
 	)
 	out = append(out, sortBindings...)
 	out = append(out, action.Action{Key: "r", Description: "refresh", View: "groups"})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "groups"})
 	if p.readOnly {
 		return action.FilterDangerous(out)
 	}

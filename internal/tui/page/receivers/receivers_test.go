@@ -293,3 +293,60 @@ func TestPage_FilterSearchModesAutodetect(t *testing.T) {
 		})
 	}
 }
+
+func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t))
+	// First snapshot lands normally.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}},
+		Tenant:   "prod",
+	})
+	require.Len(t, p.view, 2, "first DataMsg must populate the view")
+
+	// `w` pauses watch.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.True(t, p.paused, "w must toggle paused on")
+
+	// Subsequent DataMsg is swallowed: view stays at the old snapshot.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}, {Name: "alerts"}},
+		Tenant:   "prod",
+	})
+	require.Len(t, p.view, 2, "paused page must drop incoming DataMsg")
+
+	// `w` again resumes; the next DataMsg lands.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.False(t, p.paused)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}, {Name: "alerts"}},
+		Tenant:   "prod",
+	})
+	require.Len(t, p.view, 3, "resumed page accepts the next DataMsg")
+}
+
+func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t))
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}},
+		Tenant:   "prod",
+	})
+	require.NotContains(t, p.Footer(), "WATCH OFF",
+		"baseline footer omits WATCH OFF")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.Contains(t, p.Footer(), "WATCH OFF",
+		"paused page footer leads with WATCH OFF")
+}
+
+func TestPage_WatchModeResumeClearsState(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t))
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.True(t, p.paused)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
+	require.False(t, p.paused, "second w returns to running state")
+	require.Empty(t, p.Footer(), "resumed page omits WATCH OFF marker")
+}
