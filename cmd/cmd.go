@@ -45,6 +45,7 @@ func Execute() error {
 		newValidateCmd(&flags),
 		newDoctorCmd(&flags),
 		newInitCmd(&flags),
+		newAlertsCmd(&flags),
 	)
 	return rootCmd.Execute()
 }

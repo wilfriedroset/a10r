@@ -21,13 +21,18 @@ const (
 )
 
 // initInputs constructs the sequential lines runInit consumes, in
-// the order the prompts fire. Helper kept here so tests don't
+// the order the prompts fire. The mimir branch fires TWO extra
+// prompts (prefix, then tenant); the prefix line uses the default
+// (empty input → suggested value) unless the caller passes a
+// non-default explicit value. Helper kept here so tests don't
 // hand-build long string literals that drift when prompt order
 // changes.
 func initInputs(name, urlStr, kind, tenant, authMode, authA, authB, poll, theme string) string {
 	parts := []string{name, urlStr, kind}
 	if kind == "mimir" {
-		parts = append(parts, tenant)
+		// Two extra prompts in the mimir branch: the prefix
+		// (empty input → suggested default) and the tenant ID.
+		parts = append(parts, "", tenant)
 	}
 	parts = append(parts, authMode)
 	switch authMode {
@@ -73,6 +78,109 @@ func TestPromptConfig_MimirAddsPrefixAndTenant(t *testing.T) {
 	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
 	require.Equal(t, "X-Scope-OrgID", cfg.Backends[0].TenantHeader)
 	require.Equal(t, "tenant-a", cfg.Backends[0].Tenant)
+}
+
+func TestPromptConfig_MimirEmptyTenantOmitsHeader(t *testing.T) {
+	t.Parallel()
+
+	// Single-tenant Mimir (auth.multitenancy disabled) leaves the
+	// tenant ID blank. The generated config must NOT carry
+	// `tenant_header: X-Scope-OrgID` with no value — Mimir rejects
+	// the header injection without a payload, and the file would
+	// not round-trip through config.Load's
+	// tenant-header/tenant-collision validation either.
+	in := initInputs(
+		"mimir-single", "https://mimir.example", "mimir", "",
+		"none", "", "",
+		"60s", "catppuccin-mocha",
+	)
+	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
+	require.NoError(t, err)
+	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix,
+		"prefix is unconditional — Mimir's AM lives under /alertmanager")
+	require.Empty(t, cfg.Backends[0].TenantHeader,
+		"empty tenant input must leave tenant_header unset")
+	require.Empty(t, cfg.Backends[0].Tenant)
+}
+
+func TestSuggestedPrefix(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "bare host", url: "https://mimir.example", want: "/alertmanager"},
+		{name: "path-less with port", url: "https://mimir:9009", want: "/alertmanager"},
+		{name: "path already includes alertmanager", url: "https://mimir/alertmanager", want: ""},
+		{name: "trailing slash on alertmanager path", url: "https://mimir/alertmanager/", want: ""},
+		{name: "deeper path with alertmanager suffix", url: "https://mimir/api/alertmanager", want: ""},
+		{name: "unrelated path", url: "https://mimir/api/v1/foo", want: "/alertmanager"},
+		{name: "garbage url falls through to default", url: "://broken", want: "/alertmanager"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, suggestedPrefix(tc.url))
+		})
+	}
+}
+
+func TestPromptConfig_MimirURLWithPrefixSkipsAdd(t *testing.T) {
+	t.Parallel()
+
+	// User provided URL that already encodes /alertmanager; the
+	// wizard's default prefix becomes empty so the resulting
+	// Backend has Prefix="" — without this fix a request would
+	// hit https://mimir.example/alertmanager/alertmanager/api/v2/...
+	in := strings.Join([]string{
+		"primary",
+		"https://mimir.example/alertmanager",
+		"mimir",
+		"", // prefix prompt — accept the empty default
+		"", // tenant — blank
+		"none",
+		"30s",
+		"catppuccin-mocha",
+	}, "\n") + "\n"
+	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
+	require.NoError(t, err)
+	require.Empty(t, cfg.Backends[0].Prefix,
+		"URL already carrying /alertmanager must not get the prefix doubled")
+}
+
+func TestRunInit_MimirEmptyTenantPlusBasicAuthRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	// End-to-end regression: the wizard sequence
+	// {mimir, blank tenant, basic auth} must produce a YAML file
+	// that loads back through config.Load without the
+	// "tenant_header and tenant must be set together" validation
+	// error — that combination is what surfaced the empty-tenant
+	// bug.
+	dir := t.TempDir()
+	in := initInputs(
+		"primary", "https://mimir.example", "mimir", "",
+		authBasic, "alice", "hunter2",
+		"30s", "catppuccin-mocha",
+	)
+	err := runInit(initIO{
+		In:    strings.NewReader(in),
+		Out:   &bytes.Buffer{},
+		Err:   &bytes.Buffer{},
+		Flags: &GlobalFlags{ConfigDir: dir},
+	})
+	require.NoError(t, err)
+
+	loaded, err := config.Load(config.LoadOpts{Dir: dir})
+	require.NoError(t, err, "generated config must round-trip cleanly through Load")
+	require.Equal(t, "/alertmanager", loaded.Backends[0].Prefix)
+	require.Empty(t, loaded.Backends[0].TenantHeader)
+	require.Empty(t, loaded.Backends[0].Tenant)
+	require.NotNil(t, loaded.Backends[0].BasicAuth)
+	require.Equal(t, "alice", loaded.Backends[0].BasicAuth.Username)
 }
 
 func TestPromptConfig_BearerAuthFillsToken(t *testing.T) {

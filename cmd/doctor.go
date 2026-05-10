@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -77,7 +78,13 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 		return err
 	}
 
-	clients, buildFailures := buildDoctorClients(cfg)
+	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+
+	clients, buildFailures := buildDoctorClients(cfg, debugLog)
 
 	results := doctor.Run(ctx, cfg.Backends, clients, checkers)
 	results = append(buildFailures, results...)
@@ -166,9 +173,9 @@ var (
 )
 
 // buildDoctorClients constructs one backend.Client per configured
-// backend. Unlike the TUI's buildClients this caller does not
-// thread a debug logger — doctor is short-lived and the
-// per-request log lines would only confuse the table output.
+// backend. When debugLog is non-nil, every client is wrapped with
+// transport.WithDebugLog so --debug-http captures the per-request
+// HTTP records the doctor probes generate.
 //
 // Construction failures are returned as a parallel slice of
 // SeverityError Results rather than written to stderr. The
@@ -177,12 +184,16 @@ var (
 // `2>&1` in CI. The returned client map carries nil for each
 // failed backend so the bundled checks still emit per-backend
 // rows downstream (with the same SeverityError severity).
-func buildDoctorClients(cfg *config.Config) (map[string]backend.Client, []doctor.Result) {
+func buildDoctorClients(cfg *config.Config, debugLog *slog.Logger) (map[string]backend.Client, []doctor.Result) {
 	ua := userAgent(version, commit)
 	clients := make(map[string]backend.Client, len(cfg.Backends))
 	var failures []doctor.Result
+	var opts []factory.Option
+	if debugLog != nil {
+		opts = append(opts, factory.WithDebugLog(debugLog))
+	}
 	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua)
+		c, err := factory.Build(be, ua, opts...)
 		if err != nil {
 			failures = append(failures, doctor.Result{
 				Backend:  be.Name,

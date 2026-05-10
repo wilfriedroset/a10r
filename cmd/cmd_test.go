@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -29,6 +28,7 @@ func buildHelpRoot(t *testing.T) *cobra.Command {
 		newValidateCmd(&flags),
 		newDoctorCmd(&flags),
 		newInitCmd(&flags),
+		newAlertsCmd(&flags),
 	)
 	return root
 }
@@ -48,6 +48,7 @@ func TestExecute_HelpGroupsSubcommands(t *testing.T) {
 	require.Contains(t, out, "Read:")
 	require.Contains(t, out, "Diagnostics:")
 	require.Contains(t, out, "Setup:")
+	require.Contains(t, out, "alerts", "alerts command appears under Read")
 
 	// Diagnostics group carries every command we registered there.
 	for _, cmd := range []string{"validate", "version", "info", "doctor"} {
@@ -63,10 +64,4 @@ func TestExecute_HelpGroupsSubcommands(t *testing.T) {
 	// appear, otherwise some command was missed.
 	require.NotContains(t, out, "Additional Commands:",
 		"every subcommand must have a GroupID")
-	// Read: section is empty in v0.0.1 (alerts list, silences list
-	// are queued for follow-on commits) — but the header still
-	// renders so users know the slot exists.
-	readSection, _, found := strings.Cut(out, "Diagnostics:")
-	require.True(t, found)
-	require.Contains(t, readSection, "Read:")
 }

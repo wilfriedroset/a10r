@@ -202,10 +202,39 @@ func (h *Help) composeRows(cols [][]string, colWidth, height int) []string {
 	return rows
 }
 
-// entry renders one binding as "<key>  description" with the key
-// chip styled as a hint helper key (theme.Hint.HelpKey).
+// ligatureProneKeys is the set of single-character key labels
+// that combine with `<` or `>` into a programming-font ligature
+// (`<-`, `->`, `<=`, `=>`, `<>`). On terminals with
+// programming-ligature fonts (ghostty, kitty, wezterm with
+// JetBrains Mono / Fira Code / …) the binding `-` renders as
+// `<->` and ligatures into a fancy double-edged arrow that hides
+// the actual key. Bindings using these keys are rendered with
+// square brackets (`[-]`) instead of the angle-bracket chip;
+// `[ ]` does not form a ligature in any common programming font.
+// Every other key keeps its `<key>` rendering so existing test
+// assertions on `<0>`, `<Enter>`, etc. stay literal.
+var ligatureProneKeys = map[string]struct{}{
+	"-": {},
+	"=": {},
+	"<": {},
+	">": {},
+}
+
+// chipText returns the bracketed form of key, swapping to
+// square brackets for ligature-prone single-character keys so
+// programming-ligature fonts don't mangle them.
+func chipText(key string) string {
+	if _, prone := ligatureProneKeys[key]; prone {
+		return "[" + key + "]"
+	}
+	return "<" + key + ">"
+}
+
+// entry renders one binding as "<key>  description" (or "[-]
+// reset" for ligature-prone keys) with the key chip styled as a
+// hint helper key (theme.Hint.HelpKey).
 func (h *Help) entry(key, desc string) string {
-	chip := h.opts.Styles.Hint.HelpKey.Render("<" + key + ">")
+	chip := h.opts.Styles.Hint.HelpKey.Render(chipText(key))
 	return chip + "  " + desc
 }
 

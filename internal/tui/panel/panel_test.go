@@ -189,12 +189,30 @@ func TestRenderBody_NarrowSubstitutesPlaceholder(t *testing.T) {
 	body := "row1\nrow2"
 	out := RenderBody(MinBodyWidth-10, 6, body, "alerts(all)[2]", "", testutil.LoadStyles(t))
 
-	require.Contains(t, plain(out), "narrow",
-		"narrow viewport must show the resize-hint placeholder")
-	require.NotContains(t, plain(out), "row1",
+	plainOut := plain(out)
+	// Width 50, inner width 48 — full "terminal too narrow —
+	// resize to >= 60 cols" message fits.
+	require.Contains(t, plainOut, "resize to >= 60 cols",
+		"narrow viewport must show the actionable cols-count hint")
+	require.NotContains(t, plainOut, "row1",
 		"actual body content must be hidden when narrow")
-	require.Contains(t, plain(out), "alerts(all)[2]",
+	require.Contains(t, plainOut, "alerts(all)[2]",
 		"title chrome still renders so the operator sees the view")
+}
+
+func TestRenderBody_VeryNarrowKeepsColsHint(t *testing.T) {
+	t.Parallel()
+
+	// At inner width ~26 (frame width 28) the full message no
+	// longer fits but the medium-tier "resize to >= 60 cols"
+	// (20 cols) still does. The hint must NOT collapse to the
+	// useless "narrow" sentinel while the cols count still fits.
+	out := RenderBody(28, 6, "row1", "alerts", "", testutil.LoadStyles(t))
+	plainOut := plain(out)
+	require.Contains(t, plainOut, ">= 60 cols",
+		"medium-tier variant keeps the actionable cols count")
+	require.NotContains(t, plainOut, "narrow\n",
+		"useless 'narrow' sentinel must not fire while cols hint fits")
 }
 
 func TestRenderBody_AtMinWidthRendersBody(t *testing.T) {

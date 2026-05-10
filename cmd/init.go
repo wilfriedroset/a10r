@@ -112,13 +112,38 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 
 	be := config.Backend{Name: name, URL: urlStr}
 	if kind == "mimir" {
-		tenant, err := p.String("tenant ID (X-Scope-OrgID)", "", nil)
+		// Prefix is prompted, not forced. Mimir's alertmanager
+		// surface conventionally lives under /alertmanager, but
+		// users who already encoded that path in their URL
+		// (e.g. URL=https://mimir.example/alertmanager) would
+		// otherwise get the segment doubled into
+		// /alertmanager/alertmanager/api/v2/... Empty input means
+		// no prefix; the user can clear the default with a single
+		// keystroke when their URL already carries the path.
+		prefixDefault := suggestedPrefix(urlStr)
+		prefix, err := p.String(
+			"alertmanager path prefix (blank for none)",
+			prefixDefault, nil)
 		if err != nil {
 			return config.Config{}, err
 		}
-		be.TenantHeader = "X-Scope-OrgID"
-		be.Tenant = tenant
-		be.Prefix = "/alertmanager"
+		be.Prefix = prefix
+
+		tenant, err := p.String(
+			"tenant ID (X-Scope-OrgID, leave blank for single-tenant Mimir)",
+			"", nil)
+		if err != nil {
+			return config.Config{}, err
+		}
+		// Empty tenant input leaves both header and value unset so
+		// the generated YAML doesn't carry a dangling
+		// `tenant_header: X-Scope-OrgID` with no value — that
+		// configuration would force the header injection without a
+		// payload, which Mimir rejects in single-tenant mode.
+		if tenant != "" {
+			be.TenantHeader = "X-Scope-OrgID"
+			be.Tenant = tenant
+		}
 	}
 
 	authMode, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
@@ -219,6 +244,23 @@ func validateDuration(s string) error {
 		return fmt.Errorf("not a valid duration: %w", err)
 	}
 	return nil
+}
+
+// suggestedPrefix returns the default "alertmanager path prefix"
+// the wizard should pre-fill given the user's URL. Empty when the
+// URL's path already ends with /alertmanager — the user almost
+// certainly intends one prefix, not two stacked. Otherwise the
+// conventional Mimir mount point.
+func suggestedPrefix(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return "/alertmanager"
+	}
+	trimmed := strings.TrimRight(u.Path, "/")
+	if strings.HasSuffix(trimmed, "/alertmanager") {
+		return ""
+	}
+	return "/alertmanager"
 }
 
 // nonEmpty returns a validator that rejects empty / whitespace

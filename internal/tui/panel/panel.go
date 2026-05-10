@@ -106,6 +106,34 @@ type State struct {
 // strips.
 const gridCols = 3
 
+// ligatureProneKeys is the set of single-character key labels
+// that font-ligature with `<` or `>` on programming-ligature
+// fonts (`<-`, `->`, `<=`, `=>`, `<>`). Bindings using these
+// keys are rendered with square brackets (`[-]`) instead of the
+// angle-bracket chip; `[ ]` does not form a ligature in any
+// common programming font, so the key stays readable on ghostty
+// / kitty / wezterm with JetBrains Mono / Fira Code / …
+//
+// Mirrored from internal/tui/help to keep the two surfaces
+// consistent without growing a cross-package dep for one map.
+var ligatureProneKeys = map[string]struct{}{
+	"-": {},
+	"=": {},
+	"<": {},
+	">": {},
+}
+
+// chipText returns the bracketed form of key, swapping to
+// square brackets for ligature-prone single-character keys so
+// programming-ligature fonts don't mangle them. Other keys
+// (Enter, 0, s, …) keep their `<key>` rendering.
+func chipText(key string) string {
+	if _, prone := ligatureProneKeys[key]; prone {
+		return "[" + key + "]"
+	}
+	return "<" + key + ">"
+}
+
 // unboundedRows is the rowsBudget callers pass when there's no
 // logo (and therefore no natural ceiling on the panel height).
 // Larger than any realistic tenant or hint count; a typed sentinel
@@ -350,7 +378,7 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 	}
 	maxKey := 0
 	for _, a := range hints {
-		w := lipgloss.Width("<" + a.Key + ">")
+		w := lipgloss.Width(chipText(a.Key))
 		if w > maxKey {
 			maxKey = w
 		}
@@ -362,7 +390,7 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 		if a.Key == "?" {
 			keyStyle = styles.Hint.HelpKeyBold
 		}
-		key := keyStyle.Render("<" + a.Key + ">")
+		key := keyStyle.Render(chipText(a.Key))
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
 		cells[i] = key + pad + descStyle.Render(a.Description)
 	}
@@ -551,21 +579,36 @@ func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, sty
 // narrowPlaceholder returns the body string substituted when the
 // viewport is too narrow for normal rendering. innerWidth +
 // innerHeight are the dimensions inside the panel chrome
-// (RenderBody passes width-2 / height-2). The message is
-// short-form so it survives the worst case (innerWidth=2 from a
-// width=4 viewport that just barely cleared the chrome
-// short-circuit); when there is more room the message gets a
-// suggested minimum-cols hint.
+// (RenderBody passes width-2 / height-2). The placeholder picks
+// the longest variant that still fits in innerWidth so the
+// actionable "resize to >= X cols" hint survives at every width
+// the chrome can render at.
+//
+// Variants in fit order (widest → narrowest):
+//
+//  1. "terminal too narrow — resize to >= N cols"
+//  2. "resize to >= N cols"
+//  3. ">= N cols"
+//  4. "narrow"  (last-resort sentinel, never useful but keeps
+//     the body visibly non-empty when even the cols count
+//     cannot fit)
 //
 // The result is left-justified rather than centered so the
-// truncation, when it happens at all, drops the suggestion
-// rather than the message itself.
+// truncation, when it happens at all, drops the prefix rather
+// than the cols count itself.
 func narrowPlaceholder(innerWidth, innerHeight int) string {
-	short := "narrow"
-	full := fmt.Sprintf("terminal too narrow — resize to >= %d cols", MinBodyWidth)
-	msg := full
-	if lipgloss.Width(msg) > innerWidth {
-		msg = short
+	variants := []string{
+		fmt.Sprintf("terminal too narrow — resize to >= %d cols", MinBodyWidth),
+		fmt.Sprintf("resize to >= %d cols", MinBodyWidth),
+		fmt.Sprintf(">= %d cols", MinBodyWidth),
+		"narrow",
+	}
+	msg := variants[len(variants)-1]
+	for _, v := range variants {
+		if lipgloss.Width(v) <= innerWidth {
+			msg = v
+			break
+		}
 	}
 	if innerHeight <= 0 {
 		return msg
