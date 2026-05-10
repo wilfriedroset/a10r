@@ -54,14 +54,23 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("load config: %w", loadErr)
 	}
 
+	// Aliases are an optional overlay (G3); a missing file is fine
+	// and reports as zero. A malformed file is loud — the operator
+	// sees the parse error here rather than at TUI startup.
+	aliases, aliasErr := config.LoadAliases(configDir)
+	if aliasErr != nil {
+		return fmt.Errorf("load aliases: %w", aliasErr)
+	}
+
 	return renderInfo(out, infoContext{
-		Version:   version,
-		Commit:    commit,
-		Date:      date,
-		ConfigDir: configDir,
-		LogPath:   logPath,
-		Config:    cfg,
-		NotFound:  errors.Is(loadErr, config.ErrNotFound),
+		Version:    version,
+		Commit:     commit,
+		Date:       date,
+		ConfigDir:  configDir,
+		LogPath:    logPath,
+		Config:     cfg,
+		NotFound:   errors.Is(loadErr, config.ErrNotFound),
+		AliasCount: len(aliases),
 	})
 }
 
@@ -69,13 +78,14 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 // out so the test injects fixed strings (version="dev", commit="test"
 // etc.) and the golden file matches byte-for-byte across hosts.
 type infoContext struct {
-	Version   string
-	Commit    string
-	Date      string
-	ConfigDir string
-	LogPath   string
-	Config    *config.Config // nil when NotFound is true
-	NotFound  bool
+	Version    string
+	Commit     string
+	Date       string
+	ConfigDir  string
+	LogPath    string
+	Config     *config.Config // nil when NotFound is true
+	NotFound   bool
+	AliasCount int // resolved <config-dir>/aliases.yaml entry count
 }
 
 // renderInfo writes the human-readable info report to out. Format
@@ -86,6 +96,7 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 	w.printf("a10r %s commit=%s built=%s\n\n", ctx.Version, ctx.Commit, ctx.Date)
 	w.printf("config dir: %s\n", ctx.ConfigDir)
 	w.printf("log path:   %s\n", ctx.LogPath)
+	w.printf("aliases:    %d\n", ctx.AliasCount)
 
 	if ctx.NotFound {
 		w.printf("\nconfig: not found (run `a10r` with no subcommand to launch the first-run wizard)\n")

@@ -34,6 +34,16 @@ var (
 	// prefix of two or more registered aliases. The error string
 	// lists the candidates so the caller can surface them.
 	ErrAmbiguous = errors.New("ambiguous command")
+	// ErrUserAliasConflict is returned by RegisterUser when the
+	// short already exists in the built-in alias set. Fail-closed
+	// so a user typo can't shadow a registered binding silently —
+	// same approach as the C3 keybinding-conflict story.
+	ErrUserAliasConflict = errors.New("user alias conflicts with built-in")
+	// ErrUserAliasUnresolved is returned by RegisterUser when the
+	// alias's expanded value doesn't resolve to a known built-in.
+	// Caught at startup so the error is loud rather than surfacing
+	// the first time the user types the alias.
+	ErrUserAliasUnresolved = errors.New("user alias expansion unresolved")
 )
 
 // Handler is the per-alias callback. args carries everything after
@@ -45,8 +55,14 @@ type Handler func(args []string) tea.Cmd
 // Resolver stores alias → Handler mappings. Construct via New —
 // the zero value is NOT usable because Register would attempt to
 // write to a nil map.
+//
+// builtins, when non-nil, is the snapshot of alias names taken at
+// the moment RegisterUser was first called. It pins the set of
+// valid expansion targets so user aliases cannot transitively chain
+// onto each other in a registration-order-dependent way.
 type Resolver struct {
 	handlers map[string]Handler
+	builtins map[string]struct{}
 }
 
 // New constructs an empty Resolver.
@@ -146,6 +162,63 @@ func (r *Resolver) Suggest(prefix string) string {
 		return ""
 	}
 	return matches[0]
+}
+
+// RegisterUser binds a user-supplied alias `short` to the same
+// handler as `expanded`. Conflicts (short already registered as
+// either a built-in or a previously-registered user alias) and
+// unknown expansions (expanded targets no built-in) are fail-closed
+// so problems surface at startup rather than the first time the
+// user types the alias.
+//
+// On the first RegisterUser call, the resolver snapshots the
+// current alias set as the "built-in" set; only those names are
+// valid expansion targets afterwards. This pins behaviour against
+// the Go map-iteration order: a user file mixing
+// `a: b` and `b: tenant prod` cannot succeed-or-fail based on which
+// entry was registered first.
+//
+// The expanded value is tokenised the same way Resolve treats user
+// input: the first whitespace-separated token is the built-in to
+// chain into; any remaining tokens are pre-pended to whatever args
+// the user types at the prompt. This lets `prod: tenant prod`
+// register a shorthand that always carries the `prod` argument.
+//
+// Empty short panics — same reasoning as Register: an empty alias
+// indicates programmer error in the caller, not a runtime
+// condition.
+func (r *Resolver) RegisterUser(short, expanded string) error {
+	if short == "" {
+		panic("cmdbar: user alias short must not be empty")
+	}
+	if r.builtins == nil {
+		r.builtins = make(map[string]struct{}, len(r.handlers))
+		for a := range r.handlers {
+			r.builtins[a] = struct{}{}
+		}
+	}
+	if _, taken := r.handlers[short]; taken {
+		return fmt.Errorf("%w: %s", ErrUserAliasConflict, short)
+	}
+	tokens := strings.Fields(expanded)
+	if len(tokens) == 0 {
+		return fmt.Errorf("%w: %s -> %q", ErrUserAliasUnresolved, short, expanded)
+	}
+	target, extra := tokens[0], tokens[1:]
+	if _, ok := r.builtins[target]; !ok {
+		return fmt.Errorf("%w: %s -> %s", ErrUserAliasUnresolved, short, target)
+	}
+	base := r.handlers[target]
+	r.handlers[short] = func(args []string) tea.Cmd {
+		// Pre-pend the alias's stored args so `prod` registered as
+		// `tenant prod` always passes "prod" through. Anything the
+		// user types after the alias at the prompt comes after.
+		merged := make([]string, 0, len(extra)+len(args))
+		merged = append(merged, extra...)
+		merged = append(merged, args...)
+		return base(merged)
+	}
+	return nil
 }
 
 // prefixMatches returns every registered alias that starts with

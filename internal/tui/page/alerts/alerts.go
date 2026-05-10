@@ -136,6 +136,17 @@ type Options struct {
 	// multi-day sessions where a quit must not orphan goroutines.
 	// nil falls back to context.Background().
 	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	// InitialStateFilter pre-seeds the `t` cycle's state filter so a
+	// `:alerts --state suppressed` (typed at the prompt or via a user
+	// alias's expansion) lands on the suppressed-only view. Empty
+	// leaves the filter unset (page default — all states). Invalid
+	// values are rejected by the cmdbar wiring before the page is
+	// constructed; this field trusts its inputs.
+	InitialStateFilter string
+	// InitialFilter pre-seeds the `/` substring filter so a user alias
+	// can land the page on a search subset without an extra keystroke.
+	// Empty leaves the filter unset.
+	InitialFilter string
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -325,6 +336,8 @@ func New(opts Options) *Page {
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
 		bulkCtx:         opts.BulkCtx,
+		stateFilter:     opts.InitialStateFilter,
+		filter:          opts.InitialFilter,
 	}
 }
 

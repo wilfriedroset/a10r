@@ -2,6 +2,7 @@ a10r dev commit=test built=test
 
 config dir: /home/test/.config/a10r
 log path:   /home/test/.local/state/a10r/a10r.log
+aliases:    0
 
 backends (2):
   prod-vanilla

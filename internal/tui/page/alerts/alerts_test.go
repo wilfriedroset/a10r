@@ -2078,3 +2078,55 @@ func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 	// Sorted-by-tenant: alpha is the first offender.
 	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
 }
+
+// TestPage_InitialStateFilterPreseedsTCycle covers the QA-driven
+// fix for G3 user aliases: a `:alerts --state suppressed` (typed at
+// the prompt or via an alias's expanded value) lands the page on a
+// filtered view rather than the unfiltered default.
+func TestPage_InitialStateFilterPreseedsTCycle(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:             testutil.LoadStyles(t),
+		Now:                func() time.Time { return fixedNow },
+		InitialStateFilter: string(backend.AlertStateSuppressed),
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("ActiveOne", "critical", backend.AlertStateActive),
+		mkAlert("SilencedTwo", "warning", backend.AlertStateSuppressed),
+	}})
+
+	require.Equal(t, string(backend.AlertStateSuppressed), p.stateFilter,
+		"InitialStateFilter must pre-seed the page's state filter at construction")
+	require.Len(t, p.view, 1,
+		"only the suppressed entry should remain in p.view")
+	require.Equal(t, "SilencedTwo", p.view[0].a.Labels["alertname"],
+		"the surviving row must be the suppressed one")
+}
+
+// TestPage_InitialFilterPreseedsSlashFilter covers the alias-friendly
+// shape where the operator wants `:alerts --filter web` to land the
+// page on the substring-filtered view in one keystroke.
+func TestPage_InitialFilterPreseedsSlashFilter(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:        testutil.LoadStyles(t),
+		Now:           func() time.Time { return fixedNow },
+		InitialFilter: "web",
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		{
+			Labels: map[string]string{"alertname": "WebHigh", "severity": "critical"},
+			State:  backend.AlertStateActive, StartsAt: fixedNow.Add(-time.Minute),
+		},
+		{
+			Labels: map[string]string{"alertname": "DiskHigh", "severity": "warning"},
+			State:  backend.AlertStateActive, StartsAt: fixedNow.Add(-time.Minute),
+		},
+	}})
+
+	require.Equal(t, "web", p.filter,
+		"InitialFilter must pre-seed the page's `/` substring filter")
+	require.Len(t, p.view, 1,
+		"only the web-named entry should remain in p.view")
+	require.Equal(t, "WebHigh", p.view[0].a.Labels["alertname"])
+}

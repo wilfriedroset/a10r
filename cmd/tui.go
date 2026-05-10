@@ -135,6 +135,14 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	resolver := newResolver(cmd.Context(), styles, scope, silenceClients, silenceWriteClients, creator,
 		tenantRows, &effCfg, clients, timeFormat, readOnly)
 
+	// Overlay user aliases (G3): <config-dir>/aliases.yaml is an
+	// optional user-supplied {short -> expanded} map. Conflicts and
+	// unresolved expansions fail closed at startup so the operator
+	// sees the problem before they reach for the alias.
+	if _, err := registerUserAliases(resolver, configDir); err != nil {
+		return fmt.Errorf("user aliases: %w", err)
+	}
+
 	// `gg` is a chord — the dispatcher buffers the first `g` and
 	// fires the registered handler on the second within 500 ms.
 	// Registering at LayerTable means every table-bodied page
@@ -538,19 +546,25 @@ func newResolver(
 	readOnly bool,
 ) *cmdbar.Resolver {
 	r := cmdbar.New()
-	r.Register("alerts", func(_ []string) tea.Cmd {
+	r.Register("alerts", func(args []string) tea.Cmd {
+		ax, err := parseAlertsArgs(args)
+		if err != nil {
+			return flashWarnCmd(":alerts: " + err.Error())
+		}
 		return app.PushPage(func() app.Page {
 			return alerts.New(alerts.Options{
-				Styles:          styles,
-				Now:             time.Now,
-				Scope:           scope,
-				Clients:         silenceClients,
-				Creator:         creator,
-				TimeFormat:      timeFormat(),
-				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
-				Logger:          slog.Default(),
-				ReadOnly:        readOnly,
-				BulkCtx:         editorCtx,
+				Styles:             styles,
+				Now:                time.Now,
+				Scope:              scope,
+				Clients:            silenceClients,
+				Creator:            creator,
+				TimeFormat:         timeFormat(),
+				BulkConcurrency:    cfg.Defaults.BulkConcurrencyOrDefault(),
+				Logger:             slog.Default(),
+				ReadOnly:           readOnly,
+				BulkCtx:            editorCtx,
+				InitialStateFilter: ax.state,
+				InitialFilter:      ax.filter,
 			})
 		})
 	})
@@ -626,6 +640,28 @@ func newResolver(
 	r.Register("tenants", tenantFactory)
 	r.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
 	return r
+}
+
+// registerUserAliases reads <config-dir>/aliases.yaml, validates the
+// entries against the resolver's built-in alias set, and registers
+// every user alias on the resolver. Returns the count of registered
+// aliases so callers (currently `a10r info`) can surface "n user
+// aliases loaded" as a startup signal.
+//
+// Missing file is not an error per the loader contract — operators
+// who don't curate aliases see no mention of the feature and pay
+// nothing for it.
+func registerUserAliases(r *cmdbar.Resolver, configDir string) (int, error) {
+	user, err := config.LoadAliases(configDir)
+	if err != nil {
+		return 0, err //nolint:wrapcheck // LoadAliases already wraps with the source path; double-wrapping just adds "user aliases: user aliases" noise
+	}
+	for short, expanded := range user {
+		if err := r.RegisterUser(short, expanded); err != nil {
+			return 0, fmt.Errorf("register %q: %w", short, err)
+		}
+	}
+	return len(user), nil
 }
 
 // startBackendPoller spawns the per-(backend, resource) poller

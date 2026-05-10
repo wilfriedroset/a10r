@@ -84,6 +84,25 @@ func TestRenderInfo_NotFound(t *testing.T) {
 	require.Equal(t, readGolden(t, "info_notfound.golden"), buf.String())
 }
 
+func TestRenderInfo_NonZeroAliases(t *testing.T) {
+	t.Parallel()
+
+	// The alias count is the operator's signal that
+	// <config-dir>/aliases.yaml landed where they expected — pin
+	// the rendered line so a regression in formatting is loud.
+	var buf bytes.Buffer
+	require.NoError(t, renderInfo(&buf, infoContext{
+		Version:    "dev",
+		Commit:     "test",
+		Date:       "test",
+		ConfigDir:  "/home/test/.config/a10r",
+		LogPath:    "/home/test/.local/state/a10r/a10r.log",
+		Config:     &config.Config{},
+		AliasCount: 3,
+	}))
+	require.Equal(t, readGolden(t, "info_aliases.golden"), buf.String())
+}
+
 func TestAuthLabel(t *testing.T) {
 	t.Parallel()
 

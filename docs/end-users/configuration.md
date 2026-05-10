@@ -172,6 +172,45 @@ A user skin with the same basename as a bundled skin shadows the
 bundled one; a10r prints a warning so the override isn't a
 silent surprise.
 
+## Aliases
+
+Drop a `<config-dir>/aliases.yaml` next to `a10r.yaml` to register
+extra `:` shorthands. The file is a single `{short: expanded}` map;
+the expanded value is what the cmdbar would resolve if you typed it
+into the prompt — the first token must be a built-in alias, anything
+after it is pre-pended to the args you type at runtime.
+
+```yaml
+prod: tenant prod                       # `:prod` always selects the prod tenant
+stg:  tenant staging                    # `:stg`  selects staging
+qq:   q                                 # `:qq`   quits (slightly safer than `:q`)
+deploy: alerts --state suppressed       # `:deploy` opens alerts pre-filtered to suppressed
+deploy2: alerts list --state suppressed # equivalent — `list` is a no-op positional
+```
+
+A user short that collides with a built-in (`:alerts`, `:silences`,
+`:sil`, `:tenant`, `:q`, …) is fail-closed: a10r refuses to start
+and lists every offending name so you can fix them in one edit. An
+expansion that doesn't resolve to a known built-in fails the same
+way.
+
+Recognised flags on the built-in aliases:
+
+- `:alerts` — `--state <active|suppressed|unprocessed>` pre-fills the `t`
+  state cycle; `--filter <substring>` pre-fills the `/` substring filter.
+  Bare positional tokens (e.g. the CLI-style `list`) are accepted and
+  dropped so an alias can mirror the headless `a10r alerts list ...`
+  shape without learning a TUI-specific dialect.
+
+A user typo on a flag value (`--state foobar`) surfaces as a Warn
+flash on submit; the page is not pushed. Unknown flags
+(`--severity` etc.) flash the same way — `:alerts` is the only
+built-in that interprets flags today, others ignore them.
+
+A missing `aliases.yaml` is fine — operators who don't curate aliases
+pay nothing for the feature. `a10r info` reports the resolved entry
+count so you can confirm the file landed where a10r is looking.
+
 ## Read-only mode
 
 Three sources, any-true wins (one-way):
