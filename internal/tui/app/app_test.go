@@ -5,6 +5,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -34,7 +35,32 @@ func newTestApp(t *testing.T) *App {
 func TestApp_InitNoCmd(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
-	require.Nil(t, a.Init(), "no startup command at v0.1 — polling lifecycle is #24")
+	require.Nil(t, a.Init(),
+		"no startup command at v0.1 — polling lifecycle is #24, "+
+			"and the hint bar is OFF by default so its tick doesn't fire either")
+}
+
+func TestApp_InitSchedulesHintBarTickWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	// When the user opts in via `tui.tips: true`, the App's Init
+	// must schedule the rotating hint bar's first tick. This is
+	// the wiring contract: a disabled bar (the default) returns
+	// nil — exercised by TestApp_InitNoCmd above; an enabled bar
+	// returns the tea.Tick command.
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+		HintBar: footer.NewHintBar(footer.HintBarOptions{
+			Enabled:  true,
+			Interval: 50 * time.Millisecond,
+		}),
+	})
+	require.NotNil(t, a.Init(),
+		"enabled hint bar must schedule the first rotation tick from Init")
 }
 
 func TestApp_PreResizeViewIsEmpty(t *testing.T) {

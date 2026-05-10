@@ -50,6 +50,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.flash, cmd = a.flash.Update(msg)
 		return a, cmd
 	}
+	if a.hintbar.Owns(msg) {
+		var cmd tea.Cmd
+		a.hintbar, cmd = a.hintbar.Update(msg)
+		return a, cmd
+	}
 	cmd := a.forwardToTop(msg)
 	return a, cmd
 }

@@ -159,12 +159,20 @@ func (a *App) renderBody(height int) string {
 	return panel.RenderBody(a.width, height, inner, title, pageFooter, a.styles)
 }
 
-// renderFooter stacks the crumbs / flash strips. The prompt has
-// moved up above the body (renderPromptPanel) — when open it is
+// renderFooter stacks the hint / crumbs / flash strips. The prompt
+// has moved up above the body (renderPromptPanel) — when open it is
 // part of the chrome, not a footer line. Each strip can be empty;
 // the join collapses empty rows so the body fills the freed space.
+//
+// Hint-bar order: the rotating tip strip (P2.W1.7) sits above the
+// crumbs so the breadcrumb line stays the closest cue to the body
+// — the user reads the page stack first, the curated tip second.
+// A disabled hint bar renders empty and the row collapses.
 func (a *App) renderFooter() string {
-	parts := make([]string, 0, 2)
+	parts := make([]string, 0, 3)
+	if s := a.hintbar.Render(a.styles); s != "" {
+		parts = append(parts, s)
+	}
 	if s := a.crumbs.Render(a.styles); s != "" {
 		parts = append(parts, s)
 	}

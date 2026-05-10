@@ -373,6 +373,27 @@ func TestLoad_DropIn_PageOverridesMerge(t *testing.T) {
 		"unrelated page entries must survive the merge")
 }
 
+func TestLoad_DropIn_TUITipsOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// tui.tips defaults to false ("no scouted features without
+	// explicit go") and behaves the same one-way as ReadOnly: a
+	// drop-in that flips it to true wins over a base default of
+	// false. TipsInterval is plain non-zero-wins so a drop-in can
+	// override the cadence without touching the on/off flag.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  tips: false\n  tips_interval: 5s\n",
+		map[string]string{
+			"10-tips.yaml": "tui:\n  tips: true\n  tips_interval: 12s\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.Tips)
+	require.Equal(t, 12*time.Second, cfg.TUI.TipsInterval,
+		"drop-in cadence override must reach the resolved config")
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

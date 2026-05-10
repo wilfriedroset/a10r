@@ -140,6 +140,7 @@ func mergeInto(base, overlay *Config, overlayPath string, backendSource map[stri
 	mergeTheme(&base.Theme, overlay.Theme)
 	mergeLog(&base.Log, overlay.Log)
 	mergePages(&base.Pages, overlay.Pages)
+	mergeTUI(&base.TUI, overlay.TUI)
 	// Keys is reserved-empty today (J2). When fields land they merge
 	// here under the same non-zero-wins rule.
 	return nil
@@ -195,5 +196,20 @@ func mergePages(base *PageOverrides, overlay PageOverrides) {
 func mergePage(base *PageConfig, overlay PageConfig) {
 	if overlay.PollInterval != 0 {
 		base.PollInterval = overlay.PollInterval
+	}
+}
+
+// mergeTUI folds overlay TUI fields onto base. Tips is one-way:
+// once any layer enables it, later layers cannot turn it back off
+// — same idiom as Defaults.ReadOnly. The user toggles it off by
+// editing the layer that set it to true. TipsInterval follows the
+// non-zero-wins rule so a drop-in can override the base cadence
+// without flipping Tips itself.
+func mergeTUI(base *TUI, overlay TUI) {
+	if overlay.Tips {
+		base.Tips = true
+	}
+	if overlay.TipsInterval != 0 {
+		base.TipsInterval = overlay.TipsInterval
 	}
 }

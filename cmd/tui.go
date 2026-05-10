@@ -190,6 +190,10 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		Refresh:    pollerReg.Refresh,
 		ReadOnly:   readOnly,
 		HistoryDir: historyDir,
+		HintBar: footer.NewHintBar(footer.HintBarOptions{
+			Enabled:  effCfg.TUI.Tips,
+			Interval: effCfg.TUI.TipsInterval,
+		}),
 	})
 
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))

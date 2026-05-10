@@ -169,6 +169,32 @@ func TestDefaults_BulkConcurrencyRejectsNegative(t *testing.T) {
 	require.Contains(t, err.Error(), "bulk_concurrency must be >= 0")
 }
 
+func TestTUI_DefaultIsTipsOff(t *testing.T) {
+	t.Parallel()
+
+	// The tui: block is OFF by default — a zero-value Config must
+	// expose Tips=false and TipsInterval=0 (the wiring-layer fall
+	// back substitutes footer.DefaultHintBarInterval). This is the
+	// "no scouted features without explicit go" project rule made
+	// load-bearing in the type definition: the user must explicitly
+	// set `tui.tips: true` to opt in.
+	var c Config
+	require.False(t, c.TUI.Tips, "tui.tips must default to false")
+	require.Zero(t, c.TUI.TipsInterval,
+		"tui.tips_interval must default to zero (wiring fills in the package default)")
+}
+
+func TestTUI_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("tui:\n  tips: true\n  tips_interval: 12s\n")
+	var c Config
+	require.NoError(t, yaml.Unmarshal(body, &c))
+	require.True(t, c.TUI.Tips, "explicit tui.tips: true must round-trip")
+	require.Equal(t, 12*time.Second, c.TUI.TipsInterval,
+		"tui.tips_interval must parse as a duration string")
+}
+
 func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {
 	t.Parallel()
 

@@ -78,6 +78,13 @@ type Options struct {
 	// (cmd/tui.go) calls footer.DefaultHistoryDir to populate this
 	// for the production binary.
 	HistoryDir string
+	// HintBar is the optional rotating tip strip (P2.W1.7). The
+	// zero value is a disabled bar — no tick fires, the strip
+	// renders empty so the footer collapses. Production turns it
+	// on only when `tui.tips: true` is set in a10r.yaml; tests
+	// pass the zero value so the tick scheduling stays out of the
+	// fixture-driven Update loop.
+	HintBar footer.HintBar
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -94,9 +101,10 @@ type App struct {
 	refresh    func(resource, scope string)
 	readOnly   bool
 
-	crumbs footer.Crumbs
-	prompt footer.Prompt
-	flash  footer.Flash
+	crumbs  footer.Crumbs
+	prompt  footer.Prompt
+	flash   footer.Flash
+	hintbar footer.HintBar
 
 	// histories backs the per-class recent-submissions rings
 	// (P2.W1.8 / G4). Three classes — `:` always picks cmd, `/`
@@ -222,6 +230,7 @@ func NewApp(opts Options) *App {
 		crumbs:     footer.NewCrumbs(),
 		prompt:     footer.NewPrompt(resolver.Suggest),
 		flash:      footer.NewFlash(),
+		hintbar:    opts.HintBar,
 		pollCache:  map[string]map[string]poll.DataMsg{},
 		histories:  newAppHistories(opts.HistoryDir),
 	}
@@ -236,5 +245,8 @@ func NewApp(opts Options) *App {
 // in relative mode while the rest of the app reads absolute.
 func (a *App) TimeFormat() TimeFormat { return a.timeFormat }
 
-// Init implements tea.Model.
-func (a *App) Init() tea.Cmd { return nil }
+// Init implements tea.Model. Returns the hint-bar startup tick when
+// the user opted in via `tui.tips: true`; nil otherwise so disabled
+// runs schedule no work — the OFF-by-default short-circuit the
+// project rule mandates.
+func (a *App) Init() tea.Cmd { return a.hintbar.Start() }

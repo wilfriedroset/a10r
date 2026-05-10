@@ -72,6 +72,9 @@ theme:
 log:
   path: /var/log/a10r.log          # default: $XDG_STATE_HOME/a10r/a10r.log
   level: info                      # debug, info, warn, error
+tui:
+  tips: false                      # optional rotating one-line hint bar (off by default)
+  tips_interval: 8s                # optional cadence; falls back to 8s when omitted
 keys:                              # optional rebindings (empty = use defaults)
 ```
 
@@ -198,10 +201,13 @@ Merge rules:
   refuses to start and the error names both source files so the
   operator can find the conflict in one edit.
 - **Scalar fields** (`defaults.*`, `theme.*`, `log.*`,
-  `pages.<name>.poll_interval`) are last-key-wins. A drop-in only
-  overrides the fields it sets — unrelated fields from the base
+  `pages.<name>.poll_interval`, `tui.*`) are last-key-wins. A drop-in
+  only overrides the fields it sets — unrelated fields from the base
   survive untouched, so you can ship a snippet that only tweaks
   `defaults.poll_interval` without erasing `defaults.log_format`.
+  `defaults.read_only` and `tui.tips` are one-way (any-true wins) so
+  a drop-in can lock them on but not back off — edit the layer that
+  set them.
 - **Order** is base file first, then drop-ins in lexical order of
   their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
   ordering, the same convention as systemd `*.d/` overrides.

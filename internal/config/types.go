@@ -64,6 +64,7 @@ type Config struct {
 	Log      Log           `yaml:"log,omitempty"`
 	Keys     Keys          `yaml:"keys,omitempty"`
 	Pages    PageOverrides `yaml:"pages,omitempty"`
+	TUI      TUI           `yaml:"tui,omitempty"`
 }
 
 // PageOverrides carries per-page runtime knobs that a user can
@@ -412,3 +413,20 @@ type Log struct {
 // of the schema contract from day one and adding fields later is a
 // non-breaking change.
 type Keys struct{}
+
+// TUI carries TUI-presentation knobs that don't fit on Defaults
+// (which is shared with the per-backend / per-page resolver chain).
+// Today the block hosts the optional rotating hint bar (P2.W1.7);
+// future TUI-only knobs (e.g. an idle dim threshold, a custom
+// status footer) compose here so the resolver chain stays lean.
+//
+// Tips defaults to false per the project rule that scouted features
+// stay opt-in: the user must explicitly write `tui.tips: true` to
+// see the rotating hint strip. TipsInterval is optional — zero
+// resolves to the footer package's DefaultHintBarInterval inside
+// the wiring layer, so a partial config (`tips: true` alone) still
+// works.
+type TUI struct {
+	Tips         bool          `yaml:"tips,omitempty"`
+	TipsInterval time.Duration `yaml:"tips_interval,omitempty"`
+}
