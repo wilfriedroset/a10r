@@ -16,6 +16,8 @@
 package keys
 
 import (
+	"fmt"
+	"sort"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -75,6 +77,14 @@ var chordPrefix = map[string]string{
 type Dispatcher struct {
 	layers [numLayers]KeyMap
 
+	// actions indexes registered handlers by stable action name so
+	// ApplyOverrides can wire user-supplied keys onto the matching
+	// (layer, handler) pair. Populated only via SetAction; SetWithout-
+	// Action bindings (chords like `gg`, dispatcher-internal hooks)
+	// stay invisible to overrides because the v0.0.1 schema only lets
+	// users bind to named actions registered through SetAction.
+	actions map[string]actionEntry
+
 	// Chord state. chordPending is the prefix key the user has
 	// already pressed (e.g. "g") and chordExpiry is when the
 	// timeout fires. Zero value of chordPending means no chord is
@@ -83,6 +93,14 @@ type Dispatcher struct {
 	chordExpiry  time.Time
 
 	clock Clock
+}
+
+// actionEntry is the (layer, handler) pair the action registry
+// records per stable action name. ApplyOverrides walks this map to
+// find each user-extra key's destination.
+type actionEntry struct {
+	layer   Layer
+	handler Handler
 }
 
 // ChordExpiredMsg is the message tea.Tick fires when the chord
@@ -104,7 +122,10 @@ func New(clock Clock) *Dispatcher {
 	if clock == nil {
 		clock = SystemClock{}
 	}
-	d := &Dispatcher{clock: clock}
+	d := &Dispatcher{
+		clock:   clock,
+		actions: map[string]actionEntry{},
+	}
 	for i := range d.layers {
 		d.layers[i] = KeyMap{}
 	}
@@ -115,8 +136,72 @@ func New(clock Clock) *Dispatcher {
 // the same key at the same layer overwrites silently — the action
 // registry in the action package owns duplicate-detection; this
 // dispatcher trusts the caller to have validated.
+//
+// Bindings registered via Set are NOT exposed to user overrides —
+// use SetAction for any binding that should be user-extensible
+// through `<config-dir>/keys/<profile>.yaml`. Set is reserved for
+// chord prefixes, dispatcher-internal hooks, and tenant quick-switch
+// digits which are deliberately non-overridable.
 func (d *Dispatcher) Set(layer Layer, key string, h Handler) {
 	d.layers[layer][key] = h
+}
+
+// SetAction registers a binding under a stable action name AND
+// installs it at the given (layer, key). The action name is the
+// identifier users reference in `<config-dir>/keys/<profile>.yaml`
+// to add extra bindings; the layer + handler captured here are the
+// destination ApplyOverrides wires those extra keys into.
+//
+// Re-registering the same action overwrites the recorded entry
+// (last write wins, matching Set's semantics) so deferred wiring
+// can re-bind without a discrete clear step.
+func (d *Dispatcher) SetAction(layer Layer, action, key string, h Handler) {
+	d.actions[action] = actionEntry{layer: layer, handler: h}
+	d.Set(layer, key, h)
+}
+
+// ApplyOverrides binds every user-supplied extra key onto the
+// matching action's (layer, handler) pair.
+//
+// "Shadow defaults" semantics (per ADR 0010): user keys are
+// ADDITIONAL bindings — the original key registered via SetAction
+// continues to work alongside any user extras. Conflicts WITHIN the
+// user file are caught by the loader (config.LoadKeys) with file:line
+// precision; this method's only error path is "user named an action
+// that was never registered".
+//
+// Idempotent: calling twice with the same overrides is a no-op
+// because Set's last-write-wins semantics replace identical handlers
+// with themselves.
+func (d *Dispatcher) ApplyOverrides(overrides map[string][]string) error {
+	// Sort actions for a deterministic error path — without this,
+	// two unknown actions would surface in map-iteration order, which
+	// flaps across runs and across the test suite.
+	names := make([]string, 0, len(overrides))
+	for name := range overrides {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		entry, ok := d.actions[name]
+		if !ok {
+			return fmt.Errorf("unknown action %q (no built-in binding registered under that name)", name)
+		}
+		for _, key := range overrides[name] {
+			d.Set(entry.layer, key, entry.handler)
+		}
+	}
+	return nil
+}
+
+// HasAction reports whether an action is registered. Exposed so
+// diagnostics callers (validate / doctor) can pre-flight a user
+// keybindings file without invoking ApplyOverrides — `a10r validate`
+// is the natural fit when it grows a keys check, but the predicate
+// is small enough to ship now without paying for it later.
+func (d *Dispatcher) HasAction(name string) bool {
+	_, ok := d.actions[name]
+	return ok
 }
 
 // Dispatch routes one key event through the precedence stack.

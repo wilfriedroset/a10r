@@ -6,15 +6,19 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/keys"
 )
 
 // TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins audit
@@ -403,4 +407,110 @@ func TestPageOverride_AllResources(t *testing.T) {
 	require.Equal(t, 5*time.Second, pageOverride(p, "status"))
 	require.Zero(t, pageOverride(p, "unknown"),
 		"unknown resource returns zero so caller falls through to backend")
+}
+
+// writeDefaultKeys is a tui_test.go-local helper that drops a
+// `<dir>/keys/default.yaml` file with the given body. Mirrors the
+// `writeKeys` helper in internal/config but lives here so the cmd-
+// layer integration tests don't reach into another package's test
+// fixtures. v0.0.1 only auto-loads the default profile, so that's
+// the only one the cmd-layer wiring exercises.
+func writeDefaultKeys(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, config.KeysDir), 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, config.KeysDir, config.DefaultKeysProfile+".yaml"),
+		[]byte(body), 0o600))
+	return dir
+}
+
+// TestApplyUserKeyOverrides_EndToEnd exercises the load + apply path
+// with a real `keys/default.yaml` against a dispatcher carrying a
+// `quit` action. Pins the spec's load-bearing assertion: with the
+// file in place the dispatcher honours capital `Q` for quit.
+func TestApplyUserKeyOverrides_EndToEnd(t *testing.T) {
+	t.Parallel()
+
+	d := keys.New(nil)
+	var fired atomic.Int32
+	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd {
+		fired.Add(1)
+		return nil
+	})
+
+	dir := writeDefaultKeys(t, "quit: ['Q']\n")
+	require.NoError(t, applyUserKeyOverrides(d, dir))
+
+	// Both the default and the user-supplied key fire the same action.
+	// `Q` in the YAML canonicalises to `Shift+Q` because bubbletea v2
+	// reports a shifted letter as `Shift+Q` at runtime — dispatching
+	// the bare `Q` would never fire the binding the user thought they
+	// were adding.
+	consumed, _ := d.Dispatch("q")
+	require.True(t, consumed)
+	consumed, _ = d.Dispatch("Shift+Q")
+	require.True(t, consumed, "shift+q must fire the user-bound quit action")
+	require.EqualValues(t, 2, fired.Load())
+}
+
+// TestApplyUserKeyOverrides_MissingFileIsNoError pins the "operators
+// who don't curate keys see no mention of the feature" contract: the
+// loader returns empty + nil, ApplyOverrides is skipped (length zero
+// short-circuit), no error reaches the caller.
+func TestApplyUserKeyOverrides_MissingFileIsNoError(t *testing.T) {
+	t.Parallel()
+
+	d := keys.New(nil)
+	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+
+	require.NoError(t, applyUserKeyOverrides(d, t.TempDir()))
+}
+
+// TestApplyUserKeyOverrides_ReservedKeyFailsClosed pins the C3
+// muscle-memory carve-out: a user file binding 0-9 must refuse to
+// start with the precise file:line / reserved-keys error the spec
+// quoted.
+func TestApplyUserKeyOverrides_ReservedKeyFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	d := keys.New(nil)
+	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+
+	dir := writeDefaultKeys(t, "quit: ['3']\n")
+	err := applyUserKeyOverrides(d, dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "0-9 are reserved for tenant quick-switch")
+}
+
+// TestApplyUserKeyOverrides_UnknownActionFailsClosed pins the
+// "typo'd action name fails closed" contract: better to refuse to
+// start than to silently drop the binding the user thought they
+// were adding.
+func TestApplyUserKeyOverrides_UnknownActionFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	d := keys.New(nil)
+	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+
+	dir := writeDefaultKeys(t, "quitt: ['Q']\n")
+	err := applyUserKeyOverrides(d, dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown action "quitt"`)
+}
+
+// TestApplyUserKeyOverrides_SameFileConflictFailsClosed pins the
+// loader's conflict check via the cmd-layer entry point. Surfaces
+// file:line so the operator opens their editor at the right spot.
+func TestApplyUserKeyOverrides_SameFileConflictFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	d := keys.New(nil)
+	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "refresh", "r", func() tea.Cmd { return nil })
+
+	dir := writeDefaultKeys(t, "quit: ['Q']\nrefresh: ['Q']\n")
+	err := applyUserKeyOverrides(d, dir)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `key "Shift+Q" is also bound to action "quit"`)
 }

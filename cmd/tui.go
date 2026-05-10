@@ -196,6 +196,14 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		}),
 	})
 
+	// User-supplied keybinding overrides (P2.W1.5 / ADR 0010). Loaded
+	// after NewApp so the action registry has its built-in entries
+	// before ApplyOverrides looks them up; failures fail-closed at
+	// startup so the operator can't run with a half-applied profile.
+	if err := applyUserKeyOverrides(dispatcher, configDir); err != nil {
+		return fmt.Errorf("user keybindings: %w", err)
+	}
+
 	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()))
 
 	// Spawn the poller for every configured backend and publish
@@ -654,6 +662,26 @@ func newResolver(
 	r.Register("tenants", tenantFactory)
 	r.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
 	return r
+}
+
+// applyUserKeyOverrides reads <config-dir>/keys/default.yaml and
+// adds every user-extra key to its matching action's existing
+// (layer, handler) pair on the dispatcher. Missing file is not an
+// error per LoadKeys's contract — operators who don't curate keys
+// see no mention of the feature and pay nothing for it.
+//
+// v0.0.1 hard-codes the default profile. Wiring `keys: { profile:
+// vim }` later only requires threading the resolved name through
+// here; the loader already accepts a custom profile.
+func applyUserKeyOverrides(d *keys.Dispatcher, configDir string) error {
+	overrides, err := config.LoadKeys(configDir, config.DefaultKeysProfile)
+	if err != nil {
+		return err //nolint:wrapcheck // LoadKeys already wraps with the source path; double-wrapping just adds redundant prefixes
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return d.ApplyOverrides(overrides) //nolint:wrapcheck // ApplyOverrides errors are already self-describing ("unknown action ...")
 }
 
 // registerUserAliases reads <config-dir>/aliases.yaml, validates the

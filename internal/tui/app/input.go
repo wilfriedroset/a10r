@@ -61,30 +61,35 @@ func (a *App) registerTenantBindings() {
 // registerGlobalBindings wires the keybindings.md §Global entries
 // the app shell owns directly. Tenant quick-switch (#35) ships
 // with its own subsystem so it can be unit-tested in isolation.
+//
+// User-extensible bindings go through SetAction with the stable
+// action names documented in `<config-dir>/keys/<profile>.yaml`
+// (per ADR 0010); chord prefixes and dispatcher hooks stay on Set
+// because the v0.0.1 schema only lets users target named globals.
 func (a *App) registerGlobalBindings() {
-	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+C", func() tea.Cmd { return tea.Quit })
-	a.dispatcher.Set(keys.LayerGlobal, "q", func() tea.Cmd { return tea.Quit })
+	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "Ctrl+C", func() tea.Cmd { return tea.Quit })
+	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return tea.Quit })
 	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
 	// state-filter cycle moved to Shift+F to free this slot).
 	// Emits TimeFormatChangedMsg so every page that renders
 	// durations re-renders, and a flash so the user sees the
 	// switch took effect (Q7.5).
-	a.dispatcher.Set(keys.LayerGlobal, "t", a.toggleTimeFormatCmd)
+	a.dispatcher.SetAction(keys.LayerGlobal, "time-format", "t", a.toggleTimeFormatCmd)
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
-	a.dispatcher.Set(keys.LayerGlobal, "Esc", PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "Esc", PopPage)
 	// `:` opens the command bar; `/` opens the filter prompt. The
 	// dispatcher only fires the open; the resulting PromptSubmitted
 	// / PromptCancelled messages are handled by handleInput later.
-	a.dispatcher.Set(keys.LayerGlobal, ":", a.openPromptCmd(footer.PromptCommand))
-	a.dispatcher.Set(keys.LayerGlobal, "/", a.openPromptCmd(footer.PromptFilter))
+	a.dispatcher.SetAction(keys.LayerGlobal, "command", ":", a.openPromptCmd(footer.PromptCommand))
+	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "/", a.openPromptCmd(footer.PromptFilter))
 	// `Ctrl+T` opens the tenant picker per C3 — fuzzy search over
 	// the configured backends with multi-select. Resulting
 	// PickerSubmittedMsg is translated into a ScopeChangedMsg in
 	// handleLifecycle so every list page reacts the same way as
 	// for the numeric quick-switch.
-	a.dispatcher.Set(keys.LayerGlobal, "Ctrl+T", func() tea.Cmd {
+	a.dispatcher.SetAction(keys.LayerGlobal, "tenant-picker", "Ctrl+T", func() tea.Cmd {
 		return OpenModal(func() modal.Modal {
 			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti)
 		})
@@ -94,7 +99,7 @@ func (a *App) registerGlobalBindings() {
 	// whichever page is on top of the stack. Globals and table
 	// motions are curated lists kept here (rather than re-derived
 	// from the dispatcher, which stores handlers, not descriptions).
-	a.dispatcher.Set(keys.LayerGlobal, "?", func() tea.Cmd {
+	a.dispatcher.SetAction(keys.LayerGlobal, "help", "?", func() tea.Cmd {
 		return OpenModal(func() modal.Modal {
 			return help.New(help.Options{
 				PageName:     a.activeViewLabel(),

@@ -268,6 +268,118 @@ func TestHandleChordExpired_RoundTripClearsState(t *testing.T) {
 		"the original chord must NOT have completed retroactively after expiry")
 }
 
+func TestSetAction_RegistersKeyAndExposesActionName(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
+
+	require.True(t, d.HasAction("quit"), "SetAction must record the action under its name")
+
+	consumed, _ := d.Dispatch("q")
+	require.True(t, consumed, "SetAction must also bind the key like Set")
+	require.Equal(t, "quit", r.lastLabel())
+}
+
+func TestApplyOverrides_ShadowsDefaultsWithExtraKeys(t *testing.T) {
+	t.Parallel()
+
+	// Real user file scenario: `quit: ['Q']` adds capital Q on top of
+	// the default lowercase q. Both must fire the same handler — this
+	// is the load-bearing "shadow defaults" guarantee from ADR 0010.
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
+
+	require.NoError(t, d.ApplyOverrides(map[string][]string{
+		"quit": {"Q"},
+	}))
+
+	// Original binding still works.
+	consumed, _ := d.Dispatch("q")
+	require.True(t, consumed)
+	require.Equal(t, "quit", r.lastLabel())
+	require.EqualValues(t, 1, r.count.Load())
+
+	// User-supplied binding fires the same handler.
+	consumed, _ = d.Dispatch("Q")
+	require.True(t, consumed)
+	require.Equal(t, "quit", r.lastLabel())
+	require.EqualValues(t, 2, r.count.Load())
+}
+
+func TestApplyOverrides_MultipleKeysPerAction(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "refresh", "r", r.handler("refresh"))
+
+	require.NoError(t, d.ApplyOverrides(map[string][]string{
+		"refresh": {"R", "F5"},
+	}))
+
+	for _, key := range []string{"r", "R", "F5"} {
+		consumed, _ := d.Dispatch(key)
+		require.True(t, consumed, "key %q must fire after override", key)
+	}
+	require.EqualValues(t, 3, r.count.Load())
+}
+
+func TestApplyOverrides_UnknownActionFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	// User typo'd `quitt` — better to refuse to start than to
+	// silently drop the binding and leave the user wondering why
+	// their keybinding does nothing.
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+
+	err := d.ApplyOverrides(map[string][]string{
+		"quitt": {"Q"},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unknown action "quitt"`)
+}
+
+func TestApplyOverrides_EmptyOverridesIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	d := New(newFakeClock())
+	require.NoError(t, d.ApplyOverrides(nil))
+	require.NoError(t, d.ApplyOverrides(map[string][]string{}))
+}
+
+func TestApplyOverrides_PreservesOriginalLayerAcrossUserKey(t *testing.T) {
+	t.Parallel()
+
+	// User's extra key must inherit the action's layer so an action
+	// registered at LayerGlobal stays a global affordance and an
+	// action at LayerView stays scoped to that view. Without this
+	// the override could "promote" a view-local binding into a
+	// global one and override another action's binding in surprising
+	// ways.
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.SetAction(LayerView, "yank-id", "y", r.handler("yank"))
+
+	require.NoError(t, d.ApplyOverrides(map[string][]string{
+		"yank-id": {"Y"},
+	}))
+
+	// Now register a different handler for "Y" at LayerGlobal —
+	// LayerView (where "yank-id" lives) takes precedence over global
+	// per the dispatcher's layer order, so the user binding wins.
+	conflicting := r.handler("global")
+	d.Set(LayerGlobal, "Y", conflicting)
+
+	consumed, _ := d.Dispatch("Y")
+	require.True(t, consumed)
+	require.Equal(t, "yank", r.lastLabel(),
+		"override Y must inherit yank-id's view layer and beat the global Y")
+}
+
 func TestSet_OverwritesSilently(t *testing.T) {
 	t.Parallel()
 
