@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +20,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/doctor"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
+
+// doctorCacheTTL is the per-(backend, check) result-cache window.
+// One-shot `a10r doctor` calls Run once per checker and so the
+// cache never serves a hit; the wrap is in place so a future TUI
+// status page can poll Run() on a refresh tick without hammering
+// the backend with redundant probes between user-visible changes.
+const doctorCacheTTL = 30 * time.Second
 
 // newDoctorCmd returns the `a10r doctor` subcommand. Runs a small
 // suite of preflight checks against every configured backend and
@@ -77,6 +85,7 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 	if err != nil {
 		return err
 	}
+	checkers = doctor.WithCache(checkers, doctorCacheTTL)
 
 	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
 	if err != nil {
