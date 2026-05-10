@@ -28,6 +28,7 @@ func buildHelpRoot(t *testing.T) *cobra.Command {
 		newInfoCmd(&flags),
 		newValidateCmd(&flags),
 		newDoctorCmd(&flags),
+		newInitCmd(&flags),
 	)
 	return root
 }
