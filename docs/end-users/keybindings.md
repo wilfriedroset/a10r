@@ -62,6 +62,8 @@ If a fuzzy/substring search surfaces matches that look unrelated to the alertnam
 | `Space` | Mark / unmark the cursor row (multi-select) |
 | `Ctrl+A` | Mark every visible row |
 
+The mouse wheel walks the cursor too — wheel-up is the same as `k`, wheel-down the same as `j`. Wheel ticks on the open `?` overlay scroll the help body so a long binding list stays reachable. Click and drag are intentionally unbound; the rest of the surface stays keyboard-driven.
+
 ## Sort behaviour
 
 `Shift+<letter>` sorts by a column. Pressing the same shortcut twice flips ASC↔DESC. The active column shows an `↑` (ASC) or `↓` (DESC) arrow next to its uppercase header label — that's the source of truth.

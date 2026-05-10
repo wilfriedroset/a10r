@@ -543,6 +543,221 @@ func TestApp_KeyReleaseAndPasteFramingIgnored(t *testing.T) {
 		"key-release / paste-framing must not leak into the flash")
 }
 
+// TestApp_ViewEnablesMouseCellMotion pins the mouse-mode contract:
+// every rendered view (pre- and post-resize) must request cell-
+// motion so the terminal forwards wheel ticks. Anything stricter
+// (all-motion) would also forward hover events the app drops; cell-
+// motion is the minimum that delivers wheel + click for the
+// keyboard-first contract enforced by handleInput.
+func TestApp_ViewEnablesMouseCellMotion(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	pre := a.View()
+	require.Equal(t, tea.MouseModeCellMotion, pre.MouseMode,
+		"pre-resize view must already request mouse cell-motion")
+
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+	post := a.View()
+	require.Equal(t, tea.MouseModeCellMotion, post.MouseMode,
+		"post-resize view keeps mouse cell-motion on")
+}
+
+// TestApp_MouseWheelOnTableSynthesizesMotionKey covers the table-
+// page case: wheel up / down become a synthetic 'k' / 'j' key
+// press routed to the top page, so each page's existing
+// cursor.HandleMotion path runs without per-page wheel plumbing.
+func TestApp_MouseWheelOnTableSynthesizesMotionKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		wheel  tea.MouseWheelMsg
+		expect tea.KeyPressMsg
+	}{
+		{
+			name:   "wheel down -> j",
+			wheel:  tea.MouseWheelMsg{Button: tea.MouseWheelDown},
+			expect: tea.KeyPressMsg{Code: 'j', Text: "j"},
+		},
+		{
+			name:   "wheel up -> k",
+			wheel:  tea.MouseWheelMsg{Button: tea.MouseWheelUp},
+			expect: tea.KeyPressMsg{Code: 'k', Text: "k"},
+		},
+	}
+	// Each case spins up its own App so subtests can run in
+	// parallel without sharing the page's update log.
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := newTestApp(t)
+			updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			a = updated.(*App)
+
+			page := newFakePage("alerts")
+			drive(t, a, PushPage(func() Page { return page }))
+			require.Empty(t, *page.updateLog,
+				"baseline: no synthetic key delivered yet")
+
+			_, cmd := a.Update(tc.wheel)
+			require.Nil(t, cmd, "fakePage returns nil from Update; no Cmd surfaces")
+			require.Len(t, *page.updateLog, 1,
+				"wheel must deliver exactly one synthetic key to the top page")
+			require.Equal(t, tc.expect, (*page.updateLog)[0])
+		})
+	}
+}
+
+// TestApp_MouseWheelLeftRightIgnored covers the horizontal-wheel
+// edge case: the wheel-to-key map only handles up/down so a stray
+// left/right tick (rare hardware) is a silent no-op rather than a
+// surprise column walk.
+func TestApp_MouseWheelLeftRightIgnored(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+	before := len(*page.updateLog)
+
+	for _, button := range []tea.MouseButton{tea.MouseWheelLeft, tea.MouseWheelRight} {
+		_, cmd := a.Update(tea.MouseWheelMsg{Button: button})
+		require.Nil(t, cmd)
+	}
+	require.Len(t, *page.updateLog, before,
+		"horizontal wheel must NOT deliver any synthetic key — pages don't bind h/l to wheel")
+}
+
+// TestApp_MouseClickAndMotionIgnored guards the keyboard-first
+// contract: cell-motion mode also forwards click / release /
+// motion events but the app drops them rather than ever attaching
+// click-to-focus or drag semantics. Forwarding to the page would
+// risk a future page consuming them by accident.
+func TestApp_MouseClickAndMotionIgnored(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+	before := len(*page.updateLog)
+
+	msgs := []tea.Msg{
+		tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: 5},
+		tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 5, Y: 5},
+		tea.MouseMotionMsg{X: 6, Y: 6},
+	}
+	for _, m := range msgs {
+		_, cmd := a.Update(m)
+		require.Nil(t, cmd, "click / release / motion must never produce a Cmd")
+	}
+	require.Len(t, *page.updateLog, before,
+		"click / release / motion must NOT reach the top page — keyboard-first")
+}
+
+// TestApp_MouseWheelRoutedToHelpModal pins the modal precedence:
+// when the help overlay is open a wheel tick goes to the modal
+// (so it can scroll its content) and does NOT synthesize a 'j'/'k'
+// for the page underneath.
+func TestApp_MouseWheelRoutedToHelpModal(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// Open the help modal.
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.NotNil(t, a.modal, "help modal must be open before the wheel tick")
+	before := len(*page.updateLog)
+
+	_, cmd = a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	require.Nil(t, cmd, "help modal returns nil on wheel — no Cmd")
+	require.NotNil(t, a.modal, "wheel must NOT close the help modal")
+	require.Len(t, *page.updateLog, before,
+		"wheel on an open modal must NOT reach the page beneath it")
+}
+
+// TestApp_MouseWheelSuppressedWhenPromptOpen pins the prompt-mode
+// contract: the user is typing a `:` command or `/` filter — a
+// stray wheel tick must not move the cursor on the body the user
+// can't see anyway (the prompt has all the focus). Same rule for
+// input-capture pages (forms).
+func TestApp_MouseWheelSuppressedWhenPromptOpen(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	// Open the filter prompt.
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	require.True(t, a.prompt.IsOpen())
+	before := len(*page.updateLog)
+
+	_, cmd := a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	require.Nil(t, cmd)
+	require.Len(t, *page.updateLog, before,
+		"open prompt must shadow the wheel — body cursor stays put")
+}
+
+// TestApp_MouseWheelSuppressedOnInputCapturePage covers the form-
+// page suppression: a page that opts in to InputCapturePage owns
+// every keystroke, so a wheel tick must not leak a synthetic 'j'/
+// 'k' into a form whose body the user is typing into.
+func TestApp_MouseWheelSuppressedOnInputCapturePage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	form := newFakePage("form")
+	form.capturesInput = true
+	drive(t, a, PushPage(func() Page { return form }))
+	before := len(*form.updateLog)
+
+	_, cmd := a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	require.Nil(t, cmd)
+	require.Len(t, *form.updateLog, before,
+		"input-capture page must shadow the wheel — typing focus stays clean")
+}
+
+// TestWheelToKey is a small table-driven map check so the wheel-
+// button -> synthetic-key mapping is auditable in one place. The
+// (false) cases are the explicit "drop this" path.
+func TestWheelToKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   tea.MouseWheelMsg
+		want tea.KeyPressMsg
+		ok   bool
+	}{
+		{"down -> j", tea.MouseWheelMsg{Button: tea.MouseWheelDown}, tea.KeyPressMsg{Code: 'j', Text: "j"}, true},
+		{"up -> k", tea.MouseWheelMsg{Button: tea.MouseWheelUp}, tea.KeyPressMsg{Code: 'k', Text: "k"}, true},
+		{"left dropped", tea.MouseWheelMsg{Button: tea.MouseWheelLeft}, tea.KeyPressMsg{}, false},
+		{"right dropped", tea.MouseWheelMsg{Button: tea.MouseWheelRight}, tea.KeyPressMsg{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := wheelToKey(tc.in)
+			require.Equal(t, tc.ok, ok)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestNormalizeKey(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

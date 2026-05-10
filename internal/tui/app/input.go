@@ -226,11 +226,63 @@ func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 		// has no use for either today; explicit no-ops keep them out
 		// of the flash catch-all so the routing intent is auditable.
 		return nil, true
+	case tea.MouseWheelMsg:
+		return a.handleMouseWheel(m), true
+	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseMotionMsg:
+		// Keyboard-first contract: the app enables mouse cell-motion
+		// only to receive wheel ticks. Click / release / motion are
+		// captured by the terminal in this mode but we explicitly
+		// drop them rather than implementing click-to-focus or
+		// drag-select. Explicit no-op so they don't fall through to
+		// forwardToTop, where a misinterpreting page could attach
+		// behaviour we don't want.
+		return nil, true
 	case tea.KeyPressMsg:
 		_, cmd := a.handleKey(m)
 		return cmd, true
 	}
 	return nil, false
+}
+
+// handleMouseWheel routes a wheel event. Precedence mirrors
+// handleKey: an open modal (the help overlay scrolls; other modals
+// ignore the event), then prompt / input-capture (suppress so the
+// wheel doesn't grow a phantom motion behind a typing user), then
+// the top page (translate up/down ticks into a synthetic 'k'/'j'
+// key press so the page's existing cursor.HandleMotion path runs
+// without per-page wheel plumbing). Left/right wheel ticks are
+// ignored — pages don't bind h/l to a wheel motion and the
+// horizontal-wheel hardware is rare enough that surprising the
+// user with column walks is worse than dropping the event.
+func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
+	if a.modal != nil {
+		next, cmd := a.modal.Update(m)
+		a.modal = next
+		return cmd
+	}
+	if a.prompt.IsOpen() || a.topPageCapturesInput() {
+		return nil
+	}
+	key, ok := wheelToKey(m)
+	if !ok {
+		return nil
+	}
+	return a.forwardToTop(key)
+}
+
+// wheelToKey maps a vertical wheel tick to the synthetic key press
+// the cursor.HandleMotion helper consumes. Horizontal ticks return
+// (zero, false) so the caller can drop them. Kept package-private
+// so the mapping table lives next to the dispatcher seam that uses
+// it; tested via TestApp_MouseWheel*.
+func wheelToKey(m tea.MouseWheelMsg) (tea.KeyPressMsg, bool) {
+	switch m.Button {
+	case tea.MouseWheelUp:
+		return tea.KeyPressMsg{Code: 'k', Text: "k"}, true
+	case tea.MouseWheelDown:
+		return tea.KeyPressMsg{Code: 'j', Text: "j"}, true
+	}
+	return tea.KeyPressMsg{}, false
 }
 
 // handlePromptSubmitted routes a prompt's submission. Command

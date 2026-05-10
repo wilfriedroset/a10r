@@ -24,6 +24,7 @@ func (a *App) View() tea.View {
 		// view so we don't crash with a zero-width Render.
 		v := tea.NewView("")
 		v.AltScreen = true
+		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
 
@@ -48,6 +49,14 @@ func (a *App) View() tea.View {
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	v := tea.NewView(out)
 	v.AltScreen = true
+	// Cell-motion mouse mode lets the terminal forward wheel ticks
+	// (and click/release/motion) into the program. The app routes
+	// wheel events to cursor walk on tables and the help modal's
+	// scroll offset; click and motion are explicitly ignored
+	// (keyboard-first contract — no click-to-focus, no drag-select).
+	// All-motion mode would add hover events the app has no use for
+	// and a chunk of terminal traffic we don't need.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 

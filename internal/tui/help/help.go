@@ -72,6 +72,14 @@ type Options struct {
 // Help is the modal overlay.
 type Help struct {
 	opts Options
+
+	// scroll is the row index the help body starts rendering from.
+	// Mouse-wheel ticks adjust this so a help payload that overflows
+	// the modal's height is reachable without keyboard scroll
+	// plumbing (any keystroke dismisses the modal — that contract
+	// isn't worth breaking for help-internal navigation). Clamped
+	// inside View to whatever the rendered content can show.
+	scroll int
 }
 
 // New constructs a Help modal.
@@ -87,11 +95,38 @@ func (*Help) Title() string { return "Help" }
 
 // Update implements modal.Modal. Any keystroke dismisses the
 // overlay — it's read-only so there's no other useful action.
+// Mouse-wheel ticks adjust the scroll offset instead of dismissing
+// so a long help payload (many tenants + page verbs) is reachable
+// without leaving the overlay; click / motion events arrive only
+// while the App's mouse cell-motion mode is on but the help modal
+// has no use for them — they're ignored alongside non-key, non-
+// wheel messages.
 func (h *Help) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
+	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
+		h.scrollBy(wheel)
+		return h, nil
+	}
 	if _, ok := msg.(tea.KeyMsg); ok {
 		return h, func() tea.Msg { return modal.HelpClosedMsg{} }
 	}
 	return h, nil
+}
+
+// scrollBy adjusts the scroll offset for a wheel tick. Up reduces
+// the offset; down increases it. The lower bound is zero; the
+// upper bound is enforced inside View so a window resize doesn't
+// strand the offset past the new maximum (the scroll field is the
+// only mutable state on the help modal — re-clamping there keeps
+// the math centralised).
+func (h *Help) scrollBy(m tea.MouseWheelMsg) {
+	switch m.Button {
+	case tea.MouseWheelUp:
+		if h.scroll > 0 {
+			h.scroll--
+		}
+	case tea.MouseWheelDown:
+		h.scroll++
+	}
 }
 
 // View implements modal.Modal. Renders the four columns into the
@@ -105,8 +140,37 @@ func (h *Help) View(width, height int) string {
 	cols := h.columns()
 	colWidth := max(width/len(cols), 12)
 
-	rows := h.composeRows(cols, colWidth, height)
+	// Clamp scroll to the rendered content. Done at View-time
+	// rather than on each wheel tick so a window resize that
+	// shrinks/expands the visible area doesn't leave the offset
+	// pointing past the last row; the next render heals it.
+	maxScroll := maxScrollOffset(cols, height)
+	if h.scroll > maxScroll {
+		h.scroll = maxScroll
+	}
+	if h.scroll < 0 {
+		h.scroll = 0
+	}
+
+	rows := h.composeRows(cols, colWidth, height, h.scroll)
 	return strings.Join(rows, "\n")
+}
+
+// maxScrollOffset is the largest scroll value that still leaves
+// at least one row visible. Negative results clamp to zero (every
+// column fits inside height — nothing to scroll).
+func maxScrollOffset(cols [][]string, height int) int {
+	tallest := 0
+	for _, c := range cols {
+		if len(c) > tallest {
+			tallest = len(c)
+		}
+	}
+	overflow := tallest - height
+	if overflow < 0 {
+		return 0
+	}
+	return overflow
 }
 
 // columns builds the four column bodies (heading + entry list each)
@@ -175,20 +239,20 @@ func (h *Help) staticColumn(name string, entries []action.Action) []string {
 // composeRows zips columns into rows. Short columns are right-
 // padded so the cell alignment stays clean across the visible
 // rectangle. Each row is exactly colWidth*len(cols) columns wide;
-// the App panel takes care of side borders.
-func (h *Help) composeRows(cols [][]string, colWidth, height int) []string {
+// the App panel takes care of side borders. scroll shifts the
+// starting row so a help payload that overflows the modal's
+// height can be walked downward by mouse-wheel ticks.
+func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []string {
 	maxLen := 0
 	for _, c := range cols {
 		if len(c) > maxLen {
 			maxLen = len(c)
 		}
 	}
-	if maxLen > height {
-		maxLen = height
-	}
+	end := min(scroll+height, maxLen)
 
-	rows := make([]string, 0, maxLen)
-	for r := range maxLen {
+	rows := make([]string, 0, end-scroll)
+	for r := scroll; r < end; r++ {
 		var b strings.Builder
 		for _, col := range cols {
 			cell := ""

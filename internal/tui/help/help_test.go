@@ -150,6 +150,88 @@ func TestHelp_NumericListClampsAtNine(t *testing.T) {
 		"numeric quick-switch tops out at <9>; extras are reachable via Ctrl+T")
 }
 
+// TestHelp_WheelDownScrollsContent covers the happy-path mouse-
+// wheel flow on a help payload that overflows the modal height:
+// a wheel-down tick scrolls the rendered rows down by one so a
+// hidden bottom row becomes visible without the modal closing.
+func TestHelp_WheelDownScrollsContent(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	// Force overflow: nine tenants fill the RESOURCE column down to
+	// `<9>` (plus `<0> all` on top + the four page verbs) — well past
+	// the small modal height we'll render at.
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4 // height = 4 forces a multi-row scroll
+	first := testutil.StripStyle(h.View(w, hgt))
+
+	next, cmd := h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	require.Nil(t, cmd, "wheel must not emit a HelpClosedMsg")
+	require.Same(t, h, next, "wheel returns the same modal — no transition")
+
+	scrolled := testutil.StripStyle(h.View(w, hgt))
+	require.NotEqual(t, first, scrolled,
+		"wheel-down on overflowing content must shift the visible rows")
+}
+
+// TestHelp_WheelUpClampsAtTop covers the upper-bound edge case:
+// a wheel-up tick at the top is a no-op (scroll never goes
+// negative) so the rendered rows stay the same as the initial view.
+func TestHelp_WheelUpClampsAtTop(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4
+	first := testutil.StripStyle(h.View(w, hgt))
+
+	_, cmd := h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	require.Nil(t, cmd)
+
+	again := testutil.StripStyle(h.View(w, hgt))
+	require.Equal(t, first, again,
+		"wheel-up at scroll=0 must clamp — visible rows unchanged")
+}
+
+// TestHelp_WheelDownClampsAtBottom covers the lower-bound edge
+// case: many wheel-down ticks past the last row must still leave
+// at least one visible row (the View clamps scroll to maxScroll).
+func TestHelp_WheelDownClampsAtBottom(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4
+	for range 100 {
+		_, _ = h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	}
+
+	out := testutil.StripStyle(h.View(w, hgt))
+	require.NotEmpty(t, out,
+		"runaway wheel-down must still leave visible content — scroll clamps")
+	// Sanity: one more wheel-up scrolls back, proving scroll is not
+	// stranded past the maximum.
+	_, _ = h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	require.NotEqual(t, out, testutil.StripStyle(h.View(w, hgt)),
+		"after clamp, wheel-up still produces a visible change")
+}
+
+// TestHelp_WheelDoesNotEmitHelpClosed pins the modal-close contract:
+// every keystroke dismisses the help, but wheel ticks must NOT —
+// otherwise the user can never scroll, the first wheel event would
+// close the overlay.
+func TestHelp_WheelDoesNotEmitHelpClosed(t *testing.T) {
+	t.Parallel()
+	h := New(sampleOpts(t))
+	for _, button := range []tea.MouseButton{tea.MouseWheelUp, tea.MouseWheelDown} {
+		_, cmd := h.Update(tea.MouseWheelMsg{Button: button})
+		require.Nil(t, cmd, "wheel must NEVER emit HelpClosedMsg (button=%v)", button)
+	}
+}
+
 func TestHelp_NoTenantsDropsNumericBlock(t *testing.T) {
 	t.Parallel()
 	opts := sampleOpts(t)
