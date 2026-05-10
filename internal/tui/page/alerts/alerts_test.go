@@ -251,6 +251,77 @@ func TestPage_FilterCancelRestoresPreFilter(t *testing.T) {
 	require.Equal(t, "disk", p.filter)
 }
 
+// TestPage_FilterSearchModesAutodetect pins the four search-mode
+// branches as observed end-to-end through the prompt-submitted
+// path. The classifier and the matcher live in the footer package
+// (see searchmode.go / matcher.go); this test asserts the page
+// actually plumbs the buffer through them, not that it falls back
+// to plain substring on every input.
+//
+// Fixture: three alerts whose alertnames cover the matcher
+// distinctions — "HighCPU" carries the runes for a fuzzy hit;
+// "web.api" is the canonical single-dot-stays-substring case;
+// "DiskFull" rounds out the mix. The fixture is read end-to-end
+// through Update so a future tweak to the live-filter pipeline
+// is caught here, not just in matcher_test.go.
+func TestPage_FilterSearchModesAutodetect(t *testing.T) {
+	t.Parallel()
+
+	alerts := []backend.Alert{
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		mkAlert("web.api", "warning", backend.AlertStateActive),
+		mkAlert("DiskFull", "info", backend.AlertStateActive),
+	}
+
+	cases := []struct {
+		name      string
+		filter    string
+		wantNames []string
+	}{
+		{
+			name:      "tilde prefix flips to fuzzy (subsequence h-g-c-p-u hits HighCPU)",
+			filter:    "~hgcpu",
+			wantNames: []string{"HighCPU"},
+		},
+		{
+			name: "backslash prefix forces literal substring " +
+				"(web.api stays a literal needle, not a regex any-char)",
+			filter:    `\web.api`,
+			wantNames: []string{"web.api"},
+		},
+		{
+			name: "single dot stays substring " +
+				"(web.api matches the literal dotted name)",
+			filter:    "web.api",
+			wantNames: []string{"web.api"},
+		},
+		{
+			name: "two distinct metas flip to regex " +
+				"(.*api pattern matches web.api but not HighCPU/DiskFull)",
+			filter:    ".*api",
+			wantNames: []string{"web.api"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPage(t)
+			_, _ = p.Update(poll.DataMsg{Resource: alerts})
+			_, _ = p.Update(footer.PromptSubmittedMsg{
+				Mode: footer.PromptFilter, Value: tc.filter,
+			})
+			got := make([]string, 0, len(p.view))
+			for _, e := range p.view {
+				got = append(got, e.a.Labels["alertname"])
+			}
+			require.ElementsMatch(t, tc.wantNames, got,
+				"filter %q must autodetect its mode and match the documented set",
+				tc.filter)
+		})
+	}
+}
+
 func TestPage_VimMotionsMoveCursor(t *testing.T) {
 	t.Parallel()
 

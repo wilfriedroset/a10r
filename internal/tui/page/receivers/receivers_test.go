@@ -254,3 +254,42 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	require.Empty(t, p.filter)
 	require.Len(t, p.view, 3)
 }
+
+// TestPage_FilterSearchModesAutodetect pins the receivers page's
+// wiring of footer.NewMatcher. Same buffer-mode contract as the
+// other list pages — see alerts_test.go for the per-mode rationale.
+// Receivers carry only a Name; matching runs against the lower-cased
+// name, so the fixture picks names that don't share fuzzy
+// subsequences across rows.
+func TestPage_FilterSearchModesAutodetect(t *testing.T) {
+	t.Parallel()
+
+	receivers := []backend.Receiver{
+		{Name: "highcpu"},
+		{Name: "web.api"},
+		{Name: "diskfull"},
+	}
+
+	cases := []struct {
+		name      string
+		filter    string
+		wantNames []string
+	}{
+		{"tilde flips to fuzzy", "~hgp", []string{"highcpu"}},
+		{"backslash forces literal", `\web.api`, []string{"web.api"}},
+		{"single dot stays substring", "web.api", []string{"web.api"}},
+		{"two metas flip to regex", ".*api", []string{"web.api"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(testutil.LoadStyles(t))
+			_, _ = p.Update(poll.DataMsg{Resource: receivers})
+			_, _ = p.Update(footer.PromptSubmittedMsg{
+				Mode: footer.PromptFilter, Value: tc.filter,
+			})
+			require.ElementsMatch(t, tc.wantNames, p.view)
+		})
+	}
+}

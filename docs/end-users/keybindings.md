@@ -8,7 +8,7 @@
 | --- | --- |
 | `?` | Help overlay for the current view. |
 | `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q`, etc. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
-| `/` | Filter prompt — substring or matcher token over the visible rows. |
+| `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
 | `Esc` | Dismiss prompt / modal first; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
 | `Ctrl+C` | Hard quit, no confirm. |
@@ -19,6 +19,30 @@
 | `1` … `9` | Scope: nth tenant in `backends:` config order. |
 
 The numeric keys (`0`-`9`) work from any page. Pressing `2` on the alerts list immediately rescopes the title to `alerts(<2nd-tenant>)[N]` and drops out-of-scope rows.
+
+## Filter modes
+
+The `/` prompt classifies its input into one of four matcher modes — there is no "switch the mode" key, the buffer itself decides:
+
+| Buffer | Mode | When |
+| --- | --- | --- |
+| `~<text>` | fuzzy | Leading `~`. The `~` is stripped before matching; the rest is fed to a fuzzy matcher. |
+| `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`). |
+| `<text>` with two or more distinct regex metacharacters from `. * + ? [ ] ( ) \| ^ $ \` | regex | The body is compiled as a Go regular expression. |
+| anything else | substring | Default — case-insensitive substring over the row's full search corpus (see below). |
+
+The two-meta threshold is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
+
+### What `/` actually matches against
+
+The match scope is wider than the visible columns by design — operators want to filter by attributes that aren't always in the table:
+
+- **Alerts list:** every label value (`alertname`, `severity`, `instance`, `cluster`, …) AND every annotation value (`summary`, `description`, runbook URLs). A `/api` search on the alerts page can therefore hit an alert whose `summary` annotation reads "API latency above SLO" even though the alertname is `HighLatency`. Fuzzy mode (`~`) over this corpus is intentionally lenient — it's how you discover an alert when you only remember a fragment of a label nobody put in the name.
+- **Silences list:** silence ID, creator, comment, state, and every matcher's `name`/`value`.
+- **Groups list:** the group's collapsed label set plus the alertname of each leaf.
+- **Receivers list:** receiver name (single-axis).
+
+If a fuzzy/substring search surfaces matches that look unrelated to the alertname, the hit is almost always an annotation or a non-name label. Use literal mode (`\<text>`) for exact substring matching with no escaping, or regex mode (e.g. `^web` — note the alerts page's composite is unordered so anchors won't reliably pin "alertname only"). Narrowing the default scope to alertname-only is on the backlog for a future release.
 
 ## Vim motions on every table
 

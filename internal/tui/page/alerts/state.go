@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
@@ -135,23 +136,25 @@ func (p *Page) cycleStateFilter() {
 }
 
 // filterEntries returns a new slice containing only entries
-// whose Alert matches both the substring and state filters.
-// Substring is matched case-insensitively against label and
-// annotation values.
-func filterEntries(in []alertEntry, substr, state string) []alertEntry {
-	if substr == "" && state == "" {
+// whose Alert matches both the search and state filters. The
+// search string runs through footer.NewMatcher so a leading `~`
+// flips to fuzzy, a leading `\` to literal substring, and a body
+// with two distinct regex metas to compiled regex — matching the
+// keybindings.md /-prompt contract.
+func filterEntries(in []alertEntry, search, state string) []alertEntry {
+	matcher := footer.NewMatcher(search)
+	if matcher.MatchAll() && state == "" {
 		// Caller's `flat` slice is local to recompute and assigned
 		// straight to p.view; sharing the backing avoids an O(N)
 		// copy that fires every poll tick.
 		return in
 	}
-	needle := strings.ToLower(substr)
 	out := make([]alertEntry, 0, len(in))
 	for _, e := range in {
 		if state != "" && string(e.a.State) != state {
 			continue
 		}
-		if substr != "" && !strings.Contains(e.lowerComposite, needle) {
+		if !matcher.MatchAll() && !matcher.Match(e.lowerComposite) {
 			continue
 		}
 		out = append(out, e)

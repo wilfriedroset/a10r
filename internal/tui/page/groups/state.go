@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
@@ -177,10 +178,10 @@ func (p *Page) rows() []row {
 	if p.cachedRows != nil {
 		return p.cachedRows
 	}
-	q := strings.ToLower(p.filter)
+	matcher := footer.NewMatcher(p.filter)
 	out := make([]row, 0, len(p.flat))
 	for gi, e := range p.flat {
-		if q != "" && !strings.Contains(e.lowerSummary, q) {
+		if !matcher.MatchAll() && !matcher.Match(e.lowerSummary) {
 			continue
 		}
 		out = append(out, row{groupIdx: gi, alertIdx: -1})
@@ -200,17 +201,17 @@ func (p *Page) rows() []row {
 // recompute to avoid re-running strings.ToLower(labelSummary())
 // on every call.
 func (p *Page) visibleGroups() []backend.AlertGroup {
-	if p.filter == "" {
+	matcher := footer.NewMatcher(p.filter)
+	if matcher.MatchAll() {
 		out := make([]backend.AlertGroup, len(p.flat))
 		for i, e := range p.flat {
 			out[i] = e.g
 		}
 		return out
 	}
-	q := strings.ToLower(p.filter)
 	out := make([]backend.AlertGroup, 0, len(p.flat))
 	for _, e := range p.flat {
-		if strings.Contains(e.lowerSummary, q) {
+		if matcher.Match(e.lowerSummary) {
 			out = append(out, e.g)
 		}
 	}

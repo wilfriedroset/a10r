@@ -757,3 +757,50 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	require.Empty(t, p.filter)
 	require.Equal(t, "groups(all)[2]", p.Title())
 }
+
+// TestPage_FilterSearchModesAutodetect pins the groups page's
+// wiring of footer.NewMatcher. Same buffer-mode contract as the
+// alerts / silences pages — see alerts_test.go for the per-mode
+// rationale. Asserted against visibleGroups (the matcher feeds
+// rows() and visibleGroups identically) so a regression on either
+// path lights up here.
+func TestPage_FilterSearchModesAutodetect(t *testing.T) {
+	t.Parallel()
+
+	// Three groups whose label-summary tokens cover the matcher
+	// modes without sharing characters that would create fuzzy
+	// false-positives across rows.
+	groups := []backend.AlertGroup{
+		{Labels: map[string]string{"team": "platform"}},
+		{Labels: map[string]string{"team": "web.api"}},
+		{Labels: map[string]string{"team": "diskfull"}},
+	}
+
+	cases := []struct {
+		name      string
+		filter    string
+		wantTeams []string
+	}{
+		{"tilde flips to fuzzy", "~plt", []string{"platform"}},
+		{"backslash forces literal", `\web.api`, []string{"web.api"}},
+		{"single dot stays substring", "web.api", []string{"web.api"}},
+		{"two metas flip to regex", ".*api", []string{"web.api"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Styles: testutil.LoadStyles(t)})
+			_, _ = p.Update(poll.DataMsg{Resource: groups})
+			_, _ = p.Update(footer.PromptSubmittedMsg{
+				Mode: footer.PromptFilter, Value: tc.filter,
+			})
+			vis := p.visibleGroups()
+			got := make([]string, 0, len(vis))
+			for _, g := range vis {
+				got = append(got, g.Labels["team"])
+			}
+			require.ElementsMatch(t, tc.wantTeams, got)
+		})
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
@@ -105,18 +106,20 @@ func (p *Page) recomputeScroll() {
 }
 
 // filterSilences returns a fresh slice with the entries whose
-// lower-cased composite (built at recompute) contains the
-// lowercased query as a substring. Empty filter returns the input
-// unchanged. The case-fold work runs once per ingest, not once per
-// keystroke per entry.
+// lower-cased composite (built at recompute) matches the query —
+// matching mode (substring / fuzzy / literal / regex) is auto-
+// detected by footer.NewMatcher per the keybindings.md contract.
+// Empty query short-circuits to the input. The case-fold work
+// runs once per ingest (composite cache) and once per recompute
+// (matcher needle), not once per keystroke per entry.
 func filterSilences(in []silenceEntry, query string) []silenceEntry {
-	if query == "" {
+	matcher := footer.NewMatcher(query)
+	if matcher.MatchAll() {
 		return in
 	}
-	q := strings.ToLower(query)
 	out := make([]silenceEntry, 0, len(in))
 	for _, e := range in {
-		if strings.Contains(e.lowerComposite, q) {
+		if matcher.Match(e.lowerComposite) {
 			out = append(out, e)
 		}
 	}

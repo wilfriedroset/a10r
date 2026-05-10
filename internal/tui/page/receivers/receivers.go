@@ -280,16 +280,17 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 // recompute rebuilds the filtered view from byTenant + p.scope +
 // p.filter and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
-// the user's toggle.
+// the user's toggle. The /-prompt filter is auto-classified
+// (substring / fuzzy / literal / regex) by footer.NewMatcher.
 func (p *Page) recompute() {
 	scoped := p.unionScoped()
-	if p.filter == "" {
+	matcher := footer.NewMatcher(p.filter)
+	if matcher.MatchAll() {
 		p.view = scoped
 	} else {
-		q := strings.ToLower(p.filter)
 		p.view = p.view[:0]
 		for _, name := range scoped {
-			if strings.Contains(strings.ToLower(name), q) {
+			if matcher.Match(strings.ToLower(name)) {
 				p.view = append(p.view, name)
 			}
 		}
