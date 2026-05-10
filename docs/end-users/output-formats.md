@@ -14,6 +14,20 @@ When `--output` is unset, a10r picks `table` if stdout is a
 terminal and `json` if it is a pipe — so `a10r alerts list | jq`
 "just works" without an explicit flag.
 
+## Pager
+
+When `--output=table` (the default on a TTY) renders to a
+terminal, the output is piped through `$PAGER` (falling back to
+`less -FRX` when unset). The `-FRX` flags mean less quits if the
+output fits on one screen, passes ANSI colour through, and does
+not switch to the alternate screen — so the rendered output
+stays visible after the pager exits, k9s-style.
+
+Pass `--no-pager` to disable the wrapper. The pager is also
+disabled automatically for `--output=json|yaml` (you almost
+always pipe those into a downstream tool) and when stdout is not
+a terminal.
+
 ## Stability
 
 > **Pre-v1 disclaimer:** the structural shape of `--output=json`

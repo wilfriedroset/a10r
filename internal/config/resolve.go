@@ -47,6 +47,13 @@ type CLIFlags struct {
 	Tenant       string
 	PollInterval time.Duration
 	Theme        string
+	// NoPager, when true, disables the pager subprocess that
+	// otherwise wraps `--output=table` rendering on a TTY. CLI-only
+	// (no env / file equivalent — pager preference is per-invocation
+	// terminal context, not durable config). Same K1 exemption as
+	// DebugHTTP below.
+	NoPager bool
+
 	// DebugHTTP enables transport.WithDebugLog wrapping per backend
 	// (ADR 0008). Implies Debug log level — the wrapper emits at
 	// LevelDebug, so without it the lines never reach disk. The two

@@ -82,8 +82,17 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 	results := doctor.Run(ctx, cfg.Backends, clients, checkers)
 	results = append(buildFailures, results...)
 
-	resolved := output.Resolve(format, isStdoutTerminal(out))
-	if err := renderDoctor(out, results, resolved); err != nil {
+	tty := isStdoutTerminal(out)
+	resolved := output.Resolve(format, tty)
+	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
+	if err != nil {
+		return err
+	}
+	if err := renderDoctor(pager, results, resolved); err != nil {
+		_ = pager.Close()
+		return err
+	}
+	if err := pager.Close(); err != nil {
 		return err
 	}
 	return doctorExitFromResults(cfg.Backends, results)

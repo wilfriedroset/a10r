@@ -71,6 +71,8 @@ Run with no subcommand to launch the TUI.`,
 		"set log level to warn (silences info)")
 	f.BoolVar(&flags.DebugHTTP, "debug-http", false,
 		"log every HTTP request/response with redacted credentials (implies --debug)")
+	f.BoolVar(&flags.NoPager, "no-pager", false,
+		"disable the pager wrapper around --output=table on a TTY")
 	f.BoolVar(&flags.ReadOnly, "read-only", false,
 		"force read-only mode across the session (no silence create/update/expire)")
 	f.StringVar(&flags.Tenant, "tenant", "",
