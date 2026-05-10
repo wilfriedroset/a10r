@@ -4,6 +4,7 @@ package backend
 
 import (
 	"context"
+	"time"
 
 	"github.com/wilfriedroset/a10r/internal/config"
 )
@@ -93,4 +94,15 @@ type Prober interface {
 	// callers should not assume a specific error type beyond
 	// "the backend is not currently serving".
 	ProbeReady(ctx context.Context) error
+
+	// ProbeReadyAt issues GET /api/v2/status and returns the parsed
+	// `Date` header as the server's view of "now". The doctor
+	// clock-skew check compares the returned time against the local
+	// clock; >30s drift in either direction warns.
+	//
+	// Missing or unparseable Date header surfaces as ErrNoDateHeader
+	// so the caller can render a Skipped row rather than a Warning.
+	// Transport / non-2xx failures surface through the same wrapped
+	// error contract as ProbeReady.
+	ProbeReadyAt(ctx context.Context) (time.Time, error)
 }

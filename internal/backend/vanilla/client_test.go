@@ -588,6 +588,68 @@ func TestClient_AllowsSameHostRedirect(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+// TestClient_ProbeReadyAt_ParsesDateHeader pins the happy path for
+// the clock-skew probe: the server's `Date` response header parses
+// back into a time.Time within seconds of the configured value.
+func TestClient_ProbeReadyAt_ParsesDateHeader(t *testing.T) {
+	t.Parallel()
+
+	want := time.Date(2026, 5, 10, 12, 30, 45, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Date", want.Format(http.TimeFormat))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	got, err := c.ProbeReadyAt(t.Context())
+	require.NoError(t, err)
+	require.True(t, got.Equal(want), "expected %s, got %s", want, got)
+}
+
+// TestClient_ProbeReadyAt_MissingDateHeader pins ErrNoDateHeader
+// when the server response carries no Date header. The doctor
+// clock-skew check converts this into a Skipped row.
+func TestClient_ProbeReadyAt_MissingDateHeader(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Wipe the Date header net/http injects automatically, then
+		// emit a clean 200. With Date stripped, ProbeReadyAt must
+		// return ErrNoDateHeader.
+		w.Header()["Date"] = nil
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, err := c.ProbeReadyAt(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrNoDateHeader)
+}
+
+// TestClient_ProbeReadyAt_TransportError surfaces a non-2xx
+// response as a wrapped backend error rather than ErrNoDateHeader.
+// 401 here represents a backend that auths the status endpoint —
+// the operator should see the auth failure, not a misleading
+// "Date header missing" diagnosis.
+func TestClient_ProbeReadyAt_TransportError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, err := c.ProbeReadyAt(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrUnauthorized)
+	require.NotErrorIs(t, err, backend.ErrNoDateHeader)
+}
+
 func TestClient_Capabilities_PassThrough(t *testing.T) {
 	t.Parallel()
 

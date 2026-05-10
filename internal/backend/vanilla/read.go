@@ -114,3 +114,38 @@ func (c *Client) ProbeReady(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ProbeReadyAt implements backend.Prober. Issues GET against
+// /api/v2/status and returns the parsed `Date` response header as
+// the server's view of "now". The doctor clock-skew check compares
+// the returned timestamp against the local clock.
+//
+// Status (rather than /-/ready) is the target because /-/ready is
+// often configured behind a load-balancer that strips response
+// headers, while /api/v2/status traverses the full Alertmanager
+// stack. Either would work in principle; status is the safer pick.
+//
+// A missing or unparseable Date header returns ErrNoDateHeader
+// (the connection succeeded, the server simply did not advertise
+// the timestamp). Other transport / 4xx / 5xx failures surface
+// through the same wrapped contract as the other reads.
+func (c *Client) ProbeReadyAt(ctx context.Context) (time.Time, error) {
+	endpoint := c.urlFor("/status", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("probe ready at: build request: %w", err)
+	}
+	hdr, err := c.execHeaders(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("probe ready at: %w", err)
+	}
+	raw := hdr.Get("Date")
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("probe ready at: %w", backend.ErrNoDateHeader)
+	}
+	t, err := http.ParseTime(raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("probe ready at: %w: %w", backend.ErrNoDateHeader, err)
+	}
+	return t, nil
+}

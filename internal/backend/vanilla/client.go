@@ -259,6 +259,32 @@ func (c *Client) exec(req *http.Request, dst any) error {
 	return nil
 }
 
+// execHeaders runs a built request through the same do -> classify
+// pipeline as exec but returns the response headers (with the body
+// drained) instead of decoding JSON. Used by ProbeReadyAt to read
+// the server's `Date` header without forcing every reader to grow
+// a JSON-vs-headers branch in their decoder path.
+//
+// The body is drained so http.Transport can return the connection
+// to its idle pool, mirroring exec's contract.
+func (c *Client) execHeaders(req *http.Request) (http.Header, error) {
+	// gosec G107: the URL is built by ProbeReadyAt from c.urlFor,
+	// which composes the package's validated BaseURL with a fixed
+	// path — there is no user-controlled URL component on this
+	// codepath. Same pattern as exec() above.
+	resp, err := c.http.Do(req) //nolint:gosec // URL composed from validated BaseURL + fixed path
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if err := classifyStatus(resp); err != nil {
+		return nil, err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.Header, nil
+}
+
 // classifyStatus maps an HTTP status code to a backend sentinel or a
 // transient error. Returns nil for 2xx. For 4xx codes that aren't
 // 401/403/429 the body is read so the user sees the server's

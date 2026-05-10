@@ -25,6 +25,13 @@ var (
 	// all (connection refused, DNS failure, transport timeout). This
 	// is the only sentinel that is implicitly Retryable.
 	ErrUnreachable = errors.New("backend unreachable")
+
+	// ErrNoDateHeader is returned by Prober.ProbeReadyAt when the
+	// response carries no `Date` header (or the header value fails
+	// to parse). The doctor clock-skew check converts this into a
+	// Skipped row — the absence of a server timestamp is not a
+	// warning, just an observation that the check cannot run.
+	ErrNoDateHeader = errors.New("response has no parseable Date header")
 )
 
 // Retryabler is the duck-typed interface a concrete error may
