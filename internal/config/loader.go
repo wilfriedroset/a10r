@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -70,6 +71,27 @@ func loadWithEnv(
 	}
 	path := filepath.Join(dir, file)
 
+	cfg, err := loadOneFile(path, env)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := mergeDropIns(cfg, filepath.Join(dir, configDropInDir), path, env); err != nil {
+		return nil, err
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config %q: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// loadOneFile reads, env-interpolates, and strict-decodes the base
+// config file into a Config. It surfaces ErrNotFound when the file is
+// missing so the wizard caller can branch. Drop-in fragments under
+// config.d/ go through loadDropIn instead — their empty-file and
+// not-found semantics differ.
+func loadOneFile(path string, env func(string) string) (*Config, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -87,8 +109,77 @@ func loadWithEnv(
 	if err != nil {
 		return nil, fmt.Errorf("parse config %q: %w", path, err)
 	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("validate config %q: %w", path, err)
+	return cfg, nil
+}
+
+// mergeDropIns folds every *.yaml / *.yml under dropInDir onto base,
+// in lexical order. Each fragment is read, env-interpolated, and
+// strict-decoded with the same discipline as the base file so a
+// typo in a snippet surfaces at startup rather than producing a
+// silently-wrong config. Backends are tracked across fragments so
+// the duplicate-name error can name BOTH source files.
+//
+// A missing config.d/ is a no-op: operators who do not curate
+// drop-ins pay nothing. Empty / comment-only fragments are also
+// skipped — operators stage placeholder snippets via configuration
+// management and they should not crash startup before being filled in.
+func mergeDropIns(base *Config, dropInDir, basePath string, env func(string) string) error {
+	paths, err := discoverDropIns(dropInDir)
+	if err != nil {
+		return fmt.Errorf("discover drop-ins: %w", err)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	backendSource := make(map[string]string, len(base.Backends)+len(paths))
+	for i := range base.Backends {
+		backendSource[base.Backends[i].Name] = basePath
+	}
+
+	for _, p := range paths {
+		overlay, err := loadDropIn(p, env)
+		if err != nil {
+			return err
+		}
+		if err := mergeInto(base, overlay, p, backendSource); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadDropIn reads, env-interpolates, and strict-decodes a single
+// drop-in fragment. Empty / comment-only fragments resolve to a
+// zero-value *Config rather than nil — that lets the caller skip a
+// nil-check and the zero overlay merges as a no-op (no backends,
+// no scalar overrides) by construction.
+//
+// The base load uses loadOneFile instead because the missing-file and
+// empty-file semantics differ: the base file's ErrNotFound branches
+// to the wizard, and an empty base file is still a hard parse error
+// to preserve the strict-mode contract documented on TestLoad_*.
+func loadDropIn(path string, env func(string) string) (*Config, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read drop-in %q: %w", path, err)
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return &Config{}, nil
+	}
+	interpolated, err := interpolateBytes(raw, env)
+	if err != nil {
+		return nil, fmt.Errorf("env interpolation in %q: %w", path, err)
+	}
+	cfg, err := decodeStrict(interpolated)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			// Comment-only fragments survive the TrimSpace check above
+			// (the comments are non-whitespace bytes) but the decoder
+			// produces no document — treat the same as empty.
+			return &Config{}, nil
+		}
+		return nil, fmt.Errorf("parse drop-in %q: %w", path, err)
 	}
 	return cfg, nil
 }

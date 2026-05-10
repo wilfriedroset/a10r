@@ -172,6 +172,46 @@ A user skin with the same basename as a bundled skin shadows the
 bundled one; a10r prints a warning so the override isn't a
 silent surprise.
 
+## Drop-in fragments (`config.d/`)
+
+Anything you can put in `a10r.yaml` you can also stage as a fragment
+under `<config-dir>/config.d/`. At startup a10r walks that directory
+recursively, loads every `*.yaml` / `*.yml` file in lexical order, and
+folds each onto the base config. Symlinks are followed for both files
+and directories so an ops team can keep shared snippets under
+`/etc/a10r/snippets/` and link them in via configuration management.
+
+```text
+~/.config/a10r/
+  a10r.yaml             # base, hand-edited
+  config.d/
+    10-prod.yaml        # tenant snippet, shipped by config-mgmt
+    20-staging.yaml
+    site/
+      30-overrides.yaml # nested directories are walked recursively
+```
+
+Merge rules:
+
+- **Backends** are appended. A duplicate `name` across the base file
+  and any drop-in (or across two drop-ins) is **fail-closed**: a10r
+  refuses to start and the error names both source files so the
+  operator can find the conflict in one edit.
+- **Scalar fields** (`defaults.*`, `theme.*`, `log.*`,
+  `pages.<name>.poll_interval`) are last-key-wins. A drop-in only
+  overrides the fields it sets — unrelated fields from the base
+  survive untouched, so you can ship a snippet that only tweaks
+  `defaults.poll_interval` without erasing `defaults.log_format`.
+- **Order** is base file first, then drop-ins in lexical order of
+  their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
+  ordering, the same convention as systemd `*.d/` overrides.
+- Each fragment is parsed in **strict mode** with the same discipline
+  as the base file — a typo in a snippet surfaces at startup.
+- Empty / comment-only fragments are skipped, so a placeholder
+  snippet does not crash startup before being filled in.
+- A missing `config.d/` is fine: operators who do not curate
+  drop-ins pay nothing.
+
 ## Aliases
 
 Drop a `<config-dir>/aliases.yaml` next to `a10r.yaml` to register
