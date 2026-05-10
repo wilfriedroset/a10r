@@ -2150,6 +2150,68 @@ func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
 }
 
+// TestPage_FlexColumnExpandsOnWideTerminal locks in the B5
+// contract: ALERTNAME is the unbounded flex column, so when the
+// terminal has cells to spare every leftover cell goes there
+// rather than being parked as dead padding. Compare two widths
+// against the same dataset; the wider terminal must give the
+// alertname column more cells.
+func TestPage_FlexColumnExpandsOnWideTerminal(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("Short", "critical", backend.AlertStateActive),
+	}})
+
+	narrow := p.columnWidths(80)
+	wide := p.columnWidths(200)
+	require.Greater(t, wide[1], narrow[1],
+		"flex column must absorb extra terminal width — that's why labels are unbounded")
+}
+
+// TestPage_FlexColumnEllipsizesNarrowTerminal locks the B5
+// contract from the other side: when the terminal is narrow
+// enough that an alertname cannot fit, padColumns must emit the
+// `…` suffix rather than slicing the label silently.
+func TestPage_FlexColumnEllipsizesNarrowTerminal(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	long := strings.Repeat("HighCPULongAlertname", 4) // 80 cells of label
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert(long, "critical", backend.AlertStateActive),
+	}})
+
+	out := testutil.StripStyle(p.View(60, 5))
+	require.Contains(t, out, "…",
+		"narrow terminal must ellipsize the alertname column with the U+2026 suffix")
+	for line := range strings.SplitSeq(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 60,
+			"every rendered line must fit inside the terminal width")
+	}
+}
+
+// TestPage_RowFitsTerminalAtBizarrelyNarrowWidth covers the
+// extreme edge: a terminal narrower than the sum of the column
+// minimums must still emit a row no wider than the terminal —
+// the allocator pro-rata shrinks the floors rather than letting
+// the table overflow.
+func TestPage_RowFitsTerminalAtBizarrelyNarrowWidth(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+	}})
+
+	out := testutil.StripStyle(p.View(20, 5))
+	for line := range strings.SplitSeq(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(line), 20,
+			"line must not overflow even when total < sum(min); allocator shrinks floors pro-rata")
+	}
+}
+
 // TestPage_InitialStateFilterPreseedsTCycle covers the QA-driven
 // fix for G3 user aliases: a `:alerts --state suppressed` (typed at
 // the prompt or via an alias's expanded value) lands the page on a

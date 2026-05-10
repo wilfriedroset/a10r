@@ -148,6 +148,13 @@ func (p *Page) renderRows(width, maxRows int) string {
 	end := min(p.topRow+maxRows, len(p.view))
 
 	showTenant := p.showTenantColumn()
+	// Compute column widths once per frame: the spec builder walks
+	// the full view to measure max content widths, and re-running
+	// it per row would turn the render into O(rows²) under a
+	// storm. The header renderer makes its own call (one per
+	// frame, not per row) so the cost lands once on the outer loop
+	// either way.
+	cols := p.columnWidths(width)
 	var b strings.Builder
 	// Reserve enough capacity for the visible page (rows × width)
 	// plus per-row styling overhead so the Builder doesn't realloc
@@ -203,7 +210,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// treatment k9s gives "Completed" pods. Marked beats
 		// dimmed on purpose: marked is an explicit user action,
 		// suppression is ambient state.
-		line := format.PadRight(prefix+mark+" "+p.padColumns(row, width), width)
+		line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 		switch {
 		case i == p.cursor:
 			// k9s parity: cursor bg tracks the row's semantic
@@ -232,48 +239,160 @@ func (p *Page) renderRows(width, maxRows int) string {
 // spaces so the column titles line up with the data columns.
 const rowPrefixCols = 4
 
-// padColumns lays out the row's columns at fixed widths with one
-// flex column for the alertname. The leading TENANT column is
-// optional — added when scope spans multiple backends and parts
-// has 5 entries instead of 4. AGE is widened in absolute mode so
-// the ISO local timestamp ("2026-05-01 13:45:00", 19 cols) fits
-// without truncation per Q7.4.
-func (p *Page) padColumns(parts []string, width int) string {
-	cols := p.columnWidths(width)
+// flexUnbounded is the Content sentinel for the alertname column
+// in columnSpecs. Using a finite-but-huge value (rather than
+// math.MaxInt) keeps the allocator's integer math honest while
+// guaranteeing no realistic terminal width can reach the cap —
+// 1 << 16 covers a 65k-cell-wide terminal, well past any current
+// hardware. Picked over MaxInt to avoid edge cases in the
+// proportional-shrink path multiplying widths by total budget.
+const flexUnbounded = 1 << 16
+
+// padColumns lays out the row's columns at pre-computed cols
+// widths. The leading TENANT column is optional — added when
+// scope spans multiple backends and parts has 5 entries instead
+// of 4. The alertname column is the flex slot: when its assigned
+// width is narrower than the label, the cell is ellipsized with
+// format.EllipsizeSuffix so the truncation reads as intentional
+// ("…") rather than as a silent slice. Other columns fall back to
+// PadRight (which truncates on overflow without an ellipsis) —
+// those columns rarely exceed their floor in practice and the
+// ellipsis on a 1-cell shortfall would steal the only remaining
+// content cell.
+//
+// cols comes from columnWidths and is computed once per View() so
+// the row loop runs in O(rows) rather than O(rows²) — the spec
+// builder walks the whole view to measure max content widths,
+// and re-running it per row would scale badly under a storm.
+func (p *Page) padColumns(parts []string, cols []int) string {
+	flexIdx := p.flexColumnIndex()
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {
 			break
+		}
+		if i == flexIdx {
+			b.WriteString(format.PadRight(format.Ellipsize(v, cols[i]), cols[i]))
+			continue
 		}
 		b.WriteString(format.PadRight(v, cols[i]))
 	}
 	return b.String()
 }
 
-// columnWidths returns the per-column widths (TENANT optional,
-// then SEVERITY, ALERTNAME flex, STATE, AGE). Extracted so the
-// header renderer can pad each label to its own column width
-// before applying per-cell styling — padColumns concatenates the
-// raw padded strings, but per-cell styling needs each cell's
-// width separately.
-func (p *Page) columnWidths(width int) []int {
-	tenantCol := 0
+// flexColumnIndex returns the position of the alertname column in
+// the rendered row. When the TENANT column is hidden the flex
+// column sits at index 1 (after SEVERITY); when shown, at index 2.
+// Centralised so padColumns and any future per-cell styler agree
+// on which column is the unbounded one.
+func (p *Page) flexColumnIndex() int {
 	if p.showTenantColumn() {
-		tenantCol = 16
+		return 2
 	}
-	const sevCol, stateCol = 12, 14
-	ageCol := 12
-	if p.timeFormat == app.TimeFormatAbsolute {
-		ageCol = 20
-	}
-	flex := max(width-tenantCol-sevCol-stateCol-ageCol-rowPrefixCols, 10)
+	return 1
+}
 
-	cols := make([]int, 0, 5)
-	if tenantCol > 0 {
-		cols = append(cols, tenantCol)
+// columnWidths returns the per-column widths (TENANT optional,
+// then SEVERITY, ALERTNAME flex, STATE, AGE) by measuring the
+// active dataset and handing the result to the duf-style
+// distributor in package format. ALERTNAME is the unbounded
+// (weight=1) flex column; the rest are weight=0 fixed columns
+// that never grow past max(min, content). Per-row content widths
+// come from the filtered+sorted view so the layout reacts to the
+// data the user is actually looking at — long alertnames trigger
+// a wider flex column on a wide terminal and ellipsize on a
+// narrow one rather than burning fixed cells.
+//
+// Header labels participate in the content measurement so the
+// title row never gets clipped below its own glyph count (e.g.
+// "ALERTNAME" is wider than a 3-char alertname).
+func (p *Page) columnWidths(width int) []int {
+	specs := p.columnSpecs()
+	// Subtract the row prefix from total before distributing — the
+	// allocator's contract is "fits in N cells", not "fits in N
+	// minus chrome". Centralising the chrome subtraction here keeps
+	// the spec construction pure and easy to test.
+	budget := max(0, width-rowPrefixCols)
+	return format.Distribute(specs, budget, 0)
+}
+
+// columnSpecs builds the per-column Spec slice the distributor
+// consumes. Centralised so the header renderer, the row renderer,
+// and tests share one source of truth on which columns exist and
+// how they flex.
+func (p *Page) columnSpecs() []format.Column {
+	const (
+		// SEVERITY values: severity labels are short ("critical",
+		// "warning", "info"); 12 keeps the column readable at the
+		// minimum and matches the previous fixed width so existing
+		// snapshots don't shift on the happy path.
+		sevMin   = 12
+		stateMin = 14
+		// AGE: relative ("5m ago") fits in 12; the absolute-time
+		// formatter renders 19 cells ("2026-05-01 13:45:00") plus a
+		// breathing space — the column floor lifts to 20 in that
+		// mode so the timestamp never overflows.
+		ageRelMin = 12
+		ageAbsMin = 20
+		// ALERTNAME floor: 10 cells preserves the prior "tiny but
+		// scannable" minimum on bizarrely narrow terminals.
+		alertNameMin = 10
+		// TENANT default floor matches the prior fixed width so
+		// existing scopes keep their layout.
+		tenantMin = 16
+	)
+	ageMin := ageRelMin
+	if p.timeFormat == app.TimeFormatAbsolute {
+		ageMin = ageAbsMin
 	}
-	cols = append(cols, sevCol, flex, stateCol, ageCol)
-	return cols
+
+	// Measure max content width per column from the live dataset.
+	// Header labels are included so a column never collapses under
+	// its own title. ALERTNAME is intentionally absent — its
+	// Content is the flexUnbounded sentinel, so the per-row max
+	// would never beat the cap and walking it every frame is dead
+	// work for nothing.
+	var (
+		tenantContent = lipgloss.Width("TENANT")
+		sevContent    = lipgloss.Width("SEVERITY")
+		stateContent  = lipgloss.Width("STATE")
+		ageContent    = lipgloss.Width("AGE")
+	)
+	for _, e := range p.view {
+		if w := lipgloss.Width(e.tenant); w > tenantContent {
+			tenantContent = w
+		}
+		if w := lipgloss.Width(severityOf(e.a)); w > sevContent {
+			sevContent = w
+		}
+		if w := lipgloss.Width(string(e.a.State)); w > stateContent {
+			stateContent = w
+		}
+	}
+	// AGE content width is bounded by the active formatter — the
+	// minimum already covers the worst-case glyph count.
+	if ageMin > ageContent {
+		ageContent = ageMin
+	}
+
+	specs := make([]format.Column, 0, 5)
+	if p.showTenantColumn() {
+		specs = append(specs, format.Column{Min: tenantMin, Content: max(tenantMin, tenantContent), Weight: 0})
+	}
+	specs = append(specs,
+		format.Column{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
+		// ALERTNAME is the unbounded flex column. Min is the floor
+		// for narrow terminals; Content is set to flexUnbounded so
+		// the allocator never caps it, handing the column every
+		// leftover cell on a wide terminal — even when every
+		// alertname in view is short. Capping at the live max would
+		// leave dead space the user could otherwise spend on the
+		// labels they're scanning.
+		format.Column{Min: alertNameMin, Content: flexUnbounded, Weight: 1},
+		format.Column{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
+		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
+	)
+	return specs
 }
 
 // formatTime renders ts according to the page's active time
