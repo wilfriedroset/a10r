@@ -163,6 +163,17 @@ type Poller struct {
 	// publish BackendStatusMsg on real transitions. Loop-goroutine
 	// only — see the type doc.
 	state header.ConnState
+	// emitted reports whether transition has ever sent a
+	// BackendStatusMsg for this Poller lifetime. Tracked separately
+	// from state because state has a cold-start sentinel
+	// (ConnUnreachable) that would otherwise suppress the very
+	// first failure of class Unreachable: connection refused on
+	// tick 1 maps back to ConnUnreachable, the same value state
+	// was born with, so a naive "emit on change" would drop the
+	// message and the error band on every list page would stay
+	// dark while the poll loop quietly retried in the background.
+	// Loop-goroutine only.
+	emitted bool
 	// failures counts consecutive errors since the last success;
 	// drives the exponential backoff. Loop-goroutine only.
 	failures int
@@ -239,9 +250,13 @@ func New(opts Options) *Poller {
 		clock:    clock,
 		backoff:  bo,
 		refresh:  make(chan struct{}, 1),
-		// Start as Unreachable so the very first successful tick
-		// emits a transition to Connected — pages get a clean
-		// "we're online" signal even on cold start.
+		// Cold-start state is Unreachable — but the first tick
+		// always emits regardless (see transition's emitted-flag
+		// guard) so the choice of sentinel only matters for
+		// subsequent transitions. Keeping Unreachable here keeps
+		// the success-on-first-tick narrative obvious: state went
+		// from Unreachable to Connected the moment the backend
+		// answered.
 		state: header.ConnUnreachable,
 	}
 }
@@ -289,6 +304,7 @@ func (p *Poller) Start(ctx context.Context) {
 	// constructed. No data race: the previous goroutine is joined
 	// in Stop before this point is reachable.
 	p.state = header.ConnUnreachable
+	p.emitted = false
 	p.failures = 0
 	go func() {
 		defer close(done)
@@ -395,15 +411,26 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	return delay, true
 }
 
-// transition emits a BackendStatusMsg only when state actually
-// changes from the last emitted value. detail carries the err's
-// Error() text on failure transitions; empty on successful
-// transitions where there is no diagnostic to surface.
+// transition emits a BackendStatusMsg when state actually changes
+// from the last emitted value, OR when nothing has been emitted
+// yet for this Poller lifetime. The "or" guard exists because the
+// poller is born in the ConnUnreachable cold-start sentinel — a
+// first-tick connection-refused (which classifies as
+// ConnUnreachable) would otherwise match the existing state and
+// be suppressed, leaving every list page's error band dark while
+// the backend never replies. The first emission unconditionally
+// surfaces the operator-visible diagnostic; subsequent ticks fall
+// back to transition-only emission as before.
+//
+// detail carries the err's Error() text on failure transitions;
+// empty on successful transitions where there is no diagnostic to
+// surface.
 func (p *Poller) transition(next header.ConnState, detail string) {
-	if next == p.state {
+	if p.emitted && next == p.state {
 		return
 	}
 	p.state = next
+	p.emitted = true
 	p.send(BackendStatusMsg{Tenant: p.tenant, State: next, Detail: detail})
 }
 

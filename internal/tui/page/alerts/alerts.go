@@ -147,6 +147,18 @@ type Options struct {
 	// can land the page on a search subset without an extra keystroke.
 	// Empty leaves the filter unset.
 	InitialFilter string
+	// Tenants is the canonical list of configured backend names — what
+	// the wiring layer parses from cfg.Backends. The page uses it to
+	// decide whether to render the leading TENANT column: a fleet of
+	// ≥2 configured backends shows the column for the "all" scope
+	// regardless of which tenants have actually produced data yet.
+	// Without this, a tenant that never replies (cold-start connection
+	// refused, slow first tick) would silently disappear from the view
+	// because the count of *known* tenants stays at 1. Empty falls
+	// back to the legacy behaviour of inferring tenant count from
+	// observed DataMsgs — kept for tests that don't care about the
+	// column toggle.
+	Tenants []string
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -301,6 +313,12 @@ type Page struct {
 
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+
+	// tenants is the canonical configured-backend list. Drives the
+	// TENANT-column visibility decision so a tenant that never
+	// replies still counts toward "is this a multi-tenant fleet?".
+	// See Options.Tenants for the upstream rationale.
+	tenants []string
 }
 
 // New constructs a Page from the supplied Options. Initial
@@ -338,6 +356,7 @@ func New(opts Options) *Page {
 		bulkCtx:         opts.BulkCtx,
 		stateFilter:     opts.InitialStateFilter,
 		filter:          opts.InitialFilter,
+		tenants:         opts.Tenants,
 	}
 }
 

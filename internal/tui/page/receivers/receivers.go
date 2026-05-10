@@ -110,6 +110,14 @@ type Page struct {
 	// alerts-page pausedRefresh one-shot escape hatch does not
 	// apply here; while paused, every DataMsg is dropped.
 	paused bool
+
+	// lastErrors holds the most recent per-tenant transport error
+	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
+	// pruned (a successful tick clears the row). Renderer collapses
+	// the in-scope subset into a single one-line error band above
+	// the table so the operator sees what's wrong without leaving
+	// the page. Mirrors the alerts page's contract.
+	lastErrors map[string]string
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -118,10 +126,11 @@ const scopeAll = "all"
 // New constructs an empty receivers page.
 func New(styles *theme.Styles) *Page {
 	return &Page{
-		styles:   styles,
-		byTenant: map[string][]string{},
-		scope:    scopeAll,
-		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
+		styles:     styles,
+		byTenant:   map[string][]string{},
+		scope:      scopeAll,
+		sorter:     tablesort.New(receiverSortColumns(), sortKeyName),
+		lastErrors: map[string]string{},
 	}
 }
 
@@ -205,6 +214,45 @@ func (p *Page) Footer() string {
 	return ""
 }
 
+// ErrorBand returns the one-line message rendered above the
+// table when at least one in-scope tenant is reporting a
+// transport error. Empty when every in-scope tenant is healthy
+// (or unpolled) so the renderer can short-circuit. Mirrors the
+// alerts page — see internal/tui/page/alerts/alerts.go for the
+// canonical doc.
+func (p *Page) ErrorBand() string {
+	type entry struct {
+		tenant string
+		detail string
+	}
+	var bad []entry
+	for tenant, detail := range p.lastErrors {
+		if detail == "" {
+			continue
+		}
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		bad = append(bad, entry{tenant: tenant, detail: detail})
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	// Sort by tenant for deterministic output across runs (map
+	// iteration order is unspecified).
+	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
+	if len(bad) == 1 {
+		// Single offender: tenant prefix only useful when scope
+		// covers >1 tenant (avoids "prod: …" noise on a
+		// single-tenant view).
+		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+			return bad[0].tenant + ": " + bad[0].detail
+		}
+		return bad[0].detail
+	}
+	return fmt.Sprintf("%d backends erroring; %s: %s", len(bad), bad[0].tenant, bad[0].detail)
+}
+
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
 // page on push.
@@ -226,6 +274,18 @@ func (p *Page) Bindings() []action.Action {
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
+	case poll.BackendStatusMsg:
+		// Track per-tenant transport errors for the error band.
+		// A successful transition (Detail empty) clears the row;
+		// failure transitions overwrite with the latest detail
+		// the operator should see. Mirror of the alerts page's
+		// handler.
+		if m.Detail == "" {
+			delete(p.lastErrors, m.Tenant)
+		} else {
+			p.lastErrors[m.Tenant] = m.Detail
+		}
+		return p, nil
 	case poll.DataMsg:
 		recs, ok := m.Resource.([]backend.Receiver)
 		if !ok {
@@ -419,7 +479,12 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height - 1 // header takes one line; the rest is row budget
+	band := p.renderErrorBand(width)
+	bandLines := 0
+	if band != "" {
+		bandLines = 1
+	}
+	p.bodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
 		if len(p.unionScoped()) > 0 && p.filter != "" {
@@ -431,12 +496,19 @@ func (p *Page) View(width, height int) string {
 		// palette behind the empty pane, which renders as a
 		// coloured patch the populated view doesn't have, breaking
 		// the visual parity between "loading" and "loaded" frames.
-		return lipgloss.NewStyle().Width(width).Height(height).Render(msg)
+		body := msg
+		if band != "" {
+			body = band + "\n" + msg
+		}
+		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
-	maxRows := min(height-1, len(p.view))
+	maxRows := min(height-1-bandLines, len(p.view))
 	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
 	end := min(p.topRow+maxRows, len(p.view))
-	rows := make([]string, 0, end-p.topRow+1)
+	rows := make([]string, 0, end-p.topRow+2)
+	if band != "" {
+		rows = append(rows, band)
+	}
 	rows = append(rows, p.renderHeader(width))
 	for i := p.topRow; i < end; i++ {
 		text := p.view[i]
@@ -457,6 +529,26 @@ func (p *Page) View(width, height int) string {
 		rows = append(rows, row)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(rows, "\n"))
+}
+
+// renderErrorBand returns a one-line styled error message for the
+// View to prepend, or "" when no in-scope tenant is reporting an
+// error. Mirrors the alerts page's helper — fg-tinted with the
+// severity-critical foreground (no painted background per the
+// chrome-rendering memory) and clipped to width with SGRTruncate
+// so a long upstream error doesn't break the layout.
+func (p *Page) renderErrorBand(width int) string {
+	msg := p.ErrorBand()
+	if msg == "" {
+		return ""
+	}
+	prefix := "! "
+	full := prefix + msg
+	if lipgloss.Width(full) > width {
+		full = format.SGRTruncate(full, width)
+	}
+	style := lipgloss.NewStyle().Foreground(p.styles.Severity.Critical.GetForeground())
+	return style.Render(full)
 }
 
 // renderHeader emits the column-title strip with the active sort

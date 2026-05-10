@@ -230,6 +230,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
 				BulkCtx:         cmd.Context(),
+				Tenants:         backendNames(&effCfg),
 			})
 		}
 		msg := app.PushPage(homeFactory)()
@@ -568,6 +569,11 @@ func newResolver(
 	readOnly bool,
 ) *cmdbar.Resolver {
 	r := cmdbar.New()
+	// Snapshot the configured tenant list once — the resolver's
+	// factories close over it so every :alerts / :silences / :groups
+	// push hydrates the TENANT-column decision from the same source
+	// of truth that drives the panel's numeric shortcuts.
+	tenantNames := backendNames(cfg)
 	r.Register("alerts", func(args []string) tea.Cmd {
 		ax, err := parseAlertsArgs(args)
 		if err != nil {
@@ -587,6 +593,7 @@ func newResolver(
 				BulkCtx:            editorCtx,
 				InitialStateFilter: ax.state,
 				InitialFilter:      ax.filter,
+				Tenants:            tenantNames,
 			})
 		})
 	})
@@ -605,6 +612,7 @@ func newResolver(
 				ReadOnly:        readOnly,
 				EditorCtx:       editorCtx,
 				BulkCtx:         editorCtx,
+				Tenants:         tenantNames,
 			})
 		})
 	}
@@ -626,6 +634,7 @@ func newResolver(
 				Clients:  silenceClients,
 				Creator:  creator,
 				ReadOnly: readOnly,
+				Tenants:  tenantNames,
 			})
 		})
 	}

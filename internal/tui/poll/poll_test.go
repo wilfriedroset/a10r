@@ -292,10 +292,12 @@ func TestPoller_TransitionEmittedOnlyOnChange(t *testing.T) {
 func TestPoller_FirstTickFailureSchedulesBackoffBase(t *testing.T) {
 	t.Parallel()
 
-	// Locks the cold-start invariant: the poller is born in
-	// ConnUnreachable, so a first-tick failure with err=Unreachable
-	// is NOT a transition and emits no BackendStatusMsg. The next
-	// fetch is scheduled at exactly Backoff.Base.
+	// Cold-start emission contract: the poller is born in
+	// ConnUnreachable but transition() emits unconditionally on the
+	// first call so a connection-refused on tick 1 reaches the
+	// per-page error band instead of being swallowed by the
+	// same-state guard. The schedule side of the contract is
+	// unchanged: next fetch is scheduled at exactly Backoff.Base.
 	rec := newRecorder()
 	clock := newFakeClock()
 	p := New(Options{
@@ -315,8 +317,13 @@ func TestPoller_FirstTickFailureSchedulesBackoffBase(t *testing.T) {
 	p.Start(ctx)
 	defer p.Stop()
 
-	// No transition emitted on the cold-start failure.
-	rec.drainNoMore(t)
+	// First failure emits a BackendStatusMsg carrying the diagnostic
+	// so the operator's list page lights up the error band.
+	status, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok, "first-tick failure must emit BackendStatusMsg")
+	require.Equal(t, header.ConnUnreachable, status.State)
+	require.Contains(t, status.Detail, backend.ErrUnreachable.Error(),
+		"detail must carry the wrapped error so pages can surface it")
 	// Next attempt is scheduled at Base, regardless of Interval.
 	require.Equal(t, time.Second, clock.fireNext(t),
 		"first failure must schedule next at exactly Backoff.Base")
@@ -351,13 +358,17 @@ func TestPoller_FailureClassTransitions(t *testing.T) {
 	p.Start(ctx)
 	defer p.Stop()
 
-	// Tick 1 (Unreachable) — no transition (cold-start invariant).
-	rec.drainNoMore(t)
+	// Tick 1 (Unreachable) — first-tick emission contract: the
+	// cold-start status reaches subscribers so the page error band
+	// surfaces straight away. State = ConnUnreachable.
+	status, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok, "first-tick failure must emit BackendStatusMsg")
+	require.Equal(t, header.ConnUnreachable, status.State)
 	clock.fireNext(t)
 
 	// Tick 2 (Unauthorized → Degraded) — transition emitted because
-	// the state actually changed.
-	status, ok := rec.next(t).(BackendStatusMsg)
+	// the state actually changed class.
+	status, ok = rec.next(t).(BackendStatusMsg)
 	require.True(t, ok)
 	require.Equal(t, header.ConnDegraded, status.State)
 }
@@ -386,10 +397,13 @@ func TestPoller_BackoffOnFailure(t *testing.T) {
 	p.Start(ctx)
 	defer p.Stop()
 
-	// Cold-start invariant: failure at state=Unreachable is not a
-	// transition, so no BackendStatusMsg is emitted on the first
-	// failed tick. See TestPoller_FirstTickFailureSchedulesBackoffBase.
-	rec.drainNoMore(t)
+	// First-tick emission contract: the cold-start failure surfaces
+	// a BackendStatusMsg so the page error band lights up
+	// immediately. Drained here because the rest of the test cares
+	// about the schedule, not the message itself — see
+	// TestPoller_FirstTickFailureSchedulesBackoffBase for the
+	// message-shape assertions.
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
 
 	// Second attempt: backoff base = 1s.
 	delay := clock.fireNext(t)
@@ -468,9 +482,10 @@ func TestPoller_ResetBackoffOnSuccess(t *testing.T) {
 	p.Start(ctx)
 	defer p.Stop()
 
-	// Tick 1: failure (cold start state = Unreachable, no transition
-	// emitted, no DataMsg).
-	rec.drainNoMore(t)
+	// Tick 1: failure — first-tick emission contract surfaces a
+	// BackendStatusMsg even though state matches the cold-start
+	// sentinel. No DataMsg because the fetch errored.
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
 
 	// Tick 2: backoff = 1s, then success → transition + DataMsg.
 	require.Equal(t, time.Second, clock.fireNext(t))

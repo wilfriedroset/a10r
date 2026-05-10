@@ -25,6 +25,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -1114,6 +1115,31 @@ func TestPage_HeaderColumnOrder(t *testing.T) {
 		uuidI := strings.Index(header, "UUID")
 		require.GreaterOrEqual(t, tenantI, 0, "expected TENANT in header %q", header)
 		require.Less(t, tenantI, uuidI, "TENANT must come before UUID")
+	})
+
+	// QA-driven: a configured tenant that never produced data (cold-
+	// start connection refused) must still anchor the TENANT column.
+	// Pre-fix the column auto-hid because byTenant counted only the
+	// healthy backend; post-fix the configured-tenant list drives the
+	// decision so the operator can still see who's silent.
+	t.Run("configured but silent tenant still surfaces column", func(t *testing.T) {
+		t.Parallel()
+		p := New(Options{
+			Styles:  testutil.LoadStyles(t),
+			Now:     func() time.Time { return fixedNow },
+			Tenants: []string{"prod", "broken"},
+		})
+		_, _ = p.Update(poll.DataMsg{
+			Resource: []backend.Silence{{
+				ID: "a", CreatedBy: "alice", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			}},
+			Tenant: "prod",
+		})
+		out := testutil.StripStyle(p.View(220, 5))
+		headerLine := strings.Split(out, "\n")[0]
+		require.Contains(t, headerLine, "TENANT",
+			"configured-tenant count must drive column visibility — a silent backend cannot erase the column")
 	})
 }
 
@@ -2275,4 +2301,83 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	require.Contains(t, p.Footer(), "WATCH OFF",
 		"paused page footer leads with WATCH OFF")
+}
+
+func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	// Single-tenant scope: detail is rendered verbatim without a
+	// tenant prefix. The page constructor seeds scope to "all" by
+	// default, so we narrow it for this case.
+	p.scope = "prod"
+
+	// No errors → empty band.
+	require.Empty(t, p.ErrorBand())
+
+	// Failure transition with a Detail string surfaces it.
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnUnreachable,
+		Detail: "connection refused",
+	})
+	require.Equal(t, "connection refused", p.ErrorBand(),
+		"single-tenant scope renders detail verbatim (no tenant prefix)")
+
+	// Recovery transition (Detail empty) clears the row.
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnConnected,
+		Detail: "",
+	})
+	require.Empty(t, p.ErrorBand(),
+		"recovery clears the band so transient blips don't linger")
+}
+
+func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	p.scope = scopeAll
+
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnUnreachable,
+		Detail: "401 unauthorised",
+	})
+	require.Equal(t, "prod: 401 unauthorised", p.ErrorBand(),
+		"all-scope view prefixes tenant so the operator knows which one")
+}
+
+func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	p.scope = scopeAll
+
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
+
+	// Sorted-by-tenant: alpha is the first offender.
+	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
+}
+
+func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	// Scope only covers "prod"; "staging" is out of scope.
+	p.scope = "prod"
+
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "staging",
+		State:  header.ConnUnreachable,
+		Detail: "should not appear",
+	})
+	require.Empty(t, p.ErrorBand(),
+		"out-of-scope tenant errors must not bleed into the band")
+
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		State:  header.ConnUnreachable,
+		Detail: "in scope",
+	})
+	require.Equal(t, "in scope", p.ErrorBand(),
+		"in-scope error surfaces verbatim under a single-tenant scope")
 }

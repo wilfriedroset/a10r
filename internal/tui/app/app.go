@@ -167,6 +167,19 @@ type App struct {
 	// Update through the same goroutine, so the App is the sole
 	// reader and writer — no mutex needed.
 	pollCache map[string]map[string]poll.DataMsg
+
+	// statusCache stores the latest poll.BackendStatusMsg per tenant.
+	// BackendStatusMsg is only emitted on state TRANSITIONS so a page
+	// pushed AFTER the transition would otherwise never see the
+	// failing-backend signal and silently render no error band.
+	// Replayed on push the same way pollCache is, but unlike pollCache
+	// the entries are pruned on a recovery transition (Detail empty)
+	// so a backend that flapped and recovered before the page push
+	// doesn't drag a stale error band onto the new page.
+	//
+	// Bounded: O(tenants). Single-threaded by construction, same
+	// reasoning as pollCache.
+	statusCache map[string]poll.BackendStatusMsg
 }
 
 // appHistories bundles the three per-class history rings the App
@@ -231,8 +244,9 @@ func NewApp(opts Options) *App {
 		prompt:     footer.NewPrompt(resolver.Suggest),
 		flash:      footer.NewFlash(),
 		hintbar:    opts.HintBar,
-		pollCache:  map[string]map[string]poll.DataMsg{},
-		histories:  newAppHistories(opts.HistoryDir),
+		pollCache:   map[string]map[string]poll.DataMsg{},
+		statusCache: map[string]poll.BackendStatusMsg{},
+		histories:   newAppHistories(opts.HistoryDir),
 	}
 	a.registerGlobalBindings()
 	a.registerTenantBindings()

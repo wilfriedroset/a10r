@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -238,6 +239,13 @@ type Page struct {
 	// after the first DataMsg consumes it. Lets the operator hold
 	// pause but pull a single fresh snapshot on demand.
 	pausedRefresh bool
+	// lastErrors holds the most recent per-tenant transport error
+	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
+	// pruned (a successful tick clears the row). Renderer collapses
+	// the in-scope subset into a single one-line error band above
+	// the table so the operator sees what's wrong without leaving
+	// the page. Mirrors the alerts page's contract.
+	lastErrors map[string]string
 	// spinner is the cold-start / refresh-in-flight indicator
 	// (bubbles `Points` — three dots cycling). Stopped (i.e. its
 	// Tick chain is broken) outside of those two windows; see
@@ -263,6 +271,12 @@ type Page struct {
 	// context.Background() (preserves the pre-fix behaviour for
 	// callers that haven't plumbed it yet).
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+
+	// tenants is the canonical configured-backend list. Drives the
+	// TENANT-column visibility decision so a tenant that never
+	// replies still counts toward "is this a multi-tenant fleet?".
+	// See Options.Tenants.
+	tenants []string
 }
 
 type Options struct {
@@ -306,6 +320,12 @@ type Options struct {
 	// multi-day sessions where a quit must not orphan goroutines.
 	// nil falls back to context.Background().
 	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	// Tenants is the canonical list of configured backend names.
+	// Drives the TENANT-column visibility decision so a broken
+	// tenant (cold-start connection refused, never replies) still
+	// counts toward "is this a multi-tenant fleet?". Empty falls
+	// back to inferring the count from observed DataMsgs.
+	Tenants []string
 }
 
 // New constructs an empty silences page.
@@ -335,12 +355,14 @@ func New(opts Options) *Page {
 		scope:           scopeAll,
 		nextRefresh:     map[string]time.Time{},
 		polledTenants:   map[string]struct{}{},
+		lastErrors:      map[string]string{},
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
 		editorCtx:       opts.EditorCtx,
 		bulkCtx:         opts.BulkCtx,
+		tenants:         opts.Tenants,
 	}
 }
 
@@ -436,6 +458,45 @@ func (p *Page) Footer() string {
 		return ""
 	}
 	return "next refresh " + nextRefreshLabel(p.now(), next)
+}
+
+// ErrorBand returns the one-line message rendered above the
+// table when at least one in-scope tenant is reporting a
+// transport error. Empty when every in-scope tenant is healthy
+// (or unpolled) so the renderer can short-circuit. Mirrors the
+// alerts page — see internal/tui/page/alerts/alerts.go for the
+// canonical doc.
+func (p *Page) ErrorBand() string {
+	type entry struct {
+		tenant string
+		detail string
+	}
+	var bad []entry
+	for tenant, detail := range p.lastErrors {
+		if detail == "" {
+			continue
+		}
+		if !p.scopeIncludes(tenant) {
+			continue
+		}
+		bad = append(bad, entry{tenant: tenant, detail: detail})
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	// Sort by tenant for deterministic output across runs (map
+	// iteration order is unspecified).
+	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
+	if len(bad) == 1 {
+		// Single offender: tenant prefix only useful when scope
+		// covers >1 tenant (avoids "prod: …" noise on a
+		// single-tenant view).
+		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+			return bad[0].tenant + ": " + bad[0].detail
+		}
+		return bad[0].detail
+	}
+	return fmt.Sprintf("%d backends erroring; %s: %s", len(bad), bad[0].tenant, bad[0].detail)
 }
 
 // soonestNextRefresh returns the earliest DataMsg.NextAt across

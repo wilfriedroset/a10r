@@ -29,10 +29,25 @@ func (p *Page) totalAlerts() int {
 
 // showTenantColumn reports whether the page should render a
 // leading TENANT column. True when the active scope spans more
-// than one backend's data — which is what k9s does in its
-// namespace=all view.
+// than one backend — which is what k9s does in its namespace=all
+// view.
+//
+// "More than one backend" means CONFIGURED, not "more than one
+// has produced data". A broken tenant whose first poll never
+// completes (connection refused) must still count, otherwise the
+// column auto-hides on a two-backend fleet the moment one of
+// them goes down — exactly the moment the operator needs the
+// column to spot which backend is missing. The page falls back
+// to byTenant when no configured list was plumbed in (tests that
+// don't care).
 func (p *Page) showTenantColumn() bool {
-	return p.scope == scopeAll && len(p.byTenant) > 1
+	if p.scope != scopeAll {
+		return false
+	}
+	if n := len(p.tenants); n > 0 {
+		return n > 1
+	}
+	return len(p.byTenant) > 1
 }
 
 // scopeIncludes reports whether tenant should appear in the

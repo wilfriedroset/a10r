@@ -645,6 +645,111 @@ func TestPollCache_PreservesReplayedCmd(t *testing.T) {
 	require.True(t, saw, "replayed Cmd must reach the page's Update via tea.Batch (log=%v)", *page.updateLog)
 }
 
+// TestStatusCache_ReplaysToNewPushedPage covers the QA-driven D2
+// fix: the per-tenant error band must light up on EVERY list page
+// (silences / groups / receivers / alerts), not just whichever page
+// happened to be on top when the failure transition fired.
+// BackendStatusMsg is emitted on TRANSITIONS only, so without the
+// status cache replay a page pushed AFTER the transition would
+// silently render no band.
+func TestStatusCache_ReplaysToNewPushedPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	// Status transition fires while no page is on the stack — the
+	// classic "user starts on the alerts page, switches to silences
+	// before the next transition" timing window.
+	a.Update(poll.BackendStatusMsg{
+		Tenant: "prod",
+		Detail: "connection refused",
+	})
+
+	page := newFakePage("silences")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	var seen bool
+	for _, msg := range *page.updateLog {
+		sm, ok := msg.(poll.BackendStatusMsg)
+		if !ok {
+			continue
+		}
+		require.Equal(t, "prod", sm.Tenant)
+		require.Equal(t, "connection refused", sm.Detail)
+		seen = true
+	}
+	require.True(t, seen,
+		"cached BackendStatusMsg must replay into a freshly pushed page (log=%v)", *page.updateLog)
+}
+
+// TestStatusCache_RecoveryPrunesEntry pins the delete-on-empty-
+// Detail rule so a backend that flapped and recovered before the
+// next page push doesn't drag a stale error onto the new page.
+func TestStatusCache_RecoveryPrunesEntry(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	a.Update(poll.BackendStatusMsg{Tenant: "prod", Detail: "down"})
+	// Recovery transition — empty Detail clears the cache entry.
+	a.Update(poll.BackendStatusMsg{Tenant: "prod", Detail: ""})
+
+	page := newFakePage("silences")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	for _, msg := range *page.updateLog {
+		_, ok := msg.(poll.BackendStatusMsg)
+		require.False(t, ok,
+			"recovery must prune the cache so a stale error doesn't replay (log=%v)", *page.updateLog)
+	}
+}
+
+// TestStatusCache_OverwritesByTenant guards the cache key: a
+// second transition for the same tenant replaces the stored
+// payload — the page sees the freshest detail, not a history.
+func TestStatusCache_OverwritesByTenant(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	a.Update(poll.BackendStatusMsg{Tenant: "prod", Detail: "401 unauthorised"})
+	a.Update(poll.BackendStatusMsg{Tenant: "prod", Detail: "connection refused"})
+
+	page := newFakePage("silences")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	var details []string
+	for _, msg := range *page.updateLog {
+		if sm, ok := msg.(poll.BackendStatusMsg); ok {
+			details = append(details, sm.Detail)
+		}
+	}
+	require.Equal(t, []string{"connection refused"}, details,
+		"replay must surface the latest transition only — cache is a snapshot, not a log")
+}
+
+// TestStatusCache_ReplacePageHydrates covers the symmetric path on
+// replacePage so the new page after a `:silences` after `:alerts`
+// hydrates the error band the same way pushPage does.
+func TestStatusCache_ReplacePageHydrates(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	first := newFakePage("first")
+	drive(t, a, PushPage(func() Page { return first }))
+
+	a.Update(poll.BackendStatusMsg{Tenant: "prod", Detail: "down"})
+
+	second := newFakePage("second")
+	drive(t, a, ReplacePage(func() Page { return second }))
+
+	var seen []string
+	for _, msg := range *second.updateLog {
+		if sm, ok := msg.(poll.BackendStatusMsg); ok {
+			seen = append(seen, sm.Tenant)
+		}
+	}
+	require.Equal(t, []string{"prod"}, seen,
+		"replacePage must replay the status cache into the new page (log=%v)", *second.updateLog)
+}
+
 func TestStack_PageInitChainedCmdsLand(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

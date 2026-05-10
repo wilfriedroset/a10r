@@ -83,6 +83,18 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 			a.cacheDataMsg(m)
 		}
 		return a.forwardToTop(m), true
+	case poll.BackendStatusMsg:
+		// Snapshot per-tenant before forwarding so a freshly-pushed
+		// list page (silences / groups / receivers / alerts) sees the
+		// error band immediately rather than waiting for the next
+		// transition — BackendStatusMsg is only emitted on STATE
+		// CHANGES, so a backend already in the failing state when the
+		// page lands would otherwise never light up the band on that
+		// page. Empty Detail (recovery transition) prunes the entry
+		// so a flapping backend that recovered before the push
+		// doesn't drag a stale error onto the new page.
+		a.cacheStatusMsg(m)
+		return a.forwardToTop(m), true
 	case pushPageMsg:
 		return a.pushPage(m.Factory), true
 	case popPageMsg:
@@ -195,6 +207,20 @@ func (a *App) cacheDataMsg(m poll.DataMsg) {
 	bucket[m.Tenant] = m
 }
 
+// cacheStatusMsg stores the latest BackendStatusMsg per tenant.
+// Empty Detail signals a recovery transition; pruning the entry
+// keeps the cache aligned with the per-page error-band semantics
+// (every page's BackendStatusMsg handler does the same delete-on-
+// empty-Detail). Subsequent transitions for the same tenant
+// overwrite — the cache is a snapshot, not a history.
+func (a *App) cacheStatusMsg(m poll.BackendStatusMsg) {
+	if m.Detail == "" {
+		delete(a.statusCache, m.Tenant)
+		return
+	}
+	a.statusCache[m.Tenant] = m
+}
+
 // replayCachedDataMsgs feeds cached snapshots into the top-of-
 // stack page through its Update so a freshly-pushed page can
 // build its byTenant map without waiting for the next poll tick.
@@ -212,6 +238,14 @@ func (a *App) cacheDataMsg(m poll.DataMsg) {
 // nil from DataMsg today, so the batch is degenerate, but a future
 // page wiring DataMsg → kick a follow-up Cmd would otherwise lose
 // the kick on the first push.
+//
+// BackendStatusMsg entries are replayed unconditionally — the error
+// band is a page-level UX every list page (alerts / silences /
+// groups / receivers) wants to render the same way, and a page
+// that doesn't care drops the message in its Update's type switch
+// at near-zero cost. Filtering them by PollResources would require
+// every list page to also list "status" in its label set, which
+// would couple the error-band wiring to an unrelated concept.
 //
 // The inner-loop write to a.stack[len-1] is safe because the App's
 // Update path is single-threaded by bubbletea — replay runs
@@ -235,6 +269,13 @@ func (a *App) replayCachedDataMsgs() tea.Cmd {
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
+		}
+	}
+	for _, m := range a.statusCache {
+		top, cmd := a.stack[len(a.stack)-1].Update(m)
+		a.stack[len(a.stack)-1] = top
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 	return tea.Batch(cmds...)

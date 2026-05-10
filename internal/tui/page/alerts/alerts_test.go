@@ -2150,6 +2150,52 @@ func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
 }
 
+// TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied locks
+// in the QA-driven contract for the round-2 fix: a multi-tenant
+// fleet with one broken backend (cold-start connection refused, no
+// DataMsg ever arrives) must still render the TENANT column AND
+// the error band so the operator sees both halves of the diagnosis
+// — which tenant is in trouble, and why.
+//
+// Pre-fix: the poller swallowed the first-tick failure (state was
+// born in ConnUnreachable, so the transition matched and emitted
+// nothing), and the column auto-hid because byTenant only knew the
+// healthy tenant. Post-fix: the poller always emits the first
+// status, and showTenantColumn reads from the configured-tenant
+// list so the column survives a silent backend.
+func TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Scope:   "all",
+		Tenants: []string{"prod", "broken"},
+	})
+
+	// Working tenant lands a successful tick.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Alert{mkAlert("OK", "warning", backend.AlertStateActive)},
+		Tenant:   "prod",
+	})
+	// Broken tenant emits its first-ever status as a transport error
+	// (the poller's cold-start emission, post-fix). No DataMsg ever
+	// arrives for "broken".
+	_, _ = p.Update(poll.BackendStatusMsg{
+		Tenant: "broken",
+		State:  header.ConnUnreachable,
+		Detail: "backend unreachable: Get \"...\": dial tcp: connection refused",
+	})
+
+	out := testutil.StripStyle(p.View(160, 20))
+	require.Contains(t, out, "TENANT",
+		"multi-tenant fleet with one silent backend must still surface the TENANT column")
+	require.Contains(t, out, "connection refused",
+		"the band must surface the upstream error detail even when the broken tenant has no data")
+	require.Contains(t, out, "broken:",
+		"all-scope band prefixes the tenant name so the operator knows which backend is down")
+}
+
 // TestPage_FlexColumnExpandsOnWideTerminal locks in the B5
 // contract: ALERTNAME is the unbounded flex column, so when the
 // terminal has cells to spare every leftover cell goes there

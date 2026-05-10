@@ -218,9 +218,18 @@ func (p *Page) visibleGroups() []backend.AlertGroup {
 	return out
 }
 
+// showTenantColumn reports whether the leading TENANT slot should
+// render. "More than one tenant" means CONFIGURED, not "more than
+// one has produced data"; see the alerts/silences mirror for the
+// rationale (cold-start connection refused must not erase the
+// column for a two-backend fleet). Falls back to byTenant when no
+// configured list is plumbed in (tests).
 func (p *Page) showTenantColumn() bool {
 	if p.scope != scopeAll {
 		return false
+	}
+	if n := len(p.tenants); n > 0 {
+		return n > 1
 	}
 	in := 0
 	for tenant := range p.byTenant {
