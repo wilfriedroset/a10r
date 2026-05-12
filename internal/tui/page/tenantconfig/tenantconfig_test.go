@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"gopkg.in/yaml.v3"
@@ -134,6 +135,58 @@ func TestRedactedBackendYAML_RedactsHeadersMap(t *testing.T) {
 // body without each test wiring its own import alias.
 func yamlUnmarshal(s string, dst any) error {
 	return yaml.Unmarshal([]byte(s), dst)
+}
+
+// TestRedactedBackendYAML_StripsURLUserinfo pins that credentials
+// embedded in a Backend.URL (https://user:pass@host) are removed
+// before the inspector renders. Configs that pasted credentials
+// into the URL — a common shortcut for proxy authentication — would
+// otherwise leak both user and pass at a glance.
+func TestRedactedBackendYAML_StripsURLUserinfo(t *testing.T) {
+	t.Parallel()
+	body, err := redactedBackendYAML(config.Backend{
+		Name: "prod",
+		URL:  "https://alice:hunter2@am.example.com/path",
+	})
+	require.NoError(t, err)
+	require.NotContains(t, body, "hunter2", "password must be stripped from URL")
+	require.NotContains(t, body, "alice", "userinfo username must be stripped from URL")
+	require.Contains(t, body, "am.example.com/path", "host and path must survive the strip")
+}
+
+// TestRedactedBackendYAML_StripsProxyURLUserinfo mirrors the URL
+// guard for ProxyURL, which commonly carries proxy auth in the
+// userinfo segment.
+func TestRedactedBackendYAML_StripsProxyURLUserinfo(t *testing.T) {
+	t.Parallel()
+	body, err := redactedBackendYAML(config.Backend{
+		Name:     "prod",
+		URL:      "http://am",
+		ProxyURL: "http://proxyuser:proxypass@proxy.internal:3128",
+	})
+	require.NoError(t, err)
+	require.NotContains(t, body, "proxypass", "proxy password must be stripped")
+	require.NotContains(t, body, "proxyuser", "proxy userinfo username must be stripped")
+	require.Contains(t, body, "proxy.internal:3128")
+}
+
+// TestPartialRedact_HandlesMultibyteRunes pins that partialRedact
+// slices by RUNE not by byte. A 3-byte rune (e.g. "\u4e2d" in UTF-8)
+// followed by ASCII can yield s[:2] that splits inside the rune,
+// producing invalid UTF-8 like "\xe4\xb8***". The "éric-team" case
+// happens to round to a rune boundary by coincidence (é is exactly
+// 2 bytes), so we use a 3-byte rune to catch the boundary slice
+// directly.
+func TestPartialRedact_HandlesMultibyteRunes(t *testing.T) {
+	t.Parallel()
+	// "\u4e2d" is U+4E2D (CJK ideograph "zhong") — a 3-byte rune
+	// in UTF-8. Escape form so the source file stays pure ASCII
+	// (no gosmopolitan trigger) while the runtime string still has
+	// the multi-byte boundary needed to exercise the bug.
+	got := partialRedact("\u4e2dhellouser")
+	require.True(t, utf8.ValidString(got),
+		"partialRedact must return valid UTF-8 even when slicing a multi-byte input")
+	require.Contains(t, got, redactionMarker, "must still redact the tail")
 }
 
 func TestRedactedBackendYAML_RedactionDoesNotMutateInput(t *testing.T) {

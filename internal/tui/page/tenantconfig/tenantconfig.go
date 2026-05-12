@@ -9,6 +9,7 @@ package tenantconfig
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -264,6 +265,8 @@ const redactionMarker = "***"
 // other field is left unchanged.
 func redactedBackendYAML(cfg config.Backend) (string, error) {
 	out := cfg
+	out.URL = stripURLUserinfo(cfg.URL)
+	out.ProxyURL = stripURLUserinfo(cfg.ProxyURL)
 	out.BasicAuth = redactBasic(cfg.BasicAuth)
 	out.Authorization = redactAuthorization(cfg.Authorization)
 	if cfg.BearerToken != "" {
@@ -275,6 +278,24 @@ func redactedBackendYAML(cfg config.Backend) (string, error) {
 		return "", fmt.Errorf("marshal backend: %w", err)
 	}
 	return string(body), nil
+}
+
+// stripURLUserinfo removes embedded credentials from a URL so the
+// inspector never leaks them. A common shortcut for proxy or basic
+// auth is to paste "https://user:pass@host" into the URL field;
+// without stripping, both the username and password render in the
+// redacted YAML at a glance. Unparseable inputs round-trip unchanged
+// — the redactor must not make malformed config look more malformed.
+func stripURLUserinfo(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
 }
 
 func redactBasic(in *config.BasicAuth) *config.BasicAuth {
@@ -305,10 +326,16 @@ func partialRedact(s string) string {
 	}
 	const exposeLen = 2
 	const minLen = 4
-	if len(s) < minLen {
+	// Rune-aware: byte slicing splits multi-byte runes (e.g. CJK,
+	// emoji, accented chars) mid-codepoint, producing invalid UTF-8
+	// that renders as the replacement character or corrupts the
+	// output. minLen and exposeLen are counted in display characters
+	// for the same reason.
+	runes := []rune(s)
+	if len(runes) < minLen {
 		return redactionMarker
 	}
-	return s[:exposeLen] + redactionMarker
+	return string(runes[:exposeLen]) + redactionMarker
 }
 
 func redactAuthorization(in *config.Authorization) *config.Authorization {
