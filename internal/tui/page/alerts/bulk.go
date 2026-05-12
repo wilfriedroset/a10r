@@ -130,11 +130,11 @@ func formatTenantBreakdownAlerts(targets []bulkSilenceTarget) string {
 // pushBulkSilenceForm pushes the silence form in bulk mode with
 // a banner spelling out the per-target fanout shape. Uses the
 // pending state populated by openBulkSilence — caller must have
-// validated client availability already. Picks the first tenant's
-// client as the form's Client field for symmetry with the single-
-// form path; in bulk mode the form never calls Client, so the
-// choice is cosmetic, but a non-nil value avoids a no-op fail
-// branch in the form.
+// validated client availability already. The whole p.clients map
+// is forwarded for symmetry with the single-form path; in bulk
+// mode the form never resolves a Client, so the map is informational
+// — but per ADR-0011 the form's API now takes Clients in every
+// path, so the bulk caller threads it through unchanged.
 //
 // The 1-mark path renders this banner ("applies to 1 alert
 // (tenant prod)") rather than the cursor row's matchers buffer
@@ -155,17 +155,10 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 	styles := p.styles
 	now := p.now
 	banner := bulkSilenceBanner(pending.targets, pending.tenants)
-	// Pick any client — form never calls it in bulk mode.
-	var client silenceform.Client
-	for _, t := range pending.tenants {
-		if c, ok := p.clients[t]; ok {
-			client = c
-			break
-		}
-	}
+	clients := p.clients
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:     client,
+			Clients:    clients,
 			Styles:     styles,
 			Now:        now,
 			Creator:    creator,

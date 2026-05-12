@@ -3,27 +3,39 @@
 package silence
 
 import (
+	"strings"
 	"testing"
+	"time"
 
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
+
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // TestForm_BubblesStylesAreFlattened locks in the visual
-// contract for every field row by inspecting the bubbles models'
-// Styles directly, so the assertions don't rely on accidents of
-// the active theme palette or the order lipgloss happens to
-// emit SGR attributes today.
+// contract for the typed-text and cursor-line slots by
+// inspecting the bubbles models' Styles directly. Asserting on
+// the style structs (not rendered output) keeps the test stable
+// against theme tweaks and lipgloss SGR-ordering changes.
 //
 // Both the focused and the blurred state of every input must
-// have:
-//   - no foreground (terminal default)
-//   - no background (no stripe behind the row)
-//   - no bold/italic/underline (bubbles ships none, kept honest)
+// have a bare Text style — no fg, bg, or text-decoration —
+// because the form's focus marker is the leading `▸` plus the
+// accent-tinted label, and bubbles' default dim-grey blurred
+// text would make filled rows read as stale.
 //
-// — for the Text and Placeholder slots. The textarea's
-// CursorLine slot must also be bare so its active line doesn't
-// paint a `\x1b[40m`-style highlight behind the matchers buffer.
+// The textarea's CursorLine slot in both states must also be
+// bare so its active line doesn't paint a `\x1b[40m`-style
+// highlight behind the matchers buffer.
+//
+// The Placeholder slots are NOT asserted bare here — per
+// ADR-0012 we keep the bubbles default dim foreground on both
+// focused and blurred placeholders so empty fields are
+// distinguishable from filled ones. TestForm_PlaceholderRendersDim
+// covers the placeholder-dim rendering contract.
 func TestForm_BubblesStylesAreFlattened(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
@@ -33,8 +45,6 @@ func TestForm_BubblesStylesAreFlattened(t *testing.T) {
 	ti := f.starts.Styles()
 	requireBareStyle(t, "textinput Focused.Text", ti.Focused.Text)
 	requireBareStyle(t, "textinput Blurred.Text", ti.Blurred.Text)
-	requireBareStyle(t, "textinput Focused.Placeholder", ti.Focused.Placeholder)
-	requireBareStyle(t, "textinput Blurred.Placeholder", ti.Blurred.Placeholder)
 
 	// textarea slots — the cursor-line highlight is the one most
 	// likely to regress on a bubbles upgrade because its default
@@ -42,10 +52,195 @@ func TestForm_BubblesStylesAreFlattened(t *testing.T) {
 	ta := f.matchers.Styles()
 	requireBareStyle(t, "textarea Focused.Text", ta.Focused.Text)
 	requireBareStyle(t, "textarea Blurred.Text", ta.Blurred.Text)
-	requireBareStyle(t, "textarea Focused.Placeholder", ta.Focused.Placeholder)
-	requireBareStyle(t, "textarea Blurred.Placeholder", ta.Blurred.Placeholder)
 	requireBareStyle(t, "textarea Focused.CursorLine", ta.Focused.CursorLine)
 	requireBareStyle(t, "textarea Blurred.CursorLine", ta.Blurred.CursorLine)
+}
+
+// placeholderDimSGR is the SGR sequence bubbles' default
+// placeholder style emits — foreground colour 240 in the 256-
+// colour palette, no background. Anchored on
+// textinput.DefaultStyles(true).Focused.Placeholder so a
+// bubbles upgrade that picks a different shade is caught here
+// rather than by the rendering tests below.
+func placeholderDimSGR(t *testing.T) string {
+	t.Helper()
+	rendered := textinput.DefaultStyles(true).Focused.Placeholder.Render("x")
+	// Strip the trailing reset and the placeholder rune so we
+	// keep just the leading SGR — that's the prefix every
+	// placeholder render must carry.
+	idx := strings.Index(rendered, "x")
+	require.Positive(t, idx, "default placeholder must wrap text in an SGR prefix")
+	return rendered[:idx]
+}
+
+// TestForm_FocusedEmptyScalarRendersPlaceholderDim guards the
+// ADR-0012 contract on the focused-empty path: the Creator
+// field's placeholder ("$USER") must render with the bubbles
+// default dim foreground, not at the body's default fg,
+// otherwise the empty-vs-filled cue collapses.
+//
+// Bubbles renders the first placeholder rune as the virtual
+// cursor on the focused row (so it gets a reverse-video SGR,
+// not the placeholder one); the remaining "USER" carries the
+// dim placeholder style, which is what we anchor on.
+func TestForm_FocusedEmptyScalarRendersPlaceholderDim(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		// Deliberately omit Creator so the field is empty and
+		// renders the placeholder.
+	})
+	// Walk focus to Creator: default focus is Matchers, then
+	// Starts, Ends, Creator.
+	for f.focus != fieldCreator {
+		_ = f.cycleFocus(1)
+	}
+
+	view := f.View(120, 24)
+	dim := placeholderDimSGR(t)
+	// Anchor on a short prefix of the placeholder remainder rather
+	// than the full contiguous "USER": bubbles is free to interleave
+	// another SGR inside the placeholder render (cursor styling,
+	// future hint markers), and a shorter anchor survives that
+	// without giving up the contract that the dim SGR sits next to
+	// the placeholder text. "U" is still unique here vs. bubbles'
+	// reverse-video cursor styling on the first rune "$".
+	require.Contains(t, view, dim+"U",
+		"focused empty Creator's placeholder remainder must carry the dim SGR")
+}
+
+// TestForm_BlurredEmptyScalarRendersPlaceholderDim guards the
+// blurred-empty path: even when the Creator field is not the
+// focused row, an empty value must still surface its
+// placeholder at dim fg. This is the half of the
+// empty-vs-filled distinction that operates on rows the user
+// has not tabbed onto yet.
+//
+// Bubbles splits the placeholder render into "first rune" (the
+// virtual cursor slot, dim-styled when blurred) plus the
+// remainder; we anchor on the remainder "USER" since the
+// first-rune SGR ordering is an implementation detail.
+func TestForm_BlurredEmptyScalarRendersPlaceholderDim(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+	})
+	// Default focus is Matchers — Creator stays blurred, which
+	// is the case under test.
+	require.NotEqual(t, fieldCreator, f.focus, "fixture must leave Creator blurred")
+
+	view := f.View(120, 24)
+	dim := placeholderDimSGR(t)
+	// Short anchor ("U") — see the focused-empty test above for the
+	// rationale on why a single-char remainder is more resilient
+	// against future bubbles SGR interleaving than the full "USER".
+	require.Contains(t, view, dim+"U",
+		"blurred empty Creator's placeholder remainder must carry the dim SGR")
+}
+
+// TestForm_BlurredFilledScalarRendersAtDefaultFg is the
+// "stale row" regression guard the ADR explicitly names: a
+// blurred row that carries a typed value must render the
+// value at the body's default foreground, NOT at the dim
+// placeholder colour. Without this the original flatten
+// rationale (three competing dim signals on every blurred
+// row) silently creeps back in via a future bubbles upgrade
+// or a copy-pasted style override.
+//
+// The chosen value "alice" is also the typed Creator in the
+// rest of the suite, so the assertion shape matches what real
+// rows look like; the dim SGR must not appear adjacent to the
+// typed text (a sub-slice of it is enough — bubbles renders
+// the first rune separately, so the longest contiguous dim-
+// prefixed run is "lice").
+func TestForm_BlurredFilledScalarRendersAtDefaultFg(t *testing.T) {
+	t.Parallel()
+	f := New(Options{
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	require.NotEqual(t, fieldCreator, f.focus, "fixture must leave Creator blurred")
+
+	view := f.View(120, 24)
+	require.Contains(t, view, "alice", "blurred Creator must still render its typed value")
+	dim := placeholderDimSGR(t)
+	require.NotContains(t, view, dim+"lice",
+		"blurred typed value must NOT carry the dim placeholder SGR (stale-row regression)")
+	require.NotContains(t, view, dim+"alice",
+		"blurred typed value must NOT carry the dim placeholder SGR (stale-row regression)")
+}
+
+// TestForm_MatchersPlaceholderRendersDim covers the textarea
+// half of ADR-0012. An empty matchers buffer should still show
+// its hint ("alertname=HighCPU") in the bubbles default dim
+// foreground so the operator can tell at a glance whether
+// matchers have been entered yet.
+//
+// Like the textinput, the textarea renders the first
+// placeholder rune separately (in the virtual cursor slot), so
+// we anchor on the remainder of the hint string.
+func TestForm_MatchersPlaceholderRendersDim(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	// Matchers is the default-focused field; nothing typed.
+	view := f.View(120, 24)
+	// Anchor on textarea's own default rather than the textinput
+	// one — the colour happens to be the same today (240) but
+	// asserting the source-of-truth keeps the test honest if
+	// bubbles ever splits them.
+	rendered := textarea.DefaultStyles(true).Focused.Placeholder.Render("x")
+	idx := strings.Index(rendered, "x")
+	require.Positive(t, idx, "textarea placeholder must wrap text in an SGR prefix")
+	dim := rendered[:idx]
+	require.Contains(t, view, dim+"lertname=HighCPU",
+		"matchers placeholder remainder must carry the textarea dim SGR")
+	// Second line of the placeholder is rendered whole (no
+	// cursor split). Bubbles' upstream placeholderView only
+	// applies the placeholder style to the first line; matchersView
+	// wraps the trailing lines so the entire multi-line hint reads
+	// as dim. Anchoring on the contiguous render guards both the
+	// bubbles call AND the form's wrap from regressing.
+	require.Contains(t, view, dim+"severity=critical",
+		"matchers placeholder continuation line must carry the dim SGR (multi-line wrap)")
+}
+
+// TestForm_MatchersPlaceholderNarrowWidthStillDims pins the
+// narrow-width regression the reviewer flagged: bubbles word/hard-
+// wraps the placeholder against the textarea's width before
+// splitting on newlines, so anchoring against the raw newline-split
+// Placeholder field misses when the textarea is narrower than the
+// longest placeholder line. matchersView replicates bubbles' wrap
+// so the trailing wrapped segments still get the dim SGR.
+//
+// Width 25 leaves an inputWidth of 12 (25 - labelWidth(11) -
+// prefix(2)), below "alertname=HighCPU" (17), forcing bubbles into
+// the hardwrap branch.
+func TestForm_MatchersPlaceholderNarrowWidthStillDims(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	view := f.View(25, 24)
+	rendered := textarea.DefaultStyles(true).Focused.Placeholder.Render("x")
+	idx := strings.Index(rendered, "x")
+	require.Positive(t, idx, "textarea placeholder must wrap text in an SGR prefix")
+	dim := rendered[:idx]
+	// Every wrapped placeholder segment beyond the first must
+	// carry the dim SGR. Hardwrap may split "alertname=HighCPU"
+	// into pieces; the second segment of the FIRST line gets
+	// rendered into row 2 of the view as a continuation. Anchor
+	// on a short stable substring of the second placeholder line
+	// since hardwrap chunking of line 1 is bubbles' implementation
+	// detail.
+	require.Contains(t, view, dim+"severity",
+		"narrow-width matchers placeholder must still dim continuation lines")
 }
 
 // requireBareStyle asserts that s carries no foreground,
@@ -83,4 +278,38 @@ func TestForm_FieldRowLabelsAreBoldFgOnly(t *testing.T) {
 	// None should appear in a bare label row.
 	require.NotContains(t, row, "48;2;", "blurred label must not paint a 24-bit background")
 	require.NotContains(t, row, "48;5;", "blurred label must not paint an 8-bit background")
+}
+
+// TestForm_DisabledRowValueIsFaint asserts the ADR-0011 visual
+// contract for the disabled Tenant row: the value cell carries
+// the Faint SGR (`\x1b[2m`) so the row reads as greyed-out,
+// distinct from a blurred-but-interactive row that renders the
+// value at the body's default fg with no dimming. The label
+// stays bold default-fg so the row still grids alongside the
+// rest. No background paint either way — Faint is a foreground-
+// only SGR by definition.
+func TestForm_DisabledRowValueIsFaint(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	disabled := f.disabledRow("Tenant", "prod")
+	// `\x1b[2m` is the Faint SGR lipgloss emits for Faint(true).
+	// Anchor on the substring rather than the full sequence so a
+	// future lipgloss bump that interleaves another code keeps
+	// the test honest.
+	require.Contains(t, disabled, "\x1b[2m",
+		"disabled-row value must carry the Faint SGR so the row reads as greyed-out")
+	// Sanity: the value text itself is still present (Faint dims,
+	// it doesn't hide).
+	require.Contains(t, disabled, "prod", "disabled-row value text must still render")
+	// No background paint — Faint is fg-only, but a future refactor
+	// could leak a bg through if someone adds a Background() call.
+	require.NotContains(t, disabled, "48;2;", "disabled row must not paint a 24-bit background")
+	require.NotContains(t, disabled, "48;5;", "disabled row must not paint an 8-bit background")
+
+	// A blurred-but-interactive row (Starts, not focused by default)
+	// must NOT carry the Faint SGR — otherwise the disabled-vs-
+	// blurred distinction collapses to a no-op.
+	interactive := f.fieldRow("Starts", fieldStarts, "12:00")
+	require.NotContains(t, interactive, "\x1b[2m",
+		"blurred-but-interactive row value must NOT carry the Faint SGR (only disabled rows are greyed)")
 }

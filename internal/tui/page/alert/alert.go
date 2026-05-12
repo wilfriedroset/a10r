@@ -349,8 +349,7 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	if len(p.clients) == 0 || p.tenant == "" {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	client, ok := p.clients[p.tenant]
-	if !ok {
+	if _, ok := p.clients[p.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(p.a.Labels)
@@ -360,9 +359,12 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	}
 	styles := p.styles
 	now := p.now
+	clients := p.clients
+	tenant := p.tenant
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:   client,
+			Clients:  clients,
+			Tenant:   tenant,
 			Styles:   styles,
 			Now:      now,
 			Creator:  creator,

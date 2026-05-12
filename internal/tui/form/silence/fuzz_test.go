@@ -58,7 +58,8 @@ func FuzzSilenceForm(f *testing.F) {
 func newFuzzForm(t *testing.T) *silenceform.Form {
 	t.Helper()
 	return silenceform.New(silenceform.Options{
-		Client:   &testutil.FakeSilenceClient{},
+		Clients:  map[string]silenceform.Client{"fuzz": &testutil.FakeSilenceClient{}},
+		Tenant:   "fuzz",
 		Styles:   testutil.LoadFuzzStyles(t),
 		Now:      func() time.Time { return fuzzNow },
 		Matchers: fuzzMatchers,
@@ -74,8 +75,9 @@ func addFormSeeds(f *testing.F) {
 	// Empty input — exercises the constructor path only.
 	f.Add([]byte{})
 
-	// Tab through every field so each focus slot gets at least
-	// one keypress (form has six fields).
+	// Tab through every focusable field so each focus slot gets at
+	// least one keypress. The fuzz fixture has a single tenant so
+	// fieldTenant is disabled — Tab walks the five remaining fields.
 	tabs := make([][testutil.FuzzFrameSize]byte, 0, 6)
 	for range 6 {
 		tabs = append(tabs, testutil.FuzzFrameKeyCode(tea.KeyTab))

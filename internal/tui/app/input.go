@@ -91,7 +91,12 @@ func (a *App) registerGlobalBindings() {
 	// for the numeric quick-switch.
 	a.dispatcher.SetAction(keys.LayerGlobal, "tenant-picker", "Ctrl+T", func() tea.Cmd {
 		return OpenModal(func() modal.Modal {
-			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti)
+			// Tagged "scope" so the lifecycle router knows this
+			// submission feeds the global scope; pickers opened by
+			// pages (e.g. the silence form's tenant row) carry a
+			// different Origin and are forwarded to the page instead.
+			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti).
+				WithOrigin(PickerOriginScope)
 		})
 	})
 	// `?` opens the k9s-style help overlay. The bindings are

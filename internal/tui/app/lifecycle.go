@@ -22,15 +22,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if isModalResult(msg) {
 		a.closeModal()
-		// Tenant picker submissions translate into a global
-		// ScopeChangedMsg so every page reacts the same way as for
-		// the `<0>` / `<1>`-`<9>` quick-switch. Empty selection
-		// (no marks → falls through to the cursor row, which we
-		// treat as "all") and the literal "all" selection both
-		// resolve to scope=="all".
-		if pm, ok := msg.(modal.PickerSubmittedMsg); ok {
+		// Tenant picker submissions tagged with the scope origin
+		// (Ctrl+T) translate into a global ScopeChangedMsg so every
+		// page reacts the same way as for the `<0>` / `<1>`-`<9>`
+		// quick-switch. Pickers opened by pages — e.g. the silence
+		// form's tenant row — carry a different Origin and fall
+		// through to forwardToTop so the page Update consumes them.
+		// Empty selection (no marks → falls through to the cursor
+		// row, which we treat as "all") and the literal "all"
+		// selection both resolve to scope=="all".
+		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginScope {
 			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
 			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
+		}
+		if pc, ok := msg.(modal.PickerCancelledMsg); ok && pc.Origin == PickerOriginScope {
+			// Cancelling the global scope picker is a no-op; the page
+			// doesn't need to see it. Pickers with any other Origin
+			// fall through so the originator can react.
+			return a, nil
 		}
 		cmd := a.forwardToTop(msg)
 		return a, cmd

@@ -5,6 +5,8 @@ package silence
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -50,10 +53,18 @@ func (f *fakeClient) UpdateSilence(_ context.Context, id string, spec backend.Si
 // before the form learned edit mode.
 func (f *fakeClient) calls() int { return f.createCalls + f.updateCalls }
 
+// defaultTenant is the canonical tenant name used by single-tenant
+// tests so every fixture routes writes through the same key — the
+// form's submit logic looks up clients[tenant], so the helper
+// shape mirrors what the silences page passes through in normal
+// flow.
+const defaultTenant = "prod"
+
 func newForm(t *testing.T, client Client) *Form {
 	t.Helper()
 	return New(Options{
-		Client:  client,
+		Clients: map[string]Client{defaultTenant: client},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
@@ -103,7 +114,8 @@ func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
 	// duration; the "2h" default would be a footgun (one tap of
 	// Ctrl+S and the silence comes back with the placeholder).
 	f := New(Options{
-		Client:    &fakeClient{},
+		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:    defaultTenant,
 		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
@@ -119,7 +131,8 @@ func TestForm_BlankEndsBeatsExplicitEndsAt(t *testing.T) {
 	// override it (the recreate path passes the original silence
 	// untouched, but only the matchers/comment fields should land).
 	f := New(Options{
-		Client:    &fakeClient{},
+		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:    defaultTenant,
 		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
@@ -162,7 +175,8 @@ func TestForm_BlankEndsSubmitWithoutTypingErrors(t *testing.T) {
 	// flash and keep the form open so the user types a duration.
 	client := &fakeClient{}
 	f := New(Options{
-		Client:    client,
+		Clients:   map[string]Client{defaultTenant: client},
+		Tenant:    defaultTenant,
 		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
@@ -182,7 +196,8 @@ func TestForm_BlankEndsSubmitWithoutTypingErrors(t *testing.T) {
 func TestForm_FocusEndsLandsOnEndsField(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
-		Client:    &fakeClient{},
+		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:    defaultTenant,
 		Styles:    testutil.LoadStyles(t),
 		Now:       func() time.Time { return fixedNow },
 		Creator:   "alice",
@@ -598,7 +613,8 @@ func TestForm_PrefillMatchers(t *testing.T) {
 		{Name: "instance", Value: ".*-canary", IsRegex: true}, // !~
 	}
 	f := New(Options{
-		Client:   &fakeClient{},
+		Clients:  map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:   defaultTenant,
 		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
@@ -611,7 +627,8 @@ func TestForm_PrefillMatchers(t *testing.T) {
 func TestForm_PrefillComment(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
-		Client:  &fakeClient{},
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
@@ -624,7 +641,8 @@ func TestForm_PrefillEndsAt(t *testing.T) {
 	t.Parallel()
 	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
 	f := New(Options{
-		Client:  &fakeClient{},
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
@@ -636,7 +654,8 @@ func TestForm_PrefillEndsAt(t *testing.T) {
 func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
 	t.Parallel()
 	f := New(Options{
-		Client:  &fakeClient{},
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
@@ -648,7 +667,8 @@ func TestForm_EditModeCallsUpdate(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{}
 	f := New(Options{
-		Client:   client,
+		Clients:  map[string]Client{defaultTenant: client},
+		Tenant:   defaultTenant,
 		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
@@ -671,7 +691,8 @@ func TestForm_EditModeClientErrorFlashesAndKeepsForm(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{wantUpdateErr: errors.New("update boom")}
 	f := New(Options{
-		Client:   client,
+		Clients:  map[string]Client{defaultTenant: client},
+		Tenant:   defaultTenant,
 		Styles:   testutil.LoadStyles(t),
 		Now:      func() time.Time { return fixedNow },
 		Creator:  "alice",
@@ -763,13 +784,15 @@ func TestMatchersFromLabels_EmptyInputReturnsEmpty(t *testing.T) {
 func TestForm_TitleSwitchesOnEditID(t *testing.T) {
 	t.Parallel()
 	create := New(Options{
-		Client:  &fakeClient{},
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
 	})
 	edit := New(Options{
-		Client:  &fakeClient{},
+		Clients: map[string]Client{defaultTenant: &fakeClient{}},
+		Tenant:  defaultTenant,
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
 		Creator: "alice",
@@ -794,8 +817,17 @@ func (panickingClient) UpdateSilence(context.Context, string, backend.SilenceSpe
 
 func newBulkForm(t *testing.T, client Client, banner string) *Form {
 	t.Helper()
+	// Bulk mode never resolves a Client (the page owns dispatch),
+	// so the map is informational — but Options.Clients is the
+	// authoritative shape post-ADR-0011. Nil client maps to an
+	// empty Clients map so the helper keeps mirroring the
+	// pre-ADR-0011 signature.
+	var clients map[string]Client
+	if client != nil {
+		clients = map[string]Client{defaultTenant: client}
+	}
 	return New(Options{
-		Client:     client,
+		Clients:    clients,
 		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
 		Creator:    "alice",
@@ -969,4 +1001,336 @@ func TestForm_BulkSubmittedMsgIsAutoPop(t *testing.T) {
 	// a future rename breaks the form's submit-and-pop UX silently.
 	var msg interface{ IsAutoPop() } = BulkSubmittedMsg{}
 	require.NotNil(t, msg)
+}
+
+// newMultiTenantForm builds a form with two clients keyed by name
+// and an initial selection of "prod". Helper for the ADR-0011
+// tests so each case shares the same fixture shape and can focus
+// on the picker / cycle / submit assertions. Tests that need a
+// different initial selection construct their own Options inline.
+func newMultiTenantForm(t *testing.T, prod, staging Client) *Form {
+	t.Helper()
+	return New(Options{
+		Clients: map[string]Client{"prod": prod, "staging": staging},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+}
+
+// fillValidScalars types valid Starts/Ends/Creator/Comment values
+// into the form starting from the matchers field. Caller is
+// responsible for getting focus to matchers first (or relying on
+// the default). Leaves focus on Comment.
+func fillValidScalars(t *testing.T, f *Form) {
+	t.Helper()
+	// Already on matchers by default (or wherever the caller put
+	// us); type the matcher buffer first.
+	type_(f, "alertname=A")
+	// Walk to Starts / Ends / Creator / Comment.
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	require.Equal(t, fieldComment, f.focus, "fillValidScalars must land on Comment")
+	type_(f, "ack while patching")
+}
+
+// TestForm_SubmitRoutesToActiveTenantClient asserts the core
+// ADR-0011 contract: the form looks up clients[tenant] at submit
+// time, so the initial Tenant routes to one fake and a picker-
+// driven change routes to the other.
+func TestForm_SubmitRoutesToActiveTenantClient(t *testing.T) {
+	t.Parallel()
+
+	prod := &fakeClient{wantID: "sil-prod"}
+	staging := &fakeClient{wantID: "sil-staging"}
+	f := newMultiTenantForm(t, prod, staging)
+
+	// First submit: routes to prod (the initial selection).
+	fillValidScalars(t, f)
+	msg := drainSubmit(t, f).(SubmittedMsg)
+	require.Equal(t, "sil-prod", msg.ID, "initial submit must route to clients[\"prod\"]")
+	require.Equal(t, 1, prod.createCalls)
+	require.Equal(t, 0, staging.createCalls)
+
+	// Simulate a picker submission that switches the active tenant.
+	// The picker emits PickerSubmittedMsg with the selected name and
+	// the form's pickerOrigin tag; the form's Update consumes it and
+	// sets f.tenant accordingly.
+	_, _ = f.Update(modal.PickerSubmittedMsg{Origin: pickerOrigin, Selections: []string{"staging"}})
+	require.Equal(t, "staging", f.tenant, "picker submit must update the form's active tenant")
+
+	// Second submit: must route to staging now.
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	done := cmd().(submitDoneMsg)
+	_, cmd2 := f.Update(done)
+	require.NotNil(t, cmd2)
+	msg2 := cmd2().(SubmittedMsg)
+	require.Equal(t, "sil-staging", msg2.ID, "second submit must route to clients[\"staging\"]")
+	require.Equal(t, 1, prod.createCalls, "prod must not be called a second time")
+	require.Equal(t, 1, staging.createCalls)
+}
+
+// TestForm_PickerCancelledIsNoOp pins the cancel branch: a
+// PickerCancelledMsg arriving on the form keeps the active tenant
+// unchanged so an accidental Esc inside the picker doesn't silently
+// re-route the next submit.
+func TestForm_PickerCancelledIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	prod := &fakeClient{wantID: "sil-prod"}
+	staging := &fakeClient{wantID: "sil-staging"}
+	f := newMultiTenantForm(t, prod, staging)
+
+	_, cmd := f.Update(modal.PickerCancelledMsg{Origin: pickerOrigin})
+	require.Nil(t, cmd, "cancel must not produce a follow-up Cmd")
+	require.Equal(t, "prod", f.tenant, "cancel must leave the active tenant alone")
+}
+
+// TestForm_MultiTenantTenantRowFocusable asserts that with two or
+// more clients and no EditID / Bulk flag, the Tenant row is part
+// of the focus cycle and Enter on it opens the picker via the
+// App's modal pipeline (openModalMsg envelope).
+func TestForm_MultiTenantTenantRowFocusable(t *testing.T) {
+	t.Parallel()
+
+	f := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	// Default focus is Matchers (the user opens the form to type
+	// matchers; tabbing back to Tenant is the explicit affordance).
+	require.Equal(t, fieldMatchers, f.focus)
+
+	// Shift+Tab from Matchers lands on Tenant in a multi-tenant
+	// form (single-tenant / edit / bulk would have skipped it).
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	require.Equal(t, fieldTenant, f.focus, "shift+tab from Matchers must land on Tenant when the row is enabled")
+
+	// Enter on the Tenant row emits the modal-open envelope. We
+	// assert by type-name (openModalMsg is unexported in the app
+	// package, same pattern as alert_test.go's modal assertion).
+	_, cmd := f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd, "Enter on the Tenant row must emit a modal-open Cmd")
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "openModalMsg",
+		"Tenant Enter must open the picker via app.OpenModal")
+}
+
+// TestForm_TenantRowHintAdvertisesEnter pins the discoverability
+// affordance: when the Tenant row is editable the rendered view
+// must include "[Enter to change]" so the user does not have to
+// guess that Enter opens the picker. Disabled variants (single-
+// tenant, edit-mode) must NOT show the hint because the affordance
+// is inert there.
+func TestForm_TenantRowHintAdvertisesEnter(t *testing.T) {
+	t.Parallel()
+
+	// Anchor on the stable token, not the literal punctuation —
+	// a future theming pass that wraps the brackets in a styled
+	// span shouldn't flake the contract that the affordance is
+	// surfaced.
+	const hintToken = "Enter to change"
+
+	multi := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	require.Contains(t, multi.View(120, 24), hintToken,
+		"editable Tenant row must advertise the Enter-to-change affordance")
+
+	single := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	require.NotContains(t, single.View(120, 24), hintToken,
+		"disabled single-tenant Tenant row must not advertise an inert affordance")
+
+	edit := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}, "staging": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		EditID:  "sil-7",
+	})
+	require.NotContains(t, edit.View(120, 24), hintToken,
+		"edit-mode Tenant row is read-only and must not advertise the picker")
+
+	// Narrow form: hint must elide rather than force a wrap that
+	// breaks fieldRow's continuation-padding grid. Width 30 leaves
+	// ~17 cols for the value column once label/prefix are subtracted,
+	// well below "prod" (4) + "  [Enter to change]" (21).
+	require.NotContains(t, multi.View(30, 24), hintToken,
+		"narrow-width Tenant row must elide the hint to keep the grid aligned")
+}
+
+// TestForm_MultiTenantTabCycleIncludesTenant locks the full focus
+// cycle with two enabled clients: Matchers → Starts → Ends →
+// Creator → Comment → Tenant → Matchers. Single-tenant / edit /
+// bulk shapes are covered in their dedicated tests below.
+func TestForm_MultiTenantTabCycleIncludesTenant(t *testing.T) {
+	t.Parallel()
+
+	f := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	require.Equal(t, fieldMatchers, f.focus)
+	want := []fieldIndex{fieldStarts, fieldEnds, fieldCreator, fieldComment, fieldTenant, fieldMatchers}
+	for i, expected := range want {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		require.Equalf(t, expected, f.focus, "tab #%d: want %v got %v", i+1, expected, f.focus)
+	}
+}
+
+// TestForm_EditModeTenantRowDisabled asserts the ADR-0011 read-only
+// contract for edit mode: the Tenant row is rendered but Tab skips
+// it (the AM v2 API does not move silences between tenants) and
+// Enter on it would be a no-op (the cycle never lands there).
+func TestForm_EditModeTenantRowDisabled(t *testing.T) {
+	t.Parallel()
+
+	f := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}, "staging": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		EditID:  "sil-7",
+	})
+	require.True(t, f.tenantDisabled(), "edit mode must disable the Tenant row")
+	require.Equal(t, fieldMatchers, f.focus, "edit mode default focus is Matchers, same as create")
+
+	// Cycle through every field — Tenant must never appear.
+	seen := map[fieldIndex]bool{f.focus: true}
+	for range int(numFields) * 2 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		seen[f.focus] = true
+	}
+	require.False(t, seen[fieldTenant], "tab cycle must skip the Tenant row in edit mode")
+
+	// The view must still render the row so the user sees which
+	// tenant the silence belongs to.
+	view := f.View(120, 24)
+	require.Contains(t, view, "Tenant:", "edit-mode View must label the read-only Tenant row")
+	require.Contains(t, view, "prod", "edit-mode View must show the locked tenant value")
+}
+
+// TestForm_SingleTenantTenantRowDisabled asserts that with exactly
+// one client the Tenant row is rendered but read-only — there's
+// nothing meaningful to pick, so Tab skips it and the focus marker
+// stays off the row even if focus somehow lands there.
+func TestForm_SingleTenantTenantRowDisabled(t *testing.T) {
+	t.Parallel()
+
+	f := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	require.True(t, f.tenantDisabled(), "single-tenant must disable the Tenant row")
+
+	// Tab cycle never lands on Tenant.
+	seen := map[fieldIndex]bool{f.focus: true}
+	for range int(numFields) * 2 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		seen[f.focus] = true
+	}
+	require.False(t, seen[fieldTenant], "single-tenant tab cycle must skip the Tenant row")
+
+	// View still renders the row so the layout stays consistent
+	// across single-tenant / multi-tenant deployments.
+	view := f.View(120, 24)
+	require.Contains(t, view, "Tenant:")
+	require.Contains(t, view, "prod")
+}
+
+// TestForm_BulkModeNoTenantRow asserts that bulk mode omits the
+// Tenant row entirely (the Targets banner is the source of truth
+// for the per-tenant breakdown in bulk). EditID + Bulk is mutually
+// exclusive per the existing comment, so this is the only path
+// that skips the row outright rather than rendering it disabled.
+func TestForm_BulkModeNoTenantRow(t *testing.T) {
+	t.Parallel()
+
+	f := newBulkForm(t, &fakeClient{}, "applies to 3 alerts across 2 tenants")
+	view := f.View(120, 24)
+	require.NotContains(t, view, "Tenant:",
+		"bulk View must NOT render the Tenant row — the Targets banner is the source of truth")
+	require.Contains(t, view, "Targets",
+		"bulk View must keep the existing Targets banner label")
+}
+
+// TestForm_PickerListIsSortedAndScopeUnfiltered locks the picker
+// list contract: every key in f.clients appears, sorted
+// alphabetically, regardless of any current scope. The form
+// passes the page's writeable map through verbatim — scope
+// filtering is a viewing concern, not a write-target gate.
+func TestForm_PickerListIsSortedAndScopeUnfiltered(t *testing.T) {
+	t.Parallel()
+
+	f := New(Options{
+		Clients: map[string]Client{
+			"zeta":  &fakeClient{},
+			"alpha": &fakeClient{},
+			"mu":    &fakeClient{},
+		},
+		Tenant:  "alpha",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+
+	cmd := f.openTenantPicker()
+	require.NotNil(t, cmd)
+	// Drive the actual feed the picker sees rather than walking
+	// f.clients again — the sort contract lives in sortedTenantNames,
+	// so asserting on its output exercises the picker's input verbatim.
+	names := f.sortedTenantNames()
+	require.Equal(t, []string{"alpha", "mu", "zeta"}, names,
+		"openTenantPicker must feed every key in f.clients in sorted order (scope is a viewing filter, not a write-target gate)")
+	require.True(t, sort.StringsAreSorted(names),
+		"the picker list must be alphabetically sorted so the user sees a stable order")
+}
+
+// TestForm_PickerSubmitWithEmptySelectionsIsNoOp pins the defensive
+// branch: a PickerSubmittedMsg with no selections (the picker emits
+// PickerCancelledMsg on empty filter today, but a future picker
+// shape might still emit a zero-length submit) must not zero the
+// active tenant.
+func TestForm_PickerSubmitWithEmptySelectionsIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	f := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	_, _ = f.Update(modal.PickerSubmittedMsg{Origin: pickerOrigin})
+	require.Equal(t, "prod", f.tenant, "empty selections must not clear the active tenant")
+}
+
+// TestForm_SubmitFailsWhenTenantUnreachable locks the defensive
+// boundary check inside submit(): an unreachable tenant (empty
+// string, or a key not present in f.clients) flashes a clear error
+// rather than panicking on nil dereference. This path is
+// unreachable through the UI in normal flow — the page only opens
+// the form with a writeable tenant — but the guard documents the
+// contract and catches a future refactor that breaks the wiring.
+func TestForm_SubmitFailsWhenTenantUnreachable(t *testing.T) {
+	t.Parallel()
+
+	// Empty Tenant: form was constructed without an initial pick.
+	f := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}},
+		Tenant:  "",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	type_(f, "alertname=A")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	flash := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, flash.Level)
+	require.Contains(t, strings.ToLower(flash.Text), "tenant",
+		"unreachable-tenant flash must mention the tenant so a future refactor can locate the broken wiring")
 }

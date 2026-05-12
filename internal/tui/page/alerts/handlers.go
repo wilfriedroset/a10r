@@ -337,8 +337,7 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
 	entry := p.view[p.cursor]
-	client, ok := p.clients[entry.tenant]
-	if !ok {
+	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(entry.a.Labels)
@@ -348,9 +347,12 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	}
 	styles := p.styles
 	now := p.now
+	clients := p.clients
+	tenant := entry.tenant
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:   client,
+			Clients:  clients,
+			Tenant:   tenant,
 			Styles:   styles,
 			Now:      now,
 			Creator:  creator,

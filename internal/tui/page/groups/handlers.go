@@ -285,8 +285,7 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	if len(p.clients) == 0 {
 		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	client, ok := p.clients[entry.tenant]
-	if !ok {
+	if _, ok := p.clients[entry.tenant]; !ok {
 		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(commonLabels(entry.g.Alerts))
@@ -296,9 +295,12 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	}
 	styles := p.styles
 	now := p.now
+	clients := p.clients
+	tenant := entry.tenant
 	return p, app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:   client,
+			Clients:  clients,
+			Tenant:   tenant,
 			Styles:   styles,
 			Now:      now,
 			Creator:  creator,

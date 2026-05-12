@@ -83,7 +83,11 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 
 	page := newFakePage("alerts")
 	drive(t, a, PushPage(func() Page { return page }))
-	picker := modal.NewPicker("tenants", []string{"prod", "staging"}, modal.PickerSingle)
+	// PickerOriginScope mirrors what input.go's Ctrl+T binding sets
+	// — the lifecycle router only translates picker submissions to
+	// ScopeChangedMsg when the Origin matches.
+	picker := modal.NewPicker("tenants", []string{"prod", "staging"}, modal.PickerSingle).
+		WithOrigin(PickerOriginScope)
 	drive(t, a, OpenModal(func() modal.Modal { return picker }))
 
 	// Cursor on row 0 ("prod"); Enter submits.

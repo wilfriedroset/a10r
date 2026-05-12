@@ -1660,7 +1660,9 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 	opts, refusal, ok := p.recreateFormOptions()
 	require.True(t, ok, "expired row + writeable backend must yield ok=true")
 	require.Nil(t, refusal, "recreatable row must not produce a refusal Cmd")
-	require.Equal(t, fake, opts.Client, "recreate must pin the cursor row's tenant client")
+	require.Equal(t, "prod", opts.Tenant, "recreate must pin the cursor row's tenant name")
+	require.Equal(t, silenceform.Client(fake), opts.Clients["prod"],
+		"recreate's clients map must carry the row's writeable backend under its tenant key")
 	require.Equal(t, matchers, opts.Matchers, "matchers must round-trip from the source silence")
 	require.Equal(t, "ack while patching prod", opts.Comment, "comment must be verbatim")
 	require.Equal(t, "wilfried", opts.Creator,

@@ -378,7 +378,11 @@ func (p *Page) toggleMarkAtCursor() {
 // prefilled from the cursor row. Selection rule: the cursor
 // row's tenant — `e` operates on the visible row, never falls
 // back to "first in-scope" the way `n` does because there's no
-// row to edit if no row is focused.
+// row to edit if no row is focused. Per ADR-0011 the form's
+// Tenant row renders read-only in edit mode (the AM v2 API does
+// not move silences between tenants), so the whole p.clients map
+// is handed through unchanged — the form's tenantDisabled logic
+// freezes the selection on entry.tenant.
 func (p *Page) openEditSilenceForm() tea.Cmd {
 	if p.cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
@@ -387,8 +391,7 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	entry := p.view[p.cursor]
-	client, ok := p.clients[entry.tenant]
-	if !ok {
+	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	creator := entry.s.CreatedBy
@@ -400,10 +403,13 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	}
 	styles := p.styles
 	now := p.now
+	clients := silenceformClients(p.clients)
+	tenant := entry.tenant
 	s := entry.s
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:   client,
+			Clients:  clients,
+			Tenant:   tenant,
 			Styles:   styles,
 			Now:      now,
 			Creator:  creator,
@@ -441,12 +447,12 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		return silenceform.Options{}, flashFn(footer.FlashInfo,
 			"only expired silences can be recreated — use `e` to edit a live silence"), false
 	}
-	client, ok := p.clients[entry.tenant]
-	if !ok {
+	if _, ok := p.clients[entry.tenant]; !ok {
 		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
 	}
 	return silenceform.Options{
-		Client:    client,
+		Clients:   silenceformClients(p.clients),
+		Tenant:    entry.tenant,
 		Styles:    p.styles,
 		Now:       p.now,
 		Creator:   p.defaultCreator(),
@@ -577,22 +583,25 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 }
 
 // openNewSilenceForm pushes an empty silence form targeting the
-// best-fit backend. Selection rule: the cursor row's tenant
-// (when a row is focused), else the first in-scope tenant from
-// p.clients in alphabetical order. Empty p.clients (no backends
-// configured, or read-only run) flashes a hint instead.
+// best-fit backend. Initial selection rule per ADR-0011: the cursor
+// row's tenant (when a row is focused), else the first in-scope
+// tenant from p.clients in alphabetical order. The user can still
+// change the target via Enter on the Tenant row inside the form.
+// Empty p.clients (no backends configured, or read-only run)
+// flashes a hint instead.
 func (p *Page) openNewSilenceForm() tea.Cmd {
-	tenant, client, ok := p.pickWriteTarget()
+	tenant, _, ok := p.pickWriteTarget()
 	if !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	creator := p.defaultCreator()
 	now := p.now
 	styles := p.styles
-	_ = tenant // captured by client; reserved for a future title
+	clients := silenceformClients(p.clients)
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Client:  client,
+			Clients: clients,
+			Tenant:  tenant,
 			Styles:  styles,
 			Now:     now,
 			Creator: creator,
@@ -610,6 +619,22 @@ func (p *Page) defaultCreator() string {
 		return p.creator
 	}
 	return "a10r"
+}
+
+// silenceformClients projects the page's Client map (which embeds
+// silenceform.Client plus ExpireSilence) onto the narrower
+// silenceform.Client map the form takes. Per ADR-0011 the form
+// receives the full writeable set so the user can pick across
+// tenants from inside the form without the caller pre-resolving.
+// The projection is by-key, sharing the underlying value
+// references — the map is short-lived and read-only on the form
+// side, so no copying / locking concern.
+func silenceformClients(in map[string]Client) map[string]silenceform.Client {
+	out := make(map[string]silenceform.Client, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // pickWriteTarget returns the tenant + client to send a write to.

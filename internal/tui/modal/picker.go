@@ -29,15 +29,29 @@ const (
 // current selection. Selections are returned as the original item
 // strings (not indexes) so the caller can treat the picker as
 // stateless once the message arrives.
+//
+// Origin is an opaque tag stamped by the caller at construction time
+// (see Picker.WithOrigin). Multiple call sites can each emit their
+// own PickerSubmittedMsg; the App's lifecycle router uses Origin to
+// distinguish the global tenant-quick-switch picker (Origin=="scope")
+// from picker submissions a focused page wants to consume itself
+// (e.g. the silence form's tenant row). Empty Origin keeps the
+// historical default behaviour for callers that don't tag.
 type PickerSubmittedMsg struct {
+	Origin     string
 	Selections []string
 }
 
 // IsModalResult satisfies ResultMsg.
 func (PickerSubmittedMsg) IsModalResult() {}
 
-// PickerCancelledMsg is emitted on Esc. Carries no selection.
-type PickerCancelledMsg struct{}
+// PickerCancelledMsg is emitted on Esc. Origin mirrors
+// PickerSubmittedMsg.Origin so the App can route cancellations the
+// same way as submissions — a cancelled form-side picker must reach
+// the form, not the global scope handler.
+type PickerCancelledMsg struct {
+	Origin string
+}
 
 // IsModalResult satisfies ResultMsg.
 func (PickerCancelledMsg) IsModalResult() {}
@@ -49,9 +63,15 @@ func (PickerCancelledMsg) IsModalResult() {}
 // The picker doesn't know it's the tenant picker — the same shape
 // will host receiver / silence picking later. The caller wraps it
 // in a thin Modal that knows the title and the message wiring.
+//
+// origin is the opaque tag stamped onto every emitted
+// PickerSubmittedMsg / PickerCancelledMsg so the App's lifecycle
+// router can tell a global picker apart from one a focused page
+// opened. Empty by default — callers opt in via WithOrigin.
 type Picker struct {
-	title string
-	mode  PickerMode
+	title  string
+	mode   PickerMode
+	origin string
 
 	items   []string
 	query   string
@@ -71,6 +91,19 @@ func NewPicker(title string, items []string, mode PickerMode) *Picker {
 		marks: map[int]struct{}{},
 	}
 	p.refilter()
+	return p
+}
+
+// WithOrigin stamps the picker so every emitted submit / cancel
+// message carries the supplied tag. Returns the receiver so
+// constructors can chain `NewPicker(...).WithOrigin(...)`.
+//
+// The tag is opaque to the picker itself — the App's lifecycle
+// router and individual page Updates agree on the namespace
+// (e.g. "scope" for the global tenant quick-switch,
+// "silence-form-tenant" for the silence form's row).
+func (p *Picker) WithOrigin(origin string) *Picker {
+	p.origin = origin
 	return p
 }
 
@@ -108,7 +141,8 @@ func (p *Picker) handleTerminalKey(keyMsg tea.KeyMsg) (tea.Cmd, bool) {
 		cmd := p.submit()
 		return cmd, true
 	case "esc":
-		return func() tea.Msg { return PickerCancelledMsg{} }, true
+		origin := p.origin
+		return func() tea.Msg { return PickerCancelledMsg{Origin: origin} }, true
 	}
 	return nil, false
 }
@@ -171,10 +205,11 @@ func (p *Picker) handleQueryInput(keyMsg tea.KeyMsg) {
 // current selection. Single mode picks the cursor row; multi mode
 // returns every marked index in original-input order.
 func (p *Picker) submit() tea.Cmd {
+	origin := p.origin
 	var sel []string
 	if p.mode == PickerSingle {
 		if len(p.matches) == 0 {
-			return func() tea.Msg { return PickerCancelledMsg{} }
+			return func() tea.Msg { return PickerCancelledMsg{Origin: origin} }
 		}
 		sel = []string{p.items[p.matches[p.cursor]]}
 	} else {
@@ -185,7 +220,7 @@ func (p *Picker) submit() tea.Cmd {
 			}
 		}
 	}
-	return func() tea.Msg { return PickerSubmittedMsg{Selections: sel} }
+	return func() tea.Msg { return PickerSubmittedMsg{Origin: origin, Selections: sel} }
 }
 
 // toggleAt flips a mark in multi mode.

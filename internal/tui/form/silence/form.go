@@ -22,11 +22,13 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -83,11 +85,18 @@ type BulkSubmittedMsg struct {
 func (BulkSubmittedMsg) IsAutoPop() {}
 
 // fieldIndex enumerates the form's input slots so Tab navigation
-// can walk them in display order.
+// can walk them in display order. fieldTenant sits at position 0
+// per ADR-0011 — the form owns its tenant selection and renders
+// it as the first row, above Matchers. The row is disabled (skipped
+// by cycleFocus, no leading marker) when the form has only one
+// client, when it's in edit mode (a silence cannot move between
+// tenants in the AM v2 API), or when bulk mode is active (the
+// Targets banner replaces it entirely).
 type fieldIndex int
 
 const (
-	fieldMatchers fieldIndex = iota
+	fieldTenant fieldIndex = iota
+	fieldMatchers
 	fieldStarts
 	fieldEnds
 	fieldCreator
@@ -99,7 +108,17 @@ const (
 // app.Page. Mode is selected by editID: empty → CreateSilence on
 // submit; non-empty → UpdateSilence(editID, spec) on submit.
 type Form struct {
-	client Client
+	// clients is the writeable backend map keyed by tenant name.
+	// Submit routes to clients[tenant]; the Tenant row's Enter
+	// opens a picker over the keys (sorted alphabetically). Per
+	// ADR-0011 the form takes the full map rather than a single
+	// resolved Client so the user — not the caller — picks the
+	// write target.
+	clients map[string]Client
+	// tenant is the currently-selected tenant name. Mutated only
+	// by a PickerSubmittedMsg landing on the form; empty in bulk
+	// mode (the banner is the source of truth there).
+	tenant string
 	styles *theme.Styles
 	now    func() time.Time
 
@@ -157,7 +176,16 @@ type Form struct {
 // UpdateSilence. None of them are required for the create-from-
 // scratch path.
 type Options struct {
-	Client Client
+	// Clients is the writeable backend map the form picks from on
+	// Enter against the Tenant row. The caller hands the whole map
+	// (typically the page's p.clients) so scope filtering doesn't
+	// gate write targets — picking a tenant out-of-scope is a
+	// legitimate operator action. Per ADR-0011.
+	Clients map[string]Client
+	// Tenant is the initial selection. Required when Clients is
+	// non-empty and Bulk is false; ignored in bulk mode (the banner
+	// carries the per-target breakdown there).
+	Tenant string
 	Styles *theme.Styles
 	// Now injects the clock used to default StartsAt and resolve
 	// duration shorthands like "2h". nil falls back to time.Now.
@@ -250,7 +278,6 @@ func New(opts Options) *Form {
 		// type a fresh duration. Placeholder still hints "2h" so
 		// the shape is discoverable; parseEndsAt rejects empty at
 		// submit time to make this an actual guard, not a hint.
-		_ = ends
 	case !opts.EndsAt.IsZero():
 		ends.SetValue(opts.EndsAt.UTC().Format(time.RFC3339))
 	default:
@@ -266,7 +293,8 @@ func New(opts Options) *Form {
 	}
 
 	f := &Form{
-		client:     opts.Client,
+		clients:    opts.Clients,
+		tenant:     opts.Tenant,
 		styles:     opts.Styles,
 		now:        now,
 		matchers:   matchers,
@@ -278,11 +306,13 @@ func New(opts Options) *Form {
 		bulk:       opts.Bulk,
 		bulkBanner: opts.BulkBanner,
 	}
-	// Bulk mode never lands on the (hidden) matchers field; start
-	// focus on Starts so the first Tab walks the metadata fields.
-	// The FocusEnds knob layers on top — independent of Bulk —
-	// because Ends is a real field in both modes; setting both is
-	// well-defined and lands focus on Ends.
+	// Default focus is fieldMatchers (the iota+1 slot). Tenant is
+	// the visual first row but not the keyboard-first row: the user
+	// opens the form to type matchers, and only tabs back to Tenant
+	// when they want to change the write target. Bulk mode hides
+	// matchers entirely so focus starts on Starts; FocusEnds layers
+	// on top for the recreate-expired entry point.
+	f.focus = fieldMatchers
 	if f.bulk {
 		f.focus = fieldStarts
 	}
@@ -295,38 +325,52 @@ func New(opts Options) *Form {
 
 // newInput constructs a textinput.Model with the form's shared
 // shape: no built-in prompt (the row label provides one), the
-// supplied placeholder for empty state, no character limit, and
-// flattened text + placeholder styling so every input renders
-// in the body's default foreground regardless of focus or
-// fill state. The form's only focus indicator is the leading
-// `▸` marker plus the row label's accent tint — bubbles' default
-// dim-grey placeholder + dim-grey blurred text would compete
-// with that and make every blurred / unfilled field look stale.
+// supplied placeholder for empty state, and no character limit.
+//
+// Typed text is forced to the body's default foreground in both
+// focused and blurred states so a filled row never reads as
+// stale — bubbles' default paints blurred text in dim grey,
+// which collides with the form's focus marker (a leading `▸`
+// plus the accent-tinted label) and made every blurred-but-
+// filled row look disabled.
+//
+// Placeholder dim is deliberately kept on both states per
+// ADR-0012 so the operator can distinguish an empty field
+// ("$USER", "2h", …) from one carrying a real value at a
+// glance. The placeholder colour is foreground-only — no
+// background paint — so the chrome-on-default-bg rule is
+// preserved.
 func newInput(placeholder string) textinput.Model {
 	in := textinput.New()
 	in.Prompt = ""
 	in.Placeholder = placeholder
 	s := in.Styles()
 	s.Blurred.Text = s.Focused.Text
-	s.Focused.Placeholder = s.Focused.Text
-	s.Blurred.Placeholder = s.Focused.Text
 	in.SetStyles(s)
 	return in
 }
 
-// flattenTextareaBlur strips dim and background highlights from
-// the textarea so matchers reads identically — same fg, no bg
-// stripe — whether focused or blurred. Bubbles' defaults paint
-// a CursorLine background and dim blurred text + placeholder;
-// the form's focus marker is the leading `▸` + accent label,
-// not a rectangular highlight that competes with the row chrome.
+// flattenTextareaBlur strips the bubbles defaults that would
+// fight the form's focus chrome. Two slots are flattened:
+//   - Text in both focused and blurred states, so typed
+//     matchers stay at default fg whichever row owns focus
+//     (bubbles' blurred default dims text and made filled
+//     rows read as stale);
+//   - CursorLine in both states, so the active line never
+//     paints a background stripe behind the buffer (the
+//     chrome-on-default-bg rule).
+//
+// Placeholder is intentionally left at the bubbles default
+// per ADR-0012 — the dim foreground is what distinguishes an
+// empty matchers buffer from a populated one. The default is
+// foreground-only ("alertname=HighCPU\nseverity=critical" in
+// grey), no background paint, so the no-stripe rule still
+// holds.
 func flattenTextareaBlur(m *textarea.Model) {
 	s := m.Styles()
 	bare := lipgloss.NewStyle()
 	s.Focused.Text = bare
 	s.Blurred.Text = bare
-	s.Focused.Placeholder = bare
-	s.Blurred.Placeholder = bare
 	s.Focused.CursorLine = bare
 	s.Blurred.CursorLine = bare
 	m.SetStyles(s)
@@ -377,6 +421,7 @@ func (*Form) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "Tab", Description: "next field", View: "silence-form"},
 		{Key: "Shift+Tab", Description: "prev field", View: "silence-form"},
+		{Key: "Enter", Description: "pick tenant (on Tenant row)", View: "silence-form"},
 		{Key: "Ctrl+S", Description: "submit", View: "silence-form"},
 	}
 }
@@ -393,6 +438,22 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if m, ok := msg.(submitDoneMsg); ok {
 		return f, f.applySubmitDone(m)
 	}
+	// Picker results land here when the user picks (or cancels) a
+	// tenant on the Tenant row's Enter. Submitted updates f.tenant;
+	// cancelled is a silent no-op. Either way focus stays on the
+	// Tenant row so a tab walks the remaining fields predictably.
+	// Origin gates the handler so a foreign picker (e.g. a future
+	// global picker forwarded through forwardToTop) cannot reach in
+	// and stomp the active tenant.
+	if m, ok := msg.(modal.PickerSubmittedMsg); ok && m.Origin == pickerOrigin {
+		if len(m.Selections) > 0 {
+			f.tenant = m.Selections[0]
+		}
+		return f, nil
+	}
+	if m, ok := msg.(modal.PickerCancelledMsg); ok && m.Origin == pickerOrigin {
+		return f, nil
+	}
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "tab":
@@ -406,10 +467,73 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		case "ctrl+s":
 			cmd := f.submit()
 			return f, cmd
+		case "enter":
+			// Enter on the Tenant row opens the tenant picker; on
+			// every other row it falls through to the focused field
+			// (textarea grows a newline; textinput is a no-op).
+			if f.focus == fieldTenant && !f.tenantDisabled() {
+				cmd := f.openTenantPicker()
+				return f, cmd
+			}
 		}
 	}
 	cmd := f.forwardToFocused(msg)
 	return f, cmd
+}
+
+// pickerOrigin tags every PickerSubmittedMsg / PickerCancelledMsg
+// the form's tenant picker emits. The App's lifecycle router only
+// short-circuits picker results carrying app.PickerOriginScope
+// (the Ctrl+T global picker) — everything else, including this
+// tag, is forwarded to the top page so the form's Update consumes
+// it. Originator-tagging beats a private wrapped message because
+// the picker submit Cmd is fired by bubbletea directly into the
+// App and the form has no intercept point before forwardToTop.
+const pickerOrigin = "silence-form-tenant"
+
+// openTenantPicker returns a Cmd that asks the App to push a
+// single-select picker over every key in f.clients. The picker
+// list is sorted alphabetically so the order is stable across
+// runs / tests. Selection routes back as modal.PickerSubmittedMsg
+// (handled in Update). The form deliberately passes the full map
+// rather than intersecting with the page's scope: per ADR-0011
+// scope is a viewing filter, deliberate writes shouldn't be gated
+// by what the operator happens to be looking at.
+func (f *Form) openTenantPicker() tea.Cmd {
+	names := f.sortedTenantNames()
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewPicker("Select tenant", names, modal.PickerSingle).
+			WithOrigin(pickerOrigin)
+	})
+}
+
+// sortedTenantNames returns f.clients keys in stable alphabetical
+// order. Extracted from openTenantPicker so tests can assert the
+// sort contract without reaching through the picker's modal envelope.
+func (f *Form) sortedTenantNames() []string {
+	names := make([]string, 0, len(f.clients))
+	for t := range f.clients {
+		names = append(names, t)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// tenantDisabled reports whether the Tenant row is read-only.
+// Three independent triggers:
+//   - bulk mode: row omitted entirely; checking the flag here
+//     keeps the cycleFocus / Enter handler consistent with the
+//     renderer's omission.
+//   - editID set: edit mode can't move a silence between tenants.
+//   - fewer than two clients: nothing meaningful to pick.
+func (f *Form) tenantDisabled() bool {
+	if f.bulk {
+		return true
+	}
+	if f.editID != "" {
+		return true
+	}
+	return len(f.clients) < 2
 }
 
 // forwardToFocused dispatches the message to whichever bubbles
@@ -420,6 +544,11 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 func (f *Form) forwardToFocused(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	switch f.focus {
+	case fieldTenant:
+		// Tenant has no bubbles input — it's a read-out for the
+		// active selection, modified only via the picker. Drop the
+		// message rather than routing it anywhere; the cursor blink
+		// loop is keyed off the other fields' Focus() Cmds.
 	case fieldMatchers:
 		f.matchers, cmd = f.matchers.Update(msg)
 	case fieldStarts:
@@ -439,22 +568,52 @@ func (f *Form) forwardToFocused(msg tea.Msg) tea.Cmd {
 // cycleFocus walks focus by delta (typically ±1), blurring the
 // outgoing field and focusing the incoming one. Returns the
 // Cmd Focus emits (cursor blink schedule) so the program loop
-// drives the new field's blink timer. In bulk mode the matchers
-// field is hidden and never focusable, so a single skip-step
-// past it keeps the cycle a closed loop over the four metadata
-// fields (Starts → Ends → Creator → Comment → Starts …).
+// drives the new field's blink timer.
+//
+// Two kinds of fields are skipped on the way:
+//   - fieldMatchers in bulk mode (the textarea is hidden, the
+//     Targets banner is non-focusable);
+//   - fieldTenant when tenantDisabled() — single-client / edit-mode /
+//     bulk; the row either isn't rendered or renders read-only.
+//
+// The skip loop runs at most numFields-1 times to guarantee
+// termination even in a future shape where every slot is disabled
+// (defensive — not reachable today).
 func (f *Form) cycleFocus(delta int) tea.Cmd {
 	f.activeBlur()
-	f.focus = (f.focus + fieldIndex(delta) + numFields) % numFields
-	if f.bulk && f.focus == fieldMatchers {
+	for range int(numFields) {
 		f.focus = (f.focus + fieldIndex(delta) + numFields) % numFields
+		if !f.focusDisabled() {
+			break
+		}
 	}
 	return f.activeFocus()
 }
 
+// focusDisabled reports whether the slot at f.focus is one the
+// cycle must skip. Mirrors the renderer's omission rules so Tab
+// never lands on a row the user can't actually edit. The other
+// fields (Starts/Ends/Creator/Comment/numFields) are always
+// focusable / sentinel, so they take the default-false branch.
+func (f *Form) focusDisabled() bool {
+	switch f.focus {
+	case fieldTenant:
+		return f.tenantDisabled()
+	case fieldMatchers:
+		return f.bulk
+	case fieldStarts, fieldEnds, fieldCreator, fieldComment, numFields:
+		return false
+	}
+	return false
+}
+
 // activeFocus calls Focus on the field at the current index.
+// fieldTenant has no bubbles input — the row is a static display
+// of the active selection, so the focus call is a no-op there.
 func (f *Form) activeFocus() tea.Cmd {
 	switch f.focus {
+	case fieldTenant:
+		return nil
 	case fieldMatchers:
 		return f.matchers.Focus()
 	case fieldStarts:
@@ -473,6 +632,8 @@ func (f *Form) activeFocus() tea.Cmd {
 // activeBlur calls Blur on the field at the current index.
 func (f *Form) activeBlur() {
 	switch f.focus {
+	case fieldTenant:
+		// No bubbles input behind this row — nothing to blur.
 	case fieldMatchers:
 		f.matchers.Blur()
 	case fieldStarts:
@@ -525,8 +686,8 @@ func (f *Form) submit() tea.Cmd {
 		return f.fail(err.Error())
 	}
 	if f.bulk {
-		// Client may legitimately be nil in bulk mode — the page
-		// owns dispatch, the form just collects metadata.
+		// Clients may legitimately be nil/empty in bulk mode — the
+		// page owns dispatch, the form just collects metadata.
 		return func() tea.Msg {
 			return BulkSubmittedMsg{
 				Comment:  spec.Comment,
@@ -536,21 +697,29 @@ func (f *Form) submit() tea.Cmd {
 			}
 		}
 	}
-	if f.client == nil {
-		return f.fail("client not configured")
+	// Resolve the write target from the active tenant. Defensive:
+	// in normal flow f.tenant is set by the caller (initial pick)
+	// or by a PickerSubmittedMsg landing on the form, and the
+	// resolved client is non-nil. An empty tenant or a missing key
+	// is unreachable through the UI but worth refusing loudly so a
+	// future refactor that loses the wiring fails closed.
+	if f.tenant == "" {
+		return f.fail("no tenant selected")
+	}
+	client, ok := f.clients[f.tenant]
+	if !ok || client == nil {
+		return f.fail("no client for tenant " + f.tenant)
 	}
 	f.submitGen++
 	gen := f.submitGen
 	f.submitting = true
 	if f.editID != "" {
-		client := f.client
 		id := f.editID
 		return func() tea.Msg {
 			err := client.UpdateSilence(context.Background(), id, spec)
 			return submitDoneMsg{gen: gen, id: id, updated: true, err: err}
 		}
 	}
-	client := f.client
 	return func() tea.Msg {
 		id, err := client.CreateSilence(context.Background(), spec)
 		return submitDoneMsg{gen: gen, id: id, err: err}
@@ -818,6 +987,10 @@ const labelWidth = 11
 // label on the left, the bubbles input's View on the right —
 // with the focused row's label tinted via the theme's accent
 // colour and a leading `▸` so the active field is unmissable.
+//
+// Row order per ADR-0011: Tenant first (omitted in bulk; read-only
+// when single-client or in edit mode), then Matchers / Targets,
+// then the metadata fields.
 func (f *Form) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -831,13 +1004,17 @@ func (f *Form) View(width, height int) string {
 	f.creator.SetWidth(inputWidth)
 	f.comment.SetWidth(inputWidth)
 
-	rows := []string{
+	rows := make([]string, 0, int(numFields))
+	if !f.bulk {
+		rows = append(rows, f.tenantRow(inputWidth))
+	}
+	rows = append(rows,
 		f.matcherSlotRow(),
 		f.fieldRow("Starts", fieldStarts, f.starts.View()),
 		f.fieldRow("Ends", fieldEnds, f.ends.View()),
 		f.fieldRow("Creator", fieldCreator, f.creator.View()),
 		f.fieldRow("Comment", fieldComment, f.comment.View()),
-	}
+	)
 	body := strings.Join(rows, "\n")
 	if f.err != "" {
 		// The hint strip in the top panel already advertises
@@ -847,6 +1024,83 @@ func (f *Form) View(width, height int) string {
 		body += "\n\n" + f.styles.Flash.Error.Render("ERR: "+f.err)
 	}
 	return lipgloss.NewStyle().Width(width).Render(body)
+}
+
+// tenantRow renders the leading Tenant row. The value is the
+// current f.tenant (empty string falls back to a "—" placeholder
+// so an unselected form is still visually obvious). When the row
+// is disabled — single-client deployments and edit mode — the
+// renderer drops the leading `▸` marker even when focus happens
+// to land here, and falls back to the neutral label style so the
+// row reads as informational rather than actionable. Bulk mode
+// never reaches this code path (View omits the row outright).
+func (f *Form) tenantRow(inputWidth int) string {
+	value := f.tenant
+	if value == "" {
+		value = "—"
+	}
+	if f.tenantDisabled() {
+		return f.disabledRow("Tenant", value)
+	}
+	// Append a faint "[Enter to change]" hint so the picker affordance
+	// is discoverable without the user having to guess. Faint
+	// (`\x1b[2m`) is foreground-only — no background paint — and sits
+	// next to the value so it doesn't clutter the focus marker. The
+	// hint is unconditional (focused or blurred) so a user scanning
+	// the form learns the affordance before ever tabbing onto the row.
+	//
+	// Elided when the row would otherwise wrap: with a long tenant
+	// name on a narrow form, appending the hint would push the line
+	// past inputWidth and the outer View's Width-wrap would break
+	// fieldRow's grid alignment. Trade discoverability for layout
+	// integrity at narrow widths — Bindings() still advertises the
+	// affordance in the global hint strip.
+	const hintBody = enterToChangeHint
+	hintCols := lipgloss.Width("  ") + lipgloss.Width(hintBody)
+	if lipgloss.Width(value)+hintCols > inputWidth {
+		return f.fieldRow("Tenant", fieldTenant, value)
+	}
+	hint := lipgloss.NewStyle().Faint(true).Render("  " + hintBody)
+	return f.fieldRow("Tenant", fieldTenant, value+hint)
+}
+
+// enterToChangeHint is the picker-affordance label echoed both in
+// the tenant row's inline suffix and (canonically) in Bindings().
+// Sharing the literal keeps the two sites in lockstep so a future
+// rename can't leave one stale.
+const enterToChangeHint = "[Enter to change]"
+
+// disabledRow renders a row with no leading marker and the neutral
+// label style — used by Tenant when the row is read-only. Shares
+// label padding and multi-line continuation alignment with
+// fieldRow so the form's grid stays consistent.
+//
+// The value cell is dimmed via lipgloss.Faint — a real SGR
+// (`\x1b[2m`) that renders as a foreground-only attenuation on
+// every modern terminal. ADR-0011 calls for a visual "disabled
+// (greyed)" treatment; without it a disabled row would render
+// identically to a blurred-but-interactive row (same default fg
+// + bold label). Faint is foreground-only by definition so the
+// no-background-paint rule still holds, and we deliberately
+// don't reach for a new theme role — the dim is a render-time
+// affordance, not a palette concept.
+func (f *Form) disabledRow(label, value string) string {
+	prefix := "  "
+	labelStyle := lipgloss.NewStyle().
+		Foreground(f.styles.Body.Default.GetForeground()).
+		Bold(true)
+	labelText := labelStyle.Render(format.PadRight(label+":", labelWidth))
+	valueStyle := lipgloss.NewStyle().Faint(true)
+	lines := strings.Split(value, "\n")
+	for i, ln := range lines {
+		dimmed := valueStyle.Render(ln)
+		if i == 0 {
+			lines[i] = prefix + labelText + dimmed
+		} else {
+			lines[i] = strings.Repeat(" ", 2+labelWidth) + dimmed
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // matcherSlotRow renders the top row of the form. In create / edit
@@ -859,7 +1113,59 @@ func (f *Form) matcherSlotRow() string {
 	if f.bulk {
 		return f.fieldRow("Targets", fieldMatchers, f.bulkBanner)
 	}
-	return f.fieldRow("Matchers", fieldMatchers, f.matchers.View())
+	return f.fieldRow("Matchers", fieldMatchers, f.matchersView())
+}
+
+// matchersView wraps f.matchers.View() to work around a bubbles
+// textarea bug: placeholderView (textarea.go:1513) only wraps the
+// FIRST line of a multi-line Placeholder with the placeholder
+// style; lines 2..N render with cursorLine only, which
+// flattenTextareaBlur sets to bare — leaving them at the
+// terminal's default foreground while line 1 is dim. The result
+// is a multi-line hint whose continuation lines visually read as
+// typed text. Compose around upstream (no-fork): when the buffer
+// is empty, re-style the trailing placeholder lines so the full
+// hint reads as one placeholder.
+func (f *Form) matchersView() string {
+	raw := f.matchers.View()
+	if f.matchers.Value() != "" {
+		return raw
+	}
+	if !strings.Contains(f.matchers.Placeholder, "\n") {
+		return raw
+	}
+	// Replicate bubbles' placeholder wrap (textarea.go:1521-1525) so
+	// our `plines` matches what bubbles actually rendered — anchoring
+	// against the raw `Placeholder` field's newline-split would miss
+	// at narrow widths where bubbles word/hard-wraps a long line
+	// before splitting, and the substring index would return -1.
+	width := f.matchers.Width()
+	pwrap := ansi.Hardwrap(ansi.Wordwrap(f.matchers.Placeholder, width, ""), width, true)
+	plines := strings.Split(strings.TrimSpace(pwrap), "\n")
+	if len(plines) <= 1 {
+		return raw
+	}
+	styles := f.matchers.Styles()
+	state := styles.Blurred
+	if f.matchers.Focused() {
+		state = styles.Focused
+	}
+	dim := state.Placeholder.Inherit(state.Base).Inline(true)
+	lines := strings.Split(raw, "\n")
+	for i := 1; i < len(lines) && i < len(plines); i++ {
+		phLine := plines[i]
+		// bubbles wraps every line with an empty-render prefix
+		// (cursor/prompt SGR pair) before the actual placeholder
+		// text, so anchor by substring rather than full-line
+		// equality. Rewrite the placeholder text in place; the
+		// surrounding SGR padding stays as bubbles emitted it.
+		idx := strings.Index(lines[i], phLine)
+		if idx < 0 {
+			continue
+		}
+		lines[i] = lines[i][:idx] + dim.Render(phLine) + lines[i][idx+len(phLine):]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // fieldRow assembles one labelled row: leading prefix (▸ for the

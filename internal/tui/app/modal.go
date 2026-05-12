@@ -8,6 +8,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
+// PickerOriginScope tags the global tenant-quick-switch picker
+// opened by Ctrl+T so its submission folds into the App's scope
+// state. Pickers opened by individual pages (e.g. the silence
+// form's tenant row) use their own Origin string and the App
+// forwards their result through unchanged.
+const PickerOriginScope = "scope"
+
 // openModalMsg requests opening the modal produced by Factory.
 // Factory shape (rather than a Modal value) lets the modal's Init
 // run inside the App's Update cycle, matching the pattern push
