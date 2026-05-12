@@ -2471,3 +2471,21 @@ func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
 	require.Equal(t, "in scope", p.ErrorBand(),
 		"in-scope error surfaces verbatim under a single-tenant scope")
 }
+
+// TestFilterSilences_EmptyQueryReturnsIndependentSlice pins the
+// contract that the match-all path produces a slice safe to mutate
+// without leaking back into the caller's input. The original code
+// returned `in` directly, which would let a downstream mutation of
+// the filtered view silently corrupt the source aggregation.
+func TestFilterSilences_EmptyQueryReturnsIndependentSlice(t *testing.T) {
+	t.Parallel()
+	in := []silenceEntry{
+		{s: backend.Silence{ID: "a"}, tenant: "prod"},
+		{s: backend.Silence{ID: "b"}, tenant: "prod"},
+	}
+	out := filterSilences(in, "")
+	require.Len(t, out, 2)
+	out[0].s.ID = "mutated"
+	require.Equal(t, "a", in[0].s.ID,
+		"mutating filter output must not leak into the caller's slice")
+}

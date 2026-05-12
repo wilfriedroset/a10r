@@ -127,7 +127,13 @@ func (p *Page) recomputeScroll() {
 func filterSilences(in []silenceEntry, query string) []silenceEntry {
 	matcher := footer.NewMatcher(query)
 	if matcher.MatchAll() {
-		return in
+		// Clone to keep the filter output independent of the caller's
+		// input slice — downstream mutations on the view (cursor
+		// re-anchoring, mark management) must not bleed into the
+		// per-tenant source aggregation.
+		out := make([]silenceEntry, len(in))
+		copy(out, in)
+		return out
 	}
 	out := make([]silenceEntry, 0, len(in))
 	for _, e := range in {
