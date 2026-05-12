@@ -2472,6 +2472,39 @@ func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
 		"in-scope error surfaces verbatim under a single-tenant scope")
 }
 
+// TestSingleLine_StripsControlBytes pins that user-provided content
+// (silence Comment, CreatedBy) cannot smuggle terminal escape
+// sequences or other control bytes through the row renderer. The
+// original singleLine only flattened \n / \r / \t — ESC and the rest
+// of the C0/C1 control range passed through unchanged, letting a
+// crafted silence repaint adjacent cells or move the cursor.
+//
+// Each case represents a class of control sequence; all should
+// collapse to a space, leaving the surrounding printable text intact.
+func TestSingleLine_StripsControlBytes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"esc_sgr", "before\x1b[31mRED\x1b[0mafter", "before [31mRED [0mafter"},
+		{"csi_cursor", "x\x1b[5A y", "x [5A y"},
+		{"bel", "ring\abell", "ring bell"},
+		{"backspace", "back\bspace", "back space"},
+		{"null", "nul\x00here", "nul here"},
+		{"del", "del\x7fhere", "del here"},
+		{"c1_csi", "c1here", "c1 here"},
+		{"already_handled_newline", "line1\nline2", "line1 line2"},
+		{"plain_printable_untouched", "hello, plain ascii", "hello, plain ascii"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, singleLine(tc.in))
+		})
+	}
+}
+
 // TestFilterSilences_EmptyQueryReturnsIndependentSlice pins the
 // contract that the match-all path produces a slice safe to mutate
 // without leaking back into the caller's input. The original code

@@ -299,14 +299,27 @@ func clipSilenceID(id string) string {
 	return id[:8]
 }
 
-// singleLine flattens any newline / carriage-return / tab inside
-// s into a regular space so a multi-line Silence.Comment doesn't
-// break the table row alignment. Operators routinely paste URLs
-// or runbook excerpts on their own line; without this the COMMENT
-// cell's embedded \n shoves STARTS / ENDS / STATE onto the next
-// physical line, mid-URL.
+// singleLine flattens whitespace and strips control bytes from
+// user-provided content (silence Comment, CreatedBy, matcher
+// values) so a multi-line value can't break the table row alignment
+// and a crafted value can't smuggle terminal escape sequences into
+// the rendered output. Operators routinely paste URLs or runbook
+// excerpts on their own line; the C0 / C1 strip closes audit-style
+// findings where a comment like "\x1b[31m..." would repaint adjacent
+// cells. Replacement is space so word boundaries survive.
 func singleLine(s string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
+	return strings.Map(func(r rune) rune {
+		// C0 (incl. \n \r \t \x1b BEL etc.) and DEL collapse to space.
+		if r < 0x20 || r == 0x7F {
+			return ' '
+		}
+		// C1 controls (0x80–0x9F): some terminals still treat 0x9B
+		// as a single-byte CSI introducer. Strip the whole band.
+		if r >= 0x80 && r <= 0x9F {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // silenceStateColor returns the foreground color associated with a
