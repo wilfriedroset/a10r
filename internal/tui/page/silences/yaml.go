@@ -3,6 +3,7 @@
 package silences
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -71,7 +72,13 @@ func silenceFromYAML(in []byte) (string, backend.SilenceSpec, error) {
 		return "", backend.SilenceSpec{}, errors.New("empty document")
 	}
 	var doc silenceYAML
-	if err := yaml.Unmarshal(in, &doc); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(in))
+	// KnownFields(true) surfaces user typos (e.g. "starts" instead of
+	// "startsAt") at parse time rather than letting the stray key be
+	// silently dropped and the missing field surface much later as
+	// "endsAt must be after startsAt" or "id is required".
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil {
 		return "", backend.SilenceSpec{}, err
 	}
 	if doc.ID == "" {

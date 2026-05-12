@@ -96,3 +96,20 @@ func TestYAML_FromYAML_RequiresComment(t *testing.T) {
 	_, _, err = silenceFromYAML(body)
 	require.ErrorContains(t, err, "comment is required")
 }
+
+// TestYAML_FromYAML_RejectsUnknownFields pins that a typo in a field
+// name (e.g. "starts" instead of "startsAt") surfaces as an error
+// rather than being silently dropped. Without KnownFields(true), the
+// stray key is ignored and the typo only manifests downstream as
+// "endsAt must be after startsAt" or "id is required" — confusing
+// and a long way from the actual mistake.
+func TestYAML_FromYAML_RejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	body, err := silenceToYAML(sampleSilence())
+	require.NoError(t, err)
+	withTypo := string(body) + "starts: 2026-04-25T12:00:00Z\n"
+	_, _, err = silenceFromYAML([]byte(withTypo))
+	require.Error(t, err, "unknown field must be rejected")
+	require.Contains(t, err.Error(), "starts",
+		"error should name the offending field so the user can fix the typo")
+}
