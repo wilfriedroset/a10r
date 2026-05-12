@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/color"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -579,6 +580,91 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 		"id mismatch must NOT call UpdateSilence — the typo would otherwise rewrite the wrong silence")
 	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
 		"pendingEdit must persist across the refusal so the reopened editor session targets the original silence")
+}
+
+// TestPage_FinishedMsgBackendErrorPreservesContentAndReopens pins
+// the contract that a transient backend failure during UpdateSilence
+// must NOT discard the user's edited YAML. Without this, the user
+// must retype the edit after a 5xx, which is hostile UX (anticipated
+// user-pain: "need to redefine the silence because the backend
+// returned an error and the modal is closed").
+//
+// The page must:
+//   - flash the backend error so the user knows the update failed
+//   - reopen the editor with the user's typed content preserved
+//   - keep pendingEdit so the reopened session targets the same silence
+//
+// Verification trick: ExecRunner reads the tempfile to capture what
+// Initial was passed into Edit(). edit.Edit writes Initial to the
+// tempfile then invokes ExecRunner with cmd whose last arg is the
+// tempfile path. So tempfile contents == Initial.
+func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{updateErr: errors.New("am unreachable")}
+
+	var capturedInitials []string
+	runner := func(cmd *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
+		tmpPath := cmd.Args[len(cmd.Args)-1]
+		body, _ := os.ReadFile(tmpPath)
+		capturedInitials = append(capturedInitials, string(body))
+		return func() tea.Msg {
+			// Empty content + no error: the second editor session
+			// will short-circuit (handleEditorFinished early-return
+			// on empty content). We only care about Initial that the
+			// reopen carried, not what it returned.
+			return edit.FinishedMsg{ResourceID: "sil-a"}
+		}
+	}
+
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": fake},
+		Creator: "wilfried",
+		EditorResolver: edit.Resolver{
+			DefaultEditor: "true",
+			ExecRunner:    runner,
+		},
+	})
+	silenceList := []backend.Silence{
+		{
+			ID:        "sil-a",
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(2 * time.Hour),
+			Comment:   "ack",
+			Matchers:  []backend.Matcher{{Name: "alertname", Value: "HighCPU", IsEqual: true}},
+		},
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silenceList, Tenant: "prod"})
+
+	// Open editor — captures the initial snapshot via runner.
+	_, openCmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	require.NotNil(t, openCmd)
+	openCmd()
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit)
+	require.Len(t, capturedInitials, 1, "Ctrl+E must produce exactly one Edit invocation")
+	originalSnapshot := capturedInitials[0]
+
+	// User's edited YAML differs from the original snapshot.
+	body, err := silenceToYAML(p.view[0].s)
+	require.NoError(t, err)
+	editedYAML := strings.Replace(string(body), "ack", "ACK-EDITED", 1)
+	require.NotEqual(t, originalSnapshot, editedYAML,
+		"test sanity: edited YAML must differ from original snapshot")
+
+	// FinishedMsg arrives → UpdateSilence is attempted → fails.
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: editedYAML})
+	require.NotNil(t, cmd, "backend-error path must emit a Cmd (flash + reopen)")
+	cmd()
+
+	require.Equal(t, "sil-a", fake.lastUpdateID, "UpdateSilence must be attempted before erroring")
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+		"pendingEdit must persist across the backend error so the reopened editor session targets the same silence")
+	require.Len(t, capturedInitials, 2, "backend error must trigger an editor reopen")
+	require.YAMLEq(t, editedYAML, capturedInitials[1],
+		"reopened editor must carry the user's edited YAML, not the original snapshot")
 }
 
 func TestPage_FinishedMsgInvalidYAMLFlashes(t *testing.T) {
@@ -1394,6 +1480,7 @@ type fakeSilenceClient struct {
 	created       backend.SilenceSpec
 	updated       backend.SilenceSpec
 	lastUpdateID  string
+	updateErr     error
 	expiredIDs    []string
 	expireErr     error
 	expireErrOnce map[string]error
@@ -1411,7 +1498,7 @@ func (f *fakeSilenceClient) UpdateSilence(_ context.Context, id string, spec bac
 	defer f.mu.Unlock()
 	f.updated = spec
 	f.lastUpdateID = id
-	return nil
+	return f.updateErr
 }
 
 func (f *fakeSilenceClient) ExpireSilence(_ context.Context, id string) error {

@@ -558,7 +558,11 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		})
 		return tea.Batch(flash, reopen)
 	}
-	p.pendingEdit = pendingEdit{}
+	// pendingEdit is intentionally NOT cleared yet: if UpdateSilence
+	// (or the no-writeable-backend guard below) fails, we reopen the
+	// editor with the user's typed content preserved, mirroring the
+	// id-mismatch path above. Losing the user's edits to a transient
+	// 5xx is the user-pain that motivates this branch.
 	tenant := pending.tenant
 	if tenant == "" {
 		// Defensive — pending was cleared between open and finish
@@ -573,11 +577,28 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	}
 	client, ok := p.clients[tenant]
 	if !ok {
+		// No retry path the user can drive from here: the tenant
+		// vanished between open and save. Clear pendingEdit and
+		// flash. Content is sacrificed, but the user can re-open
+		// the silence after fixing config.
+		p.pendingEdit = pendingEdit{}
 		return flashFn(footer.FlashError, "no writeable backend for silence "+id)
 	}
 	if err := client.UpdateSilence(context.Background(), id, spec); err != nil {
-		return flashFn(footer.FlashError, "update: "+err.Error())
+		// Backend failure is the retryable case: keep pendingEdit
+		// and reopen the editor with the user's content so they can
+		// fix-and-retry without retyping. Same shape as the id-
+		// mismatch branch above.
+		flash := flashFn(footer.FlashError, "update: "+err.Error())
+		reopen := p.editor.Edit(edit.Request{
+			ResourceID: pending.id,
+			Initial:    m.Content,
+			Extension:  "yaml",
+			Ctx:        p.editorCtx,
+		})
+		return tea.Batch(flash, reopen)
 	}
+	p.pendingEdit = pendingEdit{}
 	auditSilenceWrite("updated", id, "editor")
 	return flashFn(footer.FlashSuccess, "silence updated: "+id)
 }
