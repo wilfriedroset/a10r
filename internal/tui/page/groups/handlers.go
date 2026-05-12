@@ -289,6 +289,17 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(commonLabels(entry.g.Alerts))
+	if len(matchers) == 0 {
+		// An empty matcher list submitted to alertmanager silences
+		// EVERY alert. Refuse to push the form rather than let the
+		// operator unknowingly arm a fleet-wide silence; common
+		// triggers are a group whose backend rebalanced its alerts
+		// away mid-poll, or a heterogeneous group with no
+		// labels-in-common. Drill into an individual alert and
+		// silence from there if that's the intent.
+		return p, flashFn(footer.FlashError,
+			"cannot silence group with no common labels — drill into an alert and silence it individually")
+	}
 	creator := p.creator
 	if creator == "" {
 		creator = "a10r"

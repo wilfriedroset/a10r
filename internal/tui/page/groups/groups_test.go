@@ -299,6 +299,34 @@ func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
 	require.Contains(t, msg.Text, "silence created: sil-99")
 }
 
+// TestPage_SilenceOnGroupWithNoMatchersFlashesError pins the
+// guard against silencing EVERYTHING when a group has no common
+// labels (or, degenerately, no alerts at all). commonLabels of an
+// empty / heterogeneous group returns an empty map; without this
+// guard, MatchersFromLabels produces an empty matcher list and the
+// form is pushed; a Submit would create an alertmanager silence
+// matching every alert in the fleet.
+func TestPage_SilenceOnGroupWithNoMatchersFlashesError(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	emptyGroup := []backend.AlertGroup{
+		{Labels: map[string]string{"team": "platform"}}, // no Alerts → no common labels
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: emptyGroup, Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "`s` on a no-matcher group must surface something, not silently push the form")
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "the response must be a flash, not a form push")
+	require.Equal(t, footer.FlashError, msg.Level,
+		"silencing-everything is a destructive class of mistake — error level, not info/warn")
+	require.Contains(t, msg.Text, "no common labels",
+		"the operator needs to know why the form was refused")
+}
+
 func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	t.Parallel()
 	// No DataMsg → empty rows → `s` flashes "no group under cursor".
