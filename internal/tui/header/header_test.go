@@ -279,26 +279,47 @@ func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
 	require.Empty(t, renderHintsWithBudget(hints, 0, styles))
 }
 
-func TestFormatAge(t *testing.T) {
+func TestFormatRelative(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name string
-		last time.Time
+		ts   time.Time
 		want string
 	}{
-		{name: "zero last → empty", last: time.Time{}, want: ""},
-		{name: "sub-second → now", last: now.Add(-500 * time.Millisecond), want: "now"},
-		{name: "5s ago", last: now.Add(-5 * time.Second), want: "5s ago"},
-		{name: "59s ago", last: now.Add(-59 * time.Second), want: "59s ago"},
-		{name: "2m ago", last: now.Add(-2 * time.Minute), want: "2m ago"},
-		{name: "3h ago", last: now.Add(-3 * time.Hour), want: "3h ago"},
+		// Empty / jitter band.
+		{name: "zero ts → empty", ts: time.Time{}, want: ""},
+		{name: "exactly now → now", ts: now, want: "now"},
+		{name: "sub-second past → now", ts: now.Add(-500 * time.Millisecond), want: "now"},
+		{name: "sub-second future → now", ts: now.Add(500 * time.Millisecond), want: "now"},
+
+		// Past side.
+		{name: "1s ago boundary", ts: now.Add(-time.Second), want: "1s ago"},
+		{name: "5s ago", ts: now.Add(-5 * time.Second), want: "5s ago"},
+		{name: "59s ago", ts: now.Add(-59 * time.Second), want: "59s ago"},
+		{name: "60s ago → 1m ago boundary", ts: now.Add(-60 * time.Second), want: "1m ago"},
+		{name: "2m ago", ts: now.Add(-2 * time.Minute), want: "2m ago"},
+		{name: "60m ago → 1h ago boundary", ts: now.Add(-60 * time.Minute), want: "1h ago"},
+		{name: "3h ago", ts: now.Add(-3 * time.Hour), want: "3h ago"},
+		{name: "24h ago → 1d ago boundary", ts: now.Add(-24 * time.Hour), want: "1d ago"},
+		{name: "5d ago", ts: now.Add(-5 * 24 * time.Hour), want: "5d ago"},
+		{name: "30d ago", ts: now.Add(-30 * 24 * time.Hour), want: "30d ago"},
+
+		// Future side.
+		{name: "in 1s boundary", ts: now.Add(time.Second), want: "in 1s"},
+		{name: "in 5s", ts: now.Add(5 * time.Second), want: "in 5s"},
+		{name: "in 60s → in 1m boundary", ts: now.Add(60 * time.Second), want: "in 1m"},
+		{name: "in 30m", ts: now.Add(30 * time.Minute), want: "in 30m"},
+		{name: "in 60m → in 1h boundary", ts: now.Add(60 * time.Minute), want: "in 1h"},
+		{name: "in 2h", ts: now.Add(2 * time.Hour), want: "in 2h"},
+		{name: "in 24h → in 1d boundary", ts: now.Add(24 * time.Hour), want: "in 1d"},
+		{name: "in 30d", ts: now.Add(30 * 24 * time.Hour), want: "in 30d"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tc.want, FormatAge(now, tc.last))
+			require.Equal(t, tc.want, FormatRelative(now, tc.ts))
 		})
 	}
 }

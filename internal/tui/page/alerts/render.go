@@ -402,7 +402,7 @@ func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
 		return header.FormatAbsolute(ts)
 	}
-	return header.FormatAge(p.now(), ts)
+	return header.FormatRelative(p.now(), ts)
 }
 
 // severityOf returns the printable severity label, falling back

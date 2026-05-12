@@ -242,24 +242,38 @@ func renderHints(hints []action.Action, styles *theme.Styles) string {
 	return b.String()
 }
 
-// FormatAge is a small helper pages use to compute the "5s ago"
-// string for State.Age. Pulled out so the format is consistent
-// across pages (alerts, silences) and easy to test.
-func FormatAge(now, last time.Time) string {
-	if last.IsZero() {
+// FormatRelative renders the duration between now and ts as a compact
+// relative-time string. Past: "X ago" (e.g. "2h ago"). Future: "in X"
+// (e.g. "in 2h"). |Δt|<1s on either side renders "now" to absorb
+// polling jitter. Single-unit ladder: s, m, h, d. Returns "" when ts
+// is zero, mirroring the prior FormatAge contract.
+func FormatRelative(now, ts time.Time) string {
+	if ts.IsZero() {
 		return ""
 	}
-	d := now.Sub(last)
-	if d < time.Second {
+	d := ts.Sub(now)
+	abs := d
+	if abs < 0 {
+		abs = -abs
+	}
+	if abs < time.Second {
 		return "now"
 	}
-	if d < time.Minute {
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	var unit string
+	switch {
+	case abs < time.Minute:
+		unit = fmt.Sprintf("%ds", int(abs.Seconds()))
+	case abs < time.Hour:
+		unit = fmt.Sprintf("%dm", int(abs.Minutes()))
+	case abs < 24*time.Hour:
+		unit = fmt.Sprintf("%dh", int(abs.Hours()))
+	default:
+		unit = fmt.Sprintf("%dd", int(abs/(24*time.Hour)))
 	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	if d < 0 {
+		return unit + " ago"
 	}
-	return fmt.Sprintf("%dh ago", int(d.Hours()))
+	return "in " + unit
 }
 
 // AbsoluteFormat is the layout pages use when the app-global
@@ -271,7 +285,7 @@ func FormatAge(now, last time.Time) string {
 const AbsoluteFormat = "2006-01-02 15:04:05"
 
 // FormatAbsolute renders last in the AbsoluteFormat (local zone)
-// or returns "" when last is zero, mirroring FormatAge's empty-
+// or returns "" when last is zero, mirroring FormatRelative's empty-
 // state contract. Pulled out here so the alerts / silences /
 // alert-detail pages share one wall-clock conversion. Local zone
 // is deliberate per Q7.4 — operators read TUI timestamps under

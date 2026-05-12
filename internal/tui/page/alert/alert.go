@@ -648,10 +648,12 @@ func (p *Page) expiryField(ts time.Time) string {
 }
 
 // formatRemaining renders the duration from now until future as a
-// short forward-looking string ("2h13m", "4d", "expired"). The
-// existing header.FormatAge collapses every future timestamp to
-// "now" — fine for past-leaning columns like alert age, useless
-// for "expires in", which is the whole point of this helper.
+// short forward-looking string ("2h13m", "4d", "expired"). Distinct
+// from header.FormatRelative: this helper produces mixed-unit prose
+// ("2h13m") for the alert-detail "expires in …" line, while
+// FormatRelative emits the compact single-unit column form
+// ("in 2h") used by the alerts / silences tables. Two shapes, two
+// callers, no overlap.
 //
 // Granularity matches what an operator wants to see at a glance:
 // days when ≥1d, hours+minutes when ≥1h, minutes when ≥1m, seconds
@@ -966,7 +968,7 @@ func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
 		return header.FormatAbsolute(ts)
 	}
-	return header.FormatAge(p.now(), ts)
+	return header.FormatRelative(p.now(), ts)
 }
 
 // flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so

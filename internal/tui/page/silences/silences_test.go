@@ -87,8 +87,8 @@ func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 	out := testutil.StripStyle(p.View(160, 20))
 	require.Contains(t, out, "1h ago",
 		"relative mode renders StartsAt one hour earlier as `1h ago`")
-	require.Contains(t, out, "1h",
-		"relative mode renders EndsAt one hour later as `1h`")
+	require.Contains(t, out, "in 1h",
+		"relative mode renders EndsAt one hour ahead as `in 1h`")
 
 	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
 	out = testutil.StripStyle(p.View(180, 20))
@@ -1027,13 +1027,14 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := newPage(t)
-			// EndsAt 30m in the past, StartsAt 5h in the past (sil()
+			// EndsAt 2h in the future, StartsAt 5h in the past (sil()
 			// always sets StartsAt = fixedNow - 1h, so widen it via
 			// a manual override). Distinct relative-time strings —
-			// "30m ago" vs. "5h ago" — keep the column-search below
-			// unambiguous. Uses an expired silence because FormatAge
-			// collapses every future timestamp to "now".
-			s := sil("only", "alice", backend.SilenceStateExpired, -30*time.Minute)
+			// "in 2h" vs. "5h ago" — keep the column-search below
+			// unambiguous. Uses an active silence so the ENDS column
+			// renders a forward-looking value, which is the common
+			// case operators see.
+			s := sil("only", "alice", backend.SilenceStateActive, 2*time.Hour)
 			s.StartsAt = fixedNow.Add(-5 * time.Hour)
 			_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{s}})
 			if tc.mark {
@@ -1045,13 +1046,13 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 				"need a header line and at least one data row")
 			header, data := lines[0], lines[1]
 
-			// ENDS header and its payload (30m ago) must start at the
+			// ENDS header and its payload ("in 2h") must start at the
 			// same visual column — otherwise the table reads
 			// shifted, like in the bug report screenshot. Compared
 			// in display widths (lipgloss.Width) because the ▸
 			// cursor glyph is multi-byte but one visual cell.
 			hdrCol := visualColumnOf(t, header, "ENDS")
-			rowCol := visualColumnOf(t, data, "30m")
+			rowCol := visualColumnOf(t, data, "in 2h")
 			require.Equal(t, hdrCol, rowCol,
 				"ENDS column header and data must start in the same visual column (header=%q row=%q)", header, data)
 		})

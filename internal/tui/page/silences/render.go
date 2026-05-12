@@ -284,7 +284,7 @@ func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
 		return header.FormatAbsolute(ts)
 	}
-	return header.FormatAge(p.now(), ts)
+	return header.FormatRelative(p.now(), ts)
 }
 
 // clipSilenceID returns the leading 8 chars of id so the UUID
