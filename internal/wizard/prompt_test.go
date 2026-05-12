@@ -5,6 +5,7 @@ package wizard
 import (
 	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -118,6 +119,98 @@ func TestPrompter_BoolEmptyUsesDefault(t *testing.T) {
 	got, err := p.Bool("ok", true)
 	require.NoError(t, err)
 	require.True(t, got)
+}
+
+func TestEnableColor_DisabledWhenStdoutIsNotATerminal(t *testing.T) {
+	// Pipe ⇒ not a TTY ⇒ color must be off regardless of env.
+	// No t.Parallel(): t.Setenv requires the test stay serial.
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer func() {
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	require.False(t, enableColor(w),
+		"pipe handle isn't a TTY — color must be off")
+}
+
+func TestEnableColor_HonoursNoColorEnvVar(t *testing.T) {
+	// We can't fake a TTY without a pty, but we can pin the
+	// NO_COLOR branch: enableColor must return false on a non-
+	// TTY OR when NO_COLOR is set — covering "NO_COLOR wins" via
+	// the non-TTY arm still proves the env probe runs in order.
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer func() {
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	t.Setenv("NO_COLOR", "1")
+	require.False(t, enableColor(w))
+}
+
+func TestEnableColor_HonoursTermDumb(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer func() {
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "dumb")
+	require.False(t, enableColor(w))
+}
+
+func TestFrom_NonFileHandlesRouteToPlainConstructor(t *testing.T) {
+	t.Parallel()
+
+	// strings.Reader / bytes.Buffer aren't *os.File → must land
+	// on the plain constructor, which means color is off and the
+	// rendered prompt is byte-identical to the pre-styling era.
+	var out bytes.Buffer
+	p := From(strings.NewReader("\n"), &out)
+	_, err := p.String("name", "prod", nil)
+	require.NoError(t, err)
+	require.NotContains(t, out.String(), "\x1b[",
+		"non-file handles must produce a colour-off prompter; got %q", out.String())
+}
+
+func TestPrompter_SecretReturnsLineInNonTTYFallback(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("hunter2\n"), &bytes.Buffer{})
+	got, err := p.Secret("token")
+	require.NoError(t, err)
+	require.Equal(t, "hunter2", got)
+}
+
+func TestPrompter_SecretRepromptsOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	// Constructed via New (not From) so the styler is forced
+	// off and the rendered prompt is plain bytes — otherwise
+	// the "invalid: cannot be empty" substring assertion would
+	// be brittle against the colour-on path's ANSI wrapping.
+	var out bytes.Buffer
+	p := New(strings.NewReader("\nfilled\n"), &out)
+	got, err := p.Secret("token")
+	require.NoError(t, err)
+	require.Equal(t, "filled", got)
+	require.Contains(t, out.String(), "invalid: cannot be empty")
+}
+
+func TestPrompter_SecretEOFErrors(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader(""), &bytes.Buffer{})
+	_, err := p.Secret("token")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EOF")
 }
 
 func TestPrompter_BoolHintReflectsDefault(t *testing.T) {

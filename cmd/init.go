@@ -261,7 +261,7 @@ type initAnswers struct {
 // (parseKVAnswers → buildInitConfig) emits a byte-identical YAML
 // file for matching inputs.
 func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
-	p := wizard.New(in, out)
+	p := wizard.From(in, out)
 
 	var ans initAnswers
 	name, err := p.String("backend name", "prod", validateBackendName)
@@ -317,7 +317,7 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 	ans.AuthMode = authMode
 	switch authMode {
 	case authModeBearer:
-		token, err := p.String("bearer token", "", nonEmpty("token"))
+		token, err := p.Secret("bearer token")
 		if err != nil {
 			return config.Config{}, err
 		}
@@ -328,7 +328,7 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 			return config.Config{}, err
 		}
 		ans.BasicUser = user
-		pass, err := p.String("password", "", nonEmpty("password"))
+		pass, err := p.Secret("password")
 		if err != nil {
 			return config.Config{}, err
 		}
