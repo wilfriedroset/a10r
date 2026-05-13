@@ -8,6 +8,7 @@ package receivers
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -52,6 +53,23 @@ func receiverSortColumns() []tablesort.Column[string] {
 			Less: func(a, b *string) bool { return *a < *b },
 		},
 	}
+}
+
+// Options bundles the per-page constructor inputs. Mirrors the
+// shape of the alerts / silences / groups pages so the wiring
+// layer threads a uniform struct into every list page.
+type Options struct {
+	Styles *theme.Styles
+	// Tenants is the canonical list of configured backend names so
+	// a broken tenant still counts toward "is this a multi-tenant
+	// fleet?". The page also uses it to gate incoming DataMsg /
+	// BackendStatusMsg state mutations: a tenant name not in this
+	// list never lands in byTenant / lastErrors so a wire-layer
+	// bug, hot-reload that didn't prune sources, or stray test
+	// fixture cannot pollute the page with names that will never
+	// poll or render. Empty disables the guard for tests / legacy
+	// wiring that don't pin the list.
+	Tenants []string
 }
 
 // Page is the receivers list view.
@@ -118,20 +136,40 @@ type Page struct {
 	// the table so the operator sees what's wrong without leaving
 	// the page. Mirrors the alerts page's contract.
 	lastErrors map[string]string
+
+	// tenants is the canonical configured-backend list. Gates
+	// DataMsg / BackendStatusMsg state mutations so out-of-config
+	// names cannot leak into byTenant / lastErrors. See
+	// Options.Tenants for the upstream rationale.
+	tenants []string
 }
 
 // scopeAll is the canonical "every configured tenant" label.
 const scopeAll = "all"
 
-// New constructs an empty receivers page.
-func New(styles *theme.Styles) *Page {
+// New constructs an empty receivers page from the supplied Options.
+func New(opts Options) *Page {
 	return &Page{
-		styles:     styles,
+		styles:     opts.Styles,
 		byTenant:   map[string][]string{},
 		scope:      scopeAll,
 		sorter:     tablesort.New(receiverSortColumns(), sortKeyName),
 		lastErrors: map[string]string{},
+		tenants:    opts.Tenants,
 	}
+}
+
+// knownTenant reports whether the given name is in the configured
+// tenants list, used to gate incoming DataMsg / BackendStatusMsg
+// state mutations. An empty configured list disables the guard so
+// test fixtures that don't pin Tenants on the page (or legacy
+// upstream wiring with no canonical list) keep working. Sibling
+// of the alerts / silences page helpers.
+func (p *Page) knownTenant(name string) bool {
+	if len(p.tenants) == 0 {
+		return true
+	}
+	return slices.Contains(p.tenants, name)
 }
 
 // Init implements app.Page.
@@ -275,6 +313,15 @@ func (p *Page) Bindings() []action.Action {
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
+		// Drop status for tenants outside the configured list — a
+		// wire-layer bug, test leak, or future hot-reload that hasn't
+		// pruned its sources could otherwise pollute lastErrors with
+		// names that will never poll again. Empty Tenants disables
+		// the guard (test fixtures that don't pin the list). Mirror
+		// of the alerts page's handler.
+		if !p.knownTenant(m.Tenant) {
+			return p, nil
+		}
 		// Track per-tenant transport errors for the error band.
 		// A successful transition (Detail empty) clears the row;
 		// failure transitions overwrite with the latest detail
@@ -289,6 +336,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case poll.DataMsg:
 		recs, ok := m.Resource.([]backend.Receiver)
 		if !ok {
+			return p, nil
+		}
+		// Same guard as BackendStatusMsg: refuse data from tenants
+		// not in the configured list so byTenant doesn't hold
+		// entries for names that will never be polled or rendered.
+		if !p.knownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table

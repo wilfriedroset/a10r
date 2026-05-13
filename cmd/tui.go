@@ -622,7 +622,12 @@ func newResolver(
 		return app.PushPage(func() app.Page { return status.New(styles, scope) })
 	})
 	receiversFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return receivers.New(styles) })
+		return app.PushPage(func() app.Page {
+			return receivers.New(receivers.Options{
+				Styles:  styles,
+				Tenants: tenantNames,
+			})
+		})
 	}
 	r.Register("receivers", receiversFactory)
 	r.Register("rec", receiversFactory)

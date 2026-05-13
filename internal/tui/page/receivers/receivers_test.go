@@ -21,7 +21,7 @@ import (
 
 func TestPage_DataMsgSortsReceivers(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -33,7 +33,7 @@ func TestPage_DataMsgSortsReceivers(t *testing.T) {
 
 func TestPage_EnterEmitsDrillRequest(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 
@@ -44,14 +44,14 @@ func TestPage_EnterEmitsDrillRequest(t *testing.T) {
 
 func TestPage_EnterOnEmptyIsNoOp(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Nil(t, cmd, "Enter on empty list must not panic or emit a drill")
 }
 
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}, {Name: "c"}}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
@@ -69,7 +69,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 
 	// Build enough rows that the cold-start fallback (20) lands inside
 	// the view without clamping.
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	recs := make([]backend.Receiver, 60)
 	for i := range recs {
 		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%02d", i)}
@@ -98,7 +98,7 @@ func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
 func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	t.Parallel()
 
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	recs := make([]backend.Receiver, 100)
 	for i := range recs {
 		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%03d", i)}
@@ -118,7 +118,7 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 
 func TestPage_TitleCarriesCount(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}}})
 	require.Equal(t, "receivers(all)[2]", p.Title(),
 		"count lives in the title's [N] suffix; HeaderContent stays "+
@@ -128,7 +128,7 @@ func TestPage_TitleCarriesCount(t *testing.T) {
 
 func TestPage_RenderShowsRows(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}}})
 	out := p.View(40, 10)
 	require.Contains(t, out, "ops")
@@ -141,7 +141,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// palette bg inside the unstyled body frame creates a coloured
 	// stripe. Asserts the header line carries no SGR background
 	// code.
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}}})
 	headerLine, _, _ := strings.Cut(p.View(40, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -150,14 +150,14 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 
 func TestPage_DefaultsToNameAscending(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
 	require.True(t, p.sorter.Asc(), "alphabetical reading order is the default")
 }
 
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -177,7 +177,7 @@ func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 
 func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -195,7 +195,7 @@ func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 
 func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "a"}, {Name: "b"}, {Name: "c"},
 	}})
@@ -210,7 +210,7 @@ func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	got := map[string]string{}
 	for _, b := range p.Bindings() {
 		if strings.HasPrefix(b.Key, "Shift+") {
@@ -224,7 +224,7 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}}})
 	out := testutil.StripStyle(p.View(80, 10))
 	require.Contains(t, out, "NAME ↑",
@@ -238,7 +238,7 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 
 func TestPage_FilterPromptIsLive(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
@@ -285,7 +285,7 @@ func TestPage_FilterSearchModesAutodetect(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			p := New(testutil.LoadStyles(t))
+			p := New(Options{Styles: testutil.LoadStyles(t)})
 			_, _ = p.Update(poll.DataMsg{Resource: receivers})
 			_, _ = p.Update(footer.PromptSubmittedMsg{
 				Mode: footer.PromptFilter, Value: tc.filter,
@@ -297,7 +297,7 @@ func TestPage_FilterSearchModesAutodetect(t *testing.T) {
 
 func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	// First snapshot lands normally.
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}},
@@ -328,7 +328,7 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 
 func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Receiver{{Name: "ops"}},
 		Tenant:   "prod",
@@ -343,7 +343,7 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 
 func TestPage_WatchModeResumeClearsState(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	require.True(t, p.paused)
 
@@ -354,7 +354,7 @@ func TestPage_WatchModeResumeClearsState(t *testing.T) {
 
 func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	// Single-tenant scope: detail is rendered verbatim without a
 	// tenant prefix. The page constructor seeds scope to "all" by
 	// default, so we narrow it for this case.
@@ -381,7 +381,7 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 
 func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
@@ -394,7 +394,7 @@ func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
 
 func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
@@ -404,7 +404,7 @@ func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 
 func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
 	t.Parallel()
-	p := New(testutil.LoadStyles(t))
+	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.scope = "prod"
 
 	_, _ = p.Update(poll.BackendStatusMsg{
@@ -422,4 +422,41 @@ func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
 	})
 	require.Equal(t, "in scope", p.ErrorBand(),
 		"in-scope error surfaces verbatim under a single-tenant scope")
+}
+
+// TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
+// BackendStatusMsg arriving with a tenant name not in the configured
+// list is dropped — closes the same leak class the alerts / silences /
+// groups pages already guard against. The receivers page brainstorm
+// flagged "lastErrors not pruned" / "byTenant retains entries for
+// tenants no longer in scope"; this completes the carve-out from
+// 25d1640 that originally skipped receivers because the page didn't
+// yet carry a tenants list. Empty Tenants disables the guard so
+// existing tests without an explicit list keep working.
+func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Tenants: []string{"prod", "staging"},
+	})
+	// Known tenant — should land.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}},
+		Tenant:   "prod",
+	})
+	require.Contains(t, p.byTenant, "prod",
+		"known tenant must be accepted into byTenant")
+
+	// Unknown tenant — must be dropped.
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "stray"}},
+		Tenant:   "ghost",
+	})
+	require.NotContains(t, p.byTenant, "ghost",
+		"unknown tenant must not populate byTenant")
+
+	// BackendStatusMsg for unknown tenant must also drop.
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
+	require.NotContains(t, p.lastErrors, "ghost",
+		"unknown tenant must not populate lastErrors")
 }
