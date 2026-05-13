@@ -3,7 +3,9 @@
 package log
 
 import (
+	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 )
 
@@ -39,11 +41,44 @@ var secretKeys = map[string]struct{}{
 	"set-cookie":          {},
 	"proxy-authorization": {},
 	"password":            {},
+	"passwd":              {},
 	"token":               {},
 	"bearer":              {},
 	"credentials":         {},
 	"api-key":             {},
 	"x-api-key":           {},
+	"secret":              {},
+	"client-secret":       {},
+	"client_secret":       {},
+	"access-token":        {},
+	"access_token":        {},
+	"refresh-token":       {},
+	"refresh_token":       {},
+	"private-key":         {},
+	"private_key":         {},
+	"session":             {},
+	"sessionid":           {},
+	"csrf":                {},
+}
+
+// urlUserinfoRE matches a URL scheme + user:password@host segment so
+// the userinfo can be stripped. Caters to http(s), grpc, redis, ws,
+// and anything else conforming to RFC 3986 — the leading scheme is
+// required so we don't false-positive on email-like `name@host`
+// substrings (those don't carry the `://` prefix). Password is
+// optional so `https://user@host` is also caught.
+var urlUserinfoRE = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@`)
+
+// stripURLUserinfo removes embedded credentials from any URL substring
+// in s. Common leak vector: a backend client returns an error wrapping
+// its request URL ("dial tcp https://user:pass@host: connection
+// refused"), the caller logs the error verbatim, and the password is
+// in the log file. Inputs without a URL pass through unchanged.
+func stripURLUserinfo(s string) string {
+	if !strings.Contains(s, "://") {
+		return s
+	}
+	return urlUserinfoRE.ReplaceAllString(s, "$1")
 }
 
 // redactAttr is the slog.HandlerOptions.ReplaceAttr hook. It masks
@@ -52,9 +87,52 @@ var secretKeys = map[string]struct{}{
 // ignored: a `req.authorization` nested attr is masked the same way
 // as a top-level `authorization` — slog invokes ReplaceAttr per
 // nested attr with the group path supplied separately.
+//
+// String attr values are additionally scanned for embedded URL
+// userinfo so a value like "https://alice:hunter2@host" never lands
+// in the log file even when the attr key (e.g. "url") isn't itself
+// a secret key.
 func redactAttr(_ []string, a slog.Attr) slog.Attr {
-	if _, ok := secretKeys[strings.ToLower(a.Key)]; !ok {
-		return a
+	if _, ok := secretKeys[strings.ToLower(a.Key)]; ok {
+		return slog.String(a.Key, marker)
 	}
-	return slog.String(a.Key, marker)
+	if a.Value.Kind() == slog.KindString {
+		stripped := stripURLUserinfo(a.Value.String())
+		if stripped != a.Value.String() {
+			return slog.String(a.Key, stripped)
+		}
+	}
+	return a
+}
+
+// msgRedactingHandler wraps a slog.Handler and strips URL userinfo
+// from the record message before delegating. Closes the leak class
+// where a wrapped error or hand-formatted log line carries a credential
+// in a URL: slog's ReplaceAttr never sees record.Message, so without
+// this wrapper, `slog.Info("connect failed: " + url)` would land
+// verbatim in the file.
+type msgRedactingHandler struct {
+	inner slog.Handler
+}
+
+// Enabled delegates to the wrapped handler.
+func (h *msgRedactingHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
+	return h.inner.Enabled(ctx, lvl)
+}
+
+// Handle redacts r.Message in-place (slog.Record is a value type, so
+// mutating the local copy is private to this call) before delegating.
+func (h *msgRedactingHandler) Handle(ctx context.Context, r slog.Record) error {
+	r.Message = stripURLUserinfo(r.Message)
+	return h.inner.Handle(ctx, r)
+}
+
+// WithAttrs / WithGroup must preserve the wrapper so subsequent
+// records also flow through msg redaction.
+func (h *msgRedactingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &msgRedactingHandler{inner: h.inner.WithAttrs(attrs)}
+}
+
+func (h *msgRedactingHandler) WithGroup(name string) slog.Handler {
+	return &msgRedactingHandler{inner: h.inner.WithGroup(name)}
 }

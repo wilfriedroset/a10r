@@ -167,16 +167,21 @@ func openSink(opts Opts) (io.Writer, io.Closer, string, error) {
 // newHandler returns the slog.Handler matching format, configured at
 // the requested level. ReplaceAttr is wired to redactAttr so every
 // log call masks the fixed secret-key set centrally — see ADR 0008
-// and internal/log/redact.go.
+// and internal/log/redact.go. The base handler is then wrapped in
+// msgRedactingHandler so URL userinfo in record.Message (which
+// ReplaceAttr never sees) is also stripped.
 func newHandler(format Format, level slog.Level, w io.Writer) slog.Handler {
 	handlerOpts := &slog.HandlerOptions{
 		Level:       level,
 		ReplaceAttr: redactAttr,
 	}
+	var base slog.Handler
 	if format == FormatJSON {
-		return slog.NewJSONHandler(w, handlerOpts)
+		base = slog.NewJSONHandler(w, handlerOpts)
+	} else {
+		base = slog.NewTextHandler(w, handlerOpts)
 	}
-	return slog.NewTextHandler(w, handlerOpts)
+	return &msgRedactingHandler{inner: base}
 }
 
 type noopCloser struct{}

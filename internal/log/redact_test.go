@@ -131,13 +131,26 @@ func TestSecretKeys_ClosedSetUnchanged(t *testing.T) {
 	t.Parallel()
 
 	expected := []string{
+		"access-token",
+		"access_token",
 		"api-key",
 		"authorization",
 		"bearer",
+		"client-secret",
+		"client_secret",
 		"cookie",
 		"credentials",
+		"csrf",
 		"password",
+		"passwd",
+		"private-key",
+		"private_key",
 		"proxy-authorization",
+		"refresh-token",
+		"refresh_token",
+		"secret",
+		"session",
+		"sessionid",
 		"set-cookie",
 		"token",
 		"x-api-key",
@@ -149,4 +162,53 @@ func TestSecretKeys_ClosedSetUnchanged(t *testing.T) {
 		_, ok := secretKeys[k]
 		require.Truef(t, ok, "expected key %q absent from secretKeys", k)
 	}
+}
+
+// TestNew_StripsURLUserinfoFromMsg pins that credentials embedded in
+// a record's Message (which slog.HandlerOptions.ReplaceAttr never
+// sees) are scrubbed before the line lands in the file. Common leak
+// shape: a backend client wraps its request URL into an error string
+// and the caller logs the error verbatim. ReplaceAttr never sees
+// record.Message, so without the msgRedactingHandler wrapper, the
+// password lands in the log.
+func TestNew_StripsURLUserinfoFromMsg(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	opener := func(Opts) (io.Writer, io.Closer, string, error) {
+		return &buf, noopCloser{}, "", nil
+	}
+	logger, closer, err := newWithOpener(Opts{Format: FormatLogfmt}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	logger.Info("connect failed: Get https://alice:hunter2@am.example.com/api/v2/alerts: i/o timeout")
+	out := buf.String()
+	require.NotContains(t, out, "hunter2",
+		"password in URL userinfo must not land in the log file")
+	require.NotContains(t, out, "alice",
+		"userinfo username must also be stripped")
+	require.Contains(t, out, "am.example.com",
+		"host and the rest of the message must survive the strip")
+}
+
+// TestNew_StripsURLUserinfoFromAttrValues pins the parallel guard for
+// string attr values: a `slog.String("url", "https://user:pass@host")`
+// must also be stripped, since the attr key ("url") isn't a secret
+// key on its own but the value carries credentials.
+func TestNew_StripsURLUserinfoFromAttrValues(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	opener := func(Opts) (io.Writer, io.Closer, string, error) {
+		return &buf, noopCloser{}, "", nil
+	}
+	logger, closer, err := newWithOpener(Opts{Format: FormatLogfmt}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	logger.Info("backend probe",
+		slog.String("url", "https://bob:topsecret@am.example.com/-/ready"))
+	out := buf.String()
+	require.NotContains(t, out, "topsecret")
+	require.NotContains(t, out, "bob:")
+	require.Contains(t, out, "am.example.com/-/ready")
 }
