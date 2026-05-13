@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -404,7 +405,11 @@ func (p *Page) copyFingerprint() tea.Cmd {
 // openGeneratorURL asks the browser integration to open the
 // alert's generatorURL. Missing URL is a soft no-op with a hint
 // (alerts without a generator URL are entirely valid per the AM
-// schema, just less linkable).
+// schema, just less linkable). Schemes other than http(s) are
+// refused: a malicious upstream (or compromised relabel config)
+// can stamp javascript:/file:/data: URLs onto an alert and the OS
+// handler could execute arbitrary code or read arbitrary files —
+// the browser is the only sensible target for an alert link.
 func (p *Page) openGeneratorURL() tea.Cmd {
 	if p.a.GeneratorURL == "" {
 		return flashFn(footer.FlashInfo, "this alert has no generator URL")
@@ -412,10 +417,29 @@ func (p *Page) openGeneratorURL() tea.Cmd {
 	if p.browser == nil {
 		return flashFn(footer.FlashWarn, "browser not configured")
 	}
+	if !isSafeBrowserURL(p.a.GeneratorURL) {
+		return flashFn(footer.FlashError, "refusing to open non-http(s) URL")
+	}
 	if err := p.browser.Open(p.a.GeneratorURL); err != nil {
 		return flashFn(footer.FlashError, "open failed: "+err.Error())
 	}
 	return flashFn(footer.FlashSuccess, "opened in browser")
+}
+
+// isSafeBrowserURL accepts http(s) URLs only. Anything else is
+// refused before reaching the OS handler so a hostile generatorURL
+// can't be turned into a code-execution or file-read primitive via
+// xdg-open / open / start.
+func isSafeBrowserURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return u.Host != ""
+	}
+	return false
 }
 
 // View implements app.Page. Builds a flat line list, hanging-

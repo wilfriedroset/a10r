@@ -255,6 +255,41 @@ func TestPage_OpenURLWithoutBrowserFlashesWarn(t *testing.T) {
 	require.Equal(t, footer.FlashWarn, msg.Level)
 }
 
+// TestPage_OpenURLRejectsNonHTTPSchemes pins that the generator URL
+// path refuses anything other than http(s). A malicious upstream
+// (or compromised relabel config) can stamp javascript:/file:/data:
+// URLs onto an alert; passing those to xdg-open / open / start lets
+// the OS pick a handler that could execute arbitrary code or read
+// arbitrary files. Restrict to http(s) here — the browser is the
+// only sensible handler for an alert link.
+func TestPage_OpenURLRejectsNonHTTPSchemes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"javascript", "javascript:alert(1)"},
+		{"file", "file:///etc/passwd"},
+		{"data", "data:text/html,<script>alert(1)</script>"},
+		{"vbscript", "vbscript:msgbox(1)"},
+		{"ssh", "ssh://attacker.example/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := sample()
+			a.GeneratorURL = tc.url
+			br := &fakeBrowser{}
+			p := New(Options{Alert: a, Styles: testutil.LoadStyles(t), Browser: br})
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+			msg := cmd().(footer.FlashShowMsg)
+			require.Equal(t, footer.FlashError, msg.Level,
+				"non-http(s) schemes must be refused before handing to the OS")
+			require.Equal(t, 0, br.calls,
+				"browser must NOT be invoked for non-http(s) schemes — OS handler could execute arbitrary code")
+		})
+	}
+}
+
 func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 
