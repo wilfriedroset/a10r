@@ -26,6 +26,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	}
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
+		// Drop status for tenants outside the configured list — a
+		// wire-layer bug, test leak, or future hot-reload that hasn't
+		// pruned its sources could otherwise pollute lastErrors with
+		// names that will never poll again. Empty Tenants disables
+		// the guard (test fixtures that don't pin the list).
+		if !p.knownTenant(m.Tenant) {
+			return p, nil
+		}
 		// Track per-tenant transport errors for the error band.
 		// A successful transition (Detail empty) clears the row;
 		// failure transitions overwrite with the latest detail
@@ -39,6 +47,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case poll.DataMsg:
 		alerts, ok := m.Resource.([]backend.Alert)
 		if !ok {
+			return p, nil
+		}
+		// Same guard as BackendStatusMsg: refuse data from tenants
+		// not in the configured list so byTenant/polledTenants don't
+		// hold entries for names that will never be polled or rendered.
+		if !p.knownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table

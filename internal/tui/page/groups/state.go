@@ -3,6 +3,7 @@
 package groups
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -20,6 +21,17 @@ func (p *Page) totalGroups() int {
 		n += len(gs)
 	}
 	return n
+}
+
+// knownTenant reports whether the given name is in the configured
+// tenants list, used to gate incoming DataMsg / BackendStatusMsg
+// state mutations. An empty configured list disables the guard so
+// test fixtures that don't pin Tenants keep working.
+func (p *Page) knownTenant(name string) bool {
+	if len(p.tenants) == 0 {
+		return true
+	}
+	return slices.Contains(p.tenants, name)
 }
 
 // scopeIncludes reports whether tenant should appear in the view.

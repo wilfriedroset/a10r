@@ -231,6 +231,38 @@ func TestPage_FilterPromptIsLiveAndClearsOnOpen(t *testing.T) {
 		"empty submit commits the cleared filter and drops the snapshot")
 }
 
+// TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
+// BackendStatusMsg arriving with a tenant name not in the configured
+// list is dropped — closes the leak class where a wire-layer bug,
+// hot-reload that didn't prune sources, or a stray test fixture
+// could pollute byTenant/lastErrors with names that will never poll
+// or render. Empty Tenants disables the guard so existing tests
+// without an explicit list keep working.
+func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Tenants: []string{"prod", "staging"},
+	})
+	// Known tenant — should land.
+	known := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{known}, Tenant: "prod"})
+	require.Contains(t, p.byTenant, "prod",
+		"known tenant must be accepted into byTenant")
+
+	// Unknown tenant — must be dropped.
+	stray := mkAlert("StrayCPU", "warning", backend.AlertStateActive)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{stray}, Tenant: "ghost"})
+	require.NotContains(t, p.byTenant, "ghost",
+		"unknown tenant must not populate byTenant")
+
+	// BackendStatusMsg for unknown tenant must also drop.
+	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
+	require.NotContains(t, p.lastErrors, "ghost",
+		"unknown tenant must not populate lastErrors")
+}
+
 // TestPage_FilterToZeroResultsPreservesFocusForRestore pins the
 // cursor-by-fingerprint contract across a filter→zero-results→clear
 // cycle. Without the fix, recompute on an empty view clobbered
