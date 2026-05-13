@@ -38,8 +38,17 @@ const (
 // (e.g. the silence form's tenant row). Empty Origin keeps the
 // historical default behaviour for callers that don't tag.
 type PickerSubmittedMsg struct {
-	Origin     string
+	Origin string
+	// Selections carries the selected item strings in original-input
+	// order. Convenient for callers that key off display text.
 	Selections []string
+	// Indexes mirrors Selections, but in terms of the original input
+	// slice's indexes. Single-mode submits a 1-element slice with the
+	// row's index; multi-mode walks the marked indexes in input
+	// order. Callers wrapping the picker over a non-unique label set
+	// (e.g. silences whose rendered lines may match) must use Indexes
+	// to disambiguate — Selections collapses identical strings.
+	Indexes []int
 }
 
 // IsModalResult satisfies ResultMsg.
@@ -207,20 +216,25 @@ func (p *Picker) handleQueryInput(keyMsg tea.KeyMsg) {
 func (p *Picker) submit() tea.Cmd {
 	origin := p.origin
 	var sel []string
+	var idx []int
 	if p.mode == PickerSingle {
 		if len(p.matches) == 0 {
 			return func() tea.Msg { return PickerCancelledMsg{Origin: origin} }
 		}
-		sel = []string{p.items[p.matches[p.cursor]]}
+		pickedIdx := p.matches[p.cursor]
+		sel = []string{p.items[pickedIdx]}
+		idx = []int{pickedIdx}
 	} else {
 		sel = make([]string, 0, len(p.marks))
+		idx = make([]int, 0, len(p.marks))
 		for i, item := range p.items {
 			if _, ok := p.marks[i]; ok {
 				sel = append(sel, item)
+				idx = append(idx, i)
 			}
 		}
 	}
-	return func() tea.Msg { return PickerSubmittedMsg{Origin: origin, Selections: sel} }
+	return func() tea.Msg { return PickerSubmittedMsg{Origin: origin, Selections: sel, Indexes: idx} }
 }
 
 // toggleAt flips a mark in multi mode.

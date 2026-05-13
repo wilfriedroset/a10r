@@ -86,6 +86,36 @@ func TestSilencePicker_TitleIsSilences(t *testing.T) {
 	require.Equal(t, "silences", w.Title())
 }
 
+// TestSilencePicker_DuplicateLines_DisambiguatedByPosition pins the
+// fix for the dup-line collision: two silences whose rendered lines
+// happen to match (same expiry / creator / comment, only IDs differ)
+// must NOT collapse into a single map entry. Without an index-based
+// disambiguator the user picks the visually-first row and the
+// wrapper drills into the visually-second silence — a "you ack'd
+// the wrong alert" class of bug.
+func TestSilencePicker_DuplicateLines_DisambiguatedByPosition(t *testing.T) {
+	t.Parallel()
+	rows := []silencePickerRow{
+		{id: "first-id", line: "(same line)"},
+		{id: "second-id", line: "(same line)"},
+	}
+
+	// Cursor at index 0 — must return the FIRST id.
+	w0 := newSilencePicker(rows)
+	_, cmd0 := w0.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got0 := cmd0().(SilenceSelectedMsg)
+	require.Equal(t, "first-id", got0.ID,
+		"picking row 0 of two identical-line rows must return the FIRST silence's ID, not whichever lost the map-collision race")
+
+	// Cursor advanced to index 1 — must return the SECOND id.
+	w1 := newSilencePicker(rows)
+	_, _ = w1.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, cmd1 := w1.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	got1 := cmd1().(SilenceSelectedMsg)
+	require.Equal(t, "second-id", got1.ID,
+		"picking row 1 of two identical-line rows must return the SECOND silence's ID")
+}
+
 // TestSilencePicker_ViewRendersRows is a smoke test: the wrapper's
 // View must delegate to the inner Picker so the rendered rows are
 // the prepared single-line summaries, not raw IDs.

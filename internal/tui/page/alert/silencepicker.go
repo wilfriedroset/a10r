@@ -45,26 +45,32 @@ func (SilenceCancelledMsg) IsModalResult() {}
 // result branch hard-codes PickerSubmittedMsg to a tenant scope
 // change — emitting the same type from a non-tenant picker would
 // silently misroute. Picker stays generic; this wrapper costs ~30
-// lines and one local string→id lookup map.
+// lines and one local index→id slice.
 type silencePicker struct {
-	inner    *modal.Picker
-	idByLine map[string]string
+	inner *modal.Picker
+	// idByIndex maps the inner picker's input position back to the
+	// silence ID. Indexed (not keyed by rendered line) so two
+	// silences with identical rendered lines (same expiry / creator /
+	// comment, distinct IDs) don't collapse to one map entry and
+	// drill into the wrong silence on submit.
+	idByIndex []string
 }
 
 // newSilencePicker builds a wrapper over the supplied rows. The
 // inner Picker is constructed with the rendered line strings (so
-// fuzzy-match runs against what the user reads); idByLine maps each
-// rendered line back to the silence ID for the submit translation.
+// fuzzy-match runs against what the user reads); idByIndex maps
+// each input position back to the silence ID for the submit
+// translation.
 func newSilencePicker(rows []silencePickerRow) *silencePicker {
 	items := make([]string, len(rows))
-	idByLine := make(map[string]string, len(rows))
+	idByIndex := make([]string, len(rows))
 	for i, r := range rows {
 		items[i] = r.line
-		idByLine[r.line] = r.id
+		idByIndex[i] = r.id
 	}
 	return &silencePicker{
-		inner:    modal.NewPicker("silences", items, modal.PickerSingle),
-		idByLine: idByLine,
+		inner:     modal.NewPicker("silences", items, modal.PickerSingle),
+		idByIndex: idByIndex,
 	}
 }
 
@@ -102,24 +108,24 @@ func (w *silencePicker) View(width, height int) string {
 
 // translate returns a Cmd that calls the inner picker's Cmd and
 // rewrites its message: PickerSubmittedMsg → SilenceSelectedMsg
-// (looked up via idByLine; defensive: fall through to cancelled if
-// the rendered line isn't in our map, which would mean the inner
-// picker handed us a string we didn't construct it with), and
-// PickerCancelledMsg → SilenceCancelledMsg. Other message shapes
-// pass through unchanged so future picker behaviours don't get
-// silently swallowed.
+// (looked up via the inner picker's Indexes; defensive: fall through
+// to cancelled if Indexes is empty or the index is out of range,
+// which would mean the inner picker handed us a result we didn't
+// construct it with), and PickerCancelledMsg → SilenceCancelledMsg.
+// Other message shapes pass through unchanged so future picker
+// behaviours don't get silently swallowed.
 func (w *silencePicker) translate(inner tea.Cmd) tea.Cmd {
 	return func() tea.Msg {
 		switch v := inner().(type) {
 		case modal.PickerSubmittedMsg:
-			if len(v.Selections) == 0 {
+			if len(v.Indexes) == 0 {
 				return SilenceCancelledMsg{}
 			}
-			id, ok := w.idByLine[v.Selections[0]]
-			if !ok {
+			idx := v.Indexes[0]
+			if idx < 0 || idx >= len(w.idByIndex) {
 				return SilenceCancelledMsg{}
 			}
-			return SilenceSelectedMsg{ID: id}
+			return SilenceSelectedMsg{ID: w.idByIndex[idx]}
 		case modal.PickerCancelledMsg:
 			return SilenceCancelledMsg{}
 		default:
