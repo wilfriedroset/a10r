@@ -279,6 +279,41 @@ func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
 	require.Empty(t, renderHintsWithBudget(hints, 0, styles))
 }
 
+func TestFormatDuration(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		d    time.Duration
+		want string
+	}{
+		{name: "zero", d: 0, want: "0s"},
+		{name: "sub-second", d: 500 * time.Millisecond, want: "0s"},
+		{name: "1s", d: time.Second, want: "1s"},
+		{name: "59s", d: 59 * time.Second, want: "59s"},
+		{name: "1m boundary", d: time.Minute, want: "1m"},
+		{name: "2m", d: 2 * time.Minute, want: "2m"},
+		{name: "1h boundary", d: time.Hour, want: "1h"},
+		{name: "3h", d: 3 * time.Hour, want: "3h"},
+		{name: "1d boundary", d: 24 * time.Hour, want: "1d"},
+		{name: "5d", d: 5 * 24 * time.Hour, want: "5d"},
+		// Regression: a 10-year uptime previously rendered as the raw
+		// Go Stringer "87600h0m0s" — hostile UX for an SRE-targeted
+		// TUI. The humanised form falls back to days for anything
+		// beyond 24h so the header zone stays a few columns wide.
+		{name: "10y uptime", d: 10 * 365 * 24 * time.Hour, want: "3650d"},
+		// Negative durations are not a thing for uptime, but the
+		// helper takes |d| so a defensive caller gets sensible output.
+		{name: "negative collapses to abs", d: -2 * time.Hour, want: "2h"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, FormatDuration(tc.d))
+		})
+	}
+}
+
 func TestFormatRelative(t *testing.T) {
 	t.Parallel()
 

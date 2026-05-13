@@ -130,6 +130,41 @@ func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 	require.Contains(t, p.HeaderContent(), "prod")
 }
 
+// TestPage_HeaderContent_HumanisesUptime is the regression test for
+// the status brainstorm finding HeaderContent_FormatsUptime_AsGoDurationString
+// at status.go:71: a 10-year uptime used to render as the raw Go
+// time.Duration Stringer "87600h0m0s", which is hostile UX for an
+// SRE-targeted TUI. The fix routes Uptime through header.FormatDuration
+// so the header zone shows compact units (s/m/h/d).
+func TestPage_HeaderContent_HumanisesUptime(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		uptime time.Duration
+		want   string
+	}{
+		{name: "3h compact", uptime: 3 * time.Hour, want: "3h"},
+		{name: "5d compact", uptime: 5 * 24 * time.Hour, want: "5d"},
+		{name: "10y compact", uptime: 10 * 365 * 24 * time.Hour, want: "3650d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(testutil.LoadStyles(t), "prod")
+			st := sampleStatus()
+			st.Uptime = tc.uptime
+			_, _ = p.Update(poll.DataMsg{Resource: st})
+
+			out := p.HeaderContent()
+			require.Contains(t, out, "uptime "+tc.want,
+				"uptime must be humanised, not rendered as a raw Go duration")
+			require.NotRegexp(t, `\d+h\d+m\d+s`, out,
+				"uptime must NOT appear as a raw `Nh0m0s` Go Stringer string")
+		})
+	}
+}
+
 func TestPage_EmptyView(t *testing.T) {
 	t.Parallel()
 	p := New(testutil.LoadStyles(t), "")

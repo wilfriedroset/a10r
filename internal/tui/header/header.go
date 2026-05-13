@@ -276,6 +276,35 @@ func FormatRelative(now, ts time.Time) string {
 	return "in " + unit
 }
 
+// FormatDuration renders d as a compact single-unit string using the
+// same s / m / h / d ladder as FormatRelative — no "ago" / "in"
+// suffix because the caller already labels what the value represents
+// (e.g. "uptime 5d"). Sub-second durations collapse to "0s" so a
+// freshly-booted backend never produces a noisy header. Negative
+// values are taken as |d| so a defensive caller can't render "-2h";
+// uptime is always non-negative in practice.
+//
+// Pulled out as a sibling of FormatRelative so the status page can
+// humanise time.Duration without the round-trip through
+// time.Now().Add(-d) → FormatRelative → strip "ago" — fixes the
+// status brainstorm finding HeaderContent_FormatsUptime_AsGoDurationString
+// where a 10-year uptime rendered as the raw Go Stringer "87600h0m0s".
+func FormatDuration(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
+}
+
 // AbsoluteFormat is the layout pages use when the app-global
 // time-format toggle (`t`) is set to absolute. ISO-style local
 // time per Q7.4: year-month-day HH:MM:SS, no timezone marker so
