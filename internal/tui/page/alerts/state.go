@@ -128,13 +128,16 @@ func (p *Page) recomputeScroll() {
 
 // snapshotFocus captures the fingerprint of the row currently
 // under the cursor so subsequent recomputes can re-resolve it.
-// Empty view leaves focus empty.
+// Empty view PRESERVES the previous focusFingerprint so a later
+// filter-clear (or fresh poll that restores the alert) can re-
+// anchor on the originally focused alert. Without this, narrowing
+// the filter to zero results and then clearing it would land the
+// cursor on row 0 instead of the user's prior position — silent
+// loss-of-place that violates the cursor-by-id contract.
 func (p *Page) snapshotFocus() {
 	if p.cursor < len(p.view) {
 		p.focusFingerprint = p.view[p.cursor].a.Fingerprint
-		return
 	}
-	p.focusFingerprint = ""
 }
 
 // cycleStateFilter walks "" → active → suppressed → unprocessed → ""

@@ -231,6 +231,45 @@ func TestPage_FilterPromptIsLiveAndClearsOnOpen(t *testing.T) {
 		"empty submit commits the cleared filter and drops the snapshot")
 }
 
+// TestPage_FilterToZeroResultsPreservesFocusForRestore pins the
+// cursor-by-fingerprint contract across a filter→zero-results→clear
+// cycle. Without the fix, recompute on an empty view clobbered
+// focusFingerprint to "", so re-widening the filter snapped the
+// cursor to row 0 instead of re-anchoring on the originally focused
+// alert. UX-wise: "I narrowed too much, let me back off — and now
+// my place is lost."
+func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	// Explicit Fingerprint values — mkAlert doesn't set them.
+	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	a.Fingerprint = "fp-a"
+	b := mkAlert("DiskSpace", "warning", backend.AlertStateActive)
+	b.Fingerprint = "fp-b"
+	c := mkAlert("MemPressure", "warning", backend.AlertStateActive)
+	c.Fingerprint = "fp-c"
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a, b, c}})
+
+	// Focus the third row (MemPressure) by walking down.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, "MemPressure", p.view[p.cursor].a.Labels["alertname"])
+	require.Equal(t, "fp-c", p.focusFingerprint)
+
+	// Filter to zero results.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "nope-no-match"})
+	require.Empty(t, p.view)
+	require.Equal(t, "fp-c", p.focusFingerprint,
+		"focus must persist across a filter→zero-results recompute so a "+
+			"later filter-clear can re-anchor on the originally focused alert")
+
+	// Clear the filter — cursor must land back on the original row.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: ""})
+	require.Equal(t, "MemPressure", p.view[p.cursor].a.Labels["alertname"],
+		"clearing the filter must restore cursor to the alert the user "+
+			"was focused on before narrowing to zero")
+}
+
 func TestPage_FilterCancelRestoresPreFilter(t *testing.T) {
 	t.Parallel()
 
