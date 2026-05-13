@@ -94,6 +94,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case edit.FinishedMsg:
 		cmd := p.handleEditorFinished(m)
 		return p, cmd
+	case editorUpdateResultMsg:
+		cmd := p.handleEditorUpdateResult(m)
+		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
 		p.handleFilterPrompt(m)
@@ -485,6 +488,20 @@ type pendingEdit struct {
 	tenant string
 }
 
+// editorUpdateResultMsg carries the outcome of the asynchronous
+// editor-driven UpdateSilence call. Dispatched from the tea.Cmd that
+// runs the backend write off the bubbletea Update goroutine so a slow
+// 5xx doesn't freeze the TUI. The handler in Update() turns this
+// into the flash/audit/reopen branching the previous synchronous
+// path did inline. content + pending are carried through so the
+// error branch can reopen the editor with the user's typed YAML.
+type editorUpdateResultMsg struct {
+	id      string
+	content string
+	pending pendingEdit
+	err     error
+}
+
 // openEditorForCursor hands the cursor silence to the user's
 // $EDITOR via the page's edit.Resolver. Captures the silence
 // (id, tenant, snapshot) into p.pendingEdit so the FinishedMsg
@@ -584,23 +601,46 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		p.pendingEdit = pendingEdit{}
 		return flashFn(footer.FlashError, "no writeable backend for silence "+id)
 	}
-	if err := client.UpdateSilence(context.Background(), id, spec); err != nil {
-		// Backend failure is the retryable case: keep pendingEdit
-		// and reopen the editor with the user's content so they can
-		// fix-and-retry without retyping. Same shape as the id-
-		// mismatch branch above.
-		flash := flashFn(footer.FlashError, "update: "+err.Error())
+	// Dispatch the write asynchronously so a slow backend doesn't
+	// freeze the bubbletea Update loop. The result lands as an
+	// editorUpdateResultMsg that handleEditorUpdateResult turns
+	// into the appropriate flash + audit (success) or flash + reopen
+	// (failure, content preserved via msg.content).
+	ctx := p.editorCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	content := m.Content
+	return func() tea.Msg {
+		err := client.UpdateSilence(ctx, id, spec)
+		return editorUpdateResultMsg{
+			id:      id,
+			content: content,
+			pending: pending,
+			err:     err,
+		}
+	}
+}
+
+// handleEditorUpdateResult resolves the async UpdateSilence
+// outcome. On success, clears pendingEdit and audits + flashes;
+// on failure, keeps pendingEdit and reopens the editor with the
+// user's typed YAML preserved (mirrors the id-mismatch retry
+// pattern). See editorUpdateResultMsg for why this is split out.
+func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
+	if m.err != nil {
+		flash := flashFn(footer.FlashError, "update: "+m.err.Error())
 		reopen := p.editor.Edit(edit.Request{
-			ResourceID: pending.id,
-			Initial:    m.Content,
+			ResourceID: m.pending.id,
+			Initial:    m.content,
 			Extension:  "yaml",
 			Ctx:        p.editorCtx,
 		})
 		return tea.Batch(flash, reopen)
 	}
 	p.pendingEdit = pendingEdit{}
-	auditSilenceWrite("updated", id, "editor")
-	return flashFn(footer.FlashSuccess, "silence updated: "+id)
+	auditSilenceWrite("updated", m.id, "editor")
+	return flashFn(footer.FlashSuccess, "silence updated: "+m.id)
 }
 
 // openNewSilenceForm pushes an empty silence form targeting the

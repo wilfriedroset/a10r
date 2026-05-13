@@ -454,12 +454,16 @@ func TestPage_FinishedMsgSuccessAuditLogs(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	body, err := silenceToYAML(p.view[0].s)
 	require.NoError(t, err)
-	cmd := func() tea.Cmd {
-		_, c := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
-		return c
-	}()
-	require.NotNil(t, cmd)
-	cmd()
+	// Two-step async flow:
+	//   1. Update(FinishedMsg) returns a Cmd that runs UpdateSilence
+	//      off the Update goroutine and emits editorUpdateResultMsg.
+	//   2. Update(resultMsg) emits the audit-log + flash Cmd.
+	_, c1 := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+	require.NotNil(t, c1)
+	resultMsg := c1()
+	_, c2 := p.Update(resultMsg)
+	require.NotNil(t, c2)
+	c2()
 	out := buf.String()
 	require.Contains(t, out, "silence write succeeded")
 	require.Contains(t, out, "op=updated")
@@ -491,12 +495,17 @@ func TestPage_FinishedMsgSuccessCallsUpdateSilence(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	body, err := silenceToYAML(p.view[0].s)
 	require.NoError(t, err)
-	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
+	// Two-step async flow: see TestPage_FinishedMsgSuccessAuditLogs.
+	_, c1 := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+	require.NotNil(t, c1)
+	resultMsg := c1()
+	require.Equal(t, "sil-a", fake.lastUpdateID,
+		"UpdateSilence must be called by the async Cmd")
+	_, c2 := p.Update(resultMsg)
+	require.NotNil(t, c2)
+	msg := c2().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
 	require.Contains(t, msg.Text, "silence updated: sil-a")
-	require.Equal(t, "sil-a", fake.lastUpdateID)
 }
 
 // TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor pins
@@ -654,12 +663,18 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 	require.NotEqual(t, originalSnapshot, editedYAML,
 		"test sanity: edited YAML must differ from original snapshot")
 
-	// FinishedMsg arrives → UpdateSilence is attempted → fails.
-	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: editedYAML})
-	require.NotNil(t, cmd, "backend-error path must emit a Cmd (flash + reopen)")
-	cmd()
-
+	// Two-step async flow:
+	//   1. Update(FinishedMsg) returns a Cmd that calls UpdateSilence
+	//      (which fails) and emits an editorUpdateResultMsg.
+	//   2. Update(resultMsg) emits the flash + reopen Batch.
+	_, c1 := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: editedYAML})
+	require.NotNil(t, c1, "FinishedMsg must emit the async UpdateSilence Cmd")
+	resultMsg := c1()
 	require.Equal(t, "sil-a", fake.lastUpdateID, "UpdateSilence must be attempted before erroring")
+	_, c2 := p.Update(resultMsg)
+	require.NotNil(t, c2, "backend-error result must emit a Cmd (flash + reopen)")
+	c2()
+
 	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
 		"pendingEdit must persist across the backend error so the reopened editor session targets the same silence")
 	require.Len(t, capturedInitials, 2, "backend error must trigger an editor reopen")
