@@ -411,6 +411,68 @@ func TestForm_SubmitDoesNotBlockUpdateGoroutine(t *testing.T) {
 	}
 }
 
+// ctxBlockingClient signals `started` then waits for ctx to cancel.
+// Lets tests observe whether the form cancels its in-flight submit
+// when the page is Closed.
+type ctxBlockingClient struct {
+	started chan struct{}
+}
+
+func (c *ctxBlockingClient) CreateSilence(ctx context.Context, _ backend.SilenceSpec) (string, error) {
+	close(c.started)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func (c *ctxBlockingClient) UpdateSilence(ctx context.Context, _ string, _ backend.SilenceSpec) error {
+	close(c.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// TestForm_CloseCancelsInflightSubmit pins that closing the form
+// cancels the in-flight Create/UpdateSilence call instead of letting
+// the goroutine outlive the form. Without the fix, Esc-then-page-swap
+// while a slow tenant is still writing creates/updates a silence
+// the operator never gets confirmation for — orphan-from-UX. Worse,
+// if the user re-opens the form to retry, two writes race.
+func TestForm_CloseCancelsInflightSubmit(t *testing.T) {
+	t.Parallel()
+	client := &ctxBlockingClient{started: make(chan struct{})}
+	f := newForm(t, client)
+	type_(f, "alertname=A")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("CreateSilence never started")
+	}
+
+	// Closing the form must cancel the in-flight CreateSilence so
+	// the goroutine returns within a bounded window — without the
+	// fix, the test would time out after 2s.
+	f.Close()
+
+	select {
+	case msg := <-done:
+		// Stale submitDoneMsg with ctx.Canceled error is fine; the
+		// point is the goroutine returned promptly.
+		_, ok := msg.(submitDoneMsg)
+		require.True(t, ok, "expected submitDoneMsg, got %T", msg)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not cancel the in-flight submit — goroutine leak window")
+	}
+}
+
 // TestForm_DoubleCtrlSDropsSecondSubmit locks the re-entry guard:
 // a second Ctrl+S while the first round-trip is still in flight
 // must not start a second backend call. Regression catcher for the

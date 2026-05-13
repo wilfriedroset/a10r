@@ -16,6 +16,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/textarea"
@@ -165,6 +166,15 @@ type Form struct {
 	// result must not be projected onto whatever page is on top now
 	// (or a freshly-pushed second silence form).
 	submitGen int
+
+	// cancelSubmit cancels the context handed to the in-flight
+	// Create/UpdateSilence call so Close() (form pop / app shutdown)
+	// aborts the request instead of letting the goroutine outlive
+	// the form. Guarded by mu because the submit goroutine clears
+	// it while Close() (Update goroutine) reads it. Nil when no
+	// submit is in flight.
+	mu           sync.Mutex
+	cancelSubmit context.CancelFunc
 }
 
 // Options captures the dependency surface. The prefill fields
@@ -380,7 +390,20 @@ func flattenTextareaBlur(m *textarea.Model) {
 func (*Form) Init() tea.Cmd { return nil }
 
 // Close implements app.Page.
-func (*Form) Close() tea.Cmd { return nil }
+func (f *Form) Close() tea.Cmd {
+	// Cancel any in-flight Create/UpdateSilence so a slow tenant
+	// doesn't keep writing after the user pops the form. Without
+	// this, an Esc-then-page-swap leaves the goroutine running with
+	// a never-cancelled ctx, and the silence is created/updated on
+	// the server with no operator confirmation in the TUI.
+	f.mu.Lock()
+	cancel := f.cancelSubmit
+	f.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
 
 // CapturesInput implements app.InputCapturePage so the form
 // receives `q`, `:`, `/`, `?`, `0`-`9` as text input rather than
@@ -713,15 +736,38 @@ func (f *Form) submit() tea.Cmd {
 	f.submitGen++
 	gen := f.submitGen
 	f.submitting = true
+	// Wire a cancellable ctx so Close() (form pop / app shutdown)
+	// aborts the request instead of letting the goroutine outlive
+	// the form. The prior code used context.Background(), which
+	// meant a slow tenant kept writing even after the user Esc'd
+	// out — leaving an orphan silence that the operator never sees
+	// confirmed.
+	f.mu.Lock()
+	if f.cancelSubmit != nil {
+		// A previous submit was somehow still in flight; cancel it
+		// so we don't have two writes racing on the same form.
+		f.cancelSubmit()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancelSubmit = cancel
+	f.mu.Unlock()
+	clearCancel := func() {
+		f.mu.Lock()
+		f.cancelSubmit = nil
+		f.mu.Unlock()
+		cancel()
+	}
 	if f.editID != "" {
 		id := f.editID
 		return func() tea.Msg {
-			err := client.UpdateSilence(context.Background(), id, spec)
+			defer clearCancel()
+			err := client.UpdateSilence(ctx, id, spec)
 			return submitDoneMsg{gen: gen, id: id, updated: true, err: err}
 		}
 	}
 	return func() tea.Msg {
-		id, err := client.CreateSilence(context.Background(), spec)
+		defer clearCancel()
+		id, err := client.CreateSilence(ctx, spec)
 		return submitDoneMsg{gen: gen, id: id, err: err}
 	}
 }
