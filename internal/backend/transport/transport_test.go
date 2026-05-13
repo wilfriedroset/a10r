@@ -7,15 +7,33 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/config"
 )
+
+// captureSlogDefault swaps slog.Default() for a text-handler writing
+// into the returned strings.Builder for the duration of t. Used by
+// the buildTLSConfig warning tests so any caller (programmatic or
+// production) gets a visible signal when a dangerous TLS knob is
+// enabled. Tests using this helper run sequentially because the swap
+// is process-wide — mirrors the convention in
+// internal/tui/page/silences/silences_test.go's newAuditLogBuf.
+func captureSlogDefault(t *testing.T) *strings.Builder {
+	t.Helper()
+	buf := &strings.Builder{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return buf
+}
 
 // captureHandler is an http.HandlerFunc that records the headers of
 // the last request it served, so tests can assert wire-level shape.
@@ -650,4 +668,55 @@ func TestNewBase_AssertsErrorTypeStability(t *testing.T) {
 
 	_, err = NewBase(BaseOptions{ProxyURL: "://broken"})
 	require.ErrorIs(t, err, ErrInvalidProxyURL)
+}
+
+// TestBuildTLSConfig_WarnsOnInsecureSkipVerify pins the MITM-surface
+// warning. The nolint:gosec on the field assignment is not a
+// substitute for an operator-visible signal: programmatic callers
+// (tests, future REPLs) that bypass config validation must still
+// see a WARN log. Sequential — slog.SetDefault is process-wide.
+func TestBuildTLSConfig_WarnsOnInsecureSkipVerify(t *testing.T) {
+	buf := captureSlogDefault(t)
+
+	cfg, err := buildTLSConfig(&config.TLSConfig{InsecureSkipVerify: true})
+	require.NoError(t, err)
+	require.True(t, cfg.InsecureSkipVerify)
+
+	require.Contains(t, buf.String(), "TLS certificate verification disabled",
+		"InsecureSkipVerify=true must surface a WARN — MITM possible per transport brainstorm")
+	require.Contains(t, buf.String(), "level=WARN")
+}
+
+// TestBuildTLSConfig_WarnsOnCustomCAInline pins the trust-narrowing
+// warning for inline CA bundles. runTUI logs an INFO at startup but
+// any programmatic caller wiring NewBase directly never sees it; the
+// warning must come from buildTLSConfig itself.
+func TestBuildTLSConfig_WarnsOnCustomCAInline(t *testing.T) {
+	buf := captureSlogDefault(t)
+
+	pem := generateSelfSignedCA(t)
+	cfg, err := buildTLSConfig(&config.TLSConfig{CA: pem})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RootCAs)
+
+	require.Contains(t, buf.String(), "custom CA bundle replaces system roots",
+		"inline CA must surface a WARN — trust narrows to the configured bundle")
+	require.Contains(t, buf.String(), "level=WARN")
+	require.Contains(t, buf.String(), "ca_source=inline",
+		"warning must carry the ca_source attr so operators can locate the override")
+}
+
+// TestBuildTLSConfig_NoWarningsOnSafeSpec is the baseline: an empty
+// TLSConfig (no InsecureSkipVerify, no CA) must NOT emit either
+// warning. Guards against false positives that would dull the signal.
+func TestBuildTLSConfig_NoWarningsOnSafeSpec(t *testing.T) {
+	buf := captureSlogDefault(t)
+
+	_, err := buildTLSConfig(&config.TLSConfig{ServerName: "am.internal", MinVersion: "TLS12"})
+	require.NoError(t, err)
+
+	require.NotContains(t, buf.String(), "TLS certificate verification disabled",
+		"safe TLS spec must not trigger the InsecureSkipVerify warning")
+	require.NotContains(t, buf.String(), "custom CA bundle replaces system roots",
+		"safe TLS spec must not trigger the custom-CA warning")
 }

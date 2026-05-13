@@ -20,6 +20,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
@@ -227,6 +228,16 @@ func newAuthorization(spec *config.Authorization, expectedHost string, base http
 }
 
 func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
+	// Surface the two dangerous TLS knobs at the moment they take
+	// effect rather than relying on the runTUI startup INFO: any
+	// programmatic caller (tests, future REPL, embedding library)
+	// that wires NewBase directly bypasses the config-load logging
+	// surface. slog.Default() is the shared sink so this layer needs
+	// no constructor seam — per transport brainstorm code-quality
+	// findings, the warning is the operator-actionable signal.
+	if spec.InsecureSkipVerify {
+		slog.Warn("TLS certificate verification disabled — MITM possible")
+	}
 	cfg := &tls.Config{
 		ServerName:         spec.ServerName,
 		InsecureSkipVerify: spec.InsecureSkipVerify, //nolint:gosec // user opt-in: tls_config.insecure_skip_verify is documented in the schema
@@ -237,6 +248,13 @@ func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
 			return nil, ErrInvalidCABundle
 		}
 		cfg.RootCAs = pool
+		// Inline CA REPLACES the system root pool for this backend
+		// (Prometheus parity, audit F6); the trust narrowing is
+		// surprising for callers reading "added a CA" as "augmented"
+		// rather than "replaced". v0.1 supports inline only, so
+		// ca_source is hard-coded; broaden the attr when the file /
+		// ref variants land per F2/F3.
+		slog.Warn("custom CA bundle replaces system roots", slog.String("ca_source", "inline"))
 	}
 	if v, ok := tlsVersionLookup(spec.MinVersion); ok {
 		cfg.MinVersion = v
