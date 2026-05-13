@@ -111,14 +111,131 @@ func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
 	}
 }
 
-func TestHelp_AnyKeyEmitsClosed(t *testing.T) {
+// TestHelp_DismissKeysEmitClosed pins the dismiss contract: q, Esc,
+// and ? still close the overlay (the latter is the same key that
+// opened it — pressing it again toggles off).
+func TestHelp_DismissKeysEmitClosed(t *testing.T) {
 	t.Parallel()
-	h := New(sampleOpts(t))
-	_, cmd := h.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
-	require.NotNil(t, cmd)
-	msg := cmd()
-	_, ok := msg.(modal.HelpClosedMsg)
-	require.True(t, ok, "any keystroke must emit HelpClosedMsg")
+	cases := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "q", key: tea.KeyPressMsg{Code: 'q', Text: "q"}},
+		{name: "esc", key: tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{name: "question-mark", key: tea.KeyPressMsg{Code: '?', Text: "?"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := New(sampleOpts(t))
+			_, cmd := h.Update(tc.key)
+			require.NotNil(t, cmd, "dismiss key %q must emit a command", tc.name)
+			msg := cmd()
+			_, ok := msg.(modal.HelpClosedMsg)
+			require.Truef(t, ok, "dismiss key %q must emit HelpClosedMsg", tc.name)
+		})
+	}
+}
+
+// TestHelp_ScrollKeysDoNotDismiss covers the bug fix: vim-style
+// scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B plus the arrow
+// and page navigation keys) must adjust the scroll offset instead
+// of closing the overlay. Wheel-only scroll is undiscoverable, so
+// users reflexively press j/k to scroll a long help body — that
+// path must keep the overlay open.
+func TestHelp_ScrollKeysDoNotDismiss(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{name: "j", key: tea.KeyPressMsg{Code: 'j', Text: "j"}},
+		{name: "k", key: tea.KeyPressMsg{Code: 'k', Text: "k"}},
+		{name: "g", key: tea.KeyPressMsg{Code: 'g', Text: "g"}},
+		{name: "G", key: tea.KeyPressMsg{Code: 'G', Text: "G"}},
+		{name: "down", key: tea.KeyPressMsg{Code: tea.KeyDown}},
+		{name: "up", key: tea.KeyPressMsg{Code: tea.KeyUp}},
+		{name: "pgdown", key: tea.KeyPressMsg{Code: tea.KeyPgDown}},
+		{name: "pgup", key: tea.KeyPressMsg{Code: tea.KeyPgUp}},
+		{name: "home", key: tea.KeyPressMsg{Code: tea.KeyHome}},
+		{name: "end", key: tea.KeyPressMsg{Code: tea.KeyEnd}},
+		{name: "space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
+		{name: "ctrl+d", key: tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}},
+		{name: "ctrl+u", key: tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}},
+		{name: "ctrl+f", key: tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}},
+		{name: "ctrl+b", key: tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := New(sampleOpts(t))
+			next, cmd := h.Update(tc.key)
+			require.Nilf(t, cmd, "scroll key %q must NOT emit a HelpClosedMsg", tc.name)
+			require.Samef(t, h, next,
+				"scroll key %q returns the same modal — no transition", tc.name)
+		})
+	}
+}
+
+// TestHelp_JScrollsDown verifies j advances the scroll offset on
+// an overflowing help payload (mirrors the wheel-down test). With
+// view height 4 and nine tenants forcing overflow, a j press must
+// shift the visible rows.
+func TestHelp_JScrollsDown(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4
+	first := testutil.StripStyle(h.View(w, hgt))
+
+	_, cmd := h.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Nil(t, cmd, "j must not dismiss the overlay")
+
+	scrolled := testutil.StripStyle(h.View(w, hgt))
+	require.NotEqual(t, first, scrolled,
+		"j on overflowing content must shift the visible rows")
+}
+
+// TestHelp_KAtTopIsNoOp verifies k clamps at scroll=0 (mirrors the
+// wheel-up upper-bound test).
+func TestHelp_KAtTopIsNoOp(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4
+	first := testutil.StripStyle(h.View(w, hgt))
+
+	_, cmd := h.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
+	require.Nil(t, cmd, "k must not dismiss the overlay")
+
+	require.Equal(t, first, testutil.StripStyle(h.View(w, hgt)),
+		"k at scroll=0 must clamp — visible rows unchanged")
+}
+
+// TestHelp_GJumpsToBottomGgJumpsToTop verifies G scrolls to the
+// last reachable row and g scrolls back to the top.
+func TestHelp_GJumpsToBottomGgJumpsToTop(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	h := New(opts)
+
+	const w, hgt = 160, 4
+	top := testutil.StripStyle(h.View(w, hgt))
+
+	_, cmd := h.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	require.Nil(t, cmd)
+	bottom := testutil.StripStyle(h.View(w, hgt))
+	require.NotEqual(t, top, bottom, "G must scroll to the bottom")
+
+	_, cmd = h.Update(tea.KeyPressMsg{Code: 'g', Text: "g"})
+	require.Nil(t, cmd)
+	backToTop := testutil.StripStyle(h.View(w, hgt))
+	require.Equal(t, top, backToTop, "g must scroll back to the top")
 }
 
 func TestHelp_NonKeyMessageIsIgnored(t *testing.T) {

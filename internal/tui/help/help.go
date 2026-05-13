@@ -27,6 +27,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -74,12 +75,23 @@ type Help struct {
 	opts Options
 
 	// scroll is the row index the help body starts rendering from.
-	// Mouse-wheel ticks adjust this so a help payload that overflows
-	// the modal's height is reachable without keyboard scroll
-	// plumbing (any keystroke dismisses the modal — that contract
-	// isn't worth breaking for help-internal navigation). Clamped
-	// inside View to whatever the rendered content can show.
+	// Mouse-wheel ticks and the vim-style scroll keys (j/k/g/G plus
+	// PgDn/PgUp/Home/End/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) adjust this
+	// so a help payload that overflows the modal's height is
+	// reachable from the keyboard or the wheel. Clamped inside View
+	// to whatever the rendered content can show; the scroll-key
+	// handler also clamps to lastMaxScroll so a held-down key
+	// stops moving the offset once the bottom is reached.
 	scroll int
+
+	// lastBodyHeight / lastMaxScroll mirror the View-side clamp
+	// inputs so the scroll-key handler can step by half / full page
+	// without re-measuring columns. View writes both fields on every
+	// render; before the first render they default to zero, which
+	// makes every scroll-key press a no-op (correct — there's
+	// nothing on screen yet to scroll).
+	lastBodyHeight int
+	lastMaxScroll  int
 }
 
 // New constructs a Help modal.
@@ -93,20 +105,26 @@ func (*Help) Init() tea.Cmd { return nil }
 // without needing to draw its own frame.
 func (*Help) Title() string { return "Help" }
 
-// Update implements modal.Modal. Any keystroke dismisses the
-// overlay — it's read-only so there's no other useful action.
-// Mouse-wheel ticks adjust the scroll offset instead of dismissing
-// so a long help payload (many tenants + page verbs) is reachable
-// without leaving the overlay; click / motion events arrive only
-// while the App's mouse cell-motion mode is on but the help modal
-// has no use for them — they're ignored alongside non-key, non-
-// wheel messages.
+// Update implements modal.Modal. Most keys dismiss the overlay
+// (it's read-only — `?` toggles off, `Esc` and `q` close it),
+// but the standard vim-style scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/
+// Ctrl+F/Ctrl+B plus the arrow / page-nav keys and Space) walk
+// the scroll offset instead. Wheel-only scrolling is undiscoverable
+// — a user reflexively pressing j/k to scroll a long help body
+// would otherwise close the overlay on the first keystroke (help
+// brainstorm finding `help.go:104-113`). Mouse-wheel ticks also
+// adjust the scroll offset; click / motion events arrive only while
+// the App's mouse cell-motion mode is on but the help modal has no
+// use for them — they're ignored alongside other non-key messages.
 func (h *Help) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		h.scrollBy(wheel)
 		return h, nil
 	}
-	if _, ok := msg.(tea.KeyMsg); ok {
+	if key, ok := msg.(tea.KeyPressMsg); ok {
+		if h.scrollByKey(key.String()) {
+			return h, nil
+		}
 		return h, func() tea.Msg { return modal.HelpClosedMsg{} }
 	}
 	return h, nil
@@ -129,6 +147,66 @@ func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 	}
 }
 
+// scrollByKey routes the vim-style scroll keys to the scroll
+// offset and returns true when the key was consumed (so the Update
+// caller knows to skip the dismiss path). Recognised keys:
+//
+//   - j / down: line down
+//   - k / up:   line up
+//   - pgdown / space: half-page down
+//   - pgup:     half-page up
+//   - ctrl+d / ctrl+u: half-page down / up (canonical vim)
+//   - ctrl+f / ctrl+b: full-page down / up (canonical vim)
+//   - g / home: jump to top
+//   - G / end:  jump to bottom
+//
+// Half / full-page steps come from the cursor package so the help
+// overlay scrolls with the same cadence as the alerts and silences
+// pages. The offset is clamped to [0, lastMaxScroll] inline (see
+// the brainstorm secondary finding `help.go:121-130`) so a held-down
+// key doesn't strand the offset past the last row before View has
+// a chance to re-clamp.
+func (h *Help) scrollByKey(key string) bool {
+	half := cursor.HalfPageStep(h.lastBodyHeight)
+	full := cursor.FullPageStep(h.lastBodyHeight)
+	switch key {
+	case "j", "down":
+		h.scroll++
+	case "k", "up":
+		h.scroll--
+	case "pgdown", "space", "ctrl+d":
+		h.scroll += half
+	case "pgup", "ctrl+u":
+		h.scroll -= half
+	case "ctrl+f":
+		h.scroll += full
+	case "ctrl+b":
+		h.scroll -= full
+	case "g", "home":
+		h.scroll = 0
+	case "G", "end":
+		h.scroll = h.lastMaxScroll
+	default:
+		return false
+	}
+	h.clampScroll()
+	return true
+}
+
+// clampScroll keeps the scroll offset inside [0, lastMaxScroll].
+// The View-side clamp still runs on every render — this one mirrors
+// the math at Update-time so the in-flight offset stays sane
+// between renders (e.g. when several scroll keys fire before View
+// runs again).
+func (h *Help) clampScroll() {
+	if h.scroll > h.lastMaxScroll {
+		h.scroll = h.lastMaxScroll
+	}
+	if h.scroll < 0 {
+		h.scroll = 0
+	}
+}
+
 // View implements modal.Modal. Renders the four columns into the
 // rectangle the App panel hands over. The outer panel border (with
 // the "Help" title) is drawn by the App, not by this view.
@@ -143,8 +221,13 @@ func (h *Help) View(width, height int) string {
 	// Clamp scroll to the rendered content. Done at View-time
 	// rather than on each wheel tick so a window resize that
 	// shrinks/expands the visible area doesn't leave the offset
-	// pointing past the last row; the next render heals it.
+	// pointing past the last row; the next render heals it. Cache
+	// height / maxScroll so the scroll-key handler in Update can
+	// step by half / full page and clamp without re-measuring
+	// columns.
 	maxScroll := maxScrollOffset(cols, height)
+	h.lastBodyHeight = height
+	h.lastMaxScroll = maxScroll
 	if h.scroll > maxScroll {
 		h.scroll = maxScroll
 	}
