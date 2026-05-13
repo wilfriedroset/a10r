@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -62,6 +63,13 @@ type Page struct {
 	fetcher      StatusFetcher
 	fetchTimeout time.Duration
 
+	// cancelFetch is the cancel func for the in-flight Status fetch.
+	// Guarded by mu because the goroutine in the Init Cmd sets/clears
+	// it while Close() (running on the bubbletea Update goroutine)
+	// reads it. Nil when no fetch is in flight.
+	mu          sync.Mutex
+	cancelFetch context.CancelFunc
+
 	scroll int
 
 	// bodyHeight is the viewport size snapshotted on the most
@@ -112,7 +120,18 @@ func (p *Page) Init() tea.Cmd {
 	timeout := p.fetchTimeout
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
+		// Expose cancel to Close() so a page-tear-down while the
+		// fetch is in flight aborts the call instead of leaking the
+		// goroutine for the full fetchTimeout window.
+		p.mu.Lock()
+		p.cancelFetch = cancel
+		p.mu.Unlock()
+		defer func() {
+			p.mu.Lock()
+			p.cancelFetch = nil
+			p.mu.Unlock()
+			cancel()
+		}()
 		st, err := fetcher.Status(ctx)
 		if err != nil {
 			return statusFetchedMsg{err: err}
@@ -121,8 +140,19 @@ func (p *Page) Init() tea.Cmd {
 	}
 }
 
-// Close implements app.Page.
-func (*Page) Close() tea.Cmd { return nil }
+// Close implements app.Page. Cancels any in-flight Status fetch so
+// the goroutine doesn't outlive the page; without this, navigating
+// away from a slow-backend inspector strands one worker per close
+// for the full fetchTimeout window (30 s by default).
+func (p *Page) Close() tea.Cmd {
+	p.mu.Lock()
+	cancel := p.cancelFetch
+	p.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
 
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "tenant-config" }

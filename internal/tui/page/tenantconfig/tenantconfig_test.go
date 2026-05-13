@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -30,6 +31,19 @@ func (f *fakeFetcher) Status(_ context.Context) (backend.Status, error) {
 		return backend.Status{}, f.err
 	}
 	return backend.Status{Config: f.cfg}, nil
+}
+
+// blockingFetcher.Status signals `started` then waits for ctx to
+// cancel. Lets tests observe whether the page cancels its in-flight
+// fetch on Close.
+type blockingFetcher struct {
+	started chan struct{}
+}
+
+func (f *blockingFetcher) Status(ctx context.Context) (backend.Status, error) {
+	close(f.started)
+	<-ctx.Done()
+	return backend.Status{}, ctx.Err()
 }
 
 func TestRedactedBackendYAML_RedactsBasicPassword(t *testing.T) {
@@ -311,4 +325,42 @@ func TestPage_ViewportAwareScrollSteps(t *testing.T) {
 	require.Equal(t, 20, p.scroll, "Ctrl+B mirrors Ctrl+F")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
 	require.Equal(t, 0, p.scroll, "Ctrl+U mirrors Ctrl+D")
+}
+
+// TestPage_CloseCancelsInflightFetch pins that closing the page
+// cancels its in-flight /status fetch instead of letting the
+// goroutine leak for the full fetchTimeout window. Without the
+// fix, closing an inspector while the backend is slow strands one
+// goroutine per close for up to 30s.
+func TestPage_CloseCancelsInflightFetch(t *testing.T) {
+	t.Parallel()
+	fetcher := &blockingFetcher{started: make(chan struct{})}
+	p := New(Options{
+		Backend:      config.Backend{Name: "prod", URL: "http://am"},
+		Fetcher:      fetcher,
+		FetchTimeout: 30 * time.Second, // realistic prod value
+	})
+	cmd := p.Init()
+	require.NotNil(t, cmd)
+
+	doneCh := make(chan tea.Msg, 1)
+	go func() { doneCh <- cmd() }()
+
+	select {
+	case <-fetcher.started:
+	case <-time.After(time.Second):
+		t.Fatal("fetcher.Status was never called within 1s")
+	}
+
+	p.Close()
+
+	select {
+	case msg := <-doneCh:
+		fetched, ok := msg.(statusFetchedMsg)
+		require.True(t, ok, "fetch must complete with a statusFetchedMsg, not panic")
+		require.Error(t, fetched.err,
+			"cancelled fetch must surface ctx error rather than silently returning empty data")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not cancel the in-flight fetch within 2s — goroutine leak window")
+	}
 }
