@@ -223,7 +223,7 @@ func (p *Page) bodyLines() []string {
 // having to re-read the AM-API epoch nuances.
 type silenceYAML struct {
 	ID        string        `yaml:"id"`
-	State     string        `yaml:"state,omitempty"`
+	State     string        `yaml:"state"`
 	CreatedBy string        `yaml:"createdBy"`
 	Comment   string        `yaml:"comment"`
 	StartsAt  string        `yaml:"startsAt"`

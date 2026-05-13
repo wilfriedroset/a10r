@@ -297,6 +297,25 @@ func TestPage_ImplementsAppPageInterface(t *testing.T) {
 	var _ app.Page = New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 }
 
+// TestMarshalSilence_SurfacesZeroValueState guards against the
+// silence-detail brainstorm finding: an `omitempty` tag on the
+// State field elided the line entirely when SilenceState was the
+// zero value (""), so an operator inspecting a malformed/legacy
+// silence couldn't tell pending from active from unknown. The
+// field must always render — empty-string is a legitimate
+// "unknown" worth surfacing.
+func TestMarshalSilence_SurfacesZeroValueState(t *testing.T) {
+	t.Parallel()
+	s := sample()
+	s.State = backend.SilenceState("")
+	body, err := marshalSilence(s)
+	require.NoError(t, err)
+	require.Contains(t, body, "state:",
+		"a zero-value State must not be elided — operators need to see "+
+			"`state:` (even as `state: \"\"`) rather than having the field "+
+			"disappear from the rendered body")
+}
+
 func TestMarshalSilence_OmitsZeroUpdatedAt(t *testing.T) {
 	t.Parallel()
 	body, err := marshalSilence(sample())
