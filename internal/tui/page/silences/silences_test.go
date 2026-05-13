@@ -694,6 +694,95 @@ func TestPage_FinishedMsgInvalidYAMLFlashes(t *testing.T) {
 	require.Empty(t, fake.lastUpdateID)
 }
 
+// ctxBlockingSilenceClient signals `started` once UpdateSilence is
+// entered then blocks until the ctx is cancelled. Lets tests observe
+// whether the silences page cancels its in-flight editor-driven
+// UpdateSilence when Close() is invoked. CreateSilence/ExpireSilence
+// are not exercised by the editor path so they return zero values.
+type ctxBlockingSilenceClient struct {
+	started chan struct{}
+}
+
+func (c *ctxBlockingSilenceClient) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
+	return "", nil
+}
+
+func (c *ctxBlockingSilenceClient) UpdateSilence(ctx context.Context, _ string, _ backend.SilenceSpec) error {
+	close(c.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (c *ctxBlockingSilenceClient) ExpireSilence(context.Context, string) error { return nil }
+
+// TestPage_CloseCancelsInflightEditorUpdate pins that closing the
+// silences page cancels the in-flight editor-driven UpdateSilence
+// call instead of letting the goroutine outlive the page. Without
+// the fix, a page-pop while a slow tenant is still writing leaves
+// the goroutine running with the parent editorCtx (which only
+// cancels on app shutdown) — orphan-from-UX, mirror of the form's
+// cancel-on-Close contract (commit 7b8aa88) and tenantconfig's
+// fetch-cancel (commit adca17d).
+func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
+	t.Parallel()
+	client := &ctxBlockingSilenceClient{started: make(chan struct{})}
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]Client{"prod": client},
+		Creator: "wilfried",
+		EditorResolver: edit.Resolver{
+			DefaultEditor: "true",
+			ExecRunner: func(_ *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
+				return func() tea.Msg { return edit.FinishedMsg{ResourceID: "sil-a"} }
+			},
+		},
+	})
+	silenceList := []backend.Silence{
+		{
+			ID:        "sil-a",
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(2 * time.Hour),
+			Comment:   "ack",
+			Matchers:  []backend.Matcher{{Name: "alertname", Value: "HighCPU", IsEqual: true}},
+		},
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silenceList, Tenant: "prod"})
+	// Open the editor to populate pendingEdit.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	body, err := silenceToYAML(p.view[0].s)
+	require.NoError(t, err)
+
+	// FinishedMsg returns the async Cmd that calls UpdateSilence.
+	_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+	require.NotNil(t, cmd, "FinishedMsg must emit the async UpdateSilence Cmd")
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("UpdateSilence never started")
+	}
+
+	// Closing the page must cancel the in-flight UpdateSilence so
+	// the goroutine returns within a bounded window — without the
+	// fix, the test would time out after 2s because the editor
+	// Cmd's ctx is the parent editorCtx (or context.Background()),
+	// neither of which page.Close() touches.
+	p.Close()
+
+	select {
+	case msg := <-done:
+		_, ok := msg.(editorUpdateResultMsg)
+		require.True(t, ok, "expected editorUpdateResultMsg, got %T", msg)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not cancel the in-flight UpdateSilence — goroutine leak window")
+	}
+}
+
 func TestPage_CursorPreservedByID(t *testing.T) {
 	t.Parallel()
 

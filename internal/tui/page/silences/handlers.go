@@ -618,12 +618,35 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	// editorUpdateResultMsg that handleEditorUpdateResult turns
 	// into the appropriate flash + audit (success) or flash + reopen
 	// (failure, content preserved via msg.content).
-	ctx := p.editorCtx
-	if ctx == nil {
-		ctx = context.Background()
+	//
+	// Wire a cancellable ctx (mu-guarded cancel stored on the page)
+	// so Close() aborts the in-flight UpdateSilence instead of
+	// letting the goroutine outlive the page. The parent is the
+	// editorCtx when set so an app-level shutdown still propagates;
+	// context.Background() otherwise. Mirrors the silence-form
+	// (7b8aa88) / tenantconfig (adca17d) cancel-on-Close contract.
+	parent := p.editorCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
+	p.mu.Lock()
+	if p.cancelEditorUpdate != nil {
+		// A previous editor write was somehow still in flight;
+		// cancel it so we don't have two writes racing.
+		p.cancelEditorUpdate()
+	}
+	p.cancelEditorUpdate = cancel
+	p.mu.Unlock()
+	clearCancel := func() {
+		p.mu.Lock()
+		p.cancelEditorUpdate = nil
+		p.mu.Unlock()
+		cancel()
 	}
 	content := m.Content
 	return func() tea.Msg {
+		defer clearCancel()
 		err := client.UpdateSilence(ctx, id, spec)
 		return editorUpdateResultMsg{
 			id:      id,

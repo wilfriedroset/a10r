@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -200,6 +201,19 @@ type Page struct {
 	// when the bulkExpireDoneMsg lands. Close() calls it so a page
 	// pop short-circuits not-yet-started workers.
 	cancelBulk context.CancelFunc
+
+	// mu guards cancelEditorUpdate. The editor-driven UpdateSilence
+	// goroutine sets/clears the cancel while Close() (running on the
+	// bubbletea Update goroutine) reads it.
+	mu sync.Mutex
+	// cancelEditorUpdate cancels the in-flight editor-driven
+	// UpdateSilence call. Populated by handleEditorFinished when the
+	// async write Cmd is built; cleared by the goroutine's defer.
+	// Close() calls it so a page-pop while a slow tenant is writing
+	// aborts the request instead of letting the goroutine survive
+	// until app shutdown. Mirrors the silence-form (7b8aa88) and
+	// tenantconfig (adca17d) per-write cancel pattern.
+	cancelEditorUpdate context.CancelFunc
 
 	// polledTenants is the set of tenants that have produced at
 	// least one DataMsg in this page's lifetime. The page's
@@ -382,8 +396,18 @@ func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
 // fanout so a page-pop while workers are mid-air aborts not-yet-
 // started work via the worker channel select. In-flight HTTP
 // requests are allowed to finish; expire is idempotent on the AM
-// side so completing them is safe.
+// side so completing them is safe. Also cancels any in-flight
+// editor-driven UpdateSilence so a page-pop mid-write aborts the
+// request instead of letting the goroutine outlive the page —
+// mirror of the silence-form (7b8aa88) / tenantconfig (adca17d)
+// per-write cancel contract.
 func (p *Page) Close() tea.Cmd {
+	p.mu.Lock()
+	cancelEdit := p.cancelEditorUpdate
+	p.mu.Unlock()
+	if cancelEdit != nil {
+		cancelEdit()
+	}
 	if p.cancelBulk != nil {
 		p.cancelBulk()
 		p.cancelBulk = nil
