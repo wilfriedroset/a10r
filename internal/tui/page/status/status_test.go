@@ -140,6 +140,53 @@ func TestPage_ConfigPreservesNewlines(t *testing.T) {
 	require.Contains(t, out, "route:\n  receiver: web")
 }
 
+// TestPage_PollResourcesIncludesStatus is the regression test for
+// the brainstorm finding Page_NeverRefreshes_AfterStartup: the
+// status page previously returned an empty PollResources slice,
+// which combined with the one-shot Init fetch left the page
+// rendering a stale version / uptime / config for the entire
+// session. Declaring the "status" resource here lets the wire
+// layer's poll machinery route DataMsg{Resource: backend.Status}
+// at the configured interval — the dynamic uptime line in
+// HeaderContent then actually ticks instead of freezing on the
+// first reading.
+func TestPage_PollResourcesIncludesStatus(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t), "prod")
+	require.Equal(t, []string{"status"}, p.PollResources(),
+		"status page must declare the `status` resource so the wire-layer "+
+			"poller routes DataMsg{Resource: backend.Status} into the page")
+}
+
+// TestPage_DataMsgUpdatesStatusFromPoll covers the periodic-refresh
+// path: a DataMsg arriving after the cold-start primer must replace
+// the cached backend.Status so the next render reflects the freshest
+// uptime / version / config. Without this branch the page would
+// still render the first snapshot for the whole session even when
+// PollResources advertises the resource.
+func TestPage_DataMsgUpdatesStatusFromPoll(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t), "prod")
+
+	// First poll lands the cold-start payload.
+	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
+	require.True(t, p.have, "first DataMsg must mark page as primed")
+	require.Equal(t, "0.28.1", p.st.Version.Version)
+	require.Equal(t, 3*time.Hour, p.st.Uptime)
+
+	// Second poll lands a fresher snapshot — the page must replace
+	// the cached struct, not keep the old one.
+	fresh := sampleStatus()
+	fresh.Version.Version = "0.29.0"
+	fresh.Uptime = 4 * time.Hour
+	_, _ = p.Update(poll.DataMsg{Resource: fresh})
+	require.Equal(t, "0.29.0", p.st.Version.Version,
+		"subsequent DataMsg must overwrite the cached status so the "+
+			"page renders the freshest version, not the cold-start one")
+	require.Equal(t, 4*time.Hour, p.st.Uptime,
+		"uptime must tick across polls so the humanised label updates")
+}
+
 func TestPage_TitleFollowsScopeChange(t *testing.T) {
 	t.Parallel()
 	// Empty constructor scope reads as "all" — same convention as

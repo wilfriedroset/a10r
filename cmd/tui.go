@@ -828,12 +828,20 @@ type fetcherEntry struct {
 	fetch    func(ctx context.Context) (any, error)
 }
 
-// backendFetchers returns the four poller fetch funcs for one
-// backend client — alerts, silences, receivers, alert-groups.
-// Each returns the resource as `any` so poll.Options.Fetch can
-// be a single shape across resource types. The resource labels
-// must match the strings the pages emit on RefreshRequestedMsg
-// ("alerts", "silences", "receivers", "groups").
+// backendFetchers returns the five poller fetch funcs for one
+// backend client — alerts, silences, receivers, alert-groups,
+// status. Each returns the resource as `any` so poll.Options.Fetch
+// can be a single shape across resource types. The resource labels
+// must match the strings the pages declare via PollResources() and
+// emit on RefreshRequestedMsg ("alerts", "silences", "receivers",
+// "groups", "status").
+//
+// `status` joins the matrix so the status page's version / uptime
+// / config refresh on the configured interval instead of freezing
+// on the cold-start snapshot — closes the status brainstorm finding
+// Page_NeverRefreshes_AfterStartup. The page-side wiring is in
+// internal/tui/page/status/status.go (PollResources + DataMsg
+// handler).
 func backendFetchers(c backend.Client) []fetcherEntry {
 	return []fetcherEntry{
 		{resource: "alerts", fetch: func(ctx context.Context) (any, error) {
@@ -847,6 +855,9 @@ func backendFetchers(c backend.Client) []fetcherEntry {
 		}},
 		{resource: "groups", fetch: func(ctx context.Context) (any, error) {
 			return c.ListAlertGroups(ctx, backend.AlertFilter{})
+		}},
+		{resource: "status", fetch: func(ctx context.Context) (any, error) {
+			return c.Status(ctx)
 		}},
 	}
 }
