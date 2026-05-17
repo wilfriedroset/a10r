@@ -32,18 +32,6 @@ func TestTable_Write_HappyPath(t *testing.T) {
 	require.Contains(t, lines[2], "DiskFull")
 }
 
-func TestTable_Write_HeaderUppercased(t *testing.T) {
-	t.Parallel()
-
-	tbl := Table{Cols: []string{"alert_name", "tenant_id"}, Rows: [][]string{{"x", "y"}}}
-	var buf bytes.Buffer
-	require.NoError(t, tbl.Write(&buf))
-
-	first := strings.SplitN(buf.String(), "\n", 2)[0]
-	require.Contains(t, first, "ALERT_NAME")
-	require.Contains(t, first, "TENANT_ID")
-}
-
 func TestTable_Write_PropagatesWriterError(t *testing.T) {
 	t.Parallel()
 

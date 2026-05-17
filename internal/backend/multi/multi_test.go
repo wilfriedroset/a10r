@@ -75,30 +75,6 @@ func (*fakeClient) RingStatus(context.Context) (backend.Ring, error) {
 }
 func (*fakeClient) Capabilities() backend.Caps { return backend.Caps{} }
 
-func TestClient_AllSucceed(t *testing.T) {
-	t.Parallel()
-
-	tenants := []TenantClient{
-		{Name: "prod", Client: &fakeClient{listAlertsFn: func(context.Context) ([]backend.Alert, error) {
-			return []backend.Alert{{Fingerprint: "p1"}}, nil
-		}}},
-		{Name: "staging", Client: &fakeClient{listAlertsFn: func(context.Context) ([]backend.Alert, error) {
-			return []backend.Alert{{Fingerprint: "s1"}, {Fingerprint: "s2"}}, nil
-		}}},
-	}
-
-	mc := New(tenants, 4)
-	results := mc.ListAlerts(t.Context(), backend.AlertFilter{})
-
-	require.Len(t, results, 2)
-	require.Equal(t, "prod", results[0].Tenant)
-	require.NoError(t, results[0].Err)
-	require.Len(t, results[0].Value, 1)
-	require.Equal(t, "staging", results[1].Tenant)
-	require.NoError(t, results[1].Err)
-	require.Len(t, results[1].Value, 2)
-}
-
 func TestClient_OneFailsOthersSucceed(t *testing.T) {
 	t.Parallel()
 

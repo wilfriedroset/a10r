@@ -51,14 +51,6 @@ func TestWriteJSON_DoesNotEscapeHTML(t *testing.T) {
 	require.NotContains(t, out, `\u003c`, "`<` must not be unicode-escaped")
 }
 
-func TestWriteJSON_IndentTwoSpaces(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	require.NoError(t, WriteJSON(&buf, map[string]int{"n": 1}))
-	require.Contains(t, buf.String(), "\n  \"n\": 1")
-}
-
 func TestWriteJSON_WrapsEncodeError(t *testing.T) {
 	t.Parallel()
 

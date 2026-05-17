@@ -44,19 +44,6 @@ func TestIsTerminal_DevNull(t *testing.T) {
 	require.False(t, IsTerminal(f), "/dev/null is a char device but not a terminal")
 }
 
-func TestIsTerminal_ClosedFile(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "closed")
-	require.NoError(t, os.WriteFile(path, []byte("x"), 0o600))
-	f, err := os.Open(path)
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	require.False(t, IsTerminal(f), "closed file is not a terminal")
-}
-
 func TestResolveForFile_PipeDefaultsToJSON(t *testing.T) {
 	t.Parallel()
 

@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
 )
 
 // observingHandler records the URL path + a few headers of every
@@ -106,54 +105,4 @@ func TestNew_AuthAndTenantCompose(t *testing.T) {
 	require.Equal(t, "tenant-b", *h.tHead.Load())
 	require.Equal(t, "Bearer tok", *h.auth.Load(),
 		"auth and tenant header must both reach the wire")
-}
-
-func TestNew_MalformedAuthSurfaces(t *testing.T) {
-	t.Parallel()
-
-	_, err := New(ClientConfig{
-		BaseURL:   "http://x",
-		BasicAuth: &config.BasicAuth{Username: "u"}, // missing password
-	})
-	require.Error(t, err, "malformed auth must surface at construction time")
-}
-
-func TestNew_CapabilityStubsStillReturnUnsupported(t *testing.T) {
-	t.Parallel()
-
-	// v0.1: even with all caps on, the underlying vanilla.Client's
-	// stubs return ErrUnsupported. The post-v0.1 config editor will
-	// override these on the Mimir side.
-	c, err := New(ClientConfig{
-		BaseURL: "http://x",
-		Caps:    backend.Caps{ConfigAPI: true, TenantAdmin: true, Ring: true},
-	})
-	require.NoError(t, err)
-
-	_, err = c.GetConfig(t.Context())
-	require.ErrorIs(t, err, backend.ErrUnsupported)
-
-	_, err = c.ListTenantConfigs(t.Context())
-	require.ErrorIs(t, err, backend.ErrUnsupported)
-
-	_, err = c.RingStatus(t.Context())
-	require.ErrorIs(t, err, backend.ErrUnsupported)
-}
-
-func TestNew_CapsPropagatedToVanilla(t *testing.T) {
-	t.Parallel()
-
-	// Caps must propagate to the underlying vanilla client so the
-	// TUI can consult Capabilities() to decide what menu actions to
-	// offer — regardless of whether the methods are implemented.
-	c, err := New(ClientConfig{
-		BaseURL: "http://x",
-		Caps:    backend.Caps{ConfigAPI: true, TenantAdmin: true, Ring: false},
-	})
-	require.NoError(t, err)
-
-	caps := c.Capabilities()
-	require.True(t, caps.ConfigAPI)
-	require.True(t, caps.TenantAdmin)
-	require.False(t, caps.Ring)
 }

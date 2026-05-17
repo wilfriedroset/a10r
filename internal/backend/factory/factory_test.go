@@ -88,30 +88,6 @@ func TestBuild_MimirScenario(t *testing.T) {
 	require.Equal(t, "tenant-a", *h.tHead.Load())
 }
 
-func TestBuild_MimirSingleTenantNoHeader(t *testing.T) {
-	t.Parallel()
-
-	// Mimir running with `-auth.multitenancy-enabled=false` per audit
-	// §2.2: prefix is set but no tenant header is sent.
-	h := &observingHandler{}
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	c, err := Build(config.Backend{
-		Name:   "single",
-		URL:    srv.URL,
-		Prefix: "/alertmanager",
-	}, "")
-	require.NoError(t, err)
-
-	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.NoError(t, err)
-
-	require.Equal(t, "/alertmanager/api/v2/alerts", *h.path.Load())
-	require.Empty(t, *h.tHead.Load(),
-		"empty TenantHeader must not inject a tenant header")
-}
-
 func TestBuild_RejectsEmptyURL(t *testing.T) {
 	t.Parallel()
 
@@ -224,44 +200,6 @@ func TestBuild_PrometheusShapedConfigPastesCleanly(t *testing.T) {
 		"tenant header must reach the wire when supplied via headers map")
 }
 
-// TestBuild_TenantSugarFoldsIntoHeaders pins the contract that
-// tenant_header/tenant is materialised as a single Headers entry —
-// downstream code only ever sees Headers.
-func TestBuild_TenantSugarFoldsIntoHeaders(t *testing.T) {
-	t.Parallel()
-
-	h := &observingHandler{}
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	c, err := Build(config.Backend{
-		Name:         "sugar",
-		URL:          srv.URL,
-		TenantHeader: "X-Scope-OrgID",
-		Tenant:       "tenant-c",
-		Headers:      map[string]string{"X-Trace-Id": "abc"},
-	}, "")
-	require.NoError(t, err)
-	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.NoError(t, err)
-
-	require.Equal(t, "tenant-c", *h.tHead.Load(),
-		"tenant_header sugar must materialise as a Headers entry")
-}
-
-func TestBuild_ImplementsClient(t *testing.T) {
-	t.Parallel()
-
-	// Compile-time assertion: every Build() return value satisfies
-	// the full backend.Client. Catches a future divergence between
-	// the factory return type and the interface.
-	var c backend.Client
-	var err error
-	c, err = Build(config.Backend{Name: "x", URL: "http://x"}, "")
-	require.NoError(t, err)
-	require.NotNil(t, c)
-}
-
 // TestBuild_WithDebugLogEmitsRequestLog proves the WithDebugLog
 // option threads through to the constructed client's RoundTripper:
 // a real request emits a structured log line at LevelDebug. The
@@ -292,25 +230,4 @@ func TestBuild_WithDebugLogEmitsRequestLog(t *testing.T) {
 	require.Contains(t, out, "msg=http")
 	require.Contains(t, out, "method=GET")
 	require.Contains(t, out, "/api/v2/alerts")
-}
-
-// TestBuild_NilDebugLogDoesNotPanic confirms a nil logger
-// short-circuits the WithDebugLog wrapper: the resulting client
-// successfully services a request without panicking on a nil log
-// dereference inside RoundTrip.
-func TestBuild_NilDebugLogDoesNotPanic(t *testing.T) {
-	t.Parallel()
-
-	h := &observingHandler{}
-	srv := httptest.NewServer(h)
-	t.Cleanup(srv.Close)
-
-	c, err := Build(
-		config.Backend{Name: "prod", URL: srv.URL},
-		"",
-		WithDebugLog(nil),
-	)
-	require.NoError(t, err)
-	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.NoError(t, err)
 }

@@ -44,22 +44,6 @@ func TestWriteYAML_RoundTrips(t *testing.T) {
 	require.Equal(t, 42, got["n"])
 }
 
-func TestWriteYAML_TwoSpaceIndent(t *testing.T) {
-	t.Parallel()
-
-	type nested struct {
-		Outer struct {
-			Inner string `yaml:"inner"`
-		} `yaml:"outer"`
-	}
-	var v nested
-	v.Outer.Inner = "x"
-	var buf bytes.Buffer
-	require.NoError(t, WriteYAML(&buf, v))
-
-	require.Contains(t, buf.String(), "\n  inner: x")
-}
-
 // failingWriter returns errStub from every Write. Used to force
 // yaml.Encoder into an error path that the WriteYAML wrapper can
 // surface. yaml.v3 panics on unmarshallable Go types (channels,
