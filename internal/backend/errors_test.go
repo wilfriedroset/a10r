@@ -36,43 +36,38 @@ func TestSentinels_SurviveWrap(t *testing.T) {
 	}
 }
 
-func TestRetryable_NilReturnsFalse(t *testing.T) {
-	t.Parallel()
-	require.False(t, Retryable(nil))
-}
-
-func TestRetryable_UnreachableIsRetryable(t *testing.T) {
-	t.Parallel()
-	require.True(t, Retryable(ErrUnreachable))
-	require.True(t, Retryable(fmt.Errorf("connection refused: %w", ErrUnreachable)))
-}
-
-func TestRetryable_UnauthorizedAndUnsupportedAreNotRetryable(t *testing.T) {
-	t.Parallel()
-	require.False(t, Retryable(ErrUnauthorized))
-	require.False(t, Retryable(ErrUnsupported))
-	require.False(t, Retryable(fmt.Errorf("wrap: %w", ErrUnauthorized)))
-	require.False(t, Retryable(fmt.Errorf("wrap: %w", ErrUnsupported)))
-}
-
-func TestRetryable_HonoursOptInOnConcreteErrors(t *testing.T) {
+func TestRetryable(t *testing.T) {
 	t.Parallel()
 
-	// Concrete impls (e.g. a 5xx HTTP error in #11) opt into the C1
-	// backoff loop by implementing Retryable() bool. errors.As walks
-	// the wrap chain so a wrapped instance still surfaces.
-	require.True(t, Retryable(retryableError{retryable: true}))
-	require.False(t, Retryable(retryableError{retryable: false}))
-	require.True(t, Retryable(fmt.Errorf("wrap: %w", retryableError{retryable: true})))
-}
-
-func TestRetryable_UnknownErrorDefaultsFalse(t *testing.T) {
-	t.Parallel()
-
-	// Default-deny for anything we don't recognise. A future error
-	// type that should retry must opt in via Retryable() bool; until
-	// it does, the C1 loop won't burn cycles on it.
-	require.False(t, Retryable(errors.New("some unrelated failure")))
+	// Default-deny semantics: nil and anything we don't recognise (incl.
+	// ErrUnauthorized/ErrUnsupported) returns false. ErrUnreachable
+	// retries. Concrete impls opt in via the duck-typed `Retryable()
+	// bool` — errors.As walks the wrap chain so wrapped instances still
+	// surface. Future retryable error types must implement that contract;
+	// until they do, the C1 backoff loop won't burn cycles on them.
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "unreachable", err: ErrUnreachable, want: true},
+		{name: "wrapped unreachable", err: fmt.Errorf("connection refused: %w", ErrUnreachable), want: true},
+		{name: "unauthorized", err: ErrUnauthorized, want: false},
+		{name: "unsupported", err: ErrUnsupported, want: false},
+		{name: "wrapped unauthorized", err: fmt.Errorf("wrap: %w", ErrUnauthorized), want: false},
+		{name: "wrapped unsupported", err: fmt.Errorf("wrap: %w", ErrUnsupported), want: false},
+		{name: "opt-in true", err: retryableError{retryable: true}, want: true},
+		{name: "opt-in false", err: retryableError{retryable: false}, want: false},
+		{name: "wrapped opt-in true", err: fmt.Errorf("wrap: %w", retryableError{retryable: true}), want: true},
+		{name: "unknown defaults false", err: errors.New("some unrelated failure"), want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, Retryable(tc.err))
+		})
+	}
 }
 
 // retryableError is a test-only error that opts into the Retryable
