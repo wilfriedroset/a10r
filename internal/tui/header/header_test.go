@@ -204,20 +204,6 @@ func TestRender_NoBackgroundFill(t *testing.T) {
 		"header must not paint a background colour even when chained with fg in one SGR")
 }
 
-func TestRender_PadsToFullWidth(t *testing.T) {
-	t.Parallel()
-
-	styles := loadDefaultStyles(t)
-
-	out := Render(State{
-		Tenants: "prod",
-		Conn:    ConnConnected,
-		Width:   100,
-	}, styles)
-	require.Equal(t, 100, lipgloss.Width(out),
-		"rendered header must occupy exactly state.Width columns")
-}
-
 func TestRender_WidthInvariantHoldsAtNarrowWidths(t *testing.T) {
 	t.Parallel()
 

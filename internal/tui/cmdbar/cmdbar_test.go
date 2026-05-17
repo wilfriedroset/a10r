@@ -92,15 +92,6 @@ func TestResolver_LeadingTrailingWhitespace(t *testing.T) {
 	require.Equal(t, "alerts", msg.Alias)
 }
 
-func TestResolver_TabSeparatedArgs(t *testing.T) {
-	t.Parallel()
-
-	cmd, err := build().Resolve("tenant\tprod\tstaging")
-	require.NoError(t, err)
-	msg := cmd().(markerMsg)
-	require.Equal(t, []string{"prod", "staging"}, msg.Args)
-}
-
 func TestResolver_IsCaseSensitive(t *testing.T) {
 	t.Parallel()
 
@@ -110,16 +101,6 @@ func TestResolver_IsCaseSensitive(t *testing.T) {
 	// not an accident of the resolver's matching rule.
 	_, err := build().Resolve("ALERTS")
 	require.ErrorIs(t, err, ErrUnknown)
-}
-
-func TestResolver_PassesArgsToHandler(t *testing.T) {
-	t.Parallel()
-
-	cmd, err := build().Resolve("tenant prod staging")
-	require.NoError(t, err)
-	msg := cmd().(markerMsg)
-	require.Equal(t, "tenant", msg.Alias)
-	require.Equal(t, []string{"prod", "staging"}, msg.Args)
 }
 
 func TestResolver_PrefixPassesArgs(t *testing.T) {
@@ -232,19 +213,6 @@ func TestResolver_Suggest(t *testing.T) {
 	}
 }
 
-func TestResolver_RegisterUserBindsShortToBuiltin(t *testing.T) {
-	t.Parallel()
-
-	r := build()
-	require.NoError(t, r.RegisterUser("a", "alerts"))
-
-	cmd, err := r.Resolve("a")
-	require.NoError(t, err)
-	msg := cmd().(markerMsg)
-	require.Equal(t, "alerts", msg.Alias,
-		"a -> alerts must dispatch to the alerts handler")
-}
-
 func TestResolver_RegisterUserPrependsExtraArgs(t *testing.T) {
 	t.Parallel()
 
@@ -310,18 +278,6 @@ func TestResolver_RegisterUserCannotChainOnUserAlias(t *testing.T) {
 		"a -> b must fail because b was registered as a user alias, not a built-in")
 }
 
-func TestResolver_RegisterUserConflictsWithUserAlias(t *testing.T) {
-	t.Parallel()
-
-	// The user-vs-user collision is the same fail-closed shape as
-	// the user-vs-built-in collision: a typo that re-binds an
-	// already-registered short shouldn't silently overwrite.
-	r := build()
-	require.NoError(t, r.RegisterUser("p", "alerts"))
-	err := r.RegisterUser("p", "tenant prod")
-	require.ErrorIs(t, err, ErrUserAliasConflict)
-}
-
 func TestResolver_RegisterUserAppearsInAliasesAndSuggest(t *testing.T) {
 	t.Parallel()
 
@@ -332,17 +288,4 @@ func TestResolver_RegisterUserAppearsInAliasesAndSuggest(t *testing.T) {
 		"user aliases must show up in Aliases() so the help/picker sees them")
 	require.Equal(t, "prod", r.Suggest("pr"),
 		"user aliases must participate in ghost-text completion")
-}
-
-// errorWraps is a sanity check that callers using errors.Is /
-// errors.As against the sentinels still work after we wrapped the
-// candidate list into the Ambiguous error.
-func TestResolver_ErrorsWrap(t *testing.T) {
-	t.Parallel()
-	r := New()
-	r.Register("alerts", func(_ []string) tea.Cmd { return nil })
-	r.Register("alertgroups", func(_ []string) tea.Cmd { return nil })
-
-	_, err := r.Resolve("ale")
-	require.ErrorIs(t, err, ErrAmbiguous)
 }

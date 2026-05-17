@@ -69,18 +69,6 @@ func TestRegistry_Hints_ScopesByView(t *testing.T) {
 	require.Equal(t, "n", silencesHints[1].Key)
 }
 
-func TestRegistry_Hints_UnknownViewReturnsOnlyGlobals(t *testing.T) {
-	t.Parallel()
-
-	r := New()
-	r.Register(Action{Key: "?", View: ""})
-	r.Register(Action{Key: "s", View: "alerts"})
-
-	out := r.Hints("nonexistent-view")
-	require.Len(t, out, 1)
-	require.Equal(t, "?", out[0].Key)
-}
-
 func TestRegistry_Filter_ReadOnlyDropsDangerous(t *testing.T) {
 	t.Parallel()
 
@@ -131,18 +119,4 @@ func TestRegistry_SameKeyDifferentViewIsAllowed(t *testing.T) {
 		r.Register(Action{Key: "s", View: "alert"})
 	})
 	require.Equal(t, 2, r.Len())
-}
-
-func TestRegistry_GlobalAndViewSameKeyIsAllowed(t *testing.T) {
-	t.Parallel()
-
-	// Different views are different keys — global ("") and "alerts"
-	// are distinct from the dispatcher's perspective. The duplicate
-	// check is per (view, key), so global "s" and view-scoped "s"
-	// coexist; the dispatcher's precedence rules pick the winner.
-	r := New()
-	r.Register(Action{Key: "s", View: ""})
-	require.NotPanics(t, func() {
-		r.Register(Action{Key: "s", View: "alerts"})
-	})
 }

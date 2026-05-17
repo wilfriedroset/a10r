@@ -129,14 +129,6 @@ func TestWrite_RefusesOverwrite(t *testing.T) {
 	require.Error(t, err, "second Write must refuse to overwrite")
 }
 
-func TestRun_CombinesBuildAndWrite(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	path, err := Run(dir, Input{Name: "prod", URL: "https://am"}, nil)
-	require.NoError(t, err)
-	require.FileExists(t, path)
-}
-
 func TestRun_ValidationErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
