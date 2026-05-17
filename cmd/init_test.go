@@ -282,62 +282,89 @@ func minKVs() []string {
 	}
 }
 
-func TestParseKVAnswers_Minimal(t *testing.T) {
+func TestParseKVAnswers(t *testing.T) {
 	t.Parallel()
 
-	ans, err := parseKVAnswers(minKVs())
-	require.NoError(t, err)
-	require.Equal(t, "prod", ans.Name)
-	require.Equal(t, "https://am.example", ans.URL)
-	require.Equal(t, "alertmanager", ans.Kind)
-	require.False(t, ans.PrefixSet)
-	require.False(t, ans.TenantSet)
-	require.Empty(t, ans.AuthMode)
-}
-
-func TestParseKVAnswers_LastWriteWins(t *testing.T) {
-	t.Parallel()
-
-	// Repeated --kv name=foo --kv name=bar must surface the second
-	// value: cobra's StringArrayVar preserves order, and the operator
-	// reading their own command line top-to-bottom expects the last
-	// override to win.
-	ans, err := parseKVAnswers([]string{
-		"name=first", "name=second",
-		"url=https://am.example", "kind=alertmanager",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "second", ans.Name)
-}
-
-func TestParseKVAnswers_EmptyValueIsRetained(t *testing.T) {
-	t.Parallel()
-
-	// `tenant=` is legal — single-tenant Mimir leaves the slot
-	// blank — and must round-trip as an empty string with TenantSet
-	// flipped so buildInitConfig can distinguish it from "user
-	// didn't pass tenant at all".
-	ans, err := parseKVAnswers([]string{
-		"name=mimir", "url=https://mimir.example", "kind=mimir",
-		"tenant=",
-	})
-	require.NoError(t, err)
-	require.Empty(t, ans.Tenant)
-	require.True(t, ans.TenantSet,
-		"explicit empty value must still flip the *Set marker")
-}
-
-func TestParseKVAnswers_UnknownKeyFailsClosed(t *testing.T) {
-	t.Parallel()
-
-	_, err := parseKVAnswers(append(minKVs(), "foo=bar"))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `unknown key "foo"`)
-	require.Contains(t, err.Error(), "recognised keys are")
-	// Echoes a few of the known keys so the operator gets a
-	// pointer toward what they should have typed.
-	require.Contains(t, err.Error(), "name")
-	require.Contains(t, err.Error(), "url")
+	// Cases differ in what they assert about the parsed answers (one
+	// field vs. many vs. an error message), so each row owns a check
+	// closure. Sibling tests below (Malformed, BuildInitConfig
+	// rejections) keep their own dedicated tables — they exercise
+	// distinct invariants.
+	cases := []struct {
+		name  string
+		kvs   []string
+		check func(t *testing.T, ans initAnswers, err error)
+	}{
+		{
+			name: "minimal",
+			kvs:  minKVs(),
+			check: func(t *testing.T, ans initAnswers, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				require.Equal(t, "prod", ans.Name)
+				require.Equal(t, "https://am.example", ans.URL)
+				require.Equal(t, "alertmanager", ans.Kind)
+				require.False(t, ans.PrefixSet)
+				require.False(t, ans.TenantSet)
+				require.Empty(t, ans.AuthMode)
+			},
+		},
+		{
+			// Repeated --kv name=foo --kv name=bar must surface the
+			// second value: cobra's StringArrayVar preserves order, and
+			// the operator reading their own command line top-to-bottom
+			// expects the last override to win.
+			name: "last write wins",
+			kvs: []string{
+				"name=first", "name=second",
+				"url=https://am.example", "kind=alertmanager",
+			},
+			check: func(t *testing.T, ans initAnswers, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				require.Equal(t, "second", ans.Name)
+			},
+		},
+		{
+			// `tenant=` is legal — single-tenant Mimir leaves the slot
+			// blank — and must round-trip as an empty string with
+			// TenantSet flipped so buildInitConfig can distinguish it
+			// from "user didn't pass tenant at all".
+			name: "empty value retained",
+			kvs: []string{
+				"name=mimir", "url=https://mimir.example", "kind=mimir",
+				"tenant=",
+			},
+			check: func(t *testing.T, ans initAnswers, err error) {
+				t.Helper()
+				require.NoError(t, err)
+				require.Empty(t, ans.Tenant)
+				require.True(t, ans.TenantSet,
+					"explicit empty value must still flip the *Set marker")
+			},
+		},
+		{
+			name: "unknown key fails closed",
+			kvs:  append(minKVs(), "foo=bar"),
+			check: func(t *testing.T, _ initAnswers, err error) {
+				t.Helper()
+				require.Error(t, err)
+				require.Contains(t, err.Error(), `unknown key "foo"`)
+				require.Contains(t, err.Error(), "recognised keys are")
+				// Echoes a few of the known keys so the operator gets
+				// a pointer toward what they should have typed.
+				require.Contains(t, err.Error(), "name")
+				require.Contains(t, err.Error(), "url")
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ans, err := parseKVAnswers(tc.kvs)
+			tc.check(t, ans, err)
+		})
+	}
 }
 
 func TestParseKVAnswers_MalformedFailsClosed(t *testing.T) {
