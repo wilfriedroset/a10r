@@ -46,7 +46,7 @@ func TestPage_VimMotions(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}, {Name: "c"}}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_RenderShowsRows(t *testing.T) {
@@ -82,10 +82,10 @@ func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	// the order is web, ops, default — the cursor must follow ops
 	// to row 1, not stay on whatever row 1 contained before.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "ops", p.view[p.cursor])
+	require.Equal(t, "ops", p.view[p.Cursor])
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
 	require.Equal(t, []string{"web", "ops", "default"}, p.view)
-	require.Equal(t, "ops", p.view[p.cursor],
+	require.Equal(t, "ops", p.view[p.Cursor],
 		"DESC must keep the cursor on the same receiver, not the same index")
 }
 
@@ -167,7 +167,7 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	// Single-tenant scope: detail is rendered verbatim without a
 	// tenant prefix. The page constructor seeds scope to "all" by
 	// default, so we narrow it for this case.
-	p.scope = "prod"
+	p.Scope = "prod"
 
 	require.Empty(t, p.ErrorBand())
 
@@ -221,6 +221,6 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 
 	// BackendStatusMsg for unknown tenant must also drop.
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
-	require.NotContains(t, p.lastErrors, "ghost",
+	require.NotContains(t, p.LastErrors, "ghost",
 		"unknown tenant must not populate lastErrors")
 }

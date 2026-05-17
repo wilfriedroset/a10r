@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -81,32 +82,14 @@ type Options struct {
 // a row → DrillRequestMsg with the receiver name) since the
 // receiver name is unique per backend in practice.
 type Page struct {
+	listpage.Base
+
 	styles *theme.Styles
 
 	// byTenant holds the most recent snapshot per backend, keyed
 	// by the poll.DataMsg.Tenant tag.
 	byTenant map[string][]string
 	view     []string // filtered + scoped + de-duplicated subset
-	cursor   int
-	topRow   int // first visible row; reconciled against cursor on every render
-
-	// bodyHeight is the row capacity snapshotted on the most recent
-	// View. Ctrl+D / Ctrl+U step half this; Ctrl+F / Ctrl+B step
-	// body-2 (vim's CTRL-F two-line overlap convention). Zero before
-	// the first render — handlers fall back to 10 / 20 so a keystroke
-	// that beats the initial WindowSizeMsg still moves a sane distance.
-	bodyHeight int
-
-	// filter is the active substring filter; preFilter is the
-	// snapshot the page restores on PromptCancelledMsg per the
-	// shared `/`-prompt contract (see alerts page for the full
-	// lifecycle doc).
-	filter    string
-	preFilter *string
-
-	// scope mirrors the active tenant scope ("all" / single name
-	// / comma-joined subset). Updated by app.ScopeChangedMsg.
-	scope string
 
 	// sorter owns the active sort state. Receivers expose a single
 	// sortable axis (Name) so the helper's degenerate single-column
@@ -119,29 +102,6 @@ type Page struct {
 	// refresh. Mirrors focusFingerprint / focusID / focusKey on
 	// the alerts / silences / groups pages.
 	focusName string
-
-	// paused, when true, suppresses the byTenant/recompute branch
-	// on incoming poll.DataMsg so the table stops updating under
-	// the cursor mid-read. Toggled by `w` ("watch mode"). Mirrors
-	// the alerts page — see internal/tui/page/alerts/alerts.go for
-	// the design notes. Receivers has no manual `r` refresh so the
-	// alerts-page pausedRefresh one-shot escape hatch does not
-	// apply here; while paused, every DataMsg is dropped.
-	paused bool
-
-	// lastErrors holds the most recent per-tenant transport error
-	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
-	// pruned (a successful tick clears the row). Renderer collapses
-	// the in-scope subset into a single one-line error band above
-	// the table so the operator sees what's wrong without leaving
-	// the page. Mirrors the alerts page's contract.
-	lastErrors map[string]string
-
-	// tenants is the canonical configured-backend list. Gates
-	// DataMsg / BackendStatusMsg state mutations so out-of-config
-	// names cannot leak into byTenant / lastErrors. See
-	// Options.Tenants for the upstream rationale.
-	tenants []string
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -150,12 +110,14 @@ const scopeAll = "all"
 // New constructs an empty receivers page from the supplied Options.
 func New(opts Options) *Page {
 	return &Page{
-		styles:     opts.Styles,
-		byTenant:   map[string][]string{},
-		scope:      scopeAll,
-		sorter:     tablesort.New(receiverSortColumns(), sortKeyName),
-		lastErrors: map[string]string{},
-		tenants:    opts.Tenants,
+		Base: listpage.Base{
+			Scope:      scopeAll,
+			LastErrors: map[string]string{},
+			Tenants:    opts.Tenants,
+		},
+		styles:   opts.Styles,
+		byTenant: map[string][]string{},
+		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
 	}
 }
 
@@ -166,10 +128,10 @@ func New(opts Options) *Page {
 // upstream wiring with no canonical list) keep working. Sibling
 // of the alerts / silences page helpers.
 func (p *Page) knownTenant(name string) bool {
-	if len(p.tenants) == 0 {
+	if len(p.Tenants) == 0 {
 		return true
 	}
-	return slices.Contains(p.tenants, name)
+	return slices.Contains(p.Tenants, name)
 }
 
 // Init implements app.Page.
@@ -185,12 +147,12 @@ func (*Page) Crumb() string { return "receivers" }
 // `receivers(<scope>)[<count>]` or `receivers(<scope>)[F/T]`
 // while a filter is active.
 func (p *Page) Title() string {
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
 	total := len(p.unionScoped())
-	if p.filter != "" {
+	if p.Filter != "" {
 		return fmt.Sprintf("receivers(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
@@ -198,7 +160,7 @@ func (p *Page) Title() string {
 
 // scopeIncludes reports whether tenant should appear in the view.
 func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.scope)
+	scope := strings.TrimSpace(p.Scope)
 	if scope == "" || scope == scopeAll {
 		return true
 	}
@@ -235,8 +197,8 @@ func (p *Page) unionScoped() []string {
 // (when any) so the user can see what's been applied without
 // re-opening the prompt. Empty otherwise — count lives in Title.
 func (p *Page) HeaderContent() string {
-	if p.filter != "" {
-		return "filter:" + p.filter
+	if p.Filter != "" {
+		return "filter:" + p.Filter
 	}
 	return ""
 }
@@ -246,7 +208,7 @@ func (p *Page) HeaderContent() string {
 // to render (unlike alerts / silences / groups) so the bottom
 // border stays empty in the normal case.
 func (p *Page) Footer() string {
-	if p.paused {
+	if p.Paused {
 		return "WATCH OFF"
 	}
 	return ""
@@ -264,7 +226,7 @@ func (p *Page) ErrorBand() string {
 		detail string
 	}
 	var bad []entry
-	for tenant, detail := range p.lastErrors {
+	for tenant, detail := range p.LastErrors {
 		if detail == "" {
 			continue
 		}
@@ -283,7 +245,7 @@ func (p *Page) ErrorBand() string {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
 		// single-tenant view).
-		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
 			return bad[0].tenant + ": " + bad[0].detail
 		}
 		return bad[0].detail
@@ -328,9 +290,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// the operator should see. Mirror of the alerts page's
 		// handler.
 		if m.Detail == "" {
-			delete(p.lastErrors, m.Tenant)
+			delete(p.LastErrors, m.Tenant)
 		} else {
-			p.lastErrors[m.Tenant] = m.Detail
+			p.LastErrors[m.Tenant] = m.Detail
 		}
 		return p, nil
 	case poll.DataMsg:
@@ -349,7 +311,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// no manual `r` refresh, so there is no pausedRefresh
 		// escape hatch — every incoming DataMsg is dropped while
 		// paused. Press `w` again to resume.
-		if p.paused {
+		if p.Paused {
 			return p, nil
 		}
 		names := make([]string, len(recs))
@@ -361,11 +323,11 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.recompute()
 		return p, nil
 	case app.ScopeChangedMsg:
-		p.scope = m.Scope
+		p.Scope = m.Scope
 		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
-		p.cursor = 0
+		p.Cursor = 0
 		p.snapshotFocus()
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
@@ -386,43 +348,43 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		snap := p.filter
-		p.preFilter = &snap
-		if p.filter != "" {
-			p.filter = ""
+		snap := p.Filter
+		p.PreFilter = &snap
+		if p.Filter != "" {
+			p.Filter = ""
 			p.recompute()
 		}
 	case footer.PromptChangedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
+		p.Filter = m.Value
 		p.recompute()
 	case footer.PromptSubmittedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
-		p.preFilter = nil
+		p.Filter = m.Value
+		p.PreFilter = nil
 		p.recompute()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
 			return
 		}
-		p.filter = *p.preFilter
-		p.preFilter = nil
+		p.Filter = *p.PreFilter
+		p.PreFilter = nil
 		p.recompute()
 	}
 }
 
-// recompute rebuilds the filtered view from byTenant + p.scope +
-// p.filter and clamps the cursor to the new range. The active
+// recompute rebuilds the filtered view from byTenant + p.Scope +
+// p.Filter and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
 // the user's toggle. The /-prompt filter is auto-classified
 // (substring / fuzzy / literal / regex) by footer.NewMatcher.
 func (p *Page) recompute() {
 	scoped := p.unionScoped()
-	matcher := footer.NewMatcher(p.filter)
+	matcher := footer.NewMatcher(p.Filter)
 	if matcher.MatchAll() {
 		p.view = scoped
 	} else {
@@ -445,13 +407,13 @@ func (p *Page) recompute() {
 	if p.focusName != "" {
 		for i, name := range p.view {
 			if name == p.focusName {
-				p.cursor = i
+				p.Cursor = i
 				return
 			}
 		}
 	}
-	if p.cursor >= len(p.view) {
-		p.cursor = max(len(p.view)-1, 0)
+	if p.Cursor >= len(p.view) {
+		p.Cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
 }
@@ -460,11 +422,11 @@ func (p *Page) recompute() {
 // cursor so the next recompute can re-resolve it. Empty view
 // leaves focus empty.
 func (p *Page) snapshotFocus() {
-	if p.cursor < 0 || p.cursor >= len(p.view) {
+	if p.Cursor < 0 || p.Cursor >= len(p.view) {
 		p.focusName = ""
 		return
 	}
-	p.focusName = p.view[p.cursor]
+	p.focusName = p.view[p.Cursor]
 }
 
 // handleSort processes sort-axis shortcuts. The tablesort helper's
@@ -499,17 +461,17 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	// handled in Update.
 	if newCursor, handled := cursor.HandleMotion(
 		m.String(),
-		p.cursor,
+		p.Cursor,
 		len(p.view),
-		cursor.HalfPageStep(p.bodyHeight),
-		cursor.FullPageStep(p.bodyHeight),
+		cursor.HalfPageStep(p.BodyHeight),
+		cursor.FullPageStep(p.BodyHeight),
 	); handled {
-		p.cursor = newCursor
+		p.Cursor = newCursor
 		p.snapshotFocus()
 		return p, nil
 	}
-	if m.String() == "enter" && p.cursor < len(p.view) {
-		rec := p.view[p.cursor]
+	if m.String() == "enter" && p.Cursor < len(p.view) {
+		rec := p.view[p.Cursor]
 		return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 	}
 	if m.String() == "w" {
@@ -523,7 +485,7 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // helper, minus the pausedRefresh handling — receivers has no
 // manual `r` refresh so the one-shot escape hatch does not apply.
 func (p *Page) toggleWatch() {
-	p.paused = !p.paused
+	p.Paused = !p.Paused
 }
 
 
@@ -537,10 +499,10 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.bodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
+	p.BodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
-		if len(p.unionScoped()) > 0 && p.filter != "" {
+		if len(p.unionScoped()) > 0 && p.Filter != "" {
 			msg = "no receivers match the active filter"
 		}
 		// Render bg-less so the empty state matches the regular
@@ -556,23 +518,23 @@ func (p *Page) View(width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
 	maxRows := min(height-1-bandLines, len(p.view))
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.view))
-	end := min(p.topRow+maxRows, len(p.view))
-	rows := make([]string, 0, end-p.topRow+2)
+	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, maxRows, len(p.view))
+	end := min(p.TopRow+maxRows, len(p.view))
+	rows := make([]string, 0, end-p.TopRow+2)
 	if band != "" {
 		rows = append(rows, band)
 	}
 	rows = append(rows, p.renderHeader(width))
-	for i := p.topRow; i < end; i++ {
+	for i := p.TopRow; i < end; i++ {
 		text := p.view[i]
 		prefix := "  "
-		if i == p.cursor {
+		if i == p.Cursor {
 			prefix = "▸ "
 		}
 		// Pad to width before applying the cursor style so the
 		// background extends across the whole row k9s-style.
 		row := format.PadRight(prefix+text, width)
-		if i == p.cursor {
+		if i == p.Cursor {
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour. Receiver rows have no severity / state, so
 			// we use Severity.Info (k9s StdColor equivalent).
