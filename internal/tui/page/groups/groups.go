@@ -217,7 +217,7 @@ func New(opts Options) *Page {
 		spinner.WithSpinner(spinner.Points),
 		spinner.WithStyle(opts.Styles.Header.Accent),
 	)
-	return &Page{
+	p := &Page{
 		Base: listpage.Base{
 			Scope:      scopeAll,
 			LastErrors: map[string]string{},
@@ -235,6 +235,8 @@ func New(opts Options) *Page {
 		readOnly:      opts.ReadOnly,
 		submitCtx:     opts.SubmitCtx,
 	}
+	p.Recompute = p.recompute
+	return p
 }
 
 // Init implements app.Page. Kicks the spinner so the cold-start

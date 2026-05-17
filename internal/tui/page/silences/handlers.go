@@ -111,7 +111,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		p.handleFilterPrompt(m)
+		p.HandleFilterPrompt(m)
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
@@ -171,45 +171,6 @@ func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 		return true, p.handleClearMarks()
 	}
 	return false, nil
-}
-
-// handleFilterPrompt mirrors the alerts page's handler — see
-// internal/tui/page/alerts/alerts.go for the full doc. Briefly:
-// open snapshots and clears, change applies live, submit commits,
-// cancel restores. Only filter-mode messages affect state.
-func (p *Page) handleFilterPrompt(msg tea.Msg) {
-	switch m := msg.(type) {
-	case footer.PromptOpenedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		snap := p.Filter
-		p.PreFilter = &snap
-		if p.Filter != "" {
-			p.Filter = ""
-			p.recompute()
-		}
-	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.recompute()
-	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.PreFilter = nil
-		p.recompute()
-	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
-			return
-		}
-		p.Filter = *p.PreFilter
-		p.PreFilter = nil
-		p.recompute()
-	}
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {

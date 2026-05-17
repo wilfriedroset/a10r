@@ -302,7 +302,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
-	return &Page{
+	p := &Page{
 		Base: listpage.Base{
 			Scope:      opts.Scope,
 			Filter:     opts.InitialFilter,
@@ -327,6 +327,8 @@ func New(opts Options) *Page {
 		submitCtx:       opts.SubmitCtx,
 		stateFilter:     opts.InitialStateFilter,
 	}
+	p.Recompute = p.recompute
+	return p
 }
 
 // SetScope updates the active tenant scope and rebuilds the

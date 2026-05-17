@@ -93,7 +93,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, cmd
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		p.handleFilterPrompt(m)
+		p.HandleFilterPrompt(m)
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash the new silence ID so the
@@ -147,55 +147,6 @@ func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 		return true, p.handleClearMarks()
 	}
 	return false, nil
-}
-
-// handleFilterPrompt centralises the four filter-prompt lifecycle
-// messages so Update stays under the cyclop budget. Each branch:
-//
-//   - Opened: snapshot the active filter and clear it so the user
-//     types against the unfiltered list (live filter rebuilds it
-//     keystroke-by-keystroke).
-//   - Changed: apply the in-flight value live; preFilter stays so
-//     Esc can still roll back regardless of what's been typed.
-//   - Submitted: commit the typed value (possibly empty, meaning
-//     "clear the filter"); drop the pre-prompt snapshot.
-//   - Cancelled: restore the snapshot.
-//
-// Command-mode prompt messages slip through unchanged — the alerts
-// page only owns filter mode.
-func (p *Page) handleFilterPrompt(msg tea.Msg) {
-	switch m := msg.(type) {
-	case footer.PromptOpenedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		snap := p.Filter
-		p.PreFilter = &snap
-		if p.Filter != "" {
-			p.Filter = ""
-			p.recompute()
-		}
-	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.recompute()
-	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.PreFilter = nil
-		p.recompute()
-	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
-			return
-		}
-		p.Filter = *p.PreFilter
-		p.PreFilter = nil
-		p.recompute()
-	}
 }
 
 // handleKey processes vim-motion and per-view keys. Returns the

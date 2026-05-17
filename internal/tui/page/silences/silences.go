@@ -322,7 +322,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
-	return &Page{
+	p := &Page{
 		Base: listpage.Base{
 			Scope:      scopeAll,
 			LastErrors: map[string]string{},
@@ -347,6 +347,8 @@ func New(opts Options) *Page {
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
 	}
+	p.Recompute = p.recompute
+	return p
 }
 
 // scopeAll is the canonical "every configured tenant" label.

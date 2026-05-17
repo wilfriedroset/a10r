@@ -108,7 +108,7 @@ const scopeAll = "all"
 
 // New constructs an empty receivers page from the supplied Options.
 func New(opts Options) *Page {
-	return &Page{
+	p := &Page{
 		Base: listpage.Base{
 			Scope:      scopeAll,
 			LastErrors: map[string]string{},
@@ -118,6 +118,8 @@ func New(opts Options) *Page {
 		byTenant: map[string][]string{},
 		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
 	}
+	p.Recompute = p.recompute
+	return p
 }
 
 // Init implements app.Page.
@@ -304,49 +306,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		p.handleFilterPrompt(m)
+		p.HandleFilterPrompt(m)
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
 	return p, nil
-}
-
-// handleFilterPrompt mirrors the alerts page's lifecycle handler.
-// See internal/tui/page/alerts/alerts.go for the full doc.
-func (p *Page) handleFilterPrompt(msg tea.Msg) {
-	switch m := msg.(type) {
-	case footer.PromptOpenedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		snap := p.Filter
-		p.PreFilter = &snap
-		if p.Filter != "" {
-			p.Filter = ""
-			p.recompute()
-		}
-	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.recompute()
-	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.PreFilter = nil
-		p.recompute()
-	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
-			return
-		}
-		p.Filter = *p.PreFilter
-		p.PreFilter = nil
-		p.recompute()
-	}
 }
 
 // recompute rebuilds the filtered view from byTenant + p.Scope +

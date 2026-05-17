@@ -91,55 +91,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
-		p.handleFilterPrompt(m)
+		p.HandleFilterPrompt(m)
 		return p, nil
 	case tea.KeyPressMsg:
 		return p.handleKey(m)
 	}
 	return p, nil
-}
-
-// handleFilterPrompt centralises the four filter-prompt lifecycle
-// messages (Opened / Changed / Submitted / Cancelled) so Update
-// stays under the cyclop budget. Same shape as alerts / silences;
-// see those pages for the per-branch contract.
-func (p *Page) handleFilterPrompt(msg tea.Msg) {
-	switch m := msg.(type) {
-	case footer.PromptOpenedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		snap := p.Filter
-		p.PreFilter = &snap
-		if p.Filter != "" {
-			p.Filter = ""
-			p.cachedRows = nil
-			p.clampCursor()
-		}
-	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.cachedRows = nil
-		p.clampCursor()
-	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		p.Filter = m.Value
-		p.PreFilter = nil
-		p.cachedRows = nil
-		p.clampCursor()
-	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
-			return
-		}
-		p.Filter = *p.PreFilter
-		p.PreFilter = nil
-		p.cachedRows = nil
-		p.clampCursor()
-	}
 }
 
 // handleKey processes vim-motion + per-view keys. Returns the
