@@ -349,9 +349,7 @@ func (p *Page) recompute() {
 			}
 		}
 	}
-	if p.Cursor >= len(p.view) {
-		p.Cursor = max(len(p.view)-1, 0)
-	}
+	p.ClampCursor(len(p.view))
 	p.snapshotFocus()
 }
 

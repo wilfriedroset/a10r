@@ -69,7 +69,8 @@ func (p *Page) recompute() {
 			}
 		}
 	}
-	p.clampCursor()
+	p.ClampCursor(len(p.rows()))
+	p.recomputeScroll()
 	p.snapshotFocus()
 }
 
@@ -121,13 +122,6 @@ func groupSeverityRank(g backend.AlertGroup) int {
 // underlying slice ordering changes between polls.
 func groupKey(e groupEntry) string {
 	return e.tenant + "\x00" + labelSummary(e.g.Labels)
-}
-
-func (p *Page) clampCursor() {
-	if p.Cursor >= len(p.rows()) {
-		p.Cursor = max(len(p.rows())-1, 0)
-	}
-	p.recomputeScroll()
 }
 
 // recomputeScroll re-aligns p.TopRow with p.Cursor for the cached
