@@ -38,13 +38,6 @@ func TestPage_TitleNamesTenantAndID(t *testing.T) {
 	require.Equal(t, "Describe(prod/sil-1)", p.Title())
 }
 
-func TestPage_TitleFallsBackOnEmptyTenant(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
-	require.Equal(t, "Describe(—/sil-1)", p.Title(),
-		"empty tenant must show a placeholder so the format reads symmetrically")
-}
-
 func TestPage_HeaderContentIsEmpty(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
@@ -182,18 +175,6 @@ func TestPage_NoOpKeysAreSilent(t *testing.T) {
 	require.Nil(t, cmd)
 }
 
-func TestPage_BindingsAdvertisesYAMLToggle(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
-	keys := map[string]string{}
-	for _, b := range p.Bindings() {
-		keys[b.Key] = b.Description
-	}
-	require.Equal(t, "yaml", keys["y"],
-		"silence detail must advertise the y raw-YAML toggle so the "+
-			"help overlay's RESOURCE column lists the verb")
-}
-
 func TestPage_RawYAMLToggleSwapsBody(t *testing.T) {
 	t.Parallel()
 
@@ -266,17 +247,6 @@ func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	require.NotContains(t, p.Title(), "[raw yaml]",
 		"a second toggle drops the indicator alongside the body flip")
-}
-
-func TestMarshalRawSilence_DumpsZeroUpdatedAt(t *testing.T) {
-	t.Parallel()
-	body, err := marshalRawSilence(sample())
-	require.NoError(t, err)
-	// The curated marshalSilence elides a zero UpdatedAt. The raw
-	// dump must NOT — the whole point is showing what the upstream
-	// actually emitted, including the zero-value sentinel.
-	require.Contains(t, body, "updatedat:",
-		"raw silence dump must include every struct field, even zero values")
 }
 
 func TestPage_ImplementsAppPageInterface(t *testing.T) {

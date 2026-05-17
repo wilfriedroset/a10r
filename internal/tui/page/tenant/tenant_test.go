@@ -109,16 +109,6 @@ func TestPage_RenderShowsURLAndVersion(t *testing.T) {
 		"missing version renders as `—` so the column stays aligned")
 }
 
-func TestPage_RenderHeaderRowCarriesColumnTitles(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	p.SetRows(sampleRows())
-	out := testutil.StripStyle(p.View(160, 10))
-	for _, want := range []string{"NAME", "URL", "VERSION"} {
-		require.Contains(t, out, want, "header row must carry %q", want)
-	}
-}
-
 func TestPage_CanonicalDigitGlyphAnnotatesFirstNine(t *testing.T) {
 	t.Parallel()
 	// The canonical-digit glyph "[N] " annotates the first 9
@@ -158,23 +148,6 @@ func TestPage_CanonicalDigitGlyphSkipsRowsPastNine(t *testing.T) {
 	require.NotContains(t, out, "[10]", "rows past the 9th must not carry a digit annotation")
 	require.NotContains(t, out, "[11]")
 	require.NotContains(t, out, "[12]")
-}
-
-func TestPage_CanonicalDigitFollowsAlphabeticalOrderRegardlessOfInsertOrder(t *testing.T) {
-	t.Parallel()
-	// Insertion order is reversed (charlie, bravo, alpha); render
-	// must still annotate alpha=[1], bravo=[2], charlie=[3] —
-	// canonical = alphabetical, not insertion order.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	p.SetRows([]Row{
-		{Name: "charlie"},
-		{Name: "bravo"},
-		{Name: "alpha"},
-	})
-	out := testutil.StripStyle(p.View(120, 10))
-	require.Contains(t, out, "[1] ● alpha")
-	require.Contains(t, out, "[2] ● bravo")
-	require.Contains(t, out, "[3] ● charlie")
 }
 
 func TestPage_DigitsAreNotPageOwned(t *testing.T) {

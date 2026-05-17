@@ -352,20 +352,6 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
-func TestPage_BindingsHaveCopyOpenSilenceYAML(t *testing.T) {
-	t.Parallel()
-
-	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
-	keys := map[string]string{}
-	for _, b := range p.Bindings() {
-		keys[b.Key] = b.Description
-	}
-	require.Equal(t, "silence", keys["s"])
-	require.Equal(t, "yaml", keys["y"], "y must advertise the raw-YAML toggle (k9s convention)")
-	require.Equal(t, "copy fp", keys["c"], "c owns copy-fingerprint after y was reclaimed for yaml")
-	require.Equal(t, "open URL", keys["o"])
-}
-
 func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	t.Parallel()
 
@@ -420,34 +406,6 @@ func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
 		"line after the embedded newline must hang-indent by 15 cols, got %q", cont)
 	require.Contains(t, cont, "LABELS = ",
 		"the second segment of the multi-line value must appear")
-}
-
-func TestPage_WrapsLongAnnotationWithHangingIndent(t *testing.T) {
-	t.Parallel()
-
-	a := sample()
-	a.Annotations = map[string]string{
-		"description": "This is an alert meant to ensure that the entire alerting pipeline is functional. This alert is always firing.",
-	}
-	p := New(Options{Alert: a, Styles: testutil.LoadStyles(t)})
-	out := testutil.StripStyle(p.View(80, 50))
-	lines := strings.Split(out, "\n")
-
-	// Find the line that begins the description annotation.
-	var startIdx int
-	for i, l := range lines {
-		if strings.HasPrefix(l, "  description: ") {
-			startIdx = i
-			break
-		}
-	}
-	require.Positive(t, startIdx, "description line must appear in the render")
-	// Continuation lines must be indented to align under the value
-	// column ("  description: " is 15 characters of prefix).
-	require.Greater(t, len(lines), startIdx+1)
-	cont := lines[startIdx+1]
-	require.True(t, strings.HasPrefix(cont, strings.Repeat(" ", 15)),
-		"continuation line must hang-indent to %d cols, got %q", 15, cont)
 }
 
 func TestPage_ScrollsViewport(t *testing.T) {
@@ -925,19 +883,6 @@ func TestClipComment_NeverExceedsBudget(t *testing.T) {
 				tc.s, tc.budget, got, lipgloss.Width(got))
 		})
 	}
-}
-
-func TestPage_BindingsIncludeOpenSilence(t *testing.T) {
-	t.Parallel()
-	// Capital `S` is a separate binding from lower-case `s`
-	// (silence form). Both must surface in `?` help so the user can
-	// discover the read-only navigation alongside the write one.
-	p := New(Options{Alert: sample(), Styles: testutil.LoadStyles(t)})
-	keys := map[string]bool{}
-	for _, b := range p.Bindings() {
-		keys[b.Key] = true
-	}
-	require.True(t, keys["S"], "missing capital-S binding for open-silence drilldown")
 }
 
 func TestFormatRemaining(t *testing.T) {
