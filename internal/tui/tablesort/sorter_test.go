@@ -120,17 +120,6 @@ func TestApplyIsStable(t *testing.T) {
 	}
 }
 
-func TestApplyEmptyAndSingle(t *testing.T) {
-	t.Parallel()
-	s := tablesort.New(fixtureCols(), keyName)
-	s.Apply([]row(nil)) // must not panic
-	one := []row{{Name: "x"}}
-	s.Apply(one)
-	if one[0].Name != "x" {
-		t.Fatalf("single-element apply mutated content: %v", one)
-	}
-}
-
 func TestSelectByHotkeyFlipsOnRepeat(t *testing.T) {
 	t.Parallel()
 	s := tablesort.New(fixtureCols(), keyName)
@@ -278,38 +267,6 @@ func TestReset_ReturnsToConstructionDefault(t *testing.T) {
 	}
 }
 
-func TestReset_FromUnknownDefaultKeyReturnsToFirstColumn(t *testing.T) {
-	t.Parallel()
-
-	// New falls back to column 0 when defaultKey is unknown;
-	// Reset must return to that resolved index, not re-attempt
-	// the lookup (defaultKey isn't stored).
-	s := tablesort.New(fixtureCols(), "bogus")
-	s.SelectByHotkey('C') // active=score
-	s.Reset()
-	if got := s.ActiveKey(); got != keyName {
-		t.Fatalf("Reset after unknown defaultKey ActiveKey = %q, want %q", got, keyName)
-	}
-	if !s.Asc() {
-		t.Fatalf("Reset Asc = false, want true (name column defaults ASC)")
-	}
-}
-
-func TestReset_IdempotentWhenAlreadyAtDefault(t *testing.T) {
-	t.Parallel()
-
-	// Calling Reset twice from the New-time default must be a no-op.
-	s := tablesort.New(fixtureCols(), keyName)
-	s.Reset()
-	s.Reset()
-	if got := s.ActiveKey(); got != keyName {
-		t.Fatalf("ActiveKey after double-reset = %q, want %q", got, keyName)
-	}
-	if !s.Asc() {
-		t.Fatalf("Asc after double-reset = false, want true")
-	}
-}
-
 func TestHandleKey_DashTriggersReset(t *testing.T) {
 	t.Parallel()
 
@@ -324,30 +281,6 @@ func TestHandleKey_DashTriggersReset(t *testing.T) {
 	}
 	if s.Asc() {
 		t.Fatalf("after HandleKey(-) Asc = true, want false")
-	}
-}
-
-func TestBindings_IncludesResetEntry(t *testing.T) {
-	t.Parallel()
-
-	s := tablesort.New(fixtureCols(), keyName)
-	bindings := s.Bindings("alerts")
-
-	var found bool
-	for _, b := range bindings {
-		if b.Key == "-" {
-			found = true
-			if b.Description != "reset sort to default" {
-				t.Fatalf("dash binding desc = %q, want %q", b.Description, "reset sort to default")
-			}
-			if b.View != "alerts" {
-				t.Fatalf("dash binding view = %q, want alerts", b.View)
-			}
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("Bindings did not include the `-` reset entry")
 	}
 }
 

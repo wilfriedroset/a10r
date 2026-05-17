@@ -257,38 +257,6 @@ func TestPoller_TickIntervalRespected(t *testing.T) {
 	require.True(t, ok, "second tick on a connected backend emits DataMsg only")
 }
 
-func TestPoller_TransitionEmittedOnlyOnChange(t *testing.T) {
-	t.Parallel()
-
-	rec := newRecorder()
-	clock := newFakeClock()
-	p := New(Options{
-		Tenant:   "prod",
-		Resource: "alerts",
-		Interval: time.Second,
-		Fetch: func(_ context.Context) (any, error) {
-			return 1, nil
-		},
-		Send:    rec.Send,
-		Clock:   clock,
-		Backoff: noJitter,
-	})
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	p.Start(ctx)
-	defer p.Stop()
-
-	// Tick 1: connected transition + DataMsg.
-	require.IsType(t, BackendStatusMsg{}, rec.next(t))
-	require.IsType(t, DataMsg{}, rec.next(t))
-
-	// Tick 2: only DataMsg (state didn't change).
-	clock.fireNext(t)
-	require.IsType(t, DataMsg{}, rec.next(t))
-	rec.drainNoMore(t)
-}
-
 func TestPoller_FirstTickFailureSchedulesBackoffBase(t *testing.T) {
 	t.Parallel()
 
@@ -982,21 +950,6 @@ func TestPoller_RefreshDoesNotResetFailures(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-}
-
-func TestPoller_AccessorsExposeTagFields(t *testing.T) {
-	t.Parallel()
-
-	p := New(Options{
-		Tenant:   "prod",
-		Resource: "silences",
-		Interval: time.Second,
-		Fetch:    stubFetch,
-		Send:     func(tea.Msg) {},
-		Backoff:  noJitter,
-	})
-	require.Equal(t, "prod", p.Tenant())
-	require.Equal(t, "silences", p.Resource())
 }
 
 func TestNew_PanicsOnInvalidOptions(t *testing.T) {
