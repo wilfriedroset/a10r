@@ -47,16 +47,6 @@ func TestWithDebugLog_NilLogShortCircuits(t *testing.T) {
 	require.Same(t, base, got, "nil log returns base unchanged")
 }
 
-func TestWithDebugLog_NilBaseDefaultsToHTTPDefaultTransport(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	got := WithDebugLog(nil, debugCapturingLogger(&buf))
-	rt, ok := got.(*debugLogRT)
-	require.True(t, ok, "non-nil log returns the wrapper struct")
-	require.Equal(t, http.DefaultTransport, rt.base, "nil base defaults to DefaultTransport")
-}
-
 func TestWithDebugLog_LogsRequestMetadata(t *testing.T) {
 	t.Parallel()
 

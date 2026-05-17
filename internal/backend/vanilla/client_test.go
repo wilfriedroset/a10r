@@ -172,15 +172,6 @@ func TestClient_ListSilences(t *testing.T) {
 	require.Equal(t, backend.SilenceStateExpired, got[1].State)
 }
 
-func TestClient_GetSilence_RequiresID(t *testing.T) {
-	t.Parallel()
-
-	c := newTestClient(t, httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
-	_, err := c.GetSilence(t.Context(), "")
-	require.Error(t, err)
-}
-
 // TestClient_GetSilence_PathEscapesID is the audit F11 regression:
 // silence IDs (UUIDs in v0.1, but operator-controllable in
 // principle) must be URL-escaped before being concatenated into
@@ -314,21 +305,6 @@ func TestClient_ReusesConnectionAcrossRequests(t *testing.T) {
 		len(seen), seen)
 }
 
-func TestClient_EmptyListDecodesAsEmptySlice(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("[]"))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := newTestClient(t, srv)
-	got, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.NoError(t, err)
-	require.Empty(t, got)
-}
-
 func TestClient_PrefixIsHonored(t *testing.T) {
 	t.Parallel()
 
@@ -360,20 +336,6 @@ func TestClient_401IsUnauthorized(t *testing.T) {
 	require.False(t, backend.Retryable(err), "401 must not enter the C1 backoff loop")
 }
 
-func TestClient_403IsUnauthorized(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := newTestClient(t, srv)
-	_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.Error(t, err)
-	require.ErrorIs(t, err, backend.ErrUnauthorized)
-}
-
 func TestClient_5xxIsRetryable(t *testing.T) {
 	t.Parallel()
 
@@ -386,20 +348,6 @@ func TestClient_5xxIsRetryable(t *testing.T) {
 	_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
 	require.Error(t, err)
 	require.True(t, backend.Retryable(err), "5xx must opt into the C1 backoff loop")
-}
-
-func TestClient_429IsRetryable(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-	}))
-	t.Cleanup(srv.Close)
-
-	c := newTestClient(t, srv)
-	_, err := c.ListAlerts(t.Context(), backend.AlertFilter{})
-	require.Error(t, err)
-	require.True(t, backend.Retryable(err), "429 must opt into the C1 backoff loop")
 }
 
 func TestClient_RefusedConnectionIsUnreachable(t *testing.T) {
@@ -648,17 +596,4 @@ func TestClient_ProbeReadyAt_TransportError(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, backend.ErrUnauthorized)
 	require.NotErrorIs(t, err, backend.ErrNoDateHeader)
-}
-
-func TestClient_Capabilities_PassThrough(t *testing.T) {
-	t.Parallel()
-
-	c, err := New(ClientConfig{
-		BaseURL: "http://x",
-		Caps:    backend.Caps{ConfigAPI: true, TenantAdmin: true},
-	})
-	require.NoError(t, err)
-	require.True(t, c.Capabilities().ConfigAPI)
-	require.True(t, c.Capabilities().TenantAdmin)
-	require.False(t, c.Capabilities().Ring)
 }

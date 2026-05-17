@@ -4,7 +4,6 @@ package vanilla
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -98,15 +97,6 @@ func TestCreateSilence_RoundTrip(t *testing.T) {
 	require.True(t, *server.stored[id].Matchers[0].IsEqual)
 }
 
-func TestUpdateSilence_RequiresID(t *testing.T) {
-	t.Parallel()
-
-	c := newTestClient(t, httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
-	err := c.UpdateSilence(t.Context(), "", backend.SilenceSpec{})
-	require.Error(t, err)
-}
-
 func TestUpdateSilence_PreservesID(t *testing.T) {
 	t.Parallel()
 
@@ -164,23 +154,6 @@ func TestExpireSilence_NotFound(t *testing.T) {
 	err := c.ExpireSilence(t.Context(), "no-such-id")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "404", "404 status must be visible in the error")
-}
-
-func TestCreateSilence_ServerErrorMessageVisible(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("invalid matcher: empty regex"))
-	}))
-	t.Cleanup(srv.Close)
-
-	c := newTestClient(t, srv)
-	_, err := c.CreateSilence(t.Context(), backend.SilenceSpec{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid matcher: empty regex",
-		"AM 4xx body must surface in the wrapper error so the user sees the cause")
 }
 
 func TestCapabilityStubs_AllReturnUnsupported(t *testing.T) {

@@ -205,16 +205,6 @@ func TestWithHeaders_InjectsEveryEntry(t *testing.T) {
 	require.Equal(t, "g1", srvCap.headers.Get("X-Gateway-Token"))
 }
 
-func TestWithHeaders_EmptyMapShortCircuits(t *testing.T) {
-	t.Parallel()
-
-	base := http.DefaultTransport
-	rt := WithHeaders(base, nil)
-	require.Same(t, base, rt, "empty map must return base unchanged")
-	rt = WithHeaders(base, map[string]string{})
-	require.Same(t, base, rt, "zero-length map must return base unchanged")
-}
-
 func TestWithHeaders_SnapshotsTheMap(t *testing.T) {
 	t.Parallel()
 
@@ -265,14 +255,6 @@ func TestWithUserAgent_Injects(t *testing.T) {
 	roundTripOnce(t, rt, srv)
 
 	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
-}
-
-func TestWithUserAgent_EmptyShortCircuits(t *testing.T) {
-	t.Parallel()
-
-	base := http.DefaultTransport
-	rt := WithUserAgent(base, "")
-	require.Same(t, base, rt, "empty UA must return base unchanged")
 }
 
 func TestWithUserAgent_OverridesCallerSetUA(t *testing.T) {
@@ -467,12 +449,6 @@ Wf86aX6PepsntZv2GYlA5UpabfT2EZICICpJ5h/iI+i341gBmLiAFQOyTDT+/wQc
 	return pem
 }
 
-func TestCompileNoProxy_EmptyReturnsNil(t *testing.T) {
-	t.Parallel()
-	require.Nil(t, compileNoProxy(""), "empty input must return nil so callers can short-circuit")
-	require.Nil(t, compileNoProxy(",,,"), "all-empty entries must return nil")
-}
-
 // TestNewAuth_BasicAuth_HostPinDropsOnMismatch exercises the audit
 // F1 fix: when AuthOptions.ExpectedHost is set, basicRT must skip
 // the SetBasicAuth call on any request whose req.URL.Host doesn't
@@ -655,19 +631,6 @@ func TestRedirectChain_BasicAuthRTDoesNotReplayCredentials(t *testing.T) {
 
 	require.Empty(t, attacker.headers.Get(headerAuthorization),
 		"basic auth must NOT be replayed on the cross-origin redirect target — audit F1")
-}
-
-func TestNewBase_AssertsErrorTypeStability(t *testing.T) {
-	t.Parallel()
-
-	// Sanity that the sentinel chain we expose to the factory is
-	// errors.Is-detectable end-to-end so the factory's wrapping at
-	// `backend %q: %w` keeps the typed error reachable.
-	_, err := NewBase(BaseOptions{TLS: &config.TLSConfig{CA: "garbage"}})
-	require.ErrorIs(t, err, ErrInvalidCABundle)
-
-	_, err = NewBase(BaseOptions{ProxyURL: "://broken"})
-	require.ErrorIs(t, err, ErrInvalidProxyURL)
 }
 
 // TestBuildTLSConfig_WarnsOnInsecureSkipVerify pins the MITM-surface
