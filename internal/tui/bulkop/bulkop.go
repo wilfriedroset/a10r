@@ -31,6 +31,8 @@ package bulkop
 import (
 	"context"
 	"errors"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // ErrNoWriteableBackend is the sentinel a Writer returns when its
@@ -87,4 +89,28 @@ func (m DoneMsg[K]) Successes() []K {
 		}
 	}
 	return out
+}
+
+// Dispatch fans out ops grouped by tenant, applying writer per
+// (tenant, op), and returns a tea.Cmd that emits DoneMsg[K] once
+// every op has finished. concurrency caps the per-tenant worker
+// pool at max(1, min(concurrency, len(tenantOps))). Tenants run in
+// parallel — the cap is per-tenant, not global.
+//
+// Cancellation: ctx propagates into every Writer call. The producer
+// goroutine that feeds each tenant's job channel respects ctx.Done
+// so a mid-flight cancel stops dispatching new work; ops the workers
+// have already pulled run to completion (idempotent on both call
+// sites' verbs). Ops the producer drops on cancel land in Results
+// with Err==ctx.Err so DoneMsg.Results has exactly one entry per
+// submitted Op.
+func Dispatch[K comparable](
+	ctx context.Context,
+	ops []Op[K],
+	writer Writer[K],
+	concurrency int,
+) tea.Cmd {
+	return func() tea.Msg {
+		return DoneMsg[K]{Results: run(ctx, ops, writer, concurrency)}
+	}
 }
