@@ -6,6 +6,12 @@
 // the goreleaser ldflag-target variables.
 package cmd
 
+import (
+	"context"
+	"os/signal"
+	"syscall"
+)
+
 // Version metadata is injected at build time via -X ldflags by
 // goreleaser. The defaults here let `go build` produce a usable
 // binary without ldflags during local development. These are the
@@ -33,7 +39,20 @@ const (
 // subcommands explicitly (no init() side effects), and runs it.
 // main() in the repo root simply forwards an error from this
 // function.
+//
+// SIGTERM / SIGINT propagation: the parent context is built via
+// signal.NotifyContext so cmd.Context() observes shutdown signals
+// across every subcommand. Pages document that their editorCtx /
+// bulkCtx parents propagate app shutdown — that contract depends on
+// cmd.Context() actually being cancellable; rootCmd.Execute() (no
+// ctx) would leave it as context.Background() and the documented
+// behaviour would be a lie. Pair with the bubbletea quit-filter in
+// cmd/tui.go: together they ensure SIGTERM tears down both the TUI
+// page stack and every cobra subcommand cleanly.
 func Execute() error {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags, nil)
 	// Group definitions and the completion / help GroupID pins live
@@ -50,5 +69,5 @@ func Execute() error {
 		newGroupsCmd(&flags),
 		newReceiversCmd(&flags),
 	)
-	return rootCmd.Execute()
+	return rootCmd.ExecuteContext(ctx)
 }

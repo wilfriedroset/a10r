@@ -259,6 +259,17 @@ func NewApp(opts Options) *App {
 // in relative mode while the rest of the app reads absolute.
 func (a *App) TimeFormat() TimeFormat { return a.timeFormat }
 
+// Quitting reports whether the App has already authorised the quit
+// (it set the flag when the QuitRequestedMsg cascade ran and
+// emitted tea.Quit). The wiring layer's bubbletea filter consults
+// this to distinguish "the App asked to quit cleanly" — let
+// tea.QuitMsg through so the program stops — from "the runtime
+// pushed a raw QuitMsg/InterruptMsg via SIGTERM/SIGINT" — translate
+// to QuitRequestedMsg so the page-stack Close cascade runs first.
+// Accessor (not a public field) so the bool stays immutable from
+// outside the package: only handleLifecycle's QuitMsg branch flips it.
+func (a *App) Quitting() bool { return a.quitting }
+
 // Init implements tea.Model. Returns the hint-bar startup tick when
 // the user opted in via `tui.tips: true`; nil otherwise so disabled
 // runs schedule no work — the OFF-by-default short-circuit the

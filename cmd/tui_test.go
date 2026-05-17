@@ -14,11 +14,15 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins audit
@@ -513,4 +517,139 @@ func TestApplyUserKeyOverrides_SameFileConflictFailsClosed(t *testing.T) {
 	err := applyUserKeyOverrides(d, dir)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `key "Shift+Q" is also bound to action "quit"`)
+}
+
+// newTestApp builds a minimal app.App for the quit-filter tests.
+// Mirrors internal/tui/app's test helper but lives here so the
+// filter (defined in cmd) can be exercised without exporting wiring
+// internals.
+func newTestAppForFilter(t *testing.T) *app.App {
+	t.Helper()
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	return app.NewApp(app.Options{
+		Styles:     styles,
+		Registry:   action.New(),
+		Dispatcher: keys.New(nil),
+	})
+}
+
+// TestQuitFilter_TranslatesQuitMsgWhenAppNotQuitting pins Fix 1's
+// SIGTERM-cascade contract: bubbletea's handleSignals pushes raw
+// tea.QuitMsg into the message channel on SIGTERM, and the eventLoop
+// short-circuits on QuitMsg BEFORE Update fires. Without the filter
+// every page-stack Close (cancelBulk, cancelEditorUpdate, silence-form
+// cancel funcs) leaks for the full HTTP timeout window on kubernetes
+// / systemd shutdown. The filter must translate the raw QuitMsg into
+// app.QuitRequestedMsg so the QuitRequestedMsg cascade runs.
+func TestQuitFilter_TranslatesQuitMsgWhenAppNotQuitting(t *testing.T) {
+	t.Parallel()
+	a := newTestAppForFilter(t)
+	filter := newQuitFilter(a)
+
+	out := filter(a, tea.QuitMsg{})
+	require.IsType(t, app.QuitRequestedMsg{}, out,
+		"raw tea.QuitMsg (SIGTERM path) must translate to QuitRequestedMsg "+
+			"so the page-stack Close cascade runs before bubbletea exits")
+}
+
+// TestQuitFilter_TranslatesInterruptMsgWhenAppNotQuitting pins the
+// SIGINT companion: bubbletea pushes tea.InterruptMsg on SIGINT when
+// the terminal is not in raw mode (non-TTY input, e.g. piped runs);
+// the eventLoop short-circuits on InterruptMsg the same way. The
+// filter routes it through QuitRequestedMsg too so the cleanup
+// contract holds for both signals.
+func TestQuitFilter_TranslatesInterruptMsgWhenAppNotQuitting(t *testing.T) {
+	t.Parallel()
+	a := newTestAppForFilter(t)
+	filter := newQuitFilter(a)
+
+	out := filter(a, tea.InterruptMsg{})
+	require.IsType(t, app.QuitRequestedMsg{}, out,
+		"raw tea.InterruptMsg (SIGINT path) must translate to QuitRequestedMsg")
+}
+
+// TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised verifies the
+// other side of the contract: once the App has already run the
+// cascade and emitted tea.Quit itself (via QuitRequestedMsg →
+// quitWithCleanup → tea.Quit), the resulting QuitMsg MUST reach the
+// runtime so the program actually exits. The handleLifecycle's
+// tea.QuitMsg branch flips a.quitting before bubbletea reads the
+// next message; the filter consults that flag and passes through
+// unchanged. Without this gate the filter would loop QuitMsg back
+// into QuitRequestedMsg forever and the program would never quit.
+func TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised(t *testing.T) {
+	t.Parallel()
+	a := newTestAppForFilter(t)
+	// Run a normal cascade to set a.quitting via the QuitMsg branch
+	// in handleLifecycle. After this, tea.QuitMsg arriving at the
+	// filter must pass through.
+	a.Update(tea.QuitMsg{})
+	require.True(t, a.Quitting(),
+		"handleLifecycle must flip the quitting flag on tea.QuitMsg "+
+			"so the filter has a stable signal to read")
+
+	filter := newQuitFilter(a)
+	out := filter(a, tea.QuitMsg{})
+	require.IsType(t, tea.QuitMsg{}, out,
+		"once the App authorised the quit, the filter must let "+
+			"tea.QuitMsg through so bubbletea's eventLoop exits")
+}
+
+// TestQuitFilter_PassesNonQuitMsgsThrough verifies the filter only
+// intercepts QuitMsg / InterruptMsg — every other tea.Msg must reach
+// Update untouched. Without this guard the filter would silently
+// swallow or rewrite WindowSizeMsg / KeyMsg / poll.DataMsg.
+func TestQuitFilter_PassesNonQuitMsgsThrough(t *testing.T) {
+	t.Parallel()
+	a := newTestAppForFilter(t)
+	filter := newQuitFilter(a)
+
+	resize := tea.WindowSizeMsg{Width: 100, Height: 30}
+	out := filter(a, resize)
+	require.Equal(t, resize, out,
+		"non-quit messages must pass through the filter unchanged")
+}
+
+// TestExecuteContext_CancelsOnContextDone pins Fix 2: cmd.Context()
+// must become cancellable via signal.NotifyContext + ExecuteContext.
+// Pages document that editorCtx / bulkCtx parents propagate app
+// shutdown — but the contract was dead because cmd/cmd.go called
+// rootCmd.Execute() so cmd.Context() was always context.Background().
+// This test exercises the wiring with a no-op RunE and verifies that
+// once the parent context is cancelled the command observes it via
+// cmd.Context(). Real SIGTERM is exercised indirectly: signal.NotifyContext
+// produces a context that cancels on the configured signals, and the
+// only thing ExecuteContext is doing is plumbing that context through.
+func TestExecuteContext_CancelsOnContextDone(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Pointer cell so the closure assigns into the outer slot — `var
+	// observed context.Context` + `observed = cmd.Context()` reads
+	// cleaner but trips the lint's shadow heuristic when the var is
+	// declared at the test scope and assigned inside a nested closure.
+	observed := make(chan context.Context, 1)
+	var flags GlobalFlags
+	root := newRootCmd(&flags, func(cmd *cobra.Command, _ *GlobalFlags) error {
+		observed <- cmd.Context()
+		return nil
+	})
+	root.SetArgs([]string{})
+	root.SetOut(new(strings.Builder))
+	root.SetErr(new(strings.Builder))
+
+	// Cancel BEFORE ExecuteContext returns so the assertion below sees
+	// the cancellation propagated through cmd.Context(). A real SIGTERM
+	// path is the same shape: signal.NotifyContext cancels the parent,
+	// every cmd.Context() reading code path observes it.
+	cancel()
+
+	require.NoError(t, root.ExecuteContext(ctx))
+	got := <-observed
+	require.NotNil(t, got, "RunE must run and capture cmd.Context()")
+	require.ErrorIs(t, got.Err(), context.Canceled,
+		"cmd.Context() must inherit cancellation from the parent passed to ExecuteContext")
 }
