@@ -105,6 +105,21 @@ type GoToFirstRowMsg struct{}
 // pages don't have to import keys/ just for the message type.
 type ClearMarksMsg struct{}
 
+// QuitRequestedMsg is the precursor every quit path emits instead
+// of a bare tea.Quit Cmd: the `q` / Ctrl+C bindings, the `:q`
+// cmdbar handler. The App's handleLifecycle consumes it, walks
+// the page stack invoking Close() on each (so cancelBulk /
+// cancelEditorUpdate / silence-form cancel funcs fire), and
+// emits tea.Quit as the final Cmd so bubbletea stops.
+//
+// bubbletea's runtime intercepts tea.QuitMsg before Update so
+// returning tea.Quit directly from a binding would skip the page-
+// stack tear-down — workers from in-flight bulk fanouts / editor
+// writes / status fetches would outlive the program until their
+// HTTP timeout elapses. Going through this precursor makes the
+// cleanup observable inside Update.
+type QuitRequestedMsg struct{}
+
 // RefreshRequestedMsg is the typed message a page emits when the
 // user presses `r` to bypass the poll tick (per keybindings.md
 // C5). The App routes it to the wiring layer's refresh func, which

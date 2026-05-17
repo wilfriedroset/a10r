@@ -674,7 +674,14 @@ func newResolver(
 	}
 	r.Register("tenant", tenantFactory)
 	r.Register("tenants", tenantFactory)
-	r.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
+	// `:q` mirrors the `q` / Ctrl+C bindings — emits the quit-
+	// precursor so the App can Close() every page on the stack
+	// (cancelling in-flight bulk fanouts, silence-form writes,
+	// editor updates, status fetches) before bubbletea stops.
+	// See app.QuitRequestedMsg for the bubbletea-runtime detail.
+	r.Register("q", func(_ []string) tea.Cmd {
+		return func() tea.Msg { return app.QuitRequestedMsg{} }
+	})
 	return r
 }
 

@@ -67,8 +67,8 @@ func (a *App) registerTenantBindings() {
 // (per ADR 0010); chord prefixes and dispatcher hooks stay on Set
 // because the v0.0.1 schema only lets users target named globals.
 func (a *App) registerGlobalBindings() {
-	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "Ctrl+C", func() tea.Cmd { return tea.Quit })
-	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return tea.Quit })
+	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "Ctrl+C", quitRequestedCmd)
+	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "q", quitRequestedCmd)
 	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
 	// state-filter cycle moved to Shift+F to free this slot).
 	// Emits TimeFormatChangedMsg so every page that renders
@@ -328,6 +328,17 @@ func showFlash(level footer.FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return footer.FlashShowMsg{Level: level, Text: text}
 	}
+}
+
+// quitRequestedCmd is the Cmd every quit binding returns instead
+// of a bare tea.Quit. The App's handleLifecycle consumes the
+// resulting QuitRequestedMsg, Close()s every page on the stack to
+// cancel in-flight background work, and emits tea.Quit. See
+// QuitRequestedMsg's doc for the bubbletea-runtime detail (QuitMsg
+// short-circuits before Update, so the precursor is the only place
+// the cleanup can run).
+func quitRequestedCmd() tea.Cmd {
+	return func() tea.Msg { return QuitRequestedMsg{} }
 }
 
 // handleKey routes a single key event. Precedence:

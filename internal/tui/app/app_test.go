@@ -166,8 +166,13 @@ func TestApp_CtrlCQuits(t *testing.T) {
 
 	_, cmd := a.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	require.NotNil(t, cmd, "Ctrl+C must produce a Cmd")
-	require.IsType(t, tea.QuitMsg{}, cmd(),
-		"Ctrl+C's Cmd must emit tea.QuitMsg")
+	// Ctrl+C / `q` / `:q` all emit QuitRequestedMsg (the quit
+	// precursor) rather than tea.QuitMsg directly — handleLifecycle
+	// consumes the precursor, Close()s every page on the stack, and
+	// emits tea.Quit. The full lifecycle is exercised in
+	// TestStack_QuitCascadesCloseOnEveryStackPage.
+	require.IsType(t, QuitRequestedMsg{}, cmd(),
+		"Ctrl+C's Cmd must emit QuitRequestedMsg so the App can Close() pages before quitting")
 }
 
 func TestApp_HelpKeyOpensModal(t *testing.T) {

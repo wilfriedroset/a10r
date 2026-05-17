@@ -702,3 +702,54 @@ func TestStack_PageInitChainedCmdsLand(t *testing.T) {
 	last := (*page.updateLog)[len(*page.updateLog)-1]
 	require.IsType(t, chainedMsg{}, last)
 }
+
+// TestStack_QuitCascadesCloseOnEveryStackPage pins the
+// shutdown-cleanup contract: pressing `q` (or any path that emits
+// QuitRequestedMsg) must Close every page on the stack before tea
+// stops the program. Without this, pages that hold a cancel func
+// for in-flight background work — alerts / silences bulk fanout,
+// silence-form Create/UpdateSilence, tenantconfig Status fetch,
+// silences editor UpdateSilence — leak their goroutines until the
+// underlying HTTP call returns on its own (which can be its full
+// timeout window). bubbletea's QuitMsg short-circuits before
+// Update, so the cleanup must run on a precursor message; this
+// test verifies the App routes the precursor through every page
+// before emitting tea.Quit. See the alerts.Close / silences.Close
+// invariants ((adca17d), (7b8aa88), (7176a52), and the bulk
+// cancelBulk contract).
+func TestStack_QuitCascadesCloseOnEveryStackPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	home := newFakePage("home")
+	mid := newFakePage("mid")
+	top := newFakePage("top")
+	drive(t, a, PushPage(func() Page { return home }))
+	drive(t, a, PushPage(func() Page { return mid }))
+	drive(t, a, PushPage(func() Page { return top }))
+
+	require.Zero(t, *home.closeCalls, "no Close before quit")
+	require.Zero(t, *mid.closeCalls, "no Close before quit")
+	require.Zero(t, *top.closeCalls, "no Close before quit")
+
+	// Fire the quit precursor directly — same effect as `q` /
+	// Ctrl+C / `:q`, which all emit QuitRequestedMsg through the
+	// dispatcher / cmdbar wiring.
+	_, cmd := a.Update(QuitRequestedMsg{})
+	require.NotNil(t, cmd, "QuitRequestedMsg must produce a follow-up Cmd")
+
+	require.Equal(t, 1, *home.closeCalls,
+		"every page on the stack must be Close()d on quit, including the bottom one")
+	require.Equal(t, 1, *mid.closeCalls,
+		"every page on the stack must be Close()d on quit, including middle pages")
+	require.Equal(t, 1, *top.closeCalls,
+		"every page on the stack must be Close()d on quit, including the top one")
+
+	// The follow-up Cmd must ultimately emit tea.QuitMsg so
+	// bubbletea actually stops — otherwise the cleanup ran but the
+	// program would never exit.
+	msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+	require.True(t, ok, "quit Cmd must resolve within the test budget")
+	require.IsType(t, tea.QuitMsg{}, msg,
+		"the Cmd returned by QuitRequestedMsg handling must emit tea.QuitMsg so the program exits")
+}

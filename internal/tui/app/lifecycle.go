@@ -79,6 +79,11 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	case tea.QuitMsg:
 		a.quitting = true
 		return nil, true
+	case QuitRequestedMsg:
+		// Page-stack tear-down + tea.Quit, in that order. See
+		// QuitRequestedMsg's doc for why this can't be a plain
+		// tea.Quit return from the quit bindings.
+		return a.quitWithCleanup(), true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
 	case poll.DataMsg:
@@ -162,6 +167,36 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	initCmd := page.Init()
 	replayCmd := a.replayCachedDataMsgs()
 	return tea.Batch(initCmd, replayCmd)
+}
+
+// quitWithCleanup walks the page stack invoking Close() on each
+// page so any background work (bulk fanout workers, in-flight
+// silence-form Create/UpdateSilence, tenantconfig Status fetch,
+// silences editor UpdateSilence) is signalled to cancel before
+// bubbletea tears the program down. The returned Cmd batches the
+// per-page Close cmds with a terminating tea.Quit so the program
+// still exits.
+//
+// Order is top-of-stack first, mirroring popPage's contract: the
+// frontmost page typically holds the most recent in-flight work.
+// In practice every Close in this codebase returns nil and just
+// fires its stored cancel func synchronously, so the ordering is
+// observational; the contract stays explicit so a future Close
+// that does emit a Cmd (e.g. an audit-log flush) ships in the
+// right order.
+//
+// Empty stack — pre-PushPage cold-start, or a hypothetical Esc
+// loop that popped every page — still emits tea.Quit so a quit
+// keystroke during cold start exits cleanly.
+func (a *App) quitWithCleanup() tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(a.stack)+1)
+	for i := len(a.stack) - 1; i >= 0; i-- {
+		if c := a.stack[i].Close(); c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	cmds = append(cmds, tea.Quit)
+	return tea.Batch(cmds...)
 }
 
 // popPage removes the top page when the stack has more than one
