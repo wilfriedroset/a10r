@@ -30,10 +30,10 @@ func (p *Page) totalSilences() int {
 // test fixtures that don't pin Tenants on the page (or legacy
 // upstream wiring with no canonical list) keep working.
 func (p *Page) knownTenant(name string) bool {
-	if len(p.tenants) == 0 {
+	if len(p.Tenants) == 0 {
 		return true
 	}
-	return slices.Contains(p.tenants, name)
+	return slices.Contains(p.Tenants, name)
 }
 
 // scopeIncludes reports whether tenant should appear in the view.
@@ -41,7 +41,7 @@ func (p *Page) knownTenant(name string) bool {
 // against the comma-joined list (so a Ctrl+T multi-select like
 // "prod,staging" lights up both backends).
 func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.scope)
+	scope := strings.TrimSpace(p.Scope)
 	if scope == "" || scope == scopeAll {
 		return true
 	}
@@ -65,10 +65,10 @@ func (p *Page) scopeIncludes(tenant string) bool {
 // to inferring the count from byTenant when no configured list
 // was plumbed in (tests).
 func (p *Page) showTenantColumn() bool {
-	if p.scope != scopeAll {
+	if p.Scope != scopeAll {
 		return false
 	}
-	if n := len(p.tenants); n > 0 {
+	if n := len(p.Tenants); n > 0 {
 		return n > 1
 	}
 	in := 0
@@ -104,30 +104,30 @@ func (p *Page) recompute() {
 			})
 		}
 	}
-	p.view = filterSilences(flat, p.filter)
+	p.view = filterSilences(flat, p.Filter)
 	p.sorter.Apply(p.view)
 	if p.focusID != "" {
 		for i, e := range p.view {
 			if e.s.ID == p.focusID {
-				p.cursor = i
+				p.Cursor = i
 				return
 			}
 		}
 	}
-	if p.cursor >= len(p.view) {
-		p.cursor = max(len(p.view)-1, 0)
+	if p.Cursor >= len(p.view) {
+		p.Cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
 }
 
-// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// recomputeScroll re-aligns p.TopRow with p.Cursor for the cached
 // body height. Mirror of the alerts page's helper — see that file
 // for the rationale on keeping View as a pure reader.
 func (p *Page) recomputeScroll() {
-	if p.bodyHeight <= 0 {
+	if p.BodyHeight <= 0 {
 		return
 	}
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.view))
+	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, p.BodyHeight, len(p.view))
 }
 
 // filterSilences returns a fresh slice with the entries whose
@@ -190,8 +190,8 @@ func silenceLowerComposite(s backend.Silence) string {
 // row is focused; recompute clears p.focusID by passing through
 // here.
 func (p *Page) snapshotFocus() {
-	if p.cursor < len(p.view) {
-		p.focusID = p.view[p.cursor].s.ID
+	if p.Cursor < len(p.view) {
+		p.focusID = p.view[p.Cursor].s.ID
 		return
 	}
 	p.focusID = ""

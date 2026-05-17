@@ -149,7 +149,7 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 // TestPage_VimMotions is the wiring smoke for the cursor module:
 // pressing `j` in Update must route into cursor.HandleMotion with
 // len(p.view) as the row count, and the returned cursor must land
-// on p.cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// on p.Cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
 // clamps, empty-view) lives in
 // internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
 // test only proves the page is wired to it.
@@ -163,7 +163,7 @@ func TestPage_VimMotions(t *testing.T) {
 	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
@@ -668,7 +668,7 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "beta", p.view[p.cursor].s.ID)
+	require.Equal(t, "beta", p.view[p.Cursor].s.ID)
 
 	// "beta" now has a later ends-at; reordering pushes it to the
 	// bottom. Cursor must follow.
@@ -678,7 +678,7 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 		sil("beta", "x", backend.SilenceStateActive, 4*time.Hour),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
-	require.Equal(t, "beta", p.view[p.cursor].s.ID,
+	require.Equal(t, "beta", p.view[p.Cursor].s.ID,
 		"cursor must follow the focused silence by ID across refreshes")
 }
 
@@ -713,15 +713,15 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	// Default ENDS ASC: gamma (30m), alpha (1h), beta (2h).
 	// Walk to row 1 (alpha).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor)
-	require.Equal(t, "alpha", p.view[p.cursor].s.ID)
+	require.Equal(t, 1, p.Cursor)
+	require.Equal(t, "alpha", p.view[p.Cursor].s.ID)
 
 	// Shift+C: sort by creator ASC → alice (beta), bob (gamma),
 	// carol (alpha). Cursor must stay at row 1 (now bob/gamma),
 	// NOT chase alpha.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
-	require.Equal(t, "gamma", p.view[p.cursor].s.ID,
+	require.Equal(t, 1, p.Cursor, "cursor stays at row index on user re-sort")
+	require.Equal(t, "gamma", p.view[p.Cursor].s.ID,
 		"the silence landing at the held index becomes the new focus")
 }
 
@@ -2043,7 +2043,7 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	// Single-tenant scope: detail is rendered verbatim without a
 	// tenant prefix. The page constructor seeds scope to "all" by
 	// default, so we narrow it for this case.
-	p.scope = "prod"
+	p.Scope = "prod"
 
 	// No errors → empty band.
 	require.Empty(t, p.ErrorBand())

@@ -44,9 +44,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// the operator should see. Mirror of the alerts page's
 		// handler.
 		if m.Detail == "" {
-			delete(p.lastErrors, m.Tenant)
+			delete(p.LastErrors, m.Tenant)
 		} else {
-			p.lastErrors[m.Tenant] = m.Detail
+			p.LastErrors[m.Tenant] = m.Detail
 		}
 		return p, nil
 	case poll.DataMsg:
@@ -63,7 +63,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pausedRefresh from a manual `r` press lets a single tick
 		// through and clears itself, so the operator can pull
 		// fresh data on demand without leaving paused state.
-		if p.paused && !p.pausedRefresh {
+		if p.Paused && !p.pausedRefresh {
 			return p, nil
 		}
 		p.pausedRefresh = false
@@ -156,14 +156,14 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {
 	case app.ScopeChangedMsg:
-		p.scope = m.Scope
+		p.Scope = m.Scope
 		p.recompute()
 		return true, nil
 	case app.TimeFormatChangedMsg:
 		p.timeFormat = m.Format
 		return true, nil
 	case app.GoToFirstRowMsg:
-		p.cursor = 0
+		p.Cursor = 0
 		p.snapshotFocus()
 		p.recomputeScroll()
 		return true, nil
@@ -183,31 +183,31 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		snap := p.filter
-		p.preFilter = &snap
-		if p.filter != "" {
-			p.filter = ""
+		snap := p.Filter
+		p.PreFilter = &snap
+		if p.Filter != "" {
+			p.Filter = ""
 			p.recompute()
 		}
 	case footer.PromptChangedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
+		p.Filter = m.Value
 		p.recompute()
 	case footer.PromptSubmittedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
-		p.preFilter = nil
+		p.Filter = m.Value
+		p.PreFilter = nil
 		p.recompute()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
 			return
 		}
-		p.filter = *p.preFilter
-		p.preFilter = nil
+		p.Filter = *p.PreFilter
+		p.PreFilter = nil
 		p.recompute()
 	}
 }
@@ -225,15 +225,15 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	newCursor, handled := cursor.HandleMotion(
 		m.String(),
-		p.cursor,
+		p.Cursor,
 		len(p.view),
-		cursor.HalfPageStep(p.bodyHeight),
-		cursor.FullPageStep(p.bodyHeight),
+		cursor.HalfPageStep(p.BodyHeight),
+		cursor.FullPageStep(p.BodyHeight),
 	)
 	if !handled {
 		return false
 	}
-	p.cursor = newCursor
+	p.Cursor = newCursor
 	p.snapshotFocus()
 	p.recomputeScroll()
 	return true
@@ -295,8 +295,8 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // the next ordinary DataMsg is silently dropped. Mirrors the
 // alerts page's helper.
 func (p *Page) toggleWatch() {
-	p.paused = !p.paused
-	if !p.paused {
+	p.Paused = !p.Paused
+	if !p.Paused {
 		p.pausedRefresh = false
 	}
 }
@@ -322,10 +322,10 @@ const hintReadOnly = "read-only mode — silences cannot be modified"
 // for the row under the cursor. Empty view falls through to a soft
 // Info flash so the user sees a reason for the no-op.
 func (p *Page) drillToDetail() tea.Cmd {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	styles := p.styles
 	return app.PushPage(func() app.Page {
 		return silencepage.New(silencepage.Options{
@@ -346,10 +346,10 @@ func (p *Page) drillToDetail() tea.Cmd {
 // and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
 	p.refreshing = true
-	if p.paused {
+	if p.Paused {
 		p.pausedRefresh = true
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
@@ -375,10 +375,10 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // an empty view; silences without an ID are silently skipped
 // (defensive — every backend.Silence the v2 API returns has one).
 func (p *Page) toggleMarkAtCursor() {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return
 	}
-	id := p.view[p.cursor].s.ID
+	id := p.view[p.Cursor].s.ID
 	if id == "" {
 		return
 	}
@@ -399,13 +399,13 @@ func (p *Page) toggleMarkAtCursor() {
 // is handed through unchanged — the form's tenantDisabled logic
 // freezes the selection on entry.tenant.
 func (p *Page) openEditSilenceForm() tea.Cmd {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -453,13 +453,13 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 // with no "2h" footgun, and leave EditID empty so submit fires
 // CreateSilence rather than UpdateSilence.
 func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return silenceform.Options{}, flashFn(footer.FlashInfo, "no silence under the cursor"), false
 	}
 	if len(p.clients) == 0 {
 		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	if entry.s.State != backend.SilenceStateExpired {
 		return silenceform.Options{}, flashFn(footer.FlashInfo,
 			"only expired silences can be recreated — use `e` to edit a live silence"), false
@@ -523,13 +523,13 @@ type editorUpdateResultMsg struct {
 // handler can route UpdateSilence at the right backend after the
 // editor returns.
 func (p *Page) openEditorForCursor() tea.Cmd {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.editor.EditorEnv) == 0 && p.editor.DefaultEditor == "" {
 		return flashFn(footer.FlashWarn, "editor handoff requires $EDITOR or $A10R_EDITOR")
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -746,8 +746,8 @@ func (p *Page) pickWriteTarget() (string, Client, bool) {
 	if len(p.clients) == 0 {
 		return "", nil, false
 	}
-	if p.cursor < len(p.view) {
-		t := p.view[p.cursor].tenant
+	if p.Cursor < len(p.view) {
+		t := p.view[p.Cursor].tenant
 		if c, ok := p.clients[t]; ok {
 			return t, c, true
 		}

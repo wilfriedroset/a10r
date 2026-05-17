@@ -48,7 +48,7 @@ func BenchmarkSilenceMatches_500(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		p.filter = queries[i%len(queries)]
+		p.Filter = queries[i%len(queries)]
 		p.recompute()
 	}
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -107,6 +108,8 @@ type silenceEntry struct {
 
 // Page is the silences list view.
 type Page struct {
+	listpage.Base
+
 	styles *theme.Styles
 	now    func() time.Time
 
@@ -116,38 +119,12 @@ type Page struct {
 	// accumulate every snapshot they've received.
 	byTenant map[string][]backend.Silence
 	view     []silenceEntry
-	cursor   int
-
-	// topRow keeps the cursor inside the visible window — see
-	// reconcileScroll. Lazily updated by the renderer because the
-	// body height (and therefore the row budget) is only known at
-	// render time.
-	topRow int
-
-	// bodyHeight is the table-row capacity snapshotted on the most
-	// recent View — body height minus the column-header line.
-	// Powers viewport-aware Ctrl+D/U/F/B steps; zero before the
-	// first render so handlers fall back to 10 / 20 for the very
-	// first keystroke. See alerts.Page for the rationale.
-	bodyHeight int
 
 	// sorter owns the active sort column + direction. Comparators
 	// and column metadata come from silenceSortColumns; the helper
 	// applies the cycle / flip / walk convention.
 	sorter  *tablesort.Sorter[silenceEntry]
 	focusID string
-
-	// filter is the active substring filter (creator / matcher
-	// fields / comment). preFilter is the snapshot the page
-	// restores on PromptCancelledMsg{Mode: PromptFilter}; nil iff
-	// no filter prompt is open. Same shape as the alerts page.
-	filter    string
-	preFilter *string
-
-	// scope is the active tenant scope ("all", a single backend
-	// name, or comma-joined names). Mirrors what the alerts page
-	// tracks and is updated by app.ScopeChangedMsg.
-	scope string
 
 	// clients are the per-tenant write surfaces the page hands to
 	// the silence form when the user presses `n`. Empty in tests
@@ -239,27 +216,11 @@ type Page struct {
 	// scope tenant's reply doesn't count as the user's manual
 	// refresh having landed.
 	refreshing bool
-	// paused, when true, suppresses the byTenant/recompute branch
-	// on incoming poll.DataMsg so the table stops updating under
-	// the cursor mid-read. Toggled by `w` ("watch mode"); manual
-	// `r` refresh still emits a RefreshRequestedMsg and the next
-	// DataMsg under that nudge is honoured (the watch-off window
-	// for one tick) so the operator can deliberately re-pull
-	// without leaving paused state. Mirrors the alerts page —
-	// see internal/tui/page/alerts/alerts.go for the design notes.
-	paused bool
 	// pausedRefresh, when true, signals "the next DataMsg is from
 	// an explicit r-press; honour it even though paused". Cleared
 	// after the first DataMsg consumes it. Lets the operator hold
 	// pause but pull a single fresh snapshot on demand.
 	pausedRefresh bool
-	// lastErrors holds the most recent per-tenant transport error
-	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
-	// pruned (a successful tick clears the row). Renderer collapses
-	// the in-scope subset into a single one-line error band above
-	// the table so the operator sees what's wrong without leaving
-	// the page. Mirrors the alerts page's contract.
-	lastErrors map[string]string
 	// spinner is the cold-start / refresh-in-flight indicator
 	// (bubbles `Points` — three dots cycling). Stopped (i.e. its
 	// Tick chain is broken) outside of those two windows; see
@@ -289,12 +250,6 @@ type Page struct {
 	// submitCtx parents the silence form's submit ctx. See
 	// Options.SubmitCtx for the rationale.
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
-
-	// tenants is the canonical configured-backend list. Drives the
-	// TENANT-column visibility decision so a tenant that never
-	// replies still counts toward "is this a multi-tenant fleet?".
-	// See Options.Tenants.
-	tenants []string
 }
 
 type Options struct {
@@ -368,6 +323,11 @@ func New(opts Options) *Page {
 		concurrency = config.DefaultBulkConcurrency
 	}
 	return &Page{
+		Base: listpage.Base{
+			Scope:      scopeAll,
+			LastErrors: map[string]string{},
+			Tenants:    opts.Tenants,
+		},
 		styles:          opts.Styles,
 		now:             now,
 		clients:         opts.Clients,
@@ -377,10 +337,8 @@ func New(opts Options) *Page {
 		byTenant:        map[string][]backend.Silence{},
 		marks:           map[string]struct{}{},
 		sorter:          tablesort.New(silenceSortColumns(), sortKeyEndsAt),
-		scope:           scopeAll,
 		nextRefresh:     map[string]time.Time{},
 		polledTenants:   map[string]struct{}{},
-		lastErrors:      map[string]string{},
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -388,7 +346,6 @@ func New(opts Options) *Page {
 		editorCtx:       opts.EditorCtx,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
-		tenants:         opts.Tenants,
 	}
 }
 
@@ -441,12 +398,12 @@ func (p *Page) Title() string {
 	if !p.polled() || p.refreshing {
 		return p.spinner.View() + " loading silences…"
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
 	total := p.totalSilences()
-	if p.filter != "" {
+	if p.Filter != "" {
 		return fmt.Sprintf("silences(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("silences(%s)[%d]", scope, total)
@@ -454,8 +411,8 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.filter != "" {
-		parts = append(parts, "filter:"+p.filter)
+	if p.Filter != "" {
+		parts = append(parts, "filter:"+p.Filter)
 	}
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
@@ -473,7 +430,7 @@ func (p *Page) HeaderContent() string {
 // tenant table. Past-due reads "due" so a slow loop never
 // flashes a negative duration.
 func (p *Page) Footer() string {
-	if p.paused {
+	if p.Paused {
 		// Paused state takes precedence over the refresh countdown
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
@@ -508,7 +465,7 @@ func (p *Page) ErrorBand() string {
 		detail string
 	}
 	var bad []entry
-	for tenant, detail := range p.lastErrors {
+	for tenant, detail := range p.LastErrors {
 		if detail == "" {
 			continue
 		}
@@ -527,7 +484,7 @@ func (p *Page) ErrorBand() string {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
 		// single-tenant view).
-		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
 			return bad[0].tenant + ": " + bad[0].detail
 		}
 		return bad[0].detail
