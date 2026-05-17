@@ -154,7 +154,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
-	p.recomputeScroll()
+	p.ReconcileScroll(len(p.view))
 	end := min(p.TopRow+maxRows, len(p.view))
 	showMark := p.hasMarks()
 	var b strings.Builder

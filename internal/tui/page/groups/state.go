@@ -7,7 +7,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
 // totalGroups is the in-scope count regardless of filter.
@@ -28,7 +27,7 @@ func (p *Page) totalGroups() int {
 // groups simply drop out. Sort is applied after the slice is
 // rebuilt so the active sort column + direction govern row order.
 func (p *Page) recompute() {
-	defer p.recomputeScroll()
+	defer p.ReconcileScroll(len(p.rows()))
 	prev := make(map[string]bool, len(p.flat))
 	for i, e := range p.flat {
 		prev[groupKey(e)] = i < len(p.expanded) && p.expanded[i]
@@ -70,7 +69,7 @@ func (p *Page) recompute() {
 		}
 	}
 	p.ClampCursor(len(p.rows()))
-	p.recomputeScroll()
+	p.ReconcileScroll(len(p.rows()))
 	p.snapshotFocus()
 }
 
@@ -122,16 +121,6 @@ func groupSeverityRank(g backend.AlertGroup) int {
 // underlying slice ordering changes between polls.
 func groupKey(e groupEntry) string {
 	return e.tenant + "\x00" + labelSummary(e.g.Labels)
-}
-
-// recomputeScroll re-aligns p.TopRow with p.Cursor for the cached
-// body height. Mirror of the alerts page's helper — see that file
-// for the rationale on keeping View as a pure reader.
-func (p *Page) recomputeScroll() {
-	if p.BodyHeight <= 0 {
-		return
-	}
-	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, p.BodyHeight, len(p.rows()))
 }
 
 // row is one rendered line. groupIdx points at the parent group;

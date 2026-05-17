@@ -95,7 +95,7 @@ func (p *Page) View(width, height int) string {
 		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
 	maxRows := min(height-1-bandLines, len(rows))
-	p.recomputeScroll()
+	p.ReconcileScroll(len(p.rows()))
 	end := min(p.TopRow+maxRows, len(rows))
 	out := make([]string, 0, end-p.TopRow+2)
 	if band != "" {

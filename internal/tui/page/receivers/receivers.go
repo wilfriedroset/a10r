@@ -452,8 +452,8 @@ func (p *Page) View(width, height int) string {
 		}
 		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
+	p.ReconcileScroll(len(p.view))
 	maxRows := min(height-1-bandLines, len(p.view))
-	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, maxRows, len(p.view))
 	end := min(p.TopRow+maxRows, len(p.view))
 	rows := make([]string, 0, end-p.TopRow+2)
 	if band != "" {
