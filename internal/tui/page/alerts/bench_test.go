@@ -83,7 +83,7 @@ func BenchmarkAlertsFilterTyping(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		p.filter = queries[i%len(queries)]
+		p.Filter = queries[i%len(queries)]
 		p.recompute()
 	}
 }
@@ -97,7 +97,7 @@ func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(1000, 4)
 	p.recompute()
-	p.bodyHeight = 40
+	p.BodyHeight = 40
 
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -24,7 +24,7 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.bodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
+	p.BodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
 	if len(p.view) == 0 {
 		// Render bg-less so the empty state matches the regular
 		// table view's framing — both use the terminal default
@@ -77,7 +77,7 @@ func (p *Page) renderErrorBand(width int) string {
 // branches: "we polled and there's nothing" vs. "filter hides
 // everything" — the second is actionable, the first isn't.
 func (p *Page) emptyState() string {
-	if p.filter != "" || p.stateFilter != "" {
+	if p.Filter != "" || p.stateFilter != "" {
 		return "no alerts match the active filter — Esc clears the prompt, Shift+F cycles state filters"
 	}
 	if p.totalAlerts() == 0 {
@@ -145,7 +145,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		return ""
 	}
 	p.recomputeScroll()
-	end := min(p.topRow+maxRows, len(p.view))
+	end := min(p.TopRow+maxRows, len(p.view))
 
 	showTenant := p.showTenantColumn()
 	// Compute column widths once per frame: the spec builder walks
@@ -160,8 +160,8 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// plus per-row styling overhead so the Builder doesn't realloc
 	// while every row appends. Multiplying by 2 covers the SGR
 	// bytes lipgloss.Render injects per cell on coloured rows.
-	b.Grow((end - p.topRow) * width * 2)
-	for i := p.topRow; i < end; i++ {
+	b.Grow((end - p.TopRow) * width * 2)
+	for i := p.TopRow; i < end; i++ {
 		entry := p.view[i]
 		a := entry.a
 		ageLabel := p.formatTime(a.StartsAt)
@@ -179,7 +179,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// across terminals, and per Q1.2 the row-level style is
 		// supposed to win — so skip the cell-level colour entirely
 		// for those three cases.
-		rowStyled := i == p.cursor || marked || a.State == backend.AlertStateSuppressed
+		rowStyled := i == p.Cursor || marked || a.State == backend.AlertStateSuppressed
 		sevCell := severityOf(a)
 		if !rowStyled {
 			sevCell = severityStyle(a, p.styles).Render(sevCell)
@@ -195,7 +195,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 			ageLabel,
 		)
 		prefix := "  "
-		if i == p.cursor {
+		if i == p.Cursor {
 			prefix = "▸ "
 		}
 		// Pad to the full width before styling. Precedence:
@@ -212,7 +212,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// suppression is ambient state.
 		line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 		switch {
-		case i == p.cursor:
+		case i == p.Cursor:
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour (severity), not the static cursorBgColor.
 			// `select_table.go:128` in k9s replaces the selected

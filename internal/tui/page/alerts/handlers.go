@@ -39,9 +39,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// failure transitions overwrite with the latest detail
 		// the operator should see.
 		if m.Detail == "" {
-			delete(p.lastErrors, m.Tenant)
+			delete(p.LastErrors, m.Tenant)
 		} else {
-			p.lastErrors[m.Tenant] = m.Detail
+			p.LastErrors[m.Tenant] = m.Detail
 		}
 		return p, nil
 	case poll.DataMsg:
@@ -60,7 +60,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pausedRefresh from a manual `r` press lets a single tick
 		// through and clears itself, so the operator can pull
 		// fresh data on demand without leaving paused state.
-		if p.paused && !p.pausedRefresh {
+		if p.Paused && !p.pausedRefresh {
 			return p, nil
 		}
 		p.pausedRefresh = false
@@ -132,14 +132,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {
 	case app.ScopeChangedMsg:
-		p.scope = m.Scope
+		p.Scope = m.Scope
 		p.recompute()
 		return true, nil
 	case app.TimeFormatChangedMsg:
 		p.timeFormat = m.Format
 		return true, nil
 	case app.GoToFirstRowMsg:
-		p.cursor = 0
+		p.Cursor = 0
 		p.snapshotFocus()
 		p.recomputeScroll()
 		return true, nil
@@ -169,31 +169,31 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		snap := p.filter
-		p.preFilter = &snap
-		if p.filter != "" {
-			p.filter = ""
+		snap := p.Filter
+		p.PreFilter = &snap
+		if p.Filter != "" {
+			p.Filter = ""
 			p.recompute()
 		}
 	case footer.PromptChangedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
+		p.Filter = m.Value
 		p.recompute()
 	case footer.PromptSubmittedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
-		p.preFilter = nil
+		p.Filter = m.Value
+		p.PreFilter = nil
 		p.recompute()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
 			return
 		}
-		p.filter = *p.preFilter
-		p.preFilter = nil
+		p.Filter = *p.PreFilter
+		p.PreFilter = nil
 		p.recompute()
 	}
 }
@@ -216,15 +216,15 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
 	newCursor, handled := cursor.HandleMotion(
 		m.String(),
-		p.cursor,
+		p.Cursor,
 		len(p.view),
-		cursor.HalfPageStep(p.bodyHeight),
-		cursor.FullPageStep(p.bodyHeight),
+		cursor.HalfPageStep(p.BodyHeight),
+		cursor.FullPageStep(p.BodyHeight),
 	)
 	if !handled {
 		return false
 	}
-	p.cursor = newCursor
+	p.Cursor = newCursor
 	p.snapshotFocus()
 	p.recomputeScroll()
 	return true
@@ -293,8 +293,8 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // without an in-flight `r` press, leave pausedRefresh false so
 // the next ordinary DataMsg is silently dropped.
 func (p *Page) toggleWatch() {
-	p.paused = !p.paused
-	if !p.paused {
+	p.Paused = !p.Paused
+	if !p.Paused {
 		p.pausedRefresh = false
 	}
 }
@@ -309,10 +309,10 @@ func (p *Page) toggleWatch() {
 // and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
 	p.refreshing = true
-	if p.paused {
+	if p.Paused {
 		p.pausedRefresh = true
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
@@ -347,10 +347,10 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -407,10 +407,10 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // stable identifier) are silently skipped — there's no key to
 // associate the mark with.
 func (p *Page) toggleMarkAtCursor() {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return
 	}
-	fp := p.view[p.cursor].a.Fingerprint
+	fp := p.view[p.Cursor].a.Fingerprint
 	if fp == "" {
 		return
 	}
@@ -429,10 +429,10 @@ func (p *Page) toggleMarkAtCursor() {
 // hits the same backend the alerts list `s` would. Same map by
 // reference — pages share the wiring layer's authoritative copy.
 func (p *Page) drillToDetail() tea.Cmd {
-	if p.cursor >= len(p.view) {
+	if p.Cursor >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
-	entry := p.view[p.cursor]
+	entry := p.view[p.Cursor]
 	styles := p.styles
 	now := p.now
 	clients := p.clients

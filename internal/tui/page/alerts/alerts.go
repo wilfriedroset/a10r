@@ -39,6 +39,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -183,9 +184,10 @@ type alertEntry struct {
 
 // Page is the alerts list view. Implements app.Page.
 type Page struct {
+	listpage.Base
+
 	styles *theme.Styles
 	now    func() time.Time
-	scope  string
 
 	// clients is the per-tenant write surface for `s`; see Options.
 	clients map[string]silenceform.Client
@@ -197,34 +199,8 @@ type Page struct {
 	// unions the snapshots before sorting / filtering.
 	byTenant map[string][]backend.Alert
 
-	view   []alertEntry // filtered + sorted view (recomputed on change)
-	cursor int          // index into view
+	view []alertEntry // filtered + sorted view (recomputed on change)
 
-	// topRow is the index of the first visible row in p.view. The
-	// renderer reconciles topRow with cursor on every frame so the
-	// cursor stays inside the visible window — scrolls down when
-	// the cursor walks past the bottom, up when it walks past the
-	// top. Set lazily because the renderer is the only consumer
-	// that knows how many rows fit in the body height.
-	topRow int
-
-	// bodyHeight is the table-row capacity snapshotted on the most
-	// recent View — the App passes the bordered-body height; the
-	// renderer subtracts the column-header line. Ctrl+D / Ctrl+U
-	// step half this; Ctrl+F / Ctrl+B step body-2 (vim's CTRL-F
-	// "two-line overlap" convention). Zero before the first render
-	// — handlers fall back to 10 / 20 so a keystroke that beats the
-	// initial WindowSizeMsg still moves a sane distance.
-	bodyHeight int
-
-	filter string // active substring filter
-	// preFilter is the pre-prompt snapshot the page restores on
-	// PromptCancelledMsg{Mode: PromptFilter}. Nil iff no filter
-	// prompt is open. Invariant relies on the App forwarding
-	// PromptOpenedMsg to the top page when `/` is pressed; if that
-	// auto-forward ever changes, the snapshot stays stale and
-	// cancel becomes a silent no-op.
-	preFilter *string
 	// focusFingerprint is the alert the cursor was on before the
 	// last recompute. Tracking by Fingerprint (not index) keeps
 	// the cursor on the same alert across poll-tick refreshes,
@@ -287,27 +263,12 @@ type Page struct {
 	// poll.DataMsg arrival so the renderer keeps the spinner up
 	// while the caller's nudge is in flight.
 	refreshing bool
-	// paused, when true, suppresses the byTenant/recompute branch
-	// on incoming poll.DataMsg so the table stops updating under
-	// the cursor mid-read. Toggled by `w` ("watch mode"); manual
-	// `r` refresh still emits a RefreshRequestedMsg and the next
-	// DataMsg under that nudge is honoured (the watch-off window
-	// for one tick) so the operator can deliberately re-pull
-	// without leaving paused state.
-	paused bool
 	// pausedRefresh, when true, signals "the next DataMsg is from
 	// an explicit r-press; honour it even though paused". Cleared
 	// after the first DataMsg consumes it. Lets the operator hold
 	// pause but pull a single fresh snapshot on demand.
 	pausedRefresh bool
 
-	// lastErrors holds the most recent per-tenant transport error
-	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
-	// pruned (a successful tick clears the row). Renderer collapses
-	// the in-scope subset into a single one-line error band above
-	// the table so the operator sees what's wrong without leaving
-	// the page.
-	lastErrors map[string]string
 	// spinner is the cold-start / refresh-in-flight indicator
 	// (bubbles `Points`). Stopped (Tick chain broken) outside of
 	// those two windows; see the spinner.TickMsg branch in Update.
@@ -324,12 +285,6 @@ type Page struct {
 	// submitCtx parents the silence form's submit ctx. See
 	// Options.SubmitCtx for the rationale.
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
-
-	// tenants is the canonical configured-backend list. Drives the
-	// TENANT-column visibility decision so a tenant that never
-	// replies still counts toward "is this a multi-tenant fleet?".
-	// See Options.Tenants for the upstream rationale.
-	tenants []string
 }
 
 // New constructs a Page from the supplied Options. Initial
@@ -348,9 +303,14 @@ func New(opts Options) *Page {
 		concurrency = config.DefaultBulkConcurrency
 	}
 	return &Page{
+		Base: listpage.Base{
+			Scope:      opts.Scope,
+			Filter:     opts.InitialFilter,
+			LastErrors: map[string]string{},
+			Tenants:    opts.Tenants,
+		},
 		styles:          opts.Styles,
 		now:             now,
-		scope:           opts.Scope,
 		clients:         opts.Clients,
 		creator:         opts.Creator,
 		timeFormat:      opts.TimeFormat,
@@ -359,7 +319,6 @@ func New(opts Options) *Page {
 		marks:           map[string]struct{}{},
 		polledTenants:   map[string]struct{}{},
 		nextRefresh:     map[string]time.Time{},
-		lastErrors:      map[string]string{},
 		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -367,8 +326,6 @@ func New(opts Options) *Page {
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
 		stateFilter:     opts.InitialStateFilter,
-		filter:          opts.InitialFilter,
-		tenants:         opts.Tenants,
 	}
 }
 
@@ -378,7 +335,7 @@ func New(opts Options) *Page {
 // handler — exists for direct callers (the cmd-bar wiring,
 // tests) that don't go through bubbletea's message bus.
 func (p *Page) SetScope(s string) {
-	p.scope = s
+	p.Scope = s
 	p.recompute()
 }
 
@@ -421,12 +378,12 @@ func (p *Page) Title() string {
 	if !p.polled() || p.refreshing {
 		return p.spinner.View() + " loading alerts…"
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
 	total := p.totalAlerts()
-	if p.filter != "" || p.stateFilter != "" {
+	if p.Filter != "" || p.stateFilter != "" {
 		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("alerts(%s)[%d]", scope, total)
@@ -434,8 +391,8 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.filter != "" {
-		parts = append(parts, "filter:"+p.filter)
+	if p.Filter != "" {
+		parts = append(parts, "filter:"+p.Filter)
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state:"+p.stateFilter)
@@ -453,7 +410,7 @@ func (p *Page) HeaderContent() string {
 // list pages frame identically. Empty pre-poll so the cold-start
 // frame stays quiet (the spinner already says "loading").
 func (p *Page) Footer() string {
-	if p.paused {
+	if p.Paused {
 		// Paused state takes precedence over the refresh countdown
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
@@ -491,7 +448,7 @@ func (p *Page) ErrorBand() string {
 		detail string
 	}
 	var bad []entry
-	for tenant, detail := range p.lastErrors {
+	for tenant, detail := range p.LastErrors {
 		if detail == "" {
 			continue
 		}
@@ -510,7 +467,7 @@ func (p *Page) ErrorBand() string {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
 		// single-tenant view).
-		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
 			return bad[0].tenant + ": " + bad[0].detail
 		}
 		return bad[0].detail

@@ -42,23 +42,23 @@ func (p *Page) totalAlerts() int {
 // to byTenant when no configured list was plumbed in (tests that
 // don't care).
 func (p *Page) showTenantColumn() bool {
-	if p.scope != scopeAll {
+	if p.Scope != scopeAll {
 		return false
 	}
-	if n := len(p.tenants); n > 0 {
+	if n := len(p.Tenants); n > 0 {
 		return n > 1
 	}
 	return len(p.byTenant) > 1
 }
 
 // scopeIncludes reports whether tenant should appear in the
-// view given p.scope. "all" / empty includes everyone;
+// view given p.Scope. "all" / empty includes everyone;
 // otherwise the scope is parsed as a comma-joined list (so a
 // Ctrl+T multi-select like "prod,staging" lights up both
 // backends). Mirror of the silences-page predicate so the two
 // list pages agree on scope shape.
 func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.scope)
+	scope := strings.TrimSpace(p.Scope)
 	if scope == "" || scope == scopeAll {
 		return true
 	}
@@ -108,14 +108,14 @@ func (p *Page) recompute() {
 			})
 		}
 	}
-	p.view = filterEntries(flat, p.filter, p.stateFilter)
+	p.view = filterEntries(flat, p.Filter, p.stateFilter)
 	p.sorter.Apply(p.view)
 
 	// Resolve cursor by fingerprint when we have one to follow.
 	if p.focusFingerprint != "" {
 		for i, e := range p.view {
 			if e.a.Fingerprint == p.focusFingerprint {
-				p.cursor = i
+				p.Cursor = i
 				return
 			}
 		}
@@ -129,24 +129,24 @@ func (p *Page) recompute() {
 			p.focusFingerprint = ""
 		}
 	}
-	if p.cursor >= len(p.view) {
-		p.cursor = max(len(p.view)-1, 0)
+	if p.Cursor >= len(p.view) {
+		p.Cursor = max(len(p.view)-1, 0)
 	}
 	p.snapshotFocus()
 }
 
-// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// recomputeScroll re-aligns p.TopRow with p.Cursor for the cached
 // body height. Called from every state mutation that can move the
-// cursor or change len(p.view) so View can read p.topRow without
+// cursor or change len(p.view) so View can read p.TopRow without
 // reconciling — keeps the render path side-effect-free as long as
 // bodyHeight hasn't changed since the last paint. View itself also
 // calls this as a backstop for the chrome-resize case where bodyHeight
 // shifts between frames without a cursor mutation.
 func (p *Page) recomputeScroll() {
-	if p.bodyHeight <= 0 {
+	if p.BodyHeight <= 0 {
 		return
 	}
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.view))
+	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, p.BodyHeight, len(p.view))
 }
 
 // snapshotFocus captures the fingerprint of the row currently
@@ -158,8 +158,8 @@ func (p *Page) recomputeScroll() {
 // cursor on row 0 instead of the user's prior position — silent
 // loss-of-place that violates the cursor-by-id contract.
 func (p *Page) snapshotFocus() {
-	if p.cursor < len(p.view) {
-		p.focusFingerprint = p.view[p.cursor].a.Fingerprint
+	if p.Cursor < len(p.view) {
+		p.focusFingerprint = p.view[p.Cursor].a.Fingerprint
 	}
 }
 
@@ -169,10 +169,10 @@ func (p *Page) snapshotFocus() {
 // test fixtures that don't pin Tenants on the page (or legacy
 // upstream wiring with no canonical list) keep working.
 func (p *Page) knownTenant(name string) bool {
-	if len(p.tenants) == 0 {
+	if len(p.Tenants) == 0 {
 		return true
 	}
-	return slices.Contains(p.tenants, name)
+	return slices.Contains(p.Tenants, name)
 }
 
 // cycleStateFilter walks "" → active → suppressed → unprocessed → ""

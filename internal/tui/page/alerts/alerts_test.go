@@ -67,7 +67,7 @@ func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 	// the cursor sits on row 0 by default, so we walk it past the
 	// last row — clamped to the last index — and assert against the
 	// other row instead.
-	p.cursor = 0 // critical at index 0 (severity DESC default)
+	p.Cursor = 0 // critical at index 0 (severity DESC default)
 
 	out := p.View(120, 20)
 	wantWarn := styles.Severity.Warning.Render("warning")
@@ -193,7 +193,7 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 
 	// BackendStatusMsg for unknown tenant must also drop.
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
-	require.NotContains(t, p.lastErrors, "ghost",
+	require.NotContains(t, p.LastErrors, "ghost",
 		"unknown tenant must not populate lastErrors")
 }
 
@@ -219,7 +219,7 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 	// Focus the third row (MemPressure) by walking down.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "MemPressure", p.view[p.cursor].a.Labels["alertname"])
+	require.Equal(t, "MemPressure", p.view[p.Cursor].a.Labels["alertname"])
 	require.Equal(t, "fp-c", p.focusFingerprint)
 
 	// Filter to zero results.
@@ -231,7 +231,7 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 
 	// Clear the filter — cursor must land back on the original row.
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: ""})
-	require.Equal(t, "MemPressure", p.view[p.cursor].a.Labels["alertname"],
+	require.Equal(t, "MemPressure", p.view[p.Cursor].a.Labels["alertname"],
 		"clearing the filter must restore cursor to the alert the user "+
 			"was focused on before narrowing to zero")
 }
@@ -289,7 +289,7 @@ func TestPage_PrunesStaleFocusFingerprintAfterAlertResolved(t *testing.T) {
 // TestPage_VimMotionsMoveCursor is the wiring smoke for the cursor
 // module: pressing `j` in Update must route into cursor.HandleMotion
 // with len(p.view) as the row count, and the returned cursor must
-// land on p.cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// land on p.Cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
 // clamps, empty-view) lives in
 // internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
 // test only proves the page is wired to it.
@@ -303,7 +303,7 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_StateFilterCycle(t *testing.T) {
@@ -534,7 +534,7 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint)
+	require.Equal(t, "fp-b", p.view[p.Cursor].a.Fingerprint)
 
 	// New tick: B has shifted to the bottom (new alerts inserted
 	// above it). Cursor must follow B.
@@ -545,7 +545,7 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 		withFP("B", "fp-b"),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
-	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
+	require.Equal(t, "fp-b", p.view[p.Cursor].a.Fingerprint,
 		"cursor must follow the focused alert across poll refreshes")
 }
 
@@ -571,15 +571,15 @@ func TestPage_UserResortKeepsCursorAtIndex(t *testing.T) {
 	// Default sort is severity DESC: critical, warning, info →
 	// fp-b, fp-c, fp-a. Move cursor to row 1 (fp-c).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor)
-	require.Equal(t, "fp-c", p.view[p.cursor].a.Fingerprint)
+	require.Equal(t, 1, p.Cursor)
+	require.Equal(t, "fp-c", p.view[p.Cursor].a.Fingerprint)
 
 	// Re-sort by alertname ASC → A, B, C → fp-a, fp-b, fp-c.
 	// Cursor must stay at row index 1 (fp-b), NOT follow fp-c
 	// to row 2.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.Equal(t, 1, p.cursor, "cursor must stay at row index on user re-sort")
-	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
+	require.Equal(t, 1, p.Cursor, "cursor must stay at row index on user re-sort")
+	require.Equal(t, "fp-b", p.view[p.Cursor].a.Fingerprint,
 		"the alert under the cursor at the new index becomes the new focus")
 
 	// A subsequent poll refresh must now track fp-b (the new focus
@@ -592,7 +592,7 @@ func TestPage_UserResortKeepsCursorAtIndex(t *testing.T) {
 	}})
 	// New sort order (by alertname ASC): A, B, Z → fp-a, fp-b, fp-z.
 	// Cursor follows fp-b to row index 1.
-	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint,
+	require.Equal(t, "fp-b", p.view[p.Cursor].a.Fingerprint,
 		"after a sort, subsequent poll refreshes must follow the new focus")
 }
 
@@ -610,13 +610,13 @@ func TestPage_CursorClampsWhenFocusedAlertGone(t *testing.T) {
 		withFP("B", "fp-b"),
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "fp-b", p.view[p.cursor].a.Fingerprint)
+	require.Equal(t, "fp-b", p.view[p.Cursor].a.Fingerprint)
 
 	// B is gone; cursor must clamp to the last remaining row.
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		withFP("A", "fp-a"),
 	}})
-	require.Equal(t, 0, p.cursor)
+	require.Equal(t, 0, p.Cursor)
 }
 
 func TestPage_EnterDrillsToDetail(t *testing.T) {
@@ -727,15 +727,15 @@ func TestPage_GoToFirstRowResetsCursorAndScroll(t *testing.T) {
 
 	// Walk the cursor far down, then send the chord-resolved msg.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Positive(t, p.cursor)
+	require.Positive(t, p.Cursor)
 
 	_, _ = p.Update(app.GoToFirstRowMsg{})
-	require.Equal(t, 0, p.cursor,
+	require.Equal(t, 0, p.Cursor,
 		"GoToFirstRowMsg must move the cursor to the top")
 
 	// Force a render so reconcileScroll runs and topRow is reset.
 	_ = p.View(80, 10)
-	require.Equal(t, 0, p.topRow,
+	require.Equal(t, 0, p.TopRow,
 		"top of the table must be in view after GoToFirstRow + render")
 }
 
@@ -758,18 +758,18 @@ func TestPage_HandleMotionUpdatesTopRowWithoutRender(t *testing.T) {
 
 	// Seed bodyHeight as if a render had already established the
 	// viewport budget — handlers read this cache to compute scroll.
-	p.bodyHeight = 5
+	p.BodyHeight = 5
 
 	// Walk past the seeded viewport.
 	for range 20 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
 
-	require.Positive(t, p.topRow,
+	require.Positive(t, p.TopRow,
 		"handleMotion must reconcile topRow without a subsequent View() call")
-	require.GreaterOrEqual(t, p.cursor, p.topRow,
+	require.GreaterOrEqual(t, p.Cursor, p.TopRow,
 		"cursor must remain on or after the visible window's first row")
-	require.Less(t, p.cursor, p.topRow+p.bodyHeight,
+	require.Less(t, p.Cursor, p.TopRow+p.BodyHeight,
 		"cursor must remain inside the visible window")
 }
 
@@ -795,7 +795,7 @@ func TestPage_ViewportFollowsCursor(t *testing.T) {
 	// Render at width=80, height=10 (≈7-8 rows visible after the
 	// header and footer). The cursor row's alertname must appear.
 	out := testutil.StripStyle(p.View(80, 10))
-	require.Contains(t, out, p.view[p.cursor].a.Labels["alertname"],
+	require.Contains(t, out, p.view[p.Cursor].a.Labels["alertname"],
 		"viewport must scroll so the cursor row stays visible")
 
 	// G jumps to the last row; the bottom of the list must be in
@@ -1757,7 +1757,7 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 
 	// `w` pauses watch.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused, "w must toggle paused on")
+	require.True(t, p.Paused, "w must toggle paused on")
 
 	// Subsequent DataMsg is swallowed: byTenant stays at the old snapshot.
 	_, _ = p.Update(poll.DataMsg{
@@ -1772,7 +1772,7 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 
 	// `w` again resumes; the next DataMsg lands.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.False(t, p.paused)
+	require.False(t, p.Paused)
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Alert{
 			mkAlert("first", "warning", backend.AlertStateActive),
@@ -1794,7 +1794,7 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 
 	// Pause watch.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused)
+	require.True(t, p.Paused)
 
 	// Manual `r` press — sets pausedRefresh, returns a Cmd that
 	// emits a RefreshRequestedMsg. The next DataMsg is honoured
@@ -1813,7 +1813,7 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 	require.Len(t, p.byTenant["prod"], 2,
 		"r press while paused must pass through the next DataMsg")
 	require.False(t, p.pausedRefresh, "pausedRefresh must clear after one tick")
-	require.True(t, p.paused, "manual refresh does NOT exit paused state")
+	require.True(t, p.Paused, "manual refresh does NOT exit paused state")
 
 	// Subsequent ordinary tick is dropped again (paused, no
 	// pending refresh).
@@ -1868,7 +1868,7 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
-	p.scope = "all"
+	p.Scope = "all"
 
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
@@ -1882,7 +1882,7 @@ func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
 func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
-	p.scope = "all"
+	p.Scope = "all"
 
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
@@ -2044,7 +2044,7 @@ func TestPage_InitialFilterPreseedsSlashFilter(t *testing.T) {
 		},
 	}})
 
-	require.Equal(t, "web", p.filter,
+	require.Equal(t, "web", p.Filter,
 		"InitialFilter must pre-seed the page's `/` substring filter")
 	require.Len(t, p.view, 1,
 		"only the web-named entry should remain in p.view")
