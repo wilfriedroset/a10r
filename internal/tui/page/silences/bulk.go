@@ -4,16 +4,15 @@ package silences
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
-	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
@@ -24,7 +23,8 @@ import (
 // silence lives on (resolved at modal-open time so a poll-tick
 // reordering or filter change between open and Yes never expires
 // a different silence on a different backend). bulk picks the
-// flash wording.
+// audit surface tag — single-row `x` from the cursor reports
+// "expire-confirm", bulk-marked `x` reports "bulk-expire".
 type pendingExpire struct {
 	ids  []pendingExpireID
 	bulk bool
@@ -156,26 +156,26 @@ func formatTenantBreakdown(ids []pendingExpireID) string {
 	return strings.Join(parts, ", ")
 }
 
-// bulkExpireDoneMsg is the result envelope for a completed
-// bulk-expire fanout. Successes carries the silence IDs whose
-// ExpireSilence returned nil — Update unmarks those rows; the
-// IDs that don't appear (failures or unstarted-due-cancel) keep
-// their marks so retry is one keystroke. Total is the original
-// queue size so the flash can read "expired N of Total".
+// bulkExpireDoneMsg is the page-local wrapper around the bulkop
+// DoneMsg. The bulk bool rides along solely to pick the audit
+// surface tag ("expire-confirm" vs "bulk-expire") — the flash
+// wording is derived from totals alone. Wrapping (instead of
+// using bulkop.DoneMsg[string] directly the way alerts does)
+// keeps the surface-tag side channel page-local without polluting
+// bulkop with caller-specific provenance.
 type bulkExpireDoneMsg struct {
-	bulk      bool
-	total     int
-	successes []string
+	bulk bool
+	done bulkop.DoneMsg[string]
 }
 
 // handleExpireConfirm consumes a ConfirmResultMsg arriving after
 // an expire confirm modal. Yes kicks off the bulk-expire fanout
-// (per-tenant bounded worker pool); the resulting bulkExpireDoneMsg
-// arrives on Update and applies the unmark + flash. No / Cancelled
-// clears the pending state silently. Tenants are read directly
-// from the captured pair — no live-view lookup — so a poll tick
-// or filter change between Open and Yes never reroutes the expire
-// to the wrong backend or drops it as "unknown".
+// via bulkop.Dispatch; the resulting bulkExpireDoneMsg arrives on
+// Update and applies the unmark + flash. No / Cancelled clears
+// the pending state silently. Tenants are read directly from the
+// captured pair — no live-view lookup — so a poll tick or filter
+// change between Open and Yes never reroutes the expire to the
+// wrong backend or drops it as "unknown".
 //
 // Cancellation: a fresh context.Context is created per round and
 // stored in p.cancelBulk. Close() on the page calls it; workers
@@ -207,21 +207,26 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	ctx, cancel := context.WithCancel(parent)
 	p.cancelBulk = cancel
 	clients := p.clients
-	concurrency := p.bulkConcurrency
-	logger := p.logger
 	bulk := pending.bulk
-	ids := pending.ids
+	ops := make([]bulkop.Op[string], 0, len(pending.ids))
+	for _, id := range pending.ids {
+		ops = append(ops, bulkop.Op[string]{Key: id.id, Tenant: id.tenant})
+	}
+	writer := func(ctx context.Context, tenant string, op bulkop.Op[string]) (string, error) {
+		c, ok := clients[tenant]
+		if !ok {
+			return "", bulkop.ErrNoWriteableBackend
+		}
+		return "", c.ExpireSilence(ctx, op.Key)
+	}
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
 	return func() tea.Msg {
 		// Local cancel: releases this round's ctx subtree the moment
 		// dispatch returns, regardless of whether p.cancelBulk has
 		// since been overwritten by a newer round.
 		defer cancel()
-		successes := dispatchBulkExpire(ctx, clients, ids, concurrency, logger)
-		return bulkExpireDoneMsg{
-			bulk:      bulk,
-			total:     len(ids),
-			successes: successes,
-		}
+		done, _ := dispatch().(bulkop.DoneMsg[string])
+		return bulkExpireDoneMsg{bulk: bulk, done: done}
 	}
 }
 
@@ -236,134 +241,33 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 // fanout was still draining). The Cmd that produced this message
 // already deferred its own cancel(), so the local ctx is released
 // without the handler having to disambiguate.
+//
+// Per-failure attribution is emitted here (not in bulkop) because
+// the slog field name is page-specific (silence_id).
 func (p *Page) handleBulkExpireDone(m bulkExpireDoneMsg) tea.Cmd {
 	source := "expire-confirm"
 	if m.bulk {
 		source = "bulk-expire"
 	}
-	for _, id := range m.successes {
-		delete(p.marks, id)
-		auditSilenceWrite("expired", id, source)
-	}
-	failed := m.total - len(m.successes)
-	return p.flashExpireResult(m.bulk, len(m.successes), failed)
-}
-
-// expireResult is the per-call outcome the worker pool emits onto
-// the shared results channel. Tenant rides along for structured
-// log attribution on failure.
-type expireResult struct {
-	id     string
-	tenant string
-	err    error
-}
-
-// dispatchBulkExpire runs the fanout. Tenants run in parallel
-// goroutines; inside each tenant a bounded worker pool of
-// `min(concurrency, len(ids))` workers consumes from a per-tenant
-// jobs channel. concurrency=1 collapses to fully sequential per
-// tenant. The producer goroutine respects ctx.Done so a Close()
-// mid-flight stops feeding work; in-flight requests are allowed
-// to complete (expire is idempotent on the AM side).
-//
-// Returns the silence IDs whose ExpireSilence returned nil. The
-// caller derives "failed = total - len(successes)"; that bucket
-// includes both real errors and unstarted-due-cancel. Both keep
-// their marks so the user can retry only the unfinished work
-// with one more keystroke.
-func dispatchBulkExpire(
-	ctx context.Context,
-	clients map[string]Client,
-	ids []pendingExpireID,
-	concurrency int,
-	logger *slog.Logger,
-) []string {
-	byTenant := map[string][]string{}
-	tenants := []string{}
-	for _, id := range ids {
-		if _, seen := byTenant[id.tenant]; !seen {
-			tenants = append(tenants, id.tenant)
-		}
-		byTenant[id.tenant] = append(byTenant[id.tenant], id.id)
-	}
-	resCh := make(chan expireResult, len(ids))
-	var tenantWg sync.WaitGroup
-	for _, tenant := range tenants {
-		client, ok := clients[tenant]
-		group := byTenant[tenant]
-		if !ok {
-			// No client for this tenant — record every queued ID as
-			// a failure so the summary count adds up. The mark stays
-			// because the result IDs aren't in `successes`.
-			for _, id := range group {
-				resCh <- expireResult{id: id, tenant: tenant, err: errors.New("no writeable backend for tenant")}
-			}
+	total := len(m.done.Results)
+	successes := 0
+	for _, r := range m.done.Results {
+		if r.Err == nil {
+			delete(p.marks, r.Op.Key)
+			auditSilenceWrite("expired", r.Op.Key, source)
+			successes++
 			continue
 		}
-		tenantWg.Add(1)
-		go func(tenant string, ids []string, c Client) {
-			defer tenantWg.Done()
-			runTenantExpirePool(ctx, tenant, ids, c, concurrency, resCh)
-		}(tenant, group, client)
-	}
-	go func() {
-		tenantWg.Wait()
-		close(resCh)
-	}()
-	successes := make([]string, 0, len(ids))
-	for r := range resCh {
-		if r.err == nil {
-			successes = append(successes, r.id)
-			continue
-		}
-		if logger != nil {
-			logger.Error("bulk expire: silence expire failed",
-				slog.String("backend", r.tenant),
-				slog.String("tenant", r.tenant),
-				slog.String("silence_id", r.id),
-				slog.String("err", r.err.Error()),
+		if p.logger != nil {
+			p.logger.Error("bulk expire: silence expire failed",
+				slog.String("backend", r.Op.Tenant),
+				slog.String("tenant", r.Op.Tenant),
+				slog.String("silence_id", r.Op.Key),
+				slog.String("err", r.Err.Error()),
 			)
 		}
 	}
-	return successes
-}
-
-// runTenantExpirePool runs the bounded worker pool for one
-// tenant. Producer feeds the jobs channel under ctx.Done so a
-// cancellation stops dispatching new work; consumers run
-// ExpireSilence and emit results regardless of the ctx state for
-// jobs they've already pulled, so an in-flight request completes
-// naturally. Workers cap at min(concurrency, len(ids)).
-func runTenantExpirePool(
-	ctx context.Context,
-	tenant string,
-	ids []string,
-	client Client,
-	concurrency int,
-	resCh chan<- expireResult,
-) {
-	workers := max(min(concurrency, len(ids)), 1)
-	jobs := make(chan string)
-	go func() {
-		defer close(jobs)
-		for _, id := range ids {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- id:
-			}
-		}
-	}()
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Go(func() {
-			for id := range jobs {
-				err := client.ExpireSilence(ctx, id)
-				resCh <- expireResult{id: id, tenant: tenant, err: err}
-			}
-		})
-	}
-	wg.Wait()
+	return p.flashExpireResult(m.bulk, successes, total-successes)
 }
 
 // flashExpireResult picks the flash level (success / warn / error)

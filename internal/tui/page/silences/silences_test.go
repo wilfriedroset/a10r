@@ -23,6 +23,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -1828,8 +1829,8 @@ func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
 	// jobs; no further callers should arrive at the fake.
 	doneMsg := <-doneCh
 	done := doneMsg.(bulkExpireDoneMsg)
-	require.Less(t, len(done.successes), 5,
-		"Close must short-circuit the fanout — got %d successes", len(done.successes))
+	require.Less(t, len(done.done.Successes()), 5,
+		"Close must short-circuit the fanout — got %d successes", len(done.done.Successes()))
 	require.LessOrEqual(t, fake.totalCalls(), 1,
 		"after Close the dispatcher must not start additional ExpireSilence calls; got %d", fake.totalCalls())
 }
@@ -1853,7 +1854,12 @@ func TestPage_BulkExpireDoneDoesNotCancelLatestRound(t *testing.T) {
 	p.cancelBulk = cancel
 	ctxBefore := p.cancelBulk
 
-	_, _ = p.Update(bulkExpireDoneMsg{bulk: false, total: 1, successes: []string{"sil-a"}})
+	_, _ = p.Update(bulkExpireDoneMsg{
+		bulk: false,
+		done: bulkop.DoneMsg[string]{Results: []bulkop.Result[string]{
+			{Op: bulkop.Op[string]{Key: "sil-a", Tenant: "prod"}},
+		}},
+	})
 
 	require.NotNil(t, p.cancelBulk, "stale done must not nil out the latest round's cancel")
 	// Pointer identity: same cancel func still installed.
