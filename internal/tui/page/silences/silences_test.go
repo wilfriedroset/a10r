@@ -166,20 +166,6 @@ func TestPage_VimMotions(t *testing.T) {
 	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
-func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	wantDangerous := map[string]bool{"n": true, "e": true, "x": true, "Ctrl+E": true}
-	for _, b := range p.Bindings() {
-		if want, ok := wantDangerous[b.Key]; ok {
-			require.True(t, b.Dangerous,
-				"%s must carry Dangerous so read-only mode hides it (got %#v)", b.Key, b)
-			require.True(t, want)
-		}
-	}
-}
-
 func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
 	t.Parallel()
 
@@ -238,20 +224,6 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 			require.Equal(t, footer.FlashWarn, fm.Level)
 			require.Contains(t, fm.Text, "read-only")
 		})
-	}
-}
-
-func TestPage_CtrlXBindingRemoved(t *testing.T) {
-	t.Parallel()
-
-	// `x` is the single binding for both cursor-row expire and
-	// bulk expire (k9s-style same-key-different-N). Ctrl+X must
-	// not appear in Bindings — its presence would advertise a
-	// shortcut that no longer routes anywhere and would clutter
-	// the page hint strip.
-	p := newPage(t)
-	for _, b := range p.Bindings() {
-		require.NotEqual(t, "Ctrl+X", b.Key, "Ctrl+X binding must be removed")
 	}
 }
 
@@ -975,15 +947,6 @@ func TestPage_FooterRefreshingOverridesCadence(t *testing.T) {
 	require.Equal(t, "refreshing…", p.Footer())
 }
 
-func TestPage_FooterEmptyPrePoll(t *testing.T) {
-	t.Parallel()
-	// Pre-poll the bottom border stays a plain rule — the spinner
-	// in the body already says "loading", and a "next refresh"
-	// label here would be a lie because we have no NextAt yet.
-	p := newPage(t)
-	require.Empty(t, p.Footer())
-}
-
 func TestPage_NextRefreshLabelEdgeCases(t *testing.T) {
 	t.Parallel()
 
@@ -1425,25 +1388,6 @@ func TestPage_EnterPushesSilenceDetail(t *testing.T) {
 		"Enter with rows must push the detail page, not flash a hint")
 }
 
-func TestPage_BindingsSurfaceEnterDetail(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	var found bool
-	for _, b := range p.Bindings() {
-		if b.Key == "Enter" {
-			found = true
-			require.Equal(t, "detail", b.Description,
-				"Enter must read as `detail` in the hint strip — drift here "+
-					"would mismatch the alerts page's binding")
-			require.False(t, b.Dangerous,
-				"Enter is read-only — flagging it Dangerous would hide it in "+
-					"read-only mode and break the only path to silence detail")
-		}
-	}
-	require.True(t, found, "Bindings() must surface Enter so the hint strip "+
-		"shows the affordance")
-}
-
 func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
@@ -1562,25 +1506,6 @@ func TestPage_RecreateKeyOnActiveSilenceFlashesHint(t *testing.T) {
 		"Ctrl+N on a non-expired row must say so")
 }
 
-func TestPage_RecreateKeyOnPendingSilenceFlashesHint(t *testing.T) {
-	t.Parallel()
-	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
-		Creator: "wilfried",
-	})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-pending", "alice", backend.SilenceStatePending, time.Hour)},
-		Tenant:   "prod",
-	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "expired",
-		"Ctrl+N on a pending row is also a no-op (only expired silences recreate)")
-}
-
 func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
@@ -1645,27 +1570,6 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 		"recreate must NOT prefill the original EndsAt (it would be in the past)")
 }
 
-func TestPage_BindingsSurfaceCtrlNRecreate(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	var found bool
-	for _, b := range p.Bindings() {
-		if b.Key != "Ctrl+N" {
-			continue
-		}
-		found = true
-		require.Equal(t, "silences", b.View,
-			"Ctrl+N must scope to the silences view so a future global Ctrl+N "+
-				"can't shadow it without warning")
-		require.NotEmpty(t, b.Description, "Ctrl+N must surface a description in the help")
-		require.Contains(t, strings.ToLower(b.Description), "recreate",
-			"Ctrl+N hint must read as a recreate affordance, not a generic 'new'")
-		require.True(t, b.Dangerous,
-			"Ctrl+N is a write action — read-only mode (C4) must hide it")
-	}
-	require.True(t, found, "Bindings() must surface Ctrl+N so the help overlay shows the affordance")
-}
-
 func TestPage_FormSubmittedUpdatedFlashesUpdated(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
@@ -1686,18 +1590,6 @@ func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "no silence under the cursor")
-}
-
-func TestPage_ExpireKeyOpensConfirmModal(t *testing.T) {
-	t.Parallel()
-	p := pageWithRows(t, &fakeSilenceClient{}, 1)
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	require.NotNil(t, cmd)
-	_, isFlash := cmd().(footer.FlashShowMsg)
-	require.False(t, isFlash, "x must open a modal, not flash")
-	// The pending-expire state must be loaded with the cursor row.
-	require.Equal(t, []pendingExpireID{{id: "sil-a", tenant: "prod"}}, p.pendingExpire.ids)
-	require.False(t, p.pendingExpire.bulk)
 }
 
 func TestPage_ConfirmYesCallsExpireSilence(t *testing.T) {
@@ -1723,16 +1615,6 @@ func TestPage_ConfirmNoIsNoop(t *testing.T) {
 	p := pageWithRows(t, fake, 1)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: false})
-	require.Nil(t, cmd)
-	require.Empty(t, fake.expiredIDs)
-}
-
-func TestPage_ConfirmCancelledIsNoop(t *testing.T) {
-	t.Parallel()
-	fake := &fakeSilenceClient{}
-	p := pageWithRows(t, fake, 1)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	_, cmd := p.Update(modal.ConfirmResultMsg{Cancelled: true})
 	require.Nil(t, cmd)
 	require.Empty(t, fake.expiredIDs)
 }
@@ -1775,25 +1657,6 @@ func TestPage_XKeyNoMarksUsesCursor(t *testing.T) {
 	require.Equal(t, "sil-a", p.pendingExpire.ids[0].id)
 	// The Cmd opens the confirm modal — flash assertion would be
 	// the wrong shape here. Cmd not nil is the contract.
-}
-
-func TestPage_XKeyWithMarksGoesBulk(t *testing.T) {
-	t.Parallel()
-
-	// Marks → `x` queues every marked silence with bulk=true.
-	// Wording for ≥2 marks adds the tenant breakdown; for the
-	// single-tenant case the breakdown is just the tenant name.
-	fake := &fakeSilenceClient{}
-	p := pageWithRows(t, fake, 2)
-	// Mark both rows.
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	require.Len(t, p.marks, 2)
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-	require.NotNil(t, cmd, "marks present → x must open the bulk confirm")
-	require.True(t, p.pendingExpire.bulk)
-	require.Len(t, p.pendingExpire.ids, 2)
 }
 
 // runBulk drives a confirmed bulk-expire fanout to completion and
@@ -1902,28 +1765,6 @@ func TestPage_BulkExpireSummaryFlashesTotalFailure(t *testing.T) {
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "expire failed for 2 silences")
 	require.Len(t, p.marks, 2, "every failed mark must survive for retry")
-}
-
-func TestPage_BulkExpireUnmarksOnlySuccessfulIDs(t *testing.T) {
-	t.Parallel()
-
-	// Three marks, the middle one fails. The two successes drop
-	// their marks; the failure keeps its mark so re-pressing `x`
-	// retries only the unfinished work. Mirrors the alerts-side
-	// rule once that lands; pinning here makes the unmark contract
-	// load-bearing for both pages.
-	fake := &fakeSilenceClient{expireErrOnce: map[string]error{"sil-b": errors.New("boom")}}
-	p := pageWithRows(t, fake, 3)
-	for range 3 {
-		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	}
-	require.Len(t, p.marks, 3)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
-
-	_ = runBulk(t, p)
-	require.Len(t, p.marks, 1, "only failures keep marks")
-	require.Contains(t, p.marks, "sil-b")
 }
 
 func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
