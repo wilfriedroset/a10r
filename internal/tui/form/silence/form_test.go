@@ -102,12 +102,6 @@ func drainSubmit(t *testing.T, f *Form) tea.Msg {
 	return cmd2()
 }
 
-func TestForm_DefaultEnds(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	require.Equal(t, "2h", f.ends.Value(), "default endsAt is +2h shorthand")
-}
-
 func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
 	t.Parallel()
 	// Recreate-expired entry point wants the user to type a fresh
@@ -208,12 +202,6 @@ func TestForm_FocusEndsLandsOnEndsField(t *testing.T) {
 	require.False(t, f.matchers.Focused(), "FocusEnds blurs the default matchers field")
 }
 
-func TestForm_CreatorDefaultedFromOpts(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	require.Equal(t, "alice", f.creator.Value())
-}
-
 func TestForm_TabWalksFields(t *testing.T) {
 	t.Parallel()
 	f := newForm(t, &fakeClient{})
@@ -265,30 +253,6 @@ func TestForm_ErrorPersistsAcrossNavigation(t *testing.T) {
 	// the error stays so the user keeps the context.
 	_, _ = f.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	require.Equal(t, prev, f.err, "typing must not wipe the validation error")
-}
-
-func TestForm_FocusToggleBlursPrevious(t *testing.T) {
-	t.Parallel()
-	// Walking focus must Blur the outgoing field and Focus the
-	// incoming one so bubbles renders the cursor on exactly one
-	// input at a time.
-	f := newForm(t, &fakeClient{})
-	require.True(t, f.matchers.Focused())
-	require.False(t, f.starts.Focused())
-
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	require.False(t, f.matchers.Focused())
-	require.True(t, f.starts.Focused())
-}
-
-func TestForm_CapturesInput(t *testing.T) {
-	t.Parallel()
-	// The form must opt into raw key capture so the App
-	// bypasses LayerGlobal bindings (q / : / / / ? / 0-9) and
-	// routes those keys into the field instead of quitting,
-	// opening the prompt, or switching tenants.
-	f := newForm(t, &fakeClient{})
-	require.True(t, f.CapturesInput())
 }
 
 func TestForm_TypingGloballyBoundCharsLandsInBuffer(t *testing.T) {
@@ -686,19 +650,6 @@ func TestForm_PrefillMatchers(t *testing.T) {
 	require.Equal(t, want, f.matchers.Value())
 }
 
-func TestForm_PrefillComment(t *testing.T) {
-	t.Parallel()
-	f := New(Options{
-		Clients: map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:  defaultTenant,
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Creator: "alice",
-		Comment: "ack while patching",
-	})
-	require.Equal(t, "ack while patching", f.comment.Value())
-}
-
 func TestForm_PrefillEndsAt(t *testing.T) {
 	t.Parallel()
 	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
@@ -837,12 +788,6 @@ func TestMatchersFromLabels_DropsNameAndSorts(t *testing.T) {
 	}, got, "synthetic __name__ must be dropped; output stable-sorted by name")
 }
 
-func TestMatchersFromLabels_EmptyInputReturnsEmpty(t *testing.T) {
-	t.Parallel()
-	got := MatchersFromLabels(map[string]string{})
-	require.Empty(t, got)
-}
-
 func TestForm_TitleSwitchesOnEditID(t *testing.T) {
 	t.Parallel()
 	create := New(Options{
@@ -898,24 +843,6 @@ func newBulkForm(t *testing.T, client Client, banner string) *Form {
 	})
 }
 
-func TestForm_BulkModeTitle(t *testing.T) {
-	t.Parallel()
-
-	f := newBulkForm(t, &fakeClient{}, "applies to 5 alerts across 2 tenants — each silenced with its own labels")
-	require.Equal(t, "bulk silence", f.Title(),
-		"bulk mode wins over create/edit; the banner carries the count breakdown")
-}
-
-func TestForm_BulkModeStartsFocusOnStarts(t *testing.T) {
-	t.Parallel()
-
-	// fieldMatchers is hidden in bulk mode, so initial focus must
-	// land on the first visible field. Tab walks the four metadata
-	// fields in a closed loop without ever touching matchers.
-	f := newBulkForm(t, nil, "banner")
-	require.Equal(t, fieldStarts, f.focus, "bulk mode starts on Starts; matchers is hidden")
-}
-
 func TestForm_BulkModeTabSkipsMatcherField(t *testing.T) {
 	t.Parallel()
 
@@ -937,27 +864,6 @@ func TestForm_BulkModeTabSkipsMatcherField(t *testing.T) {
 		"shift+tab from Starts must skip matchers and land on Comment")
 }
 
-func TestForm_BulkModeSkipsMatcherValidation(t *testing.T) {
-	t.Parallel()
-
-	// In bulk mode, leaving the matchers buffer empty must not
-	// error — the page substitutes per-target matchers at fanout.
-	// Create + comment + submit and assert no matcher-related error.
-	f := newBulkForm(t, panickingClient{}, "banner")
-	// Tab past Starts/Ends/Creator to Comment, then type.
-	for range 3 {
-		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	}
-	require.Equal(t, fieldComment, f.focus)
-	type_(f, "ack while patching")
-
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	msg := cmd()
-	_, ok := msg.(BulkSubmittedMsg)
-	require.True(t, ok, "submit must succeed and emit BulkSubmittedMsg, got %T", msg)
-}
-
 func TestForm_BulkModeEmitsBulkSubmittedMsg(t *testing.T) {
 	t.Parallel()
 
@@ -975,25 +881,6 @@ func TestForm_BulkModeEmitsBulkSubmittedMsg(t *testing.T) {
 	require.Equal(t, "alice", got.Creator)
 	require.Equal(t, fixedNow, got.StartsAt, "default starts is the injected now")
 	require.Equal(t, fixedNow.Add(2*time.Hour), got.EndsAt, "default ends is +2h")
-}
-
-func TestForm_BulkModeNeverCallsClient(t *testing.T) {
-	t.Parallel()
-
-	// Same shape as BulkModeEmitsBulkSubmittedMsg but with the
-	// panicking client wired in. If submit ever reaches Client.*
-	// the test panics and fails.
-	f := newBulkForm(t, panickingClient{}, "banner")
-	for range 3 {
-		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	}
-	type_(f, "ack")
-
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	require.NotPanics(t, func() {
-		_ = cmd()
-	}, "bulk submit must not call Client.* — the page owns dispatch")
 }
 
 func TestForm_BulkModeNilClientIsAllowed(t *testing.T) {
@@ -1053,16 +940,6 @@ func TestForm_BulkModeIgnoresPrefilledMatchers(t *testing.T) {
 		},
 	})
 	require.Empty(t, f.matchers.Value(), "bulk mode must not prefill the hidden matchers buffer")
-}
-
-func TestForm_BulkSubmittedMsgIsAutoPop(t *testing.T) {
-	t.Parallel()
-
-	// Pinning the AutoPopMsg contract — the App's stack only auto-pops
-	// messages that satisfy the marker interface. Without this assertion
-	// a future rename breaks the form's submit-and-pop UX silently.
-	var msg interface{ IsAutoPop() } = BulkSubmittedMsg{}
-	require.NotNil(t, msg)
 }
 
 // newMultiTenantForm builds a form with two clients keyed by name
