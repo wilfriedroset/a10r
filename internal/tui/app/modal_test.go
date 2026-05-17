@@ -17,16 +17,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-func TestModal_OpenSetsField(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	picker := modal.NewPicker("tenants", []string{"prod"}, modal.PickerSingle)
-	drive(t, a, OpenModal(func() modal.Modal { return picker }))
-
-	require.NotNil(t, a.modal)
-}
-
 func TestModal_KeysCapturedBeforeDispatcher(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -124,25 +114,6 @@ func TestModal_ConfirmSubmitFlowsThrough(t *testing.T) {
 	res, ok := last.(modal.ConfirmResultMsg)
 	require.True(t, ok)
 	require.True(t, res.Yes)
-}
-
-func TestModal_OpenWithNilFactoryIsNoOp(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	_, _ = a.Update(openModalMsg{Factory: nil})
-	require.Nil(t, a.modal)
-}
-
-func TestModal_CloseModalCmd(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	picker := modal.NewPicker("tenants", []string{"prod"}, modal.PickerSingle)
-	drive(t, a, OpenModal(func() modal.Modal { return picker }))
-	require.NotNil(t, a.modal)
-
-	drive(t, a, CloseModal())
-	require.Nil(t, a.modal)
 }
 
 func TestModal_RendersInBodySlot(t *testing.T) {

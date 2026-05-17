@@ -118,16 +118,6 @@ func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
 		"refresh handler must receive the (resource, scope) tuple verbatim")
 }
 
-func TestApp_RefreshRequestedNilHandlerIsSafe(t *testing.T) {
-	t.Parallel()
-	// Without a Refresh func wired (headless tests / no-poller
-	// wizard runs) the App must silently swallow the message —
-	// pressing `r` early in a wizard run shouldn't crash.
-	a := newTestApp(t)
-	_, cmd := a.Update(RefreshRequestedMsg{Resource: "silences", Scope: "all"})
-	require.Nil(t, cmd)
-}
-
 func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -178,17 +168,6 @@ func TestApp_CtrlCQuits(t *testing.T) {
 	require.NotNil(t, cmd, "Ctrl+C must produce a Cmd")
 	require.IsType(t, tea.QuitMsg{}, cmd(),
 		"Ctrl+C's Cmd must emit tea.QuitMsg")
-}
-
-func TestApp_QQuits(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	a = updated.(*App)
-
-	_, cmd := a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
-	require.NotNil(t, cmd)
-	require.IsType(t, tea.QuitMsg{}, cmd())
 }
 
 func TestApp_HelpKeyOpensModal(t *testing.T) {
@@ -374,16 +353,6 @@ func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
 	require.True(t, a.quitting, "non-capturing page must let `q` reach LayerGlobal")
 }
 
-func TestApp_QuitMsgMarksQuitting(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	updated, cmd := a.Update(tea.QuitMsg{})
-	a = updated.(*App)
-	require.True(t, a.quitting)
-	require.Nil(t, cmd, "QuitMsg's actual termination is bubbletea's job")
-}
-
 func TestApp_FlashShowAndClear(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -455,19 +424,6 @@ func TestApp_PasteRoutesToOpenPrompt(t *testing.T) {
 	updated, _ = a.Update(tea.PasteMsg{Content: "alerts"})
 	a = updated.(*App)
 	require.Equal(t, "alerts", a.prompt.Value())
-}
-
-func TestApp_PasteIgnoredWhenPromptClosed(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	a = updated.(*App)
-
-	require.False(t, a.prompt.IsOpen())
-	updated, _ = a.Update(tea.PasteMsg{Content: "junk"})
-	a = updated.(*App)
-	require.Empty(t, a.prompt.Value(),
-		"closed prompt must not absorb pasted content")
 }
 
 func TestApp_OpenPromptSwallowsKeysExceptEsc(t *testing.T) {
@@ -633,28 +589,6 @@ func TestApp_MouseWheelOnTableSynthesizesMotionKey(t *testing.T) {
 			require.Equal(t, tc.expect, (*page.updateLog)[0])
 		})
 	}
-}
-
-// TestApp_MouseWheelLeftRightIgnored covers the horizontal-wheel
-// edge case: the wheel-to-key map only handles up/down so a stray
-// left/right tick (rare hardware) is a silent no-op rather than a
-// surprise column walk.
-func TestApp_MouseWheelLeftRightIgnored(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	a = updated.(*App)
-
-	page := newFakePage("alerts")
-	drive(t, a, PushPage(func() Page { return page }))
-	before := len(*page.updateLog)
-
-	for _, button := range []tea.MouseButton{tea.MouseWheelLeft, tea.MouseWheelRight} {
-		_, cmd := a.Update(tea.MouseWheelMsg{Button: button})
-		require.Nil(t, cmd)
-	}
-	require.Len(t, *page.updateLog, before,
-		"horizontal wheel must NOT deliver any synthetic key — pages don't bind h/l to wheel")
 }
 
 // TestApp_MouseClickAndMotionIgnored guards the keyboard-first

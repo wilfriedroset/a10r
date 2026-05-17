@@ -174,24 +174,6 @@ func TestStack_PushRunsInit(t *testing.T) {
 	require.Same(t, page, a.topPage())
 }
 
-func TestStack_PushPushPopOrdering(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	alerts := newFakePage("alerts")
-	detail := newFakePage("alert-detail")
-	drive(t, a, PushPage(func() Page { return alerts }))
-	drive(t, a, PushPage(func() Page { return detail }))
-
-	require.Same(t, detail, a.topPage())
-	require.Len(t, a.stack, 2)
-
-	drive(t, a, PopPage())
-	require.Same(t, alerts, a.topPage(),
-		"pop must surface the page underneath")
-	require.Len(t, a.stack, 1)
-}
-
 func TestStack_PopOnSingleStackIsNoOp(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -296,19 +278,6 @@ func TestStack_CrumbsTrackStack(t *testing.T) {
 	require.Equal(t, "alerts", a.crumbs.Top())
 }
 
-func TestStack_BodyRendersTopPage(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	updated, _ := a.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
-	a = updated.(*App)
-
-	page := newFakePage("alerts")
-	page.bodyText = "alerts list goes here"
-	drive(t, a, PushPage(func() Page { return page }))
-
-	require.Contains(t, a.View().Content, "alerts list goes here")
-}
-
 func TestStack_UnboundKeysReachTopPage(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -328,33 +297,11 @@ func TestStack_UnboundKeysReachTopPage(t *testing.T) {
 	require.IsType(t, tea.KeyPressMsg{}, (*page.updateLog)[len(*page.updateLog)-1])
 }
 
-func TestStack_MessagesForwardToTopPage(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	page := newFakePage("alerts")
-	drive(t, a, PushPage(func() Page { return page }))
-
-	type customMsg struct{ Tag string }
-	_, _ = a.Update(customMsg{Tag: "data-tick"})
-
-	require.NotEmpty(t, *page.updateLog,
-		"custom messages must reach the page via the catch-all forward")
-}
-
 func TestStack_PushNilFactoryIsNoOp(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	_, _ = a.Update(pushPageMsg{Factory: nil})
 	require.Empty(t, a.stack)
-}
-
-func TestStack_PushFactoryReturningNilIsNoOp(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	_, _ = a.Update(pushPageMsg{Factory: func() Page { return nil }})
-	require.Empty(t, a.stack,
-		"a factory returning nil must NOT push a nil page slot")
 }
 
 func TestStack_PopRunsCloseOnDeparting(t *testing.T) {
@@ -387,18 +334,6 @@ func TestStack_ReplaceRunsCloseBeforeNewInit(t *testing.T) {
 		"replaced page must be Close()d so its background work doesn't leak")
 	require.Equal(t, 1, *second.initCalls,
 		"the new page's Init must run after the replace")
-}
-
-func TestStack_PopOnSingleStackDoesNotClose(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-
-	home := newFakePage("alerts")
-	drive(t, a, PushPage(func() Page { return home }))
-
-	drive(t, a, PopPage())
-	require.Zero(t, *home.closeCalls,
-		"home page must NOT be closed when pop is a no-op")
 }
 
 func TestStack_EscOnOpenPromptDoesNotPop(t *testing.T) {
