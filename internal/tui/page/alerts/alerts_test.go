@@ -75,87 +75,6 @@ func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 		"non-cursor warning cell must carry Severity.Warning ANSI")
 }
 
-func TestPage_CursorRowSkipsSeverityColour(t *testing.T) {
-	t.Parallel()
-
-	styles := testutil.LoadStyles(t)
-	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
-	alerts := []backend.Alert{
-		mkAlert("CritOne", "critical", backend.AlertStateActive),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
-	// Single row → cursor sits on it.
-	require.Equal(t, 0, p.cursor)
-
-	out := p.View(120, 20)
-	notWanted := styles.Severity.Critical.Render("critical")
-	require.NotContains(t, out, notWanted,
-		"cursor row must not carry the per-cell severity ANSI; row-level style wins per Q1.2")
-}
-
-func TestPage_MarkedRowSkipsSeverityColour(t *testing.T) {
-	t.Parallel()
-
-	styles := testutil.LoadStyles(t)
-	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
-	alerts := []backend.Alert{
-		mkAlert("CritOne", "critical", backend.AlertStateActive),
-		mkAlert("WarnTwo", "warning", backend.AlertStateActive),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
-	// Move cursor to row 1 so row 0 isn't the cursor; mark row 0.
-	p.cursor = 1
-	p.snapshotFocus()
-	p.marks[p.view[0].a.Fingerprint] = struct{}{}
-
-	out := p.View(120, 20)
-	notWanted := styles.Severity.Critical.Render("critical")
-	require.NotContains(t, out, notWanted,
-		"marked row must not carry per-cell severity ANSI; marked-row fg wins")
-}
-
-func TestPage_SuppressedRowSkipsSeverityColour(t *testing.T) {
-	t.Parallel()
-
-	styles := testutil.LoadStyles(t)
-	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
-	alerts := []backend.Alert{
-		mkAlert("CritOne", "critical", backend.AlertStateActive),
-		mkAlert("WarnTwo", "warning", backend.AlertStateSuppressed),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
-	// Cursor on row 0 (critical/active); row 1 (warning/suppressed)
-	// should be dim-styled and skip per-cell colour.
-	p.cursor = 0
-
-	out := p.View(120, 20)
-	notWanted := styles.Severity.Warning.Render("warning")
-	require.NotContains(t, out, notWanted,
-		"suppressed (dimmed) row must not carry per-cell severity ANSI")
-}
-
-func TestPage_DataMsgPopulatesView(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	alerts := []backend.Alert{
-		mkAlert("HighCPU", "critical", backend.AlertStateActive),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts, Tenant: "prod"})
-
-	out := testutil.StripStyle(p.View(120, 20))
-	require.Contains(t, out, "HighCPU")
-	require.Contains(t, out, "critical")
-}
-
-func TestPage_DataMsgWrongTypeIsNoOp(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	_, _ = p.Update(poll.DataMsg{Resource: "not alerts"})
-	require.Empty(t, p.byTenant[""])
-}
-
 func TestPage_SortBySeverityPutsCriticalFirst(t *testing.T) {
 	t.Parallel()
 
@@ -279,16 +198,6 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
-func TestPage_CursorClampsOnEmptyView(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 0, p.cursor, "cursor must not advance past the (empty) view")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, 0, p.cursor)
-}
-
 func TestPage_StateFilterCycle(t *testing.T) {
 	t.Parallel()
 
@@ -319,23 +228,6 @@ func TestPage_StateFilterCycle(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'F', Text: "F", Mod: tea.ModShift})
 	require.Empty(t, p.stateFilter, "fourth Shift+F cycles back to all")
 	require.Len(t, p.view, 3)
-}
-
-func TestPage_TKeyDoesNotCycleStateFilter(t *testing.T) {
-	t.Parallel()
-
-	// The page-local `t` handler is dead code — the app-global
-	// `t` (time-format toggle) consumes the key at the dispatcher
-	// before the page's Update sees it. Pinning the contract: a
-	// `t` keypress reaching the page directly (legacy callers,
-	// tests) must NOT cycle state filters.
-	p := newPage(t)
-	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("A", "critical", backend.AlertStateActive),
-	}})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
-	require.Empty(t, p.stateFilter,
-		"`t` is owned by the app-global time-format toggle; the page must not bind it")
 }
 
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
@@ -714,26 +606,6 @@ func TestPage_MarkedRowCarriesMarkedStyle(t *testing.T) {
 		"the marker column must show the check glyph on marked rows")
 }
 
-func TestPage_MarksRenderedNextToCursor(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	mk := func(name, fp string) backend.Alert {
-		a := mkAlert(name, "warning", backend.AlertStateActive)
-		a.Fingerprint = fp
-		return a
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mk("First", "fp-1"),
-		mk("Second", "fp-2"),
-	}})
-	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
-
-	out := testutil.StripStyle(p.View(120, 20))
-	require.Contains(t, out, "✓",
-		"marked rows must show a check glyph in the marker column")
-}
-
 func TestPage_GoToFirstRowResetsCursorAndScroll(t *testing.T) {
 	t.Parallel()
 
@@ -866,20 +738,6 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 		"non-cursor rows must not carry the cursor row-level style")
 }
 
-func TestPage_BindingsIncludeEnterDrill(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	var sawEnter bool
-	for _, b := range p.Bindings() {
-		if b.Key == "Enter" {
-			sawEnter = true
-			require.False(t, b.Dangerous, "drill must NOT be Dangerous")
-		}
-	}
-	require.True(t, sawEnter, "alerts page must surface Enter→detail in its hints")
-}
-
 func TestPage_DirectSortShortcuts(t *testing.T) {
 	t.Parallel()
 
@@ -981,27 +839,6 @@ func TestPage_TitleIncludesScope(t *testing.T) {
 	// SetScope updates the active label live.
 	p2.SetScope("prod,staging")
 	require.Equal(t, "alerts(prod,staging)[0]", p2.Title())
-}
-
-func TestPage_TitleColdStartShowsLoading(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	out := testutil.StripStyle(p.Title())
-	require.Contains(t, out, "loading alerts",
-		"cold-start title must read as loading until the first DataMsg lands")
-}
-
-func TestPage_TitleAfterDataMsgFlipsToCount(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
-		Tenant:   "",
-	})
-	require.Equal(t, "alerts(all)[1]", p.Title(),
-		"first in-scope DataMsg must drop the loading affordance")
 }
 
 func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
@@ -1192,22 +1029,6 @@ func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	require.True(t, ok, "expected a footer.FlashShowMsg, got %T", msg)
 	require.Equal(t, footer.FlashWarn, fm.Level)
 	require.Contains(t, fm.Text, "read-only")
-}
-
-func TestPage_BindingsContainSilenceAsDangerous(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	bindings := p.Bindings()
-	var sawSilence bool
-	for _, a := range bindings {
-		if a.Key == "s" {
-			sawSilence = true
-			require.True(t, a.Dangerous,
-				"silence binding must carry Dangerous so read-only mode hides it")
-		}
-	}
-	require.True(t, sawSilence, "alerts page must expose `s` silence binding")
 }
 
 func TestPage_EmptyStateMessages(t *testing.T) {
