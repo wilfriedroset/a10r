@@ -8,7 +8,6 @@ package receivers
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -119,19 +118,6 @@ func New(opts Options) *Page {
 		byTenant: map[string][]string{},
 		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
 	}
-}
-
-// knownTenant reports whether the given name is in the configured
-// tenants list, used to gate incoming DataMsg / BackendStatusMsg
-// state mutations. An empty configured list disables the guard so
-// test fixtures that don't pin Tenants on the page (or legacy
-// upstream wiring with no canonical list) keep working. Sibling
-// of the alerts / silences page helpers.
-func (p *Page) knownTenant(name string) bool {
-	if len(p.Tenants) == 0 {
-		return true
-	}
-	return slices.Contains(p.Tenants, name)
 }
 
 // Init implements app.Page.
@@ -267,7 +253,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// names that will never poll again. Empty Tenants disables
 		// the guard (test fixtures that don't pin the list). Mirror
 		// of the alerts page's handler.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Track per-tenant transport errors for the error band.
@@ -289,7 +275,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// Same guard as BackendStatusMsg: refuse data from tenants
 		// not in the configured list so byTenant doesn't hold
 		// entries for names that will never be polled or rendered.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table

@@ -35,7 +35,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pruned its sources could otherwise pollute lastErrors with
 		// names that will never poll again. Empty Tenants disables
 		// the guard.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Track per-tenant transport errors for the error band.
@@ -55,7 +55,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			return p, nil
 		}
 		// Same tenant-validation guard as BackendStatusMsg above.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table

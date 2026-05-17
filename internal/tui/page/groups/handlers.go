@@ -22,7 +22,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
 		// Drop status for tenants outside the configured list.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Track per-tenant transport errors for the error band.
@@ -41,7 +41,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if !ok {
 			return p, nil
 		}
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table

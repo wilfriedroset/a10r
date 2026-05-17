@@ -3,7 +3,6 @@
 package silences
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -22,18 +21,6 @@ func (p *Page) totalSilences() int {
 		n += len(sils)
 	}
 	return n
-}
-
-// knownTenant reports whether the given name is in the configured
-// tenants list, used to gate incoming DataMsg / BackendStatusMsg
-// state mutations. An empty configured list disables the guard so
-// test fixtures that don't pin Tenants on the page (or legacy
-// upstream wiring with no canonical list) keep working.
-func (p *Page) knownTenant(name string) bool {
-	if len(p.Tenants) == 0 {
-		return true
-	}
-	return slices.Contains(p.Tenants, name)
 }
 
 // showTenantColumn reports whether the view spans more than one

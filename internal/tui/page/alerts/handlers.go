@@ -31,7 +31,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pruned its sources could otherwise pollute lastErrors with
 		// names that will never poll again. Empty Tenants disables
 		// the guard (test fixtures that don't pin the list).
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Track per-tenant transport errors for the error band.
@@ -52,7 +52,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// Same guard as BackendStatusMsg: refuse data from tenants
 		// not in the configured list so byTenant/polledTenants don't
 		// hold entries for names that will never be polled or rendered.
-		if !p.knownTenant(m.Tenant) {
+		if !p.KnownTenant(m.Tenant) {
 			return p, nil
 		}
 		// Watch-mode: paused pages drop the snapshot so the table
