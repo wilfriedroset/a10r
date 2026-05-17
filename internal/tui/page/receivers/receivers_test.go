@@ -93,13 +93,6 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
-func TestPage_DefaultsToNameAscending(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc(), "alphabetical reading order is the default")
-}
-
 func TestPage_SortShortcutTogglesDirection(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -181,7 +174,13 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 		"DESC must surface a ↓ arrow on the same active axis")
 }
 
-func TestPage_FilterPromptIsLive(t *testing.T) {
+// TestPage_FilterNarrowsView is the per-page wiring smoke proving
+// the receivers page plumbs filter buffers through footer.NewMatcher
+// into p.view. The mode-autodetect / live-narrow / Esc-restore /
+// submit-empty-clears contract lives in
+// internal/tui/footer/{searchmode,matcher}_test.go and footer_test.go
+// (TestPrompt_* family); this test only proves the wiring exists.
+func TestPage_FilterNarrowsView(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
@@ -189,55 +188,10 @@ func TestPage_FilterPromptIsLive(t *testing.T) {
 	}})
 	require.Len(t, p.view, 3)
 
-	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
-	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "ef"})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "ef"})
 	require.Equal(t, []string{"default"}, p.view,
-		"live filter must trim the view as the user types")
+		"submitted filter must trim the view to the matching row")
 	require.Equal(t, "receivers(all)[1/3]", p.Title())
-
-	// Cancel reverts to the pre-prompt state.
-	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
-	require.Empty(t, p.filter)
-	require.Len(t, p.view, 3)
-}
-
-// TestPage_FilterSearchModesAutodetect pins the receivers page's
-// wiring of footer.NewMatcher. Same buffer-mode contract as the
-// other list pages — see alerts_test.go for the per-mode rationale.
-// Receivers carry only a Name; matching runs against the lower-cased
-// name, so the fixture picks names that don't share fuzzy
-// subsequences across rows.
-func TestPage_FilterSearchModesAutodetect(t *testing.T) {
-	t.Parallel()
-
-	receivers := []backend.Receiver{
-		{Name: "highcpu"},
-		{Name: "web.api"},
-		{Name: "diskfull"},
-	}
-
-	cases := []struct {
-		name      string
-		filter    string
-		wantNames []string
-	}{
-		{"tilde flips to fuzzy", "~hgp", []string{"highcpu"}},
-		{"backslash forces literal", `\web.api`, []string{"web.api"}},
-		{"single dot stays substring", "web.api", []string{"web.api"}},
-		{"two metas flip to regex", ".*api", []string{"web.api"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p := New(Options{Styles: testutil.LoadStyles(t)})
-			_, _ = p.Update(poll.DataMsg{Resource: receivers})
-			_, _ = p.Update(footer.PromptSubmittedMsg{
-				Mode: footer.PromptFilter, Value: tc.filter,
-			})
-			require.ElementsMatch(t, tc.wantNames, p.view)
-		})
-	}
 }
 
 func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {

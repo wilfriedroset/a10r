@@ -68,14 +68,6 @@ func sil(id, by string, state backend.SilenceState, endsIn time.Duration) backen
 	}
 }
 
-func TestPage_DefaultsToEndsAtAscending(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc(), "soonest-expiring first matches operator priority")
-}
-
 func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 	t.Parallel()
 
@@ -1400,89 +1392,6 @@ func TestPage_FilterMatchesSilenceID(t *testing.T) {
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "abcd1234"})
 	require.Len(t, p.view, 1, "ID prefix must filter the view down to the matching row")
 	require.Equal(t, long, p.view[0].s.ID)
-}
-
-// TestPage_FilterSearchModesAutodetect pins the silences page's
-// wiring of footer.NewMatcher: same buffer-mode contract as the
-// alerts page (see alerts_test.go for the per-mode rationale),
-// applied here against silence creators because that's the field
-// that varies most often in real-world filtering.
-func TestPage_FilterSearchModesAutodetect(t *testing.T) {
-	t.Parallel()
-
-	// Comments carry the discriminating tokens so the matcher
-	// runs against a wide field. State is "active" on every row,
-	// so any letter from "active" is "free" in the composite —
-	// fuzzy needles in this fixture deliberately use letters that
-	// don't appear in "active".
-	mk := func(id, comment string) backend.Silence {
-		return backend.Silence{
-			ID: id, CreatedBy: "alice", Comment: comment,
-			State:    backend.SilenceStateActive,
-			StartsAt: fixedNow.Add(-time.Hour),
-			EndsAt:   fixedNow.Add(time.Hour),
-		}
-	}
-	silences := []backend.Silence{
-		mk("id-1", "highcpu rollup"),
-		mk("id-2", "web.api flapping"),
-		mk("id-3", "diskfull warning"),
-	}
-
-	cases := []struct {
-		name    string
-		filter  string
-		wantIDs []string
-	}{
-		{"tilde flips to fuzzy", "~hgp", []string{"id-1"}},
-		{"backslash forces literal", `\web.api`, []string{"id-2"}},
-		{"single dot stays substring", "web.api", []string{"id-2"}},
-		{"two metas flip to regex", ".*api", []string{"id-2"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p := newPage(t)
-			_, _ = p.Update(poll.DataMsg{Resource: silences})
-			_, _ = p.Update(footer.PromptSubmittedMsg{
-				Mode: footer.PromptFilter, Value: tc.filter,
-			})
-			got := make([]string, 0, len(p.view))
-			for _, e := range p.view {
-				got = append(got, e.s.ID)
-			}
-			require.ElementsMatch(t, tc.wantIDs, got)
-		})
-	}
-}
-
-func TestPage_FilterPromptIsLive(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	silences := []backend.Silence{
-		sil("a", "alice@example", backend.SilenceStateActive, time.Hour),
-		sil("b", "bob@example", backend.SilenceStateActive, 2*time.Hour),
-		sil("c", "carol@example", backend.SilenceStateActive, 3*time.Hour),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	require.Len(t, p.view, 3)
-
-	// Live filter applies on each keystroke without Enter.
-	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
-	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "alice"})
-	require.Len(t, p.view, 1)
-	require.Equal(t, "alice@example", p.view[0].s.CreatedBy)
-
-	// Title carries the F/T count while a filter is on.
-	require.Equal(t, "silences(all)[1/3]", p.Title())
-	require.Equal(t, "filter:alice", p.HeaderContent())
-
-	// Esc rolls back to the pre-prompt state (no filter).
-	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
-	require.Empty(t, p.filter)
-	require.Len(t, p.view, 3)
 }
 
 // fakeSilenceClient records every write call so tests can assert

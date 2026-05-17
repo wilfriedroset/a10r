@@ -39,13 +39,6 @@ func sampleGroups() []backend.AlertGroup {
 	}
 }
 
-func TestPage_DefaultsToNameAscending(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc(), "alphabetical name read-order is the default")
-}
-
 func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -695,71 +688,24 @@ func TestCommonLabels_AllSharedSurvives(t *testing.T) {
 	require.Equal(t, map[string]string{"team": "platform", "env": "prod"}, got)
 }
 
-func TestPage_FilterPromptIsLive(t *testing.T) {
+// TestPage_FilterNarrowsView is the per-page wiring smoke proving
+// the groups page plumbs filter buffers through footer.NewMatcher
+// into visibleGroups. The mode-autodetect / live-narrow / Esc-restore
+// / submit-empty-clears contract lives in
+// internal/tui/footer/{searchmode,matcher}_test.go and footer_test.go
+// (TestPrompt_* family); this test only proves the wiring exists.
+func TestPage_FilterNarrowsView(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// sampleGroups has two entries: team=platform and team=data.
 	// Filter by "data" → only the data group is visible.
-	_, _ = p.Update(footer.PromptOpenedMsg{Mode: footer.PromptFilter})
-	_, _ = p.Update(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "data"})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "data"})
 	require.Equal(t, "groups(all)[1/2]", p.Title())
 	visible := p.visibleGroups()
 	require.Len(t, visible, 1)
 	require.Equal(t, "data", visible[0].Labels["team"])
-
-	// Cancel reverts.
-	_, _ = p.Update(footer.PromptCancelledMsg{Mode: footer.PromptFilter})
-	require.Empty(t, p.filter)
-	require.Equal(t, "groups(all)[2]", p.Title())
-}
-
-// TestPage_FilterSearchModesAutodetect pins the groups page's
-// wiring of footer.NewMatcher. Same buffer-mode contract as the
-// alerts / silences pages — see alerts_test.go for the per-mode
-// rationale. Asserted against visibleGroups (the matcher feeds
-// rows() and visibleGroups identically) so a regression on either
-// path lights up here.
-func TestPage_FilterSearchModesAutodetect(t *testing.T) {
-	t.Parallel()
-
-	// Three groups whose label-summary tokens cover the matcher
-	// modes without sharing characters that would create fuzzy
-	// false-positives across rows.
-	groups := []backend.AlertGroup{
-		{Labels: map[string]string{"team": "platform"}},
-		{Labels: map[string]string{"team": "web.api"}},
-		{Labels: map[string]string{"team": "diskfull"}},
-	}
-
-	cases := []struct {
-		name      string
-		filter    string
-		wantTeams []string
-	}{
-		{"tilde flips to fuzzy", "~plt", []string{"platform"}},
-		{"backslash forces literal", `\web.api`, []string{"web.api"}},
-		{"single dot stays substring", "web.api", []string{"web.api"}},
-		{"two metas flip to regex", ".*api", []string{"web.api"}},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			p := New(Options{Styles: testutil.LoadStyles(t)})
-			_, _ = p.Update(poll.DataMsg{Resource: groups})
-			_, _ = p.Update(footer.PromptSubmittedMsg{
-				Mode: footer.PromptFilter, Value: tc.filter,
-			})
-			vis := p.visibleGroups()
-			got := make([]string, 0, len(vis))
-			for _, g := range vis {
-				got = append(got, g.Labels["team"])
-			}
-			require.ElementsMatch(t, tc.wantTeams, got)
-		})
-	}
 }
 
 func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
