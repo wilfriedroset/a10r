@@ -71,8 +71,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.spinner, cmd = p.spinner.Update(m)
 		return p, cmd
 	case app.ScopeChangedMsg:
-		p.Scope = m.Scope
-		p.recompute()
+		p.HandleScopeChangedMsg(m)
 		return p, nil
 	case app.GoToFirstRowMsg:
 		p.Cursor = 0

@@ -132,8 +132,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {
 	case app.ScopeChangedMsg:
-		p.Scope = m.Scope
-		p.recompute()
+		p.HandleScopeChangedMsg(m)
 		return true, nil
 	case app.TimeFormatChangedMsg:
 		p.timeFormat = m.Format
