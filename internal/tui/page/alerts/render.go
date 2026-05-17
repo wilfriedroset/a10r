@@ -104,7 +104,7 @@ func (p *Page) renderHeader(width int) string {
 	var b strings.Builder
 	b.WriteString(strings.Repeat(" ", rowPrefixCols))
 	idx := 0
-	if p.showTenantColumn() && idx < len(widths) {
+	if p.ShowTenantColumn(len(p.byTenant)) && idx < len(widths) {
 		b.WriteString(headerFg.Render(format.PadRight("TENANT", widths[idx])))
 		idx++
 	}
@@ -147,7 +147,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	p.recomputeScroll()
 	end := min(p.TopRow+maxRows, len(p.view))
 
-	showTenant := p.showTenantColumn()
+	showTenant := p.ShowTenantColumn(len(p.byTenant))
 	// Compute column widths once per frame: the spec builder walks
 	// the full view to measure max content widths, and re-running
 	// it per row would turn the render into O(rows²) under a
@@ -286,7 +286,7 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 // Centralised so padColumns and any future per-cell styler agree
 // on which column is the unbounded one.
 func (p *Page) flexColumnIndex() int {
-	if p.showTenantColumn() {
+	if p.ShowTenantColumn(len(p.byTenant)) {
 		return 2
 	}
 	return 1
@@ -376,7 +376,7 @@ func (p *Page) columnSpecs() []format.Column {
 	}
 
 	specs := make([]format.Column, 0, 5)
-	if p.showTenantColumn() {
+	if p.ShowTenantColumn(len(p.byTenant)) {
 		specs = append(specs, format.Column{Min: tenantMin, Content: max(tenantMin, tenantContent), Weight: 0})
 	}
 	specs = append(specs,

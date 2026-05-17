@@ -104,7 +104,7 @@ func (p *Page) renderHeader(width int) string {
 		sortKey string // "" when the column is display-only (UUID, COMMENT, TENANT)
 	}
 	cols := make([]col, 0, 7)
-	if p.showTenantColumn() {
+	if p.ShowTenantColumn(len(p.byTenant)) {
 		cols = append(cols, col{label: "TENANT"})
 	}
 	cols = append(cols,
@@ -162,7 +162,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	for i := p.TopRow; i < end; i++ {
 		e := p.view[i]
 		row := make([]string, 0, 7)
-		if p.showTenantColumn() {
+		if p.ShowTenantColumn(len(p.byTenant)) {
 			row = append(row, e.tenant)
 		}
 		row = append(row,
@@ -241,7 +241,7 @@ func (p *Page) padColumns(parts []string, width int) string {
 	}
 	fixed := uuidW + byW + startsW + endsW + stateW
 	cols := make([]int, 0, 7)
-	if p.showTenantColumn() {
+	if p.ShowTenantColumn(len(p.byTenant)) {
 		cols = append(cols, tenantW)
 		fixed += tenantW
 	}

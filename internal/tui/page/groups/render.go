@@ -283,7 +283,7 @@ const (
 // the labels readable rather than collapsing the NAME column to
 // zero.
 func (p *Page) columnWidths(width int) (tenant, name, count, sev int) {
-	if p.showTenantColumn() {
+	if p.ShowTenantColumn(len(p.byTenant)) {
 		tenant = tenantColWidth
 	}
 	count = countColWidth
