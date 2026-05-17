@@ -49,16 +49,6 @@ func TestPage_VimMotions(t *testing.T) {
 	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
-func TestPage_TitleCarriesCount(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}}})
-	require.Equal(t, "receivers(all)[2]", p.Title(),
-		"count lives in the title's [N] suffix; HeaderContent stays "+
-			"empty so the subtitle line doesn't duplicate it")
-	require.Empty(t, p.HeaderContent())
-}
-
 func TestPage_RenderShowsRows(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})

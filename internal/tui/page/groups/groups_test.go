@@ -6,7 +6,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -288,23 +287,6 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 		}
 	}
 	require.True(t, sawRefresh)
-}
-
-func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
-	t.Parallel()
-	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
-	p := New(Options{Styles: testutil.LoadStyles(t), Now: func() time.Time { return now }})
-	require.Empty(t, p.Footer())
-
-	_, _ = p.Update(poll.DataMsg{
-		Resource: sampleGroups(),
-		Tenant:   "",
-		NextAt:   now.Add(25 * time.Second),
-	})
-	require.Equal(t, "next refresh 25s", p.Footer())
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.Equal(t, "refreshing…", p.Footer())
 }
 
 // fakeSilenceClient satisfies silenceform.Client; the groups

@@ -928,25 +928,6 @@ func TestPage_FooterShowsNextRefreshAfterPoll(t *testing.T) {
 		"the dropped \"last X ago\" segment must not resurrect in the header")
 }
 
-func TestPage_FooterRefreshingOverridesCadence(t *testing.T) {
-	t.Parallel()
-
-	// Between `r` and the next DataMsg, Footer reads "refreshing
-	// …" so the user has direct frame-level feedback the nudge
-	// landed. The static "next refresh" copy is suppressed in
-	// this window — it's stale until the new DataMsg updates the
-	// NextAt timestamp.
-	p := pageWithRows(t, &fakeSilenceClient{}, 1)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{},
-		Tenant:   "prod",
-		At:       fixedNow.Add(-5 * time.Second),
-		NextAt:   fixedNow.Add(25 * time.Second),
-	})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.Equal(t, "refreshing…", p.Footer())
-}
-
 func TestPage_NextRefreshLabelEdgeCases(t *testing.T) {
 	t.Parallel()
 

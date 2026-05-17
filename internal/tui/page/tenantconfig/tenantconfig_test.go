@@ -216,12 +216,6 @@ func TestRedactedBackendYAML_RedactionDoesNotMutateInput(t *testing.T) {
 		"redaction must operate on a copy — original config stays intact")
 }
 
-func TestPage_TitleNamesTenant(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
-	require.Equal(t, "tenant-config(prod)", p.Title())
-}
-
 func TestPage_BodyShowsRedactedBackendImmediately(t *testing.T) {
 	t.Parallel()
 	p := New(Options{

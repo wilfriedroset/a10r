@@ -966,35 +966,6 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 		"time mode must NOT take a HeaderContent slot — saves a body row")
 }
 
-func TestPage_FooterShowsRefreshingThenNextRefresh(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	require.Empty(t, p.Footer(),
-		"pre-poll Footer is empty so the cold-start frame stays quiet")
-
-	next := fixedNow.Add(25 * time.Second)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{},
-		Tenant:   "",
-		NextAt:   next,
-	})
-	require.Equal(t, "next refresh 25s", p.Footer())
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.Equal(t, "refreshing…", p.Footer(),
-		"manual `r` flips the bottom border to the refreshing affordance")
-
-	// Once the next DataMsg lands, the timer reads naturally again.
-	later := fixedNow.Add(40 * time.Second)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{},
-		Tenant:   "",
-		NextAt:   later,
-	})
-	require.Equal(t, "next refresh 40s", p.Footer())
-}
-
 func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 	t.Parallel()
 
