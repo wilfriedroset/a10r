@@ -331,15 +331,13 @@ func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
 	require.Contains(t, msg.Text, "no writeable backend")
 }
 
-func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Alert: sample(), Tenant: "prod", Styles: testutil.LoadStyles(t)})
-	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
-	require.Equal(t, footer.FlashSuccess, msg.Level)
-	require.Contains(t, msg.Text, "silence created: sil-99")
-}
+// TestPage_SilenceFormSubmittedFlashesSuccess: the
+// silenceform.SubmittedMsg → footer.FlashShowMsg{Success, "silence
+// created: <id>"} contract is identical across alerts/groups/
+// alert-detail and is pinned canonically by
+// internal/tui/page/alerts/alerts_test.go:TestPage_SilenceFormSubmittedFlashesSuccess.
+// The detail page's Update routes the message through the same
+// flash helper; no detail-specific wiring to witness.
 
 // fakeSilenceClient satisfies silenceform.Client so the `s`
 // push test can construct a non-nil Clients map. The detail

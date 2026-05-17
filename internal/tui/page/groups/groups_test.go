@@ -250,15 +250,13 @@ func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 	require.False(t, isFlash, "`s` with clients must push the form, not flash")
 }
 
-func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, cmd := p.Update(silenceform.SubmittedMsg{ID: "sil-99"})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
-	require.Equal(t, footer.FlashSuccess, msg.Level)
-	require.Contains(t, msg.Text, "silence created: sil-99")
-}
+// TestPage_SilenceFormSubmittedFlashesSuccess: the
+// silenceform.SubmittedMsg → footer.FlashShowMsg{Success, "silence
+// created: <id>"} contract is identical across alerts/groups/
+// alert-detail and is pinned canonically by
+// internal/tui/page/alerts/alerts_test.go:TestPage_SilenceFormSubmittedFlashesSuccess.
+// Groups handles the message via the same handleWriteResult path;
+// no groups-specific wiring to witness.
 
 // TestPage_SilenceOnGroupWithNoMatchersFlashesError pins the
 // guard against silencing EVERYTHING when a group has no common
@@ -596,68 +594,20 @@ func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
 	}, distinguishingLabels(a, common))
 }
 
-func TestPage_TenantColumnAppearsOnMultiTenantScope(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.AlertGroup{{
-			Labels: map[string]string{"team": "platform"},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
-		}},
-		Tenant: "prod",
-	})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.AlertGroup{{
-			Labels: map[string]string{"team": "data"},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "B"}}},
-		}},
-		Tenant: "staging",
-	})
-
-	out := testutil.StripStyle(p.View(140, 10))
-	require.Contains(t, out, "prod",
-		"two in-scope tenants must surface a TENANT prefix on group headers")
-	require.Contains(t, out, "staging")
-}
-
-func TestPage_TenantColumnHiddenOnSingleTenantScope(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.AlertGroup{{
-			Labels: map[string]string{"team": "platform"},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
-		}},
-		Tenant: "prod",
-	})
-	out := testutil.StripStyle(p.View(140, 10))
-	require.NotContains(t, out, "prod ",
-		"single-tenant scope hides the TENANT column even though "+
-			"the tenant tag is in byTenant")
-}
-
-// TestPage_TenantColumnSurvivesSilentBackend is the QA-driven
-// regression: a configured tenant that never produced data (cold-
-// start connection refused) must still anchor the TENANT column.
-// Pre-fix the column auto-hid because byTenant counted only the
-// healthy backend.
-func TestPage_TenantColumnSurvivesSilentBackend(t *testing.T) {
-	t.Parallel()
-	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
-		Tenants: []string{"prod", "broken"},
-	})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.AlertGroup{{
-			Labels: map[string]string{"team": "platform"},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
-		}},
-		Tenant: "prod",
-	})
-	out := testutil.StripStyle(p.View(140, 10))
-	require.Contains(t, out, "prod",
-		"configured-tenant count must drive column visibility — a silent backend cannot erase the column")
-}
+// The TENANT-column visibility contract (multi-tenant scope shows
+// the column, single-tenant scope hides it, a configured-but-silent
+// backend still anchors the column) is identical across alerts/
+// groups/silences and is pinned canonically by:
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_TenantColumnAppearsForAllScope
+//     (multi-tenant DataMsgs surface the TENANT column).
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_TenantColumnHiddenForSingleBackend
+//     (single-tenant scope hides the column).
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied
+//     (configured-tenant count drives visibility even when one backend never produced data).
+//
+// Groups reads visibility off the same configured-tenant list via
+// the shared showTenantColumn() predicate; no groups-specific
+// wiring to witness here.
 
 func TestCommonLabels_EmptyInput(t *testing.T) {
 	t.Parallel()

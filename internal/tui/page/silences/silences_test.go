@@ -1152,89 +1152,48 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 	}
 }
 
-// TestPage_HeaderColumnOrder pins the layout: when scope is
-// single-tenant the columns are UUID, BY, COMMENT, STARTS,
-// ENDS, STATE; when scope spans two backends a leading TENANT
-// column appears. Asserted on first-occurrence position so a
-// future widening of any cell can't fool the comparison.
+// TestPage_HeaderColumnOrder pins the silences-specific column
+// layout: UUID, BY, COMMENT, STARTS, ENDS, STATE. Asserted on
+// first-occurrence position so a future widening of any cell can't
+// fool the comparison.
+//
+// The TENANT-column visibility contract is cross-page and pinned
+// canonically by:
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_TenantColumnAppearsForAllScope
+//     (multi-tenant scope surfaces the column).
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_TenantColumnHiddenForSingleBackend
+//     (single-tenant scope hides it).
+//   - internal/tui/page/alerts/alerts_test.go:TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied
+//     (a configured-but-silent backend still anchors the column).
+//
+// Silences reads the same configured-tenant list via the shared
+// showTenantColumn() predicate. Only the silences-specific
+// column-order claim is exercised here; the previous "multi-tenant
+// — TENANT first" and "configured but silent tenant" subtests were
+// pure re-derivations of the alerts canonical and have been
+// dropped.
 func TestPage_HeaderColumnOrder(t *testing.T) {
 	t.Parallel()
-
-	t.Run("single tenant — no TENANT column", func(t *testing.T) {
-		t.Parallel()
-		p := newPage(t)
-		_, _ = p.Update(poll.DataMsg{
-			Resource: []backend.Silence{{
-				ID: "sil-only", CreatedBy: "alice", State: backend.SilenceStateActive,
-				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
-			}},
-			Tenant: "prod",
-		})
-		out := testutil.StripStyle(p.View(220, 5))
-		header := strings.Split(out, "\n")[0]
-		require.NotContains(t, header, "TENANT",
-			"single-tenant scope must not surface a TENANT column")
-		want := []string{"UUID", "BY", "COMMENT", "STARTS", "ENDS", "STATE"}
-		idxs := make([]int, len(want))
-		for i, label := range want {
-			idxs[i] = strings.Index(header, label)
-			require.GreaterOrEqual(t, idxs[i], 0, "missing %q in header %q", label, header)
-		}
-		for i := 1; i < len(idxs); i++ {
-			require.Less(t, idxs[i-1], idxs[i],
-				"header column order broke at %q (header=%q)", want[i], header)
-		}
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{{
+			ID: "sil-only", CreatedBy: "alice", State: backend.SilenceStateActive,
+			StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+		}},
+		Tenant: "prod",
 	})
-
-	t.Run("multi-tenant scope — TENANT first", func(t *testing.T) {
-		t.Parallel()
-		p := newPage(t)
-		_, _ = p.Update(poll.DataMsg{
-			Resource: []backend.Silence{{
-				ID: "a", CreatedBy: "alice", State: backend.SilenceStateActive,
-				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
-			}},
-			Tenant: "prod",
-		})
-		_, _ = p.Update(poll.DataMsg{
-			Resource: []backend.Silence{{
-				ID: "b", CreatedBy: "bob", State: backend.SilenceStateActive,
-				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
-			}},
-			Tenant: "staging",
-		})
-		out := testutil.StripStyle(p.View(220, 5))
-		header := strings.Split(out, "\n")[0]
-		tenantI := strings.Index(header, "TENANT")
-		uuidI := strings.Index(header, "UUID")
-		require.GreaterOrEqual(t, tenantI, 0, "expected TENANT in header %q", header)
-		require.Less(t, tenantI, uuidI, "TENANT must come before UUID")
-	})
-
-	// QA-driven: a configured tenant that never produced data (cold-
-	// start connection refused) must still anchor the TENANT column.
-	// Pre-fix the column auto-hid because byTenant counted only the
-	// healthy backend; post-fix the configured-tenant list drives the
-	// decision so the operator can still see who's silent.
-	t.Run("configured but silent tenant still surfaces column", func(t *testing.T) {
-		t.Parallel()
-		p := New(Options{
-			Styles:  testutil.LoadStyles(t),
-			Now:     func() time.Time { return fixedNow },
-			Tenants: []string{"prod", "broken"},
-		})
-		_, _ = p.Update(poll.DataMsg{
-			Resource: []backend.Silence{{
-				ID: "a", CreatedBy: "alice", State: backend.SilenceStateActive,
-				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
-			}},
-			Tenant: "prod",
-		})
-		out := testutil.StripStyle(p.View(220, 5))
-		headerLine := strings.Split(out, "\n")[0]
-		require.Contains(t, headerLine, "TENANT",
-			"configured-tenant count must drive column visibility — a silent backend cannot erase the column")
-	})
+	out := testutil.StripStyle(p.View(220, 5))
+	headerLine := strings.Split(out, "\n")[0]
+	want := []string{"UUID", "BY", "COMMENT", "STARTS", "ENDS", "STATE"}
+	idxs := make([]int, len(want))
+	for i, label := range want {
+		idxs[i] = strings.Index(headerLine, label)
+		require.GreaterOrEqual(t, idxs[i], 0, "missing %q in header %q", label, headerLine)
+	}
+	for i := 1; i < len(idxs); i++ {
+		require.Less(t, idxs[i-1], idxs[i],
+			"header column order broke at %q (header=%q)", want[i], headerLine)
+	}
 }
 
 // TestPage_RendersUUIDColumnClipped verifies the long UUID
