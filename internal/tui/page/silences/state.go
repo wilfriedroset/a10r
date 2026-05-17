@@ -16,7 +16,7 @@ import (
 func (p *Page) totalSilences() int {
 	n := 0
 	for tenant, sils := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		n += len(sils)
@@ -34,23 +34,6 @@ func (p *Page) knownTenant(name string) bool {
 		return true
 	}
 	return slices.Contains(p.Tenants, name)
-}
-
-// scopeIncludes reports whether tenant should appear in the view.
-// Empty / "all" includes everyone; otherwise the scope is matched
-// against the comma-joined list (so a Ctrl+T multi-select like
-// "prod,staging" lights up both backends).
-func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.Scope)
-	if scope == "" || scope == scopeAll {
-		return true
-	}
-	for s := range strings.SplitSeq(scope, ",") {
-		if strings.TrimSpace(s) == tenant {
-			return true
-		}
-	}
-	return false
 }
 
 // showTenantColumn reports whether the view spans more than one
@@ -73,7 +56,7 @@ func (p *Page) showTenantColumn() bool {
 	}
 	in := 0
 	for tenant := range p.byTenant {
-		if p.scopeIncludes(tenant) {
+		if p.ScopeIncludes(tenant) {
 			in++
 		}
 	}
@@ -87,13 +70,13 @@ func (p *Page) recompute() {
 	defer p.recomputeScroll()
 	total := 0
 	for tenant, sils := range p.byTenant {
-		if p.scopeIncludes(tenant) {
+		if p.ScopeIncludes(tenant) {
 			total += len(sils)
 		}
 	}
 	flat := make([]silenceEntry, 0, total)
 	for tenant, sils := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		for _, s := range sils {

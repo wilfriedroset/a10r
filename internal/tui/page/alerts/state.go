@@ -20,7 +20,7 @@ import (
 func (p *Page) totalAlerts() int {
 	n := 0
 	for tenant, alerts := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		n += len(alerts)
@@ -51,25 +51,6 @@ func (p *Page) showTenantColumn() bool {
 	return len(p.byTenant) > 1
 }
 
-// scopeIncludes reports whether tenant should appear in the
-// view given p.Scope. "all" / empty includes everyone;
-// otherwise the scope is parsed as a comma-joined list (so a
-// Ctrl+T multi-select like "prod,staging" lights up both
-// backends). Mirror of the silences-page predicate so the two
-// list pages agree on scope shape.
-func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.Scope)
-	if scope == "" || scope == scopeAll {
-		return true
-	}
-	for s := range strings.SplitSeq(scope, ",") {
-		if strings.TrimSpace(s) == tenant {
-			return true
-		}
-	}
-	return false
-}
-
 // recompute rebuilds p.view from byTenant, applying scope, state
 // filter, substring filter, and the active sort. Called on every
 // data / scope / filter / sort change; cheap relative to the
@@ -79,7 +60,7 @@ func (p *Page) recompute() {
 	total := 0
 	knownFP := false
 	for tenant, alerts := range p.byTenant {
-		if p.scopeIncludes(tenant) {
+		if p.ScopeIncludes(tenant) {
 			total += len(alerts)
 		}
 		// Scan every tenant (not just the in-scope ones) so a scope-
@@ -97,7 +78,7 @@ func (p *Page) recompute() {
 	}
 	flat := make([]alertEntry, 0, total)
 	for tenant, alerts := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		for _, a := range alerts {

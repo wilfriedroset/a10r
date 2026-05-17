@@ -76,7 +76,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// an out-of-scope reply during a manual `r` window would
 		// otherwise drop the spinner before the user has actually
 		// seen fresh data for the scope they're looking at.
-		if p.scopeIncludes(m.Tenant) {
+		if p.ScopeIncludes(m.Tenant) {
 			p.refreshing = false
 		}
 		p.recompute()

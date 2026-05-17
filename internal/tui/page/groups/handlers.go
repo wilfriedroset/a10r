@@ -58,7 +58,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			p.nextRefresh[m.Tenant] = m.NextAt
 		}
 		p.polledTenants[m.Tenant] = struct{}{}
-		if p.scopeIncludes(m.Tenant) {
+		if p.ScopeIncludes(m.Tenant) {
 			p.refreshing = false
 		}
 		p.recompute()

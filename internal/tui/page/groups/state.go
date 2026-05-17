@@ -15,7 +15,7 @@ import (
 func (p *Page) totalGroups() int {
 	n := 0
 	for tenant, gs := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		n += len(gs)
@@ -34,20 +34,6 @@ func (p *Page) knownTenant(name string) bool {
 	return slices.Contains(p.Tenants, name)
 }
 
-// scopeIncludes reports whether tenant should appear in the view.
-func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.Scope)
-	if scope == "" || scope == scopeAll {
-		return true
-	}
-	for s := range strings.SplitSeq(scope, ",") {
-		if strings.TrimSpace(s) == tenant {
-			return true
-		}
-	}
-	return false
-}
-
 // recompute rebuilds p.flat from byTenant + scope, preserving any
 // in-place expanded flags by group identity (label-set + tenant)
 // across refresh ticks. New groups land collapsed; vanished
@@ -61,7 +47,7 @@ func (p *Page) recompute() {
 	}
 	p.flat = p.flat[:0]
 	for tenant, gs := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		for _, g := range gs {
@@ -245,7 +231,7 @@ func (p *Page) showTenantColumn() bool {
 	}
 	in := 0
 	for tenant := range p.byTenant {
-		if p.scopeIncludes(tenant) {
+		if p.ScopeIncludes(tenant) {
 			in++
 		}
 	}

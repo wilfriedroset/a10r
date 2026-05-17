@@ -83,7 +83,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// manual `r` window would otherwise drop the spinner
 		// before the user has actually seen fresh data for the
 		// scope they're looking at.
-		if p.scopeIncludes(m.Tenant) {
+		if p.ScopeIncludes(m.Tenant) {
 			p.refreshing = false
 		}
 		p.recompute()
@@ -758,7 +758,7 @@ func (p *Page) pickWriteTarget() (string, Client, bool) {
 	}
 	sort.Strings(names)
 	for _, t := range names {
-		if p.scopeIncludes(t) {
+		if p.ScopeIncludes(t) {
 			return t, p.clients[t], true
 		}
 	}

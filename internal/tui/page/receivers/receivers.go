@@ -158,27 +158,13 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
 }
 
-// scopeIncludes reports whether tenant should appear in the view.
-func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.Scope)
-	if scope == "" || scope == scopeAll {
-		return true
-	}
-	for s := range strings.SplitSeq(scope, ",") {
-		if strings.TrimSpace(s) == tenant {
-			return true
-		}
-	}
-	return false
-}
-
 // unionScoped returns the de-duplicated set of receiver names
 // across every in-scope tenant, sorted alphabetically. Used by
 // Title and recompute.
 func (p *Page) unionScoped() []string {
 	seen := map[string]struct{}{}
 	for tenant, names := range p.byTenant {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		for _, n := range names {
@@ -230,7 +216,7 @@ func (p *Page) ErrorBand() string {
 		if detail == "" {
 			continue
 		}
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		bad = append(bad, entry{tenant: tenant, detail: detail})

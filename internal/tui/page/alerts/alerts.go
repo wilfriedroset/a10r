@@ -452,7 +452,7 @@ func (p *Page) ErrorBand() string {
 		if detail == "" {
 			continue
 		}
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		bad = append(bad, entry{tenant: tenant, detail: detail})
@@ -481,7 +481,7 @@ func (p *Page) ErrorBand() string {
 func (p *Page) soonestNextRefresh() time.Time {
 	var soonest time.Time
 	for tenant, ts := range p.nextRefresh {
-		if !p.scopeIncludes(tenant) {
+		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		if soonest.IsZero() || ts.Before(soonest) {
@@ -519,7 +519,7 @@ func nextRefreshLabel(now, next time.Time) string {
 // in-scope tenant has answered.
 func (p *Page) polled() bool {
 	for tenant := range p.polledTenants {
-		if p.scopeIncludes(tenant) {
+		if p.ScopeIncludes(tenant) {
 			return true
 		}
 	}
