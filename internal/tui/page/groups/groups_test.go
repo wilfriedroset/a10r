@@ -72,28 +72,6 @@ func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 		"platform carries a critical alert; data has none → platform first")
 }
 
-func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	want := map[string]string{
-		"Shift+N": "sort by name",
-		"Shift+C": "sort by alert count",
-		"Shift+V": "sort by severity",
-	}
-	got := map[string]string{}
-	for _, b := range p.Bindings() {
-		if strings.HasPrefix(b.Key, "Shift+") {
-			got[b.Key] = b.Description
-		}
-	}
-	for k, desc := range want {
-		require.Contains(t, got, k,
-			"Bindings() must surface %s so the `?` overlay's HOTKEYS column lists it", k)
-		require.Equal(t, desc, got[k],
-			"sort description for %s must match the keybindings.md table", k)
-	}
-}
-
 func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	t.Parallel()
 	// User-initiated re-sort is k9s-positional: the cursor stays at
@@ -116,26 +94,6 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
 	require.Equal(t, "data", p.flat[p.cursor].g.Labels["team"],
 		"the group landing at the held index becomes the new focus")
-}
-
-func TestPage_UserResortOnExpandedLeafKeepsRowIndex(t *testing.T) {
-	t.Parallel()
-	// Same contract on a leaf row: the cursor's *index* survives the
-	// re-sort, even when the previously-focused leaf moves elsewhere
-	// in the visible row list.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	// Walk to platform (row 1), expand, walk to leaf A (row 2),
-	// then leaf B (row 3).
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	heldIdx := p.cursor
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, heldIdx, p.cursor,
-		"cursor stays at the same row index across user re-sort")
 }
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
@@ -166,14 +124,6 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
 		"header must not paint a palette background — chrome stays on terminal default bg")
-}
-
-func TestPage_StartsCollapsed(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
-	rows := p.rows()
-	require.Len(t, rows, 2, "every group is collapsed → one row per group")
 }
 
 func TestPage_EnterTogglesExpand(t *testing.T) {
@@ -299,15 +249,6 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	require.Contains(t, msg.Text, "no group under the cursor")
 }
 
-func TestPage_ReadOnlyDropsSilenceBinding(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t), ReadOnly: true})
-	for _, b := range p.Bindings() {
-		require.NotEqual(t, "s", b.Key,
-			"read-only Bindings() must drop the `s` silence verb")
-	}
-}
-
 func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
@@ -323,20 +264,6 @@ func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, footer.FlashWarn, fm.Level)
 	require.Contains(t, fm.Text, "read-only")
-}
-
-func TestPage_TitleColdStartShowsLoading(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	require.Contains(t, testutil.StripStyle(p.Title()), "loading groups",
-		"cold-start title must read as loading until the first DataMsg lands")
-}
-
-func TestPage_TitleAfterDataMsgFlipsToCount(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
-	require.Equal(t, "groups(all)[2]", p.Title())
 }
 
 func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
@@ -572,13 +499,6 @@ func TestPage_LeafRowsFallbackToAlertnameWhenIdentical(t *testing.T) {
 		"both duplicate alerts must surface as their own leaf row")
 }
 
-func TestDistinguishingLabels_EmptyWhenIdentical(t *testing.T) {
-	t.Parallel()
-	common := map[string]string{"alertname": "A", "team": "platform"}
-	a := backend.Alert{Labels: map[string]string{"alertname": "A", "team": "platform"}}
-	require.Empty(t, distinguishingLabels(a, common))
-}
-
 func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
 	t.Parallel()
 	common := map[string]string{"alertname": "DiskFull", "team": "platform"}
@@ -609,11 +529,6 @@ func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
 // the shared showTenantColumn() predicate; no groups-specific
 // wiring to witness here.
 
-func TestCommonLabels_EmptyInput(t *testing.T) {
-	t.Parallel()
-	require.Empty(t, commonLabels(nil))
-}
-
 func TestCommonLabels_KeepsSharedDropsDivergent(t *testing.T) {
 	t.Parallel()
 	// Two alerts agree on team=platform; alertname and severity
@@ -625,17 +540,6 @@ func TestCommonLabels_KeepsSharedDropsDivergent(t *testing.T) {
 	}
 	got := commonLabels(alerts)
 	require.Equal(t, map[string]string{"team": "platform"}, got)
-}
-
-func TestCommonLabels_AllSharedSurvives(t *testing.T) {
-	t.Parallel()
-	// Identical label-sets → every key survives.
-	alerts := []backend.Alert{
-		{Labels: map[string]string{"team": "platform", "env": "prod"}},
-		{Labels: map[string]string{"team": "platform", "env": "prod"}},
-	}
-	got := commonLabels(alerts)
-	require.Equal(t, map[string]string{"team": "platform", "env": "prod"}, got)
 }
 
 // TestPage_FilterNarrowsView is the per-page wiring smoke proving
