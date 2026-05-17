@@ -136,6 +136,13 @@ type Options struct {
 	// multi-day sessions where a quit must not orphan goroutines.
 	// nil falls back to context.Background().
 	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	// SubmitCtx is the parent ctx the silence form's submit ctx
+	// derives from. Plumbed through to silenceform.Options.SubmitCtx
+	// so an app-level shutdown propagates through the form's
+	// in-flight Create/UpdateSilence write — not only through the
+	// page-pop / Close cascade. nil falls back to
+	// context.Background() inside the form.
+	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 	// InitialStateFilter pre-seeds the `t` cycle's state filter so a
 	// `:alerts --state suppressed` (typed at the prompt or via a user
 	// alias's expansion) lands on the suppressed-only view. Empty
@@ -314,6 +321,10 @@ type Page struct {
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 
+	// submitCtx parents the silence form's submit ctx. See
+	// Options.SubmitCtx for the rationale.
+	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+
 	// tenants is the canonical configured-backend list. Drives the
 	// TENANT-column visibility decision so a tenant that never
 	// replies still counts toward "is this a multi-tenant fleet?".
@@ -354,6 +365,7 @@ func New(opts Options) *Page {
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
 		bulkCtx:         opts.BulkCtx,
+		submitCtx:       opts.SubmitCtx,
 		stateFilter:     opts.InitialStateFilter,
 		filter:          opts.InitialFilter,
 		tenants:         opts.Tenants,

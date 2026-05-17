@@ -175,6 +175,13 @@ type Form struct {
 	// submit is in flight.
 	mu           sync.Mutex
 	cancelSubmit context.CancelFunc
+
+	// submitCtx is the parent ctx the Create/UpdateSilence call
+	// derives from. Mirrors Options.SubmitCtx — see the doc there
+	// for the rationale. Nil means "no parent pinned"; submit()
+	// falls back to context.Background() so single-shot tests that
+	// don't care about app-level propagation stay green.
+	submitCtx context.Context //nolint:containedctx // submit write ctx, plumbed once at construction.
 }
 
 // Options captures the dependency surface. The prefill fields
@@ -251,6 +258,15 @@ type Options struct {
 	// entry point where Matchers / Comment are already prefilled
 	// and the only field the user still has to set is Ends.
 	FocusEnds bool
+
+	// SubmitCtx is the parent ctx the Create/UpdateSilence call
+	// inherits. Cancelling cancels the in-flight write — keeps the
+	// form in lockstep with the alerts/silences pages whose
+	// BulkCtx / EditorCtx already chain through cmd.Context(), so
+	// app-level shutdown propagates through the ctx (not only
+	// through Close). nil falls back to context.Background() —
+	// kept so tests that don't pin the parent stay green.
+	SubmitCtx context.Context //nolint:containedctx // submit write ctx, plumbed once at construction.
 }
 
 // matchersHeight is the number of visible rows reserved for the
@@ -315,6 +331,7 @@ func New(opts Options) *Form {
 		editID:     opts.EditID,
 		bulk:       opts.Bulk,
 		bulkBanner: opts.BulkBanner,
+		submitCtx:  opts.SubmitCtx,
 	}
 	// Default focus is fieldMatchers (the iota+1 slot). Tenant is
 	// the visual first row but not the keyboard-first row: the user
@@ -748,7 +765,15 @@ func (f *Form) submit() tea.Cmd {
 		// so we don't have two writes racing on the same form.
 		f.cancelSubmit()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	// Parent on Options.SubmitCtx when wired so app-level
+	// cancellation propagates through the ctx (not only via
+	// Close). nil falls back to context.Background() — kept so
+	// tests / callers that don't pin a parent still work.
+	parent := f.submitCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	f.cancelSubmit = cancel
 	f.mu.Unlock()
 	clearCancel := func() {

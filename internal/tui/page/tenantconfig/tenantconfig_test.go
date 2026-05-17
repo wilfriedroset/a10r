@@ -332,3 +332,50 @@ func TestPage_CloseCancelsInflightFetch(t *testing.T) {
 		t.Fatal("Close() did not cancel the in-flight fetch within 2s — goroutine leak window")
 	}
 }
+
+// TestPage_StatusFetchInheritsParentCtxCancellation pins the
+// documented contract: cancelling the app-level parent ctx handed in
+// via Options.FetchCtx aborts the in-flight /api/v2/status fetch.
+// Without the plumbing the fetch parents on context.Background() and
+// only Close() (the page-pop / quit-cascade path) reaches the worker.
+// A future caller bypassing Close — a programmatic test, a REPL, a
+// shutdown hook firing on the ctx — would see the goroutine outlive
+// the page for the full fetchTimeout window.
+func TestPage_StatusFetchInheritsParentCtxCancellation(t *testing.T) {
+	t.Parallel()
+	fetcher := &blockingFetcher{started: make(chan struct{})}
+	parent, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	p := New(Options{
+		Backend:      config.Backend{Name: "prod", URL: "http://am"},
+		Fetcher:      fetcher,
+		FetchTimeout: 30 * time.Second,
+		FetchCtx:     parent,
+	})
+	cmd := p.Init()
+	require.NotNil(t, cmd)
+
+	doneCh := make(chan tea.Msg, 1)
+	go func() { doneCh <- cmd() }()
+
+	select {
+	case <-fetcher.started:
+	case <-time.After(time.Second):
+		t.Fatal("fetcher.Status was never called within 1s")
+	}
+
+	// Cancelling the parent ctx must propagate to the in-flight fetch.
+	// Without the plumbing the fetch's ctx is parented on Background
+	// and this cancel is invisible to it — the test would time out.
+	cancelParent()
+
+	select {
+	case msg := <-doneCh:
+		fetched, ok := msg.(statusFetchedMsg)
+		require.True(t, ok, "fetch must complete with a statusFetchedMsg, got %T", msg)
+		require.Error(t, fetched.err,
+			"cancelled fetch must surface ctx error rather than silently returning empty data")
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent ctx cancellation did not reach the in-flight fetch — Options.FetchCtx not plumbed")
+	}
+}

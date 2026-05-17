@@ -286,6 +286,10 @@ type Page struct {
 	// callers that haven't plumbed it yet).
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 
+	// submitCtx parents the silence form's submit ctx. See
+	// Options.SubmitCtx for the rationale.
+	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+
 	// tenants is the canonical configured-backend list. Drives the
 	// TENANT-column visibility decision so a tenant that never
 	// replies still counts toward "is this a multi-tenant fleet?".
@@ -334,6 +338,13 @@ type Options struct {
 	// multi-day sessions where a quit must not orphan goroutines.
 	// nil falls back to context.Background().
 	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	// SubmitCtx is the parent ctx the silence form's submit ctx
+	// derives from. Plumbed through to silenceform.Options.SubmitCtx
+	// so an app-level shutdown propagates through the form's
+	// in-flight Create/UpdateSilence write — not only through the
+	// page-pop / Close cascade. nil falls back to
+	// context.Background() inside the form.
+	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 	// Tenants is the canonical list of configured backend names.
 	// Drives the TENANT-column visibility decision so a broken
 	// tenant (cold-start connection refused, never replies) still
@@ -376,6 +387,7 @@ func New(opts Options) *Page {
 		readOnly:        opts.ReadOnly,
 		editorCtx:       opts.EditorCtx,
 		bulkCtx:         opts.BulkCtx,
+		submitCtx:       opts.SubmitCtx,
 		tenants:         opts.Tenants,
 	}
 }

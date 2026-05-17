@@ -156,6 +156,7 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 	now := p.now
 	banner := bulkSilenceBanner(pending.targets, pending.tenants)
 	clients := p.clients
+	submitCtx := p.submitCtx
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
 			Clients:    clients,
@@ -164,6 +165,7 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 			Creator:    creator,
 			Bulk:       true,
 			BulkBanner: banner,
+			SubmitCtx:  submitCtx,
 		})
 	})
 }

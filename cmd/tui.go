@@ -241,6 +241,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 				Logger:          slog.Default(),
 				ReadOnly:        readOnly,
 				BulkCtx:         cmd.Context(),
+				SubmitCtx:       cmd.Context(),
 				Tenants:         backendNames(&effCfg),
 			})
 		}
@@ -637,6 +638,7 @@ func newResolver(
 				Logger:             slog.Default(),
 				ReadOnly:           readOnly,
 				BulkCtx:            editorCtx,
+				SubmitCtx:          editorCtx,
 				InitialStateFilter: ax.state,
 				InitialFilter:      ax.filter,
 				Tenants:            tenantNames,
@@ -658,6 +660,7 @@ func newResolver(
 				ReadOnly:        readOnly,
 				EditorCtx:       editorCtx,
 				BulkCtx:         editorCtx,
+				SubmitCtx:       editorCtx,
 				Tenants:         tenantNames,
 			})
 		})
@@ -680,12 +683,13 @@ func newResolver(
 	groupsFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page {
 			return groups.New(groups.Options{
-				Styles:   styles,
-				Now:      time.Now,
-				Clients:  silenceClients,
-				Creator:  creator,
-				ReadOnly: readOnly,
-				Tenants:  tenantNames,
+				Styles:    styles,
+				Now:       time.Now,
+				Clients:   silenceClients,
+				Creator:   creator,
+				ReadOnly:  readOnly,
+				Tenants:   tenantNames,
+				SubmitCtx: editorCtx,
 			})
 		})
 	}
@@ -702,10 +706,11 @@ func newResolver(
 			return nil, fmt.Errorf("backend %q failed to build at startup — fix a10r.yaml and restart", name)
 		}
 		return tenantconfig.New(tenantconfig.Options{
-			Tenant:  name,
-			Backend: be,
-			Fetcher: fetcher,
-			Styles:  styles,
+			Tenant:   name,
+			Backend:  be,
+			Fetcher:  fetcher,
+			Styles:   styles,
+			FetchCtx: editorCtx,
 		}), nil
 	}
 	tenantFactory := func(_ []string) tea.Cmd {

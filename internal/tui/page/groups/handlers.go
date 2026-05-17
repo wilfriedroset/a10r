@@ -315,14 +315,16 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	now := p.now
 	clients := p.clients
 	tenant := entry.tenant
+	submitCtx := p.submitCtx
 	return p, app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:  clients,
-			Tenant:   tenant,
-			Styles:   styles,
-			Now:      now,
-			Creator:  creator,
-			Matchers: matchers,
+			Clients:   clients,
+			Tenant:    tenant,
+			Styles:    styles,
+			Now:       now,
+			Creator:   creator,
+			Matchers:  matchers,
+			SubmitCtx: submitCtx,
 		})
 	})
 }

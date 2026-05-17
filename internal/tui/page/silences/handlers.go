@@ -421,17 +421,19 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	clients := silenceformClients(p.clients)
 	tenant := entry.tenant
 	s := entry.s
+	submitCtx := p.submitCtx
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:  clients,
-			Tenant:   tenant,
-			Styles:   styles,
-			Now:      now,
-			Creator:  creator,
-			Matchers: s.Matchers,
-			Comment:  s.Comment,
-			EndsAt:   s.EndsAt,
-			EditID:   s.ID,
+			Clients:   clients,
+			Tenant:    tenant,
+			Styles:    styles,
+			Now:       now,
+			Creator:   creator,
+			Matchers:  s.Matchers,
+			Comment:   s.Comment,
+			EndsAt:    s.EndsAt,
+			EditID:    s.ID,
+			SubmitCtx: submitCtx,
 		})
 	})
 }
@@ -475,6 +477,7 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		Comment:   entry.s.Comment,
 		BlankEnds: true,
 		FocusEnds: true,
+		SubmitCtx: p.submitCtx,
 	}, nil, true
 }
 
@@ -694,13 +697,15 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	now := p.now
 	styles := p.styles
 	clients := silenceformClients(p.clients)
+	submitCtx := p.submitCtx
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients: clients,
-			Tenant:  tenant,
-			Styles:  styles,
-			Now:     now,
-			Creator: creator,
+			Clients:   clients,
+			Tenant:    tenant,
+			Styles:    styles,
+			Now:       now,
+			Creator:   creator,
+			SubmitCtx: submitCtx,
 		})
 	})
 }

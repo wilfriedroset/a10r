@@ -50,6 +50,15 @@ type Options struct {
 	// FetchTimeout caps the AM /status round-trip. Zero defaults to
 	// 30s, matching the vanilla client's request timeout.
 	FetchTimeout time.Duration
+
+	// FetchCtx is the parent ctx the /api/v2/status fetch inherits.
+	// Cancelling cancels the in-flight call — keeps the page in
+	// lockstep with the alerts/silences pages whose BulkCtx /
+	// EditorCtx already chain through cmd.Context(), so app-level
+	// shutdown propagates through the ctx (not only through
+	// Close). nil falls back to context.Background() — kept so
+	// tests that don't pin the parent stay green.
+	FetchCtx context.Context //nolint:containedctx // fetch ctx, plumbed once at construction.
 }
 
 // Page is the tenant inspector.
@@ -69,6 +78,13 @@ type Page struct {
 	// reads it. Nil when no fetch is in flight.
 	mu          sync.Mutex
 	cancelFetch context.CancelFunc
+
+	// fetchCtx is the parent ctx the Status fetch derives from.
+	// Mirrors Options.FetchCtx — see the doc there for the
+	// rationale. Nil means "no parent pinned"; Init falls back
+	// to context.Background() so single-shot tests that don't
+	// care about app-level propagation stay green.
+	fetchCtx context.Context //nolint:containedctx // fetch ctx, plumbed once at construction.
 
 	scroll int
 
@@ -105,6 +121,7 @@ func New(opts Options) *Page {
 		backendYAML:  body,
 		fetcher:      opts.Fetcher,
 		fetchTimeout: timeout,
+		fetchCtx:     opts.FetchCtx,
 		loading:      opts.Fetcher != nil,
 	}
 }
@@ -118,8 +135,16 @@ func (p *Page) Init() tea.Cmd {
 	}
 	fetcher := p.fetcher
 	timeout := p.fetchTimeout
+	// Parent on Options.FetchCtx when wired so app-level
+	// cancellation propagates through the ctx (not only via
+	// Close). nil falls back to context.Background() — kept so
+	// tests / callers that don't pin a parent still work.
+	parent := p.fetchCtx
+	if parent == nil {
+		parent = context.Background()
+	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(parent, timeout)
 		// Expose cancel to Close() so a page-tear-down while the
 		// fetch is in flight aborts the call instead of leaking the
 		// goroutine for the full fetchTimeout window.

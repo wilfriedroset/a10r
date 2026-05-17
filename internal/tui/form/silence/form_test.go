@@ -437,6 +437,58 @@ func TestForm_CloseCancelsInflightSubmit(t *testing.T) {
 	}
 }
 
+// TestForm_SubmitInheritsParentCtxCancellation pins the documented
+// contract: cancelling the app-level parent ctx handed in via
+// Options.SubmitCtx aborts the in-flight Create/UpdateSilence call.
+// Without the plumbing, submit() parents on context.Background() and
+// only Close() (the page-pop / quit-cascade path) reaches the worker.
+// A future caller bypassing Close — a programmatic test, a REPL, a
+// shutdown hook firing on the ctx — would see the goroutine outlive
+// the form for the full transport timeout.
+func TestForm_SubmitInheritsParentCtxCancellation(t *testing.T) {
+	t.Parallel()
+	client := &ctxBlockingClient{started: make(chan struct{})}
+	parent, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	f := New(Options{
+		Clients:   map[string]Client{defaultTenant: client},
+		Tenant:    defaultTenant,
+		Styles:    testutil.LoadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		SubmitCtx: parent,
+	})
+	type_(f, "alertname=A")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	type_(f, "ack")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("CreateSilence never started")
+	}
+
+	// Cancelling the parent ctx must propagate to the in-flight call.
+	// Without the plumbing, the worker's ctx is parented on Background
+	// and this cancel is invisible to it — the test would time out.
+	cancelParent()
+
+	select {
+	case msg := <-done:
+		_, ok := msg.(submitDoneMsg)
+		require.True(t, ok, "expected submitDoneMsg, got %T", msg)
+	case <-time.After(2 * time.Second):
+		t.Fatal("parent ctx cancellation did not reach the in-flight submit — Options.SubmitCtx not plumbed")
+	}
+}
+
 // TestForm_DoubleCtrlSDropsSecondSubmit locks the re-entry guard:
 // a second Ctrl+S while the first round-trip is still in flight
 // must not start a second backend call. Regression catcher for the

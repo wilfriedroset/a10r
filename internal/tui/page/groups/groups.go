@@ -8,6 +8,7 @@
 package groups
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -129,6 +130,13 @@ type Options struct {
 	// counts toward "is this a multi-tenant fleet?". Empty falls
 	// back to inferring the count from observed DataMsgs.
 	Tenants []string
+	// SubmitCtx is the parent ctx the silence form's submit ctx
+	// derives from. Plumbed through to silenceform.Options.SubmitCtx
+	// so an app-level shutdown propagates through the form's
+	// in-flight Create/UpdateSilence write — not only through the
+	// page-pop / Close cascade. nil falls back to
+	// context.Background() inside the form.
+	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 // Page is the groups view.
@@ -231,6 +239,10 @@ type Page struct {
 	// replies still counts toward "is this a multi-tenant fleet?".
 	// See Options.Tenants.
 	tenants []string
+
+	// submitCtx parents the silence form's submit ctx. See
+	// Options.SubmitCtx for the rationale.
+	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -260,6 +272,7 @@ func New(opts Options) *Page {
 		sorter:        tablesort.New(groupSortColumns(), sortKeyName),
 		readOnly:      opts.ReadOnly,
 		tenants:       opts.Tenants,
+		submitCtx:     opts.SubmitCtx,
 	}
 }
 
