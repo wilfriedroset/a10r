@@ -269,10 +269,10 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
-	require.False(t, p.refreshing)
+	require.False(t, p.Refreshing)
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.True(t, p.refreshing,
+	require.True(t, p.Refreshing,
 		"`r` must flip the page into refreshing state")
 	require.NotNil(t, cmd)
 

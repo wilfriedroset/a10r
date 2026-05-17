@@ -63,10 +63,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pausedRefresh from a manual `r` press lets a single tick
 		// through and clears itself, so the operator can pull
 		// fresh data on demand without leaving paused state.
-		if p.Paused && !p.pausedRefresh {
+		if p.Paused && !p.PausedRefresh {
 			return p, nil
 		}
-		p.pausedRefresh = false
+		p.PausedRefresh = false
 		p.byTenant[m.Tenant] = s
 		// Capture the poll's NextAt so the bottom-border Footer can
 		// render "next refresh 25s" without a parallel ticker.
@@ -75,16 +75,16 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// keeps the footer stable when a unit test fakes only the
 		// resource payload.
 		if !m.NextAt.IsZero() {
-			p.nextRefresh[m.Tenant] = m.NextAt
+			p.NextRefresh[m.Tenant] = m.NextAt
 		}
-		p.polledTenants[m.Tenant] = struct{}{}
+		p.PolledTenants[m.Tenant] = struct{}{}
 		// Only clear refreshing once an in-scope tenant has
 		// answered — an out-of-scope DataMsg arriving during a
 		// manual `r` window would otherwise drop the spinner
 		// before the user has actually seen fresh data for the
 		// scope they're looking at.
 		if p.ScopeIncludes(m.Tenant) {
-			p.refreshing = false
+			p.Refreshing = false
 		}
 		p.recompute()
 		return p, nil
@@ -97,7 +97,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			return p, nil
 		}
 		var cmd tea.Cmd
-		p.spinner, cmd = p.spinner.Update(m)
+		p.Spinner, cmd = p.Spinner.Update(m)
 		return p, cmd
 	case silenceform.SubmittedMsg, silenceform.CancelledMsg, modal.ConfirmResultMsg, bulkExpireDoneMsg:
 		_ = m // multi-type case: handleWriteResult consumes msg via its own type switch
@@ -257,7 +257,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) toggleWatch() {
 	p.Paused = !p.Paused
 	if !p.Paused {
-		p.pausedRefresh = false
+		p.PausedRefresh = false
 	}
 }
 
@@ -305,9 +305,9 @@ func (p *Page) drillToDetail() tea.Cmd {
 // is honoured exactly once — the operator pulled it deliberately
 // and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
-	p.refreshing = true
+	p.Refreshing = true
 	if p.Paused {
-		p.pausedRefresh = true
+		p.PausedRefresh = true
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -316,7 +316,7 @@ func (p *Page) requestRefresh() tea.Cmd {
 	emit := func() tea.Msg {
 		return app.RefreshRequestedMsg{Resource: "silences", Scope: scope}
 	}
-	return tea.Batch(emit, p.spinner.Tick)
+	return tea.Batch(emit, p.Spinner.Tick)
 }
 
 // handleClearMarks drops every mark on the page in response to

@@ -830,11 +830,11 @@ func TestPage_RefreshKeyEmitsRefreshRequestedAndKicksSpinner(t *testing.T) {
 	// so the body's "refreshing…" hint animates while the nudge
 	// is in flight.
 	p := pageWithRows(t, &fakeSilenceClient{}, 1)
-	require.False(t, p.refreshing)
+	require.False(t, p.Refreshing)
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	require.NotNil(t, cmd, "r must produce a Cmd")
-	require.True(t, p.refreshing)
+	require.True(t, p.Refreshing)
 
 	// The Cmd is a tea.Batch — drain via cmd() once and inspect
 	// the resulting BatchMsg.
@@ -894,7 +894,7 @@ func TestPage_DataMsgClearsRefreshingFlag(t *testing.T) {
 	// successful manual refresh.
 	p := pageWithRows(t, &fakeSilenceClient{}, 1)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.True(t, p.refreshing)
+	require.True(t, p.Refreshing)
 
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Silence{},
@@ -902,7 +902,7 @@ func TestPage_DataMsgClearsRefreshingFlag(t *testing.T) {
 		At:       fixedNow,
 		NextAt:   fixedNow.Add(30 * time.Second),
 	})
-	require.False(t, p.refreshing,
+	require.False(t, p.Refreshing,
 		"DataMsg arrival must clear the in-flight refresh flag")
 }
 

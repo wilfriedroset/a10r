@@ -108,6 +108,7 @@ type silenceEntry struct {
 // Page is the silences list view.
 type Page struct {
 	listpage.Base
+	listpage.PollingUI
 
 	styles *theme.Styles
 	now    func() time.Time
@@ -190,41 +191,6 @@ type Page struct {
 	// until app shutdown. Mirrors the silence-form (7b8aa88) and
 	// tenantconfig (adca17d) per-write cancel pattern.
 	cancelEditorUpdate context.CancelFunc
-
-	// polledTenants is the set of tenants that have produced at
-	// least one DataMsg in this page's lifetime. The page's
-	// "have we polled?" check reads it through the active scope
-	// — see polled(). Storing a per-tenant set rather than a
-	// global bool avoids a flash of "no silences (yet)" in a
-	// multi-backend setup with a single-tenant scope: a fast
-	// out-of-scope tenant returning [] would otherwise flip the
-	// page out of loading state before the in-scope tenant has
-	// answered, briefly painting the empty-list copy under a
-	// title that already counts zero rows.
-	polledTenants map[string]struct{}
-	// nextRefresh is the per-tenant DataMsg.NextAt timestamp.
-	// The bottom-border Footer collapses it into "next refresh
-	// 25s" by picking the soonest entry across in-scope tenants —
-	// the user wants the timer that fires next, not a per-tenant
-	// table.
-	nextRefresh map[string]time.Time
-	// refreshing is true between an `r` press and the next
-	// in-scope poll.DataMsg arrival so the renderer can keep the
-	// spinner up while the caller's nudge is in flight. Cleared
-	// only on the first in-scope DataMsg afterward — an out-of-
-	// scope tenant's reply doesn't count as the user's manual
-	// refresh having landed.
-	refreshing bool
-	// pausedRefresh, when true, signals "the next DataMsg is from
-	// an explicit r-press; honour it even though paused". Cleared
-	// after the first DataMsg consumes it. Lets the operator hold
-	// pause but pull a single fresh snapshot on demand.
-	pausedRefresh bool
-	// spinner is the cold-start / refresh-in-flight indicator
-	// (bubbles `Points` — three dots cycling). Stopped (i.e. its
-	// Tick chain is broken) outside of those two windows; see
-	// the spinner.TickMsg branch in Update.
-	spinner spinner.Model
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set so the hint strip and help
@@ -327,6 +293,11 @@ func New(opts Options) *Page {
 			LastErrors: map[string]string{},
 			Tenants:    opts.Tenants,
 		},
+		PollingUI: listpage.PollingUI{
+			PolledTenants: map[string]struct{}{},
+			NextRefresh:   map[string]time.Time{},
+			Spinner:       sp,
+		},
 		styles:          opts.Styles,
 		now:             now,
 		clients:         opts.Clients,
@@ -336,9 +307,6 @@ func New(opts Options) *Page {
 		byTenant:        map[string][]backend.Silence{},
 		marks:           map[string]struct{}{},
 		sorter:          tablesort.New(silenceSortColumns(), sortKeyEndsAt),
-		nextRefresh:     map[string]time.Time{},
-		polledTenants:   map[string]struct{}{},
-		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
@@ -360,7 +328,7 @@ const scopeAll = "all"
 // resolves. Once a DataMsg lands, the spinner's Tick chain is
 // broken (see Update) so it stops re-issuing without a separate
 // timer to manage.
-func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
+func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page. Cancels any in-flight bulk-expire
 // fanout so a page-pop while workers are mid-air aborts not-yet-
@@ -396,8 +364,8 @@ func (*Page) Crumb() string { return "silences" }
 // border itself reads as the loading affordance, k9s-style. The
 // title swaps back to the count form on the next DataMsg.
 func (p *Page) Title() string {
-	if !p.polled() || p.refreshing {
-		return p.spinner.View() + " loading silences…"
+	if !p.polled() || p.Refreshing {
+		return p.Spinner.View() + " loading silences…"
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -436,12 +404,12 @@ func (p *Page) Footer() string {
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
 		// in flight is still informative.
-		if p.refreshing {
+		if p.Refreshing {
 			return "WATCH OFF · refreshing…"
 		}
 		return "WATCH OFF"
 	}
-	if p.refreshing {
+	if p.Refreshing {
 		return "refreshing…"
 	}
 	if !p.polled() {
@@ -459,7 +427,7 @@ func (p *Page) Footer() string {
 // when no in-scope tenant has published a NextAt.
 func (p *Page) soonestNextRefresh() time.Time {
 	var soonest time.Time
-	for tenant, ts := range p.nextRefresh {
+	for tenant, ts := range p.NextRefresh {
 		if !p.ScopeIncludes(tenant) {
 			continue
 		}
@@ -533,7 +501,7 @@ func (p *Page) Bindings() []action.Action {
 	return out
 }
 
-func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
+func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // polled reports whether at least one in-scope tenant has
 // produced a DataMsg. Read by Title / Footer / emptyState to
@@ -544,7 +512,7 @@ func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
 // "no silences (yet)" flash under a "silences(primary)[0]"
 // title while waiting for primary's first poll.
 func (p *Page) polled() bool {
-	for tenant := range p.polledTenants {
+	for tenant := range p.PolledTenants {
 		if p.ScopeIncludes(tenant) {
 			return true
 		}

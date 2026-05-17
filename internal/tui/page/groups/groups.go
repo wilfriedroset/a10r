@@ -141,6 +141,7 @@ type Options struct {
 // Page is the groups view.
 type Page struct {
 	listpage.Base
+	listpage.PollingUI
 
 	styles *theme.Styles
 	now    func() time.Time
@@ -179,19 +180,6 @@ type Page struct {
 	// focusFingerprint / focusID on alerts / silences.
 	focusKey string
 
-	// polledTenants / nextRefresh / refreshing / spinner mirror the
-	// alerts and silences pages' polling UX so the three list pages
-	// frame identically. See alerts.Page for the design notes.
-	polledTenants map[string]struct{}
-	nextRefresh   map[string]time.Time
-	refreshing    bool
-	spinner       spinner.Model
-	// pausedRefresh, when true, signals "the next DataMsg is from
-	// an explicit r-press; honour it even though paused". Cleared
-	// after the first DataMsg consumes it. Lets the operator hold
-	// pause but pull a single fresh snapshot on demand.
-	pausedRefresh bool
-
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint
 	// instead of pushing the silence form.
@@ -221,17 +209,19 @@ func New(opts Options) *Page {
 			LastErrors: map[string]string{},
 			Tenants:    opts.Tenants,
 		},
-		styles:        opts.Styles,
-		now:           now,
-		clients:       opts.Clients,
-		creator:       opts.Creator,
-		byTenant:      map[string][]backend.AlertGroup{},
-		polledTenants: map[string]struct{}{},
-		nextRefresh:   map[string]time.Time{},
-		spinner:       sp,
-		sorter:        tablesort.New(groupSortColumns(), sortKeyName),
-		readOnly:      opts.ReadOnly,
-		submitCtx:     opts.SubmitCtx,
+		PollingUI: listpage.PollingUI{
+			PolledTenants: map[string]struct{}{},
+			NextRefresh:   map[string]time.Time{},
+			Spinner:       sp,
+		},
+		styles:    opts.Styles,
+		now:       now,
+		clients:   opts.Clients,
+		creator:   opts.Creator,
+		byTenant:  map[string][]backend.AlertGroup{},
+		sorter:    tablesort.New(groupSortColumns(), sortKeyName),
+		readOnly:  opts.ReadOnly,
+		submitCtx: opts.SubmitCtx,
 	}
 	p.Recompute = p.recompute
 	return p
@@ -239,7 +229,7 @@ func New(opts Options) *Page {
 
 // Init implements app.Page. Kicks the spinner so the cold-start
 // "loading" affordance animates while the first poll tick lands.
-func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
+func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page.
 func (*Page) Close() tea.Cmd { return nil }
@@ -254,8 +244,8 @@ func (*Page) Crumb() string { return "groups" }
 // — the title flips to the spinner-led "loading groups…" so the
 // border itself reads as the loading affordance, k9s-style.
 func (p *Page) Title() string {
-	if !p.polled() || p.refreshing {
-		return p.spinner.View() + " loading groups…"
+	if !p.polled() || p.Refreshing {
+		return p.Spinner.View() + " loading groups…"
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -285,12 +275,12 @@ func (p *Page) Footer() string {
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
 		// in flight is still informative.
-		if p.refreshing {
+		if p.Refreshing {
 			return "WATCH OFF · refreshing…"
 		}
 		return "WATCH OFF"
 	}
-	if p.refreshing {
+	if p.Refreshing {
 		return "refreshing…"
 	}
 	if !p.polled() {
@@ -306,7 +296,7 @@ func (p *Page) Footer() string {
 // soonestNextRefresh returns the earliest in-scope DataMsg.NextAt.
 func (p *Page) soonestNextRefresh() time.Time {
 	var soonest time.Time
-	for tenant, ts := range p.nextRefresh {
+	for tenant, ts := range p.NextRefresh {
 		if !p.ScopeIncludes(tenant) {
 			continue
 		}
@@ -340,7 +330,7 @@ func nextRefreshLabel(now, next time.Time) string {
 // a DataMsg yet. Scope-aware to avoid flickering out of loading
 // state on a multi-backend setup with a narrowed scope.
 func (p *Page) polled() bool {
-	for tenant := range p.polledTenants {
+	for tenant := range p.PolledTenants {
 		if p.ScopeIncludes(tenant) {
 			return true
 		}
@@ -349,7 +339,7 @@ func (p *Page) polled() bool {
 }
 
 // spinnerActive reports whether the spinner should keep ticking.
-func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
+func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "groups" payloads into this page

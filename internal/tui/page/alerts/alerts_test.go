@@ -956,10 +956,10 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 	// First, get the page into the polled state so the title's
 	// "refreshing" branch is observable as a flip.
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{}, Tenant: ""})
-	require.False(t, p.refreshing)
+	require.False(t, p.Refreshing)
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.True(t, p.refreshing,
+	require.True(t, p.Refreshing,
 		"`r` must flip the page into refreshing state")
 
 	// The Cmd is a tea.Batch carrying the RefreshRequestedMsg and
@@ -1801,7 +1801,7 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 	// (the operator deliberately pulled it).
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 	require.NotNil(t, cmd)
-	require.True(t, p.pausedRefresh, "r press while paused must set pausedRefresh")
+	require.True(t, p.PausedRefresh, "r press while paused must set pausedRefresh")
 
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Alert{
@@ -1812,7 +1812,7 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 	})
 	require.Len(t, p.byTenant["prod"], 2,
 		"r press while paused must pass through the next DataMsg")
-	require.False(t, p.pausedRefresh, "pausedRefresh must clear after one tick")
+	require.False(t, p.PausedRefresh, "pausedRefresh must clear after one tick")
 	require.True(t, p.Paused, "manual refresh does NOT exit paused state")
 
 	// Subsequent ordinary tick is dropped again (paused, no

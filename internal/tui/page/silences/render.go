@@ -57,7 +57,7 @@ func (p *Page) View(width, height int) string {
 // (yet)" for an empty backend, "no silences in view" when a
 // filter is the cause.
 func (p *Page) emptyState() string {
-	if !p.polled() || p.refreshing {
+	if !p.polled() || p.Refreshing {
 		return ""
 	}
 	if p.totalSilences() == 0 {

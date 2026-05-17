@@ -49,17 +49,17 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pausedRefresh from a manual `r` press lets a single tick
 		// through and clears itself, so the operator can pull
 		// fresh data on demand without leaving paused state.
-		if p.Paused && !p.pausedRefresh {
+		if p.Paused && !p.PausedRefresh {
 			return p, nil
 		}
-		p.pausedRefresh = false
+		p.PausedRefresh = false
 		p.byTenant[m.Tenant] = groups
 		if !m.NextAt.IsZero() {
-			p.nextRefresh[m.Tenant] = m.NextAt
+			p.NextRefresh[m.Tenant] = m.NextAt
 		}
-		p.polledTenants[m.Tenant] = struct{}{}
+		p.PolledTenants[m.Tenant] = struct{}{}
 		if p.ScopeIncludes(m.Tenant) {
-			p.refreshing = false
+			p.Refreshing = false
 		}
 		p.recompute()
 		return p, nil
@@ -68,7 +68,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			return p, nil
 		}
 		var cmd tea.Cmd
-		p.spinner, cmd = p.spinner.Update(m)
+		p.Spinner, cmd = p.Spinner.Update(m)
 		return p, cmd
 	case app.ScopeChangedMsg:
 		p.HandleScopeChangedMsg(m)
@@ -154,7 +154,7 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) toggleWatch() {
 	p.Paused = !p.Paused
 	if !p.Paused {
-		p.pausedRefresh = false
+		p.PausedRefresh = false
 	}
 }
 
@@ -182,9 +182,9 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 // is honoured exactly once — the operator pulled it deliberately
 // and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
-	p.refreshing = true
+	p.Refreshing = true
 	if p.Paused {
-		p.pausedRefresh = true
+		p.PausedRefresh = true
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -193,7 +193,7 @@ func (p *Page) requestRefresh() tea.Cmd {
 	emit := func() tea.Msg {
 		return app.RefreshRequestedMsg{Resource: "groups", Scope: scope}
 	}
-	return tea.Batch(emit, p.spinner.Tick)
+	return tea.Batch(emit, p.Spinner.Tick)
 }
 
 // toggleExpandAll flips every group's expanded flag based on the

@@ -184,6 +184,7 @@ type alertEntry struct {
 // Page is the alerts list view. Implements app.Page.
 type Page struct {
 	listpage.Base
+	listpage.PollingUI
 
 	styles *theme.Styles
 	now    func() time.Time
@@ -246,33 +247,6 @@ type Page struct {
 	// page agrees on absolute vs. relative timestamps.
 	timeFormat app.TimeFormat
 
-	// polledTenants is the set of tenants that have produced at
-	// least one DataMsg in this page's lifetime. Mirrors the
-	// silences page's pattern so the title's "loading…" affordance
-	// reads truthfully even in a multi-backend setup with a
-	// scope-narrowed view: a fast out-of-scope tenant returning
-	// [] doesn't flip the page out of loading state before the
-	// in-scope tenant has answered.
-	polledTenants map[string]struct{}
-	// nextRefresh is the per-tenant DataMsg.NextAt timestamp.
-	// Footer collapses it into "next refresh Ns" by picking the
-	// soonest entry across in-scope tenants.
-	nextRefresh map[string]time.Time
-	// refreshing is true between an `r` press and the next in-scope
-	// poll.DataMsg arrival so the renderer keeps the spinner up
-	// while the caller's nudge is in flight.
-	refreshing bool
-	// pausedRefresh, when true, signals "the next DataMsg is from
-	// an explicit r-press; honour it even though paused". Cleared
-	// after the first DataMsg consumes it. Lets the operator hold
-	// pause but pull a single fresh snapshot on demand.
-	pausedRefresh bool
-
-	// spinner is the cold-start / refresh-in-flight indicator
-	// (bubbles `Points`). Stopped (Tick chain broken) outside of
-	// those two windows; see the spinner.TickMsg branch in Update.
-	spinner spinner.Model
-
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint
 	// instead of opening the silence form.
@@ -308,6 +282,11 @@ func New(opts Options) *Page {
 			LastErrors: map[string]string{},
 			Tenants:    opts.Tenants,
 		},
+		PollingUI: listpage.PollingUI{
+			PolledTenants: map[string]struct{}{},
+			NextRefresh:   map[string]time.Time{},
+			Spinner:       sp,
+		},
 		styles:          opts.Styles,
 		now:             now,
 		clients:         opts.Clients,
@@ -316,9 +295,6 @@ func New(opts Options) *Page {
 		byTenant:        map[string][]backend.Alert{},
 		sorter:          tablesort.New(alertSortColumns(), sortKeySeverity),
 		marks:           map[string]struct{}{},
-		polledTenants:   map[string]struct{}{},
-		nextRefresh:     map[string]time.Time{},
-		spinner:         sp,
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
@@ -346,7 +322,7 @@ func (p *Page) SetScope(s string) {
 // in-scope DataMsg (and re-armed on each manual `r` refresh) so
 // the spinner stops costing per-frame redraws when there's
 // nothing to wait for.
-func (p *Page) Init() tea.Cmd { return p.spinner.Tick }
+func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page. Cancels any in-flight bulk-silence
 // fanout so a page pop while workers are mid-air aborts not-yet-
@@ -376,8 +352,8 @@ func (*Page) Crumb() string { return "alerts" }
 // the loading affordance, k9s-style. Mirror of the silences
 // page's pattern.
 func (p *Page) Title() string {
-	if !p.polled() || p.refreshing {
-		return p.spinner.View() + " loading alerts…"
+	if !p.polled() || p.Refreshing {
+		return p.Spinner.View() + " loading alerts…"
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -416,12 +392,12 @@ func (p *Page) Footer() string {
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
 		// in flight is still informative.
-		if p.refreshing {
+		if p.Refreshing {
 			return "WATCH OFF · refreshing…"
 		}
 		return "WATCH OFF"
 	}
-	if p.refreshing {
+	if p.Refreshing {
 		return "refreshing…"
 	}
 	if !p.polled() {
@@ -439,7 +415,7 @@ func (p *Page) Footer() string {
 // NextAt — the wiring layer's poll.DataMsg is the single source.
 func (p *Page) soonestNextRefresh() time.Time {
 	var soonest time.Time
-	for tenant, ts := range p.nextRefresh {
+	for tenant, ts := range p.NextRefresh {
 		if !p.ScopeIncludes(tenant) {
 			continue
 		}
@@ -477,7 +453,7 @@ func nextRefreshLabel(now, next time.Time) string {
 // setup doesn't flip the page out of loading state before the
 // in-scope tenant has answered.
 func (p *Page) polled() bool {
-	for tenant := range p.polledTenants {
+	for tenant := range p.PolledTenants {
 		if p.ScopeIncludes(tenant) {
 			return true
 		}
@@ -488,7 +464,7 @@ func (p *Page) polled() bool {
 // spinnerActive reports whether the spinner should continue to
 // animate. Two windows: cold start and refresh-in-flight.
 // Outside those, the page draws static "next refresh" timing.
-func (p *Page) spinnerActive() bool { return !p.polled() || p.refreshing }
+func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "alerts" payloads into this page
