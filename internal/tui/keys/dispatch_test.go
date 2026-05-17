@@ -315,6 +315,81 @@ func TestApplyOverrides_PreservesOriginalLayerAcrossUserKey(t *testing.T) {
 		"override Y must inherit yank-id's view layer and beat the global Y")
 }
 
+func TestDispatcher_ClearRemovesAllLayerBindings(t *testing.T) {
+	t.Parallel()
+
+	// A modal that registered three keys in LayerModal during Open
+	// must be able to wipe all three in one shot during Close. Per-key
+	// Unregister would force the modal to remember every key it
+	// registered; Clear(layer) is the natural shape — "drop every
+	// binding I owned in this layer".
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.Set(LayerModal, "y", r.handler("yes"))
+	d.Set(LayerModal, "n", r.handler("no"))
+	d.Set(LayerModal, "Esc", r.handler("cancel"))
+
+	d.Clear(LayerModal)
+
+	for _, key := range []string{"y", "n", "Esc"} {
+		consumed, _ := d.Dispatch(key)
+		require.False(t, consumed,
+			"key %q must miss after Clear(LayerModal) — the layer is empty", key)
+	}
+	require.EqualValues(t, 0, r.count.Load(),
+		"no modal handler may have fired after Clear")
+}
+
+func TestDispatcher_ClearRestoresUnderlyingLayer(t *testing.T) {
+	t.Parallel()
+
+	// Load-bearing scenario from the keys brainstorm FM5: a modal
+	// registers `q` to close itself while the global `q` quits the
+	// app. While the modal is open, modal `q` wins (LayerModal beats
+	// LayerGlobal). After the modal closes and Clear(LayerModal)
+	// fires, the global `q` must take over again — without Clear, the
+	// modal's `q` would linger forever and shadow the global handler.
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.Set(LayerGlobal, "q", r.handler("global-quit"))
+	d.Set(LayerModal, "q", r.handler("modal-close"))
+
+	// While modal is "open", its `q` wins.
+	consumed, _ := d.Dispatch("q")
+	require.True(t, consumed)
+	require.Equal(t, "modal-close", r.lastLabel(),
+		"modal layer must shadow global while populated")
+
+	// Modal closes → Clear wipes the layer.
+	d.Clear(LayerModal)
+
+	consumed, _ = d.Dispatch("q")
+	require.True(t, consumed)
+	require.Equal(t, "global-quit", r.lastLabel(),
+		"after Clear(LayerModal), global q must win again")
+}
+
+func TestDispatcher_ClearDropsActionEntriesInLayer(t *testing.T) {
+	t.Parallel()
+
+	// Clear must also scrub the action registry for the cleared
+	// layer, otherwise ApplyOverrides would still wire user-extra
+	// keys onto a handler whose layer has just been wiped — the
+	// override would silently re-populate the cleared layer with a
+	// stale handler.
+	r := &recorder{}
+	d := New(newFakeClock())
+	d.SetAction(LayerModal, "modal-confirm", "y", r.handler("yes"))
+	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
+
+	d.Clear(LayerModal)
+
+	require.False(t, d.HasAction("modal-confirm"),
+		"action belonging to cleared layer must be gone")
+	require.True(t, d.HasAction("quit"),
+		"actions in untouched layers must survive")
+}
+
 func TestSet_OverwritesSilently(t *testing.T) {
 	t.Parallel()
 

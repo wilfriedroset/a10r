@@ -160,6 +160,28 @@ func (d *Dispatcher) SetAction(layer Layer, action, key string, h Handler) {
 	d.Set(layer, key, h)
 }
 
+// Clear wipes every binding in the named layer and drops the
+// matching entries from the action registry. The natural caller
+// is a modal's Close path: while the modal was open it registered
+// its keys via Set / SetAction at LayerModal (or LayerPrompt for
+// the `:` / `/` command bar), and on Close it must give the
+// underlying layers their keys back. Without Clear the modal's
+// bindings would linger in their map and keep shadowing the same
+// key in lower-precedence layers — the FM5 gap from the keys
+// brainstorm code-quality findings.
+//
+// Scrubbing the action registry is part of the contract: if a user
+// override is applied later, ApplyOverrides must not find a stale
+// action whose handler points into a wiped layer.
+func (d *Dispatcher) Clear(layer Layer) {
+	d.layers[layer] = KeyMap{}
+	for name, entry := range d.actions {
+		if entry.layer == layer {
+			delete(d.actions, name)
+		}
+	}
+}
+
 // ApplyOverrides binds every user-supplied extra key onto the
 // matching action's (layer, handler) pair.
 //
