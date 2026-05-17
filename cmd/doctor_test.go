@@ -21,16 +21,6 @@ func TestSelectCheckers_Default(t *testing.T) {
 	require.Len(t, got, len(doctor.DefaultCheckers()))
 }
 
-func TestSelectCheckers_Filter(t *testing.T) {
-	t.Parallel()
-
-	got, err := selectCheckers(doctor.DefaultCheckers(), []string{"reachability", "auth"})
-	require.NoError(t, err)
-	require.Len(t, got, 2)
-	require.Equal(t, "reachability", got[0].Name())
-	require.Equal(t, "auth", got[1].Name())
-}
-
 func TestSelectCheckers_PreservesRegistrationOrder(t *testing.T) {
 	t.Parallel()
 

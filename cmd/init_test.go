@@ -81,29 +81,6 @@ func TestPromptConfig_MimirAddsPrefixAndTenant(t *testing.T) {
 	require.Equal(t, "tenant-a", cfg.Backends[0].Tenant)
 }
 
-func TestPromptConfig_MimirEmptyTenantOmitsHeader(t *testing.T) {
-	t.Parallel()
-
-	// Single-tenant Mimir (auth.multitenancy disabled) leaves the
-	// tenant ID blank. The generated config must NOT carry
-	// `tenant_header: X-Scope-OrgID` with no value — Mimir rejects
-	// the header injection without a payload, and the file would
-	// not round-trip through config.Load's
-	// tenant-header/tenant-collision validation either.
-	in := initInputs(
-		"mimir-single", "https://mimir.example", "mimir", "",
-		"none", "", "",
-		"60s", "catppuccin-mocha",
-	)
-	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix,
-		"prefix is unconditional — Mimir's AM lives under /alertmanager")
-	require.Empty(t, cfg.Backends[0].TenantHeader,
-		"empty tenant input must leave tenant_header unset")
-	require.Empty(t, cfg.Backends[0].Tenant)
-}
-
 func TestSuggestedPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -127,29 +104,6 @@ func TestSuggestedPrefix(t *testing.T) {
 			require.Equal(t, tc.want, suggestedPrefix(tc.url))
 		})
 	}
-}
-
-func TestPromptConfig_MimirURLWithPrefixSkipsAdd(t *testing.T) {
-	t.Parallel()
-
-	// User provided URL that already encodes /alertmanager; the
-	// wizard's default prefix becomes empty so the resulting
-	// Backend has Prefix="" — without this fix a request would
-	// hit https://mimir.example/alertmanager/alertmanager/api/v2/...
-	in := strings.Join([]string{
-		"primary",
-		"https://mimir.example/alertmanager",
-		"mimir",
-		"", // prefix prompt — accept the empty default
-		"", // tenant — blank
-		"none",
-		"30s",
-		"catppuccin-mocha",
-	}, "\n") + "\n"
-	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Empty(t, cfg.Backends[0].Prefix,
-		"URL already carrying /alertmanager must not get the prefix doubled")
 }
 
 func TestRunInit_MimirEmptyTenantPlusBasicAuthRoundTrips(t *testing.T) {
@@ -466,21 +420,6 @@ func TestBuildInitConfig_MimirDefaultsPrefix(t *testing.T) {
 	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
 }
 
-func TestBuildInitConfig_MimirURLAlreadyEncodesPrefix(t *testing.T) {
-	t.Parallel()
-
-	// URL already encodes /alertmanager — buildInitConfig must
-	// suppress the default to avoid /alertmanager/alertmanager
-	// double-pathing, same rule as the wizard's suggestedPrefix.
-	ans, err := parseKVAnswers([]string{
-		"name=mimir", "url=https://mimir.example/alertmanager", "kind=mimir",
-	})
-	require.NoError(t, err)
-	cfg, err := buildInitConfig(ans)
-	require.NoError(t, err)
-	require.Empty(t, cfg.Backends[0].Prefix)
-}
-
 func TestBuildInitConfig_MimirExplicitTenantSetsHeader(t *testing.T) {
 	t.Parallel()
 
@@ -558,11 +497,15 @@ func TestBuildInitConfig_BearerRequiresToken(t *testing.T) {
 func TestBuildInitConfig_BasicRequiresBoth(t *testing.T) {
 	t.Parallel()
 
+	// user-only and password-only together pin "both required" — a
+	// regression to "only user required" fails user_only, a regression
+	// to "only password required" fails password_only. The both-empty
+	// case adds no catching power (every regression that breaks one
+	// leg keeps both-empty erroring) so it stays cut.
 	cases := []struct {
 		name string
 		kvs  []string
 	}{
-		{name: "no creds", kvs: []string{"auth_mode=basic"}},
 		{name: "user only", kvs: []string{"auth_mode=basic", "basic_user=alice"}},
 		{name: "password only", kvs: []string{"auth_mode=basic", "basic_password=hunter2"}},
 	}

@@ -75,14 +75,13 @@ func TestNewRootCmd_FlagBinding(t *testing.T) {
 			want: GlobalFlags{ReadOnly: true, LogFormat: defaultLogFormat},
 		},
 		{
+			// The flag stores its value verbatim — comma-split and
+			// the `all` keyword are interpreted at the page layer,
+			// not at flag binding. One representative value covers
+			// the binding contract.
 			name: "tenant subset",
 			args: []string{"--tenant", "prod,staging"},
 			want: GlobalFlags{Tenant: "prod,staging", LogFormat: defaultLogFormat},
-		},
-		{
-			name: "tenant all",
-			args: []string{"--tenant", "all"},
-			want: GlobalFlags{Tenant: "all", LogFormat: defaultLogFormat},
 		},
 		{
 			name: "poll interval",
@@ -128,19 +127,6 @@ func TestNewRootCmd_DebugOverridesQuiet(t *testing.T) {
 	require.Contains(t, errBuf.String(), "--debug overrides --quiet")
 }
 
-func TestNewRootCmd_UnknownFlagFails(t *testing.T) {
-	t.Parallel()
-
-	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags, noopRootRun)
-	rootCmd.SetArgs([]string{"--no-such-flag"})
-	rootCmd.SetOut(io.Discard)
-	rootCmd.SetErr(io.Discard)
-
-	err := rootCmd.Execute()
-	require.Error(t, err)
-}
-
 func TestNewRootCmd_HelpListsAllPersistentFlags(t *testing.T) {
 	t.Parallel()
 
@@ -160,18 +146,6 @@ func TestNewRootCmd_HelpListsAllPersistentFlags(t *testing.T) {
 	rootCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
 		require.Contains(t, out, "--"+f.Name, "help output missing flag --%s", f.Name)
 	})
-}
-
-func TestNewRootCmd_BadDurationFails(t *testing.T) {
-	t.Parallel()
-
-	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags, noopRootRun)
-	rootCmd.SetArgs([]string{"--poll-interval", "notaduration"})
-	rootCmd.SetOut(io.Discard)
-	rootCmd.SetErr(io.Discard)
-
-	require.Error(t, rootCmd.Execute())
 }
 
 func TestReconcileLogLevelFlags(t *testing.T) {

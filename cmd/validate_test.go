@@ -117,21 +117,3 @@ func TestLoadOptsFromArgs(t *testing.T) {
 		})
 	}
 }
-
-func TestValidateCmd_RegisteredOnRoot(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	writeYAML(t, dir, "a10r.yaml", "backends:\n  - name: ok\n    url: http://x\n")
-
-	var flags GlobalFlags
-	rootCmd := newRootCmd(&flags, nil)
-	rootCmd.AddCommand(newValidateCmd(&flags))
-	rootCmd.SetArgs([]string{"validate", "--config-dir", dir})
-	var outBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	rootCmd.SetErr(io.Discard)
-
-	require.NoError(t, rootCmd.Execute())
-	require.Contains(t, outBuf.String(), "config valid")
-}

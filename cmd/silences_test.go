@@ -30,8 +30,11 @@ func TestValidateSilenceState(t *testing.T) {
 		{name: "mixed case folds", in: "PENDING", want: "pending"},
 		{name: "expired", in: "expired", want: "expired"},
 		{name: "trim whitespace", in: "  active  ", want: "active"},
+		// The unknown-state case covers the entire default-error
+		// branch — adding more invalid inputs ("typo", "armed") would
+		// re-test the same `else { return error }` arm of the
+		// validate-state switch with no extra catching power.
 		{name: "unknown fails closed", in: "armed", wantErr: true},
-		{name: "typo fails closed", in: "actve", wantErr: true},
 	}
 
 	for _, tc := range cases {

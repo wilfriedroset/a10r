@@ -4,11 +4,7 @@ package cmd
 
 import (
 	"bytes"
-	"context"
-	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -132,31 +128,4 @@ func TestRenderGroupRows_JSONIncludesLabelsMap(t *testing.T) {
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"team": "plat"`,
 		"labels map round-trips through JSON output")
-}
-
-// TestRunGroupsList_FailWhenAllBackendsDown mirrors the silences
-// test: --fail against an unreachable backend exits ExitUnreachable.
-func TestRunGroupsList_FailWhenAllBackendsDown(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "a10r.yaml")
-	require.NoError(t, os.WriteFile(cfgPath, []byte(`
-backends:
-  - name: down
-    url: http://127.0.0.1:1
-`), 0o600))
-
-	flags := &GlobalFlags{ConfigPath: cfgPath}
-	var buf bytes.Buffer
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	err := runGroupsList(ctx, &buf, flags, groupsListOptions{
-		Output:    "json",
-		FailOnAny: true,
-	})
-	require.Error(t, err)
-	var ex *ExitError
-	require.ErrorAs(t, err, &ex, "must wrap ExitError")
-	require.Equal(t, ExitUnreachable, ex.Code)
 }

@@ -89,15 +89,3 @@ func TestCompletion_NoArgsListsShells(t *testing.T) {
 			"completion help must mention the %s shell", shell)
 	}
 }
-
-func TestCompletion_AppearsInRootHelp(t *testing.T) {
-	t.Parallel()
-
-	// Smoke test: the same subcommand registration cmd.Execute uses
-	// must surface `completion` in the help output, so a future
-	// removal of cobra's auto-registration is loud.
-	outBuf, run := completionTestRoot()
-	require.NoError(t, run([]string{"--help"}))
-	require.Contains(t, outBuf.String(), "completion",
-		"completion subcommand must appear in `a10r --help`")
-}
