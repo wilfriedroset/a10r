@@ -287,44 +287,18 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 	require.Contains(t, out, "(no client available)")
 }
 
+// TestPage_VimMotionsScroll is the wiring smoke for the cursor
+// module: pressing `j` in Update must route into cursor.HandleMotion
+// and advance p.scroll. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.scroll, "scroll clamps at 0")
-}
-
-func TestPage_FullPageMotionsScroll(t *testing.T) {
-	t.Parallel()
-	// Cold-start: no View call yet → 20-line fallback.
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
-	require.Equal(t, 0, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0")
-}
-
-func TestPage_ViewportAwareScrollSteps(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
-	_ = p.View(120, 40) // 40-line viewport — half=20, full=body-2=38
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "Ctrl+D walks half the rendered body (40 / 2)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.scroll, "Ctrl+F walks body-2 (20 + 38)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "Ctrl+B mirrors Ctrl+F")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll, "Ctrl+U mirrors Ctrl+D")
+	require.Equal(t, 1, p.scroll, "Update must route `j` into cursor.HandleMotion")
 }
 
 // TestPage_CloseCancelsInflightFetch pins that closing the page

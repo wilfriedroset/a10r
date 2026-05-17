@@ -137,31 +137,18 @@ func TestPage_BodyAppliesYAMLKeyAndValueStyles(t *testing.T) {
 		"the `sil-1` value must be rendered with the skin's YAML.Value foreground")
 }
 
+// TestPage_VimMotionsScroll is the wiring smoke for the cursor module:
+// pressing `j` in Update must route into cursor.HandleMotion and
+// advance p.scroll. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.scroll, "scroll clamps at 0")
-}
-
-func TestPage_HalfAndFullPageMotionsScroll(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
-	require.Equal(t, 0, p.scroll)
-	// Cold-start: no View → 10 / 20 fallback.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 10, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll)
+	require.Equal(t, 1, p.scroll, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_ScrollClampsToBodyOnRender(t *testing.T) {

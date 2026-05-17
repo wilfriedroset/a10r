@@ -58,66 +58,19 @@ func TestPage_AnchorJumpsToSection(t *testing.T) {
 	require.Equal(t, 0, p.scroll, "`c` must scroll back to the cluster section at the top")
 }
 
+// TestPage_VimMotions is the wiring smoke for the cursor module:
+// pressing `j` in Update must route into cursor.HandleMotion and
+// advance p.scroll. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Positive(t, p.scroll)
-	// `gg` is the chord — the dispatcher consumes the first `g`,
-	// then resolves to GoToFirstRowMsg on the second. Tests inject
-	// the resolved message directly because the dispatcher's
-	// chord buffer is wired in cmd/tui.go, not in the page.
-	_, _ = p.Update(app.GoToFirstRowMsg{})
-	require.Equal(t, 0, p.scroll)
-}
-
-func TestPage_FullPageMotions(t *testing.T) {
-	t.Parallel()
-	// Cold-start path (no View call yet): keystrokes fall back to
-	// the 20-row step so the very first input still moves a sane
-	// distance before bubbletea has ticked a render.
-	st := sampleStatus()
-	long := make([]string, 0, 100)
-	for i := range 100 {
-		long = append(long, "  line-"+string(rune('a'+i%26)))
-	}
-	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
-	p := New(testutil.LoadStyles(t), "prod")
-	_, _ = p.Update(poll.DataMsg{Resource: st})
-
-	require.Equal(t, 0, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "cold-start Ctrl+F falls back to 20 lines")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll, "Ctrl+B mirrors Ctrl+F")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll, "Ctrl+B clamps at 0; never goes negative")
-}
-
-func TestPage_ViewportAwareScrollSteps(t *testing.T) {
-	t.Parallel()
-	st := sampleStatus()
-	long := make([]string, 0, 200)
-	for i := range 200 {
-		long = append(long, "  line-"+string(rune('a'+i%26)))
-	}
-	st.Config = "route:\n" + strings.Join(long, "\n") + "\n"
-	p := New(testutil.LoadStyles(t), "prod")
-	_, _ = p.Update(poll.DataMsg{Resource: st})
-	_ = p.View(120, 40) // 40-line viewport — vim's full-page = 40-2 = 38, half = 20
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll, "Ctrl+D walks half the rendered body (40 / 2)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.scroll, "Ctrl+F walks body-2 (20 + 38)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.scroll)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.scroll)
+	require.Equal(t, 1, p.scroll, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {

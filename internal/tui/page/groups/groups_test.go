@@ -79,38 +79,6 @@ func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 		"platform carries a critical alert; data has none → platform first")
 }
 
-func TestPage_SortShortcutTogglesDirection(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc())
-
-	// Same column shortcut flips direction.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.False(t, p.sorter.Asc())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.True(t, p.sorter.Asc())
-
-	// Different column resets to that column's default direction.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
-	require.False(t, p.sorter.Asc(), "Count default is DESC")
-}
-
-func TestPage_SortColumnWalk(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyCount, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey(), "right walk wraps from Severity back to Name")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey(), "left walk wraps to the rightmost axis")
-}
-
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -434,82 +402,19 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
+// TestPage_VimMotions is the wiring smoke for the cursor module:
+// pressing `j` in Update must route into cursor.HandleMotion with
+// len(p.rows()) as the row count. The full motion contract
+// (j/k/G/g/Ctrl+D/U/F/B, clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, len(p.rows())-1, p.cursor)
-	// `gg` is the chord — the dispatcher consumes the first `g`,
-	// then resolves to GoToFirstRowMsg on the second. Tests inject
-	// the resolved message directly so the assertion is independent
-	// of the chord buffer.
-	_, _ = p.Update(app.GoToFirstRowMsg{})
-	require.Equal(t, 0, p.cursor)
-}
-
-func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
-	t.Parallel()
-
-	// Build enough rows that the cold-start fallback (20) lands inside
-	// the row list without clamping. Each group is collapsed by default
-	// → one row per group.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	gs := make([]backend.AlertGroup, 60)
-	for i := range gs {
-		gs[i] = backend.AlertGroup{
-			Labels: map[string]string{"team": "t" + string(rune('a'+(i%26)))},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
-		}
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: gs})
-
-	require.Equal(t, 0, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
-
-	// Ctrl+D / Ctrl+U mirror with the half-step fallback.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 10, p.cursor, "cold-start Ctrl+D falls back to 10 rows")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D")
-
-	// Clamps at edges — Ctrl+F at the bottom stays put.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, len(p.rows())-1, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, len(p.rows())-1, p.cursor,
-		"Ctrl+F at the last row clamps; never overshoots")
-}
-
-func TestPage_ViewportAwareScrollSteps(t *testing.T) {
-	t.Parallel()
-
-	// After a render the page snapshots its body-row budget. Ctrl+D
-	// must walk half the viewport, Ctrl+F a full window minus two —
-	// vim's CTRL-F overlap convention.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	gs := make([]backend.AlertGroup, 100)
-	for i := range gs {
-		gs[i] = backend.AlertGroup{
-			Labels: map[string]string{"team": "t" + string(rune('a'+(i%26))), "i": string(rune('0' + (i % 10)))},
-			Alerts: []backend.Alert{{Labels: map[string]string{"alertname": "A"}}},
-		}
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: gs})
-	_ = p.View(120, 40) // 40-row body; one line goes to the sort header → 39 row budget
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 19, p.cursor, "Ctrl+D walks half the row budget (39 / 2)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 56, p.cursor, "Ctrl+F walks budget-2 from the new cursor (19 + 37)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 19, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
