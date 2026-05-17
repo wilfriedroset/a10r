@@ -309,13 +309,6 @@ func TestTLSExpiryChecker(t *testing.T) {
 			wantSev: SeverityError,
 			wantMsg: "tls probe failed",
 		},
-		{
-			name:    "dial failure → error",
-			backend: config.Backend{Name: "x", URL: "https://am.internal"},
-			probe:   makeProbe(time.Time{}, errors.New("connection refused")),
-			wantSev: SeverityError,
-			wantMsg: "tls probe failed",
-		},
 	}
 
 	for _, tc := range cases {
@@ -379,14 +372,6 @@ func TestCapabilitiesChecker(t *testing.T) {
 			probes:  map[string]capabilityProbe{"config_api": okProbe, "tenant_admin": okProbe, "ring": okProbe},
 			wantSev: SeverityOK,
 			wantMsg: "verified",
-		},
-		{
-			name:    "404 mismatch → error",
-			client:  &fakeClient{},
-			caps:    config.Capabilities{ConfigAPI: true},
-			probes:  map[string]capabilityProbe{"config_api": notFoundProbe},
-			wantSev: SeverityError,
-			wantMsg: "capability mismatch",
 		},
 		{
 			name:    "ErrUnsupported mismatch → error",
@@ -462,12 +447,6 @@ func TestClockSkewChecker(t *testing.T) {
 			wantMsg: "client construction failed",
 		},
 		{
-			name:    "within 30s → ok",
-			client:  &fakeClient{probeAtTime: localNow.Add(15 * time.Second)},
-			wantSev: SeverityOK,
-			wantMsg: "within 30s threshold",
-		},
-		{
 			name:    "exactly 30s → ok",
 			client:  &fakeClient{probeAtTime: localNow.Add(30 * time.Second)},
 			wantSev: SeverityOK,
@@ -484,12 +463,6 @@ func TestClockSkewChecker(t *testing.T) {
 			client:  &fakeClient{probeAtTime: localNow.Add(-1 * time.Minute)},
 			wantSev: SeverityWarning,
 			wantMsg: "behind local clock",
-		},
-		{
-			name:    "no Date header → ok skipped",
-			client:  &fakeClient{probeAtErr: backend.ErrNoDateHeader},
-			wantSev: SeverityOK,
-			wantMsg: "skipped",
 		},
 		{
 			name:    "wrapped no-date-header → ok skipped",

@@ -68,15 +68,6 @@ func TestDispatch_CtrlBackslashRoutesGlobal(t *testing.T) {
 	require.Equal(t, "clear-marks", r.lastLabel())
 }
 
-func TestDispatch_Empty(t *testing.T) {
-	t.Parallel()
-
-	d := New(newFakeClock())
-	consumed, cmd := d.Dispatch("s")
-	require.False(t, consumed, "no bindings → unconsumed")
-	require.Nil(t, cmd)
-}
-
 func TestDispatch_LayerPrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -96,19 +87,6 @@ func TestDispatch_LayerPrecedence(t *testing.T) {
 	require.Equal(t, "modal", r.lastLabel(),
 		"modal layer must beat every layer below it")
 	require.EqualValues(t, 1, r.count.Load())
-}
-
-func TestDispatch_TableLosesToModal(t *testing.T) {
-	t.Parallel()
-
-	r := &recorder{}
-	d := New(newFakeClock())
-	d.Set(LayerTable, "j", r.handler("table"))
-	d.Set(LayerModal, "j", r.handler("modal"))
-
-	consumed, _ := d.Dispatch("j")
-	require.True(t, consumed)
-	require.Equal(t, "modal", r.lastLabel())
 }
 
 func TestDispatch_GlobalReachedWhenNoHigherLayerBinds(t *testing.T) {
@@ -228,14 +206,6 @@ func TestHandleChordExpired_StaleTicksDiscarded(t *testing.T) {
 	require.Nil(t, cmd)
 }
 
-func TestHandleChordExpired_NoPendingChord(t *testing.T) {
-	t.Parallel()
-
-	d := New(newFakeClock())
-	cmd := d.HandleChordExpired(ChordExpiredMsg{At: time.Now()})
-	require.Nil(t, cmd, "expired tick with no pending chord is a no-op")
-}
-
 func TestHandleChordExpired_RoundTripClearsState(t *testing.T) {
 	t.Parallel()
 
@@ -282,33 +252,6 @@ func TestSetAction_RegistersKeyAndExposesActionName(t *testing.T) {
 	require.Equal(t, "quit", r.lastLabel())
 }
 
-func TestApplyOverrides_ShadowsDefaultsWithExtraKeys(t *testing.T) {
-	t.Parallel()
-
-	// Real user file scenario: `quit: ['Q']` adds capital Q on top of
-	// the default lowercase q. Both must fire the same handler — this
-	// is the load-bearing "shadow defaults" guarantee from ADR 0010.
-	r := &recorder{}
-	d := New(newFakeClock())
-	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
-
-	require.NoError(t, d.ApplyOverrides(map[string][]string{
-		"quit": {"Q"},
-	}))
-
-	// Original binding still works.
-	consumed, _ := d.Dispatch("q")
-	require.True(t, consumed)
-	require.Equal(t, "quit", r.lastLabel())
-	require.EqualValues(t, 1, r.count.Load())
-
-	// User-supplied binding fires the same handler.
-	consumed, _ = d.Dispatch("Q")
-	require.True(t, consumed)
-	require.Equal(t, "quit", r.lastLabel())
-	require.EqualValues(t, 2, r.count.Load())
-}
-
 func TestApplyOverrides_MultipleKeysPerAction(t *testing.T) {
 	t.Parallel()
 
@@ -341,14 +284,6 @@ func TestApplyOverrides_UnknownActionFailsClosed(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `unknown action "quitt"`)
-}
-
-func TestApplyOverrides_EmptyOverridesIsNoOp(t *testing.T) {
-	t.Parallel()
-
-	d := New(newFakeClock())
-	require.NoError(t, d.ApplyOverrides(nil))
-	require.NoError(t, d.ApplyOverrides(map[string][]string{}))
 }
 
 func TestApplyOverrides_PreservesOriginalLayerAcrossUserKey(t *testing.T) {

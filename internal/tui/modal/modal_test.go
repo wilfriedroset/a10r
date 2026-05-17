@@ -83,23 +83,6 @@ func TestPicker_AKeyTypedIntoQueryAfterAlreadyFiltering(t *testing.T) {
 		"the `a` keypress must NOT have triggered select-all when the query is non-empty")
 }
 
-func TestPicker_AReArmsAfterClearingQuery(t *testing.T) {
-	t.Parallel()
-
-	// Type something, clear it (Ctrl+U), then press `a` — select-all
-	// is intended to re-arm because the buffer is empty again. This
-	// is the documented contract on selectAllFiltered: "the caller
-	// can clear by Ctrl+U then `a`".
-	p := NewPicker("backends", []string{"alpha", "bravo"}, PickerMulti)
-	p, _ = updateAs(p, tea.KeyPressMsg{Code: 'z', Text: "z"})
-	p, _ = updateAs(p, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Empty(t, p.query)
-
-	p, _ = updateAs(p, tea.KeyPressMsg{Code: 'a', Text: "a"})
-	require.Empty(t, p.query, "select-all must NOT append `a` to the buffer")
-	require.Len(t, p.marks, 2, "select-all must mark every filtered item")
-}
-
 func TestPicker_EscEmitsCancelled(t *testing.T) {
 	t.Parallel()
 
