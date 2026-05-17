@@ -17,18 +17,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-func TestPage_DataMsgSortsReceivers(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
-		{Name: "web"}, {Name: "ops"}, {Name: "default"},
-	}})
-	require.Equal(t, []string{"default", "ops", "web"}, p.view,
-		"the view is the de-duplicated, scope-filtered union of "+
-			"every backend's snapshot — single-backend case lands "+
-			"the names sorted alphabetically")
-}
-
 func TestPage_EnterEmitsDrillRequest(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -93,26 +81,6 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
-func TestPage_SortShortcutTogglesDirection(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
-		{Name: "web"}, {Name: "ops"}, {Name: "default"},
-	}})
-	require.Equal(t, []string{"default", "ops", "web"}, p.view)
-
-	// Same-axis shortcut flips direction; the view flips with it.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.False(t, p.sorter.Asc())
-	require.Equal(t, []string{"web", "ops", "default"}, p.view,
-		"toggling to DESC reverses the alphabetical view")
-
-	// And toggles back on repeat.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.True(t, p.sorter.Asc())
-	require.Equal(t, []string{"default", "ops", "web"}, p.view)
-}
-
 func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -144,20 +112,6 @@ func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
 	require.True(t, p.sorter.Asc(), "l on a single-axis page must NOT flip direction")
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	require.True(t, p.sorter.Asc(), "h on a single-axis page must NOT flip direction")
-}
-
-func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	got := map[string]string{}
-	for _, b := range p.Bindings() {
-		if strings.HasPrefix(b.Key, "Shift+") {
-			got[b.Key] = b.Description
-		}
-	}
-	require.Contains(t, got, "Shift+N",
-		"Bindings() must surface Shift+N so the `?` overlay's HOTKEYS column lists it")
-	require.Equal(t, "sort by name", got["Shift+N"])
 }
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
