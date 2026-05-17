@@ -753,3 +753,43 @@ func TestStack_QuitCascadesCloseOnEveryStackPage(t *testing.T) {
 	require.IsType(t, tea.QuitMsg{}, msg,
 		"the Cmd returned by QuitRequestedMsg handling must emit tea.QuitMsg so the program exits")
 }
+
+// TestQuitWithCleanup_FlipsQuittingFlag pins the loop-back fix:
+// quitWithCleanup must flip a.quitting BEFORE returning the
+// tea.Batch(closeCmds, tea.Quit). Reason: bubbletea's eventLoop
+// catches tea.QuitMsg in its eventLoop BEFORE dispatching to
+// Update (vendor charm.land/bubbletea/v2 tea.go around line 765),
+// so handleLifecycle's `case tea.QuitMsg: a.quitting = true`
+// branch is DEAD CODE in production. If the flag is only flipped
+// by that dead branch, then:
+//
+//  1. user presses `q` → QuitRequestedMsg → quitWithCleanup
+//     returns tea.Batch(closeCmds..., tea.Quit)
+//  2. tea.Quit emits QuitMsg into bubbletea's msg channel
+//  3. eventLoop's filter callback runs; a.Quitting() is still
+//     false → filter translates QuitMsg back to QuitRequestedMsg
+//  4. loop forever; the program never exits
+//
+// Flipping a.quitting inside quitWithCleanup itself breaks the
+// loop: by the time bubbletea reads the resulting QuitMsg, the
+// flag is true, the filter short-circuits, QuitMsg passes through,
+// and the program exits cleanly.
+func TestQuitWithCleanup_FlipsQuittingFlag(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	require.False(t, a.Quitting(),
+		"sanity check: a freshly-built App must not be in the quitting state")
+
+	// Drive the precursor through Update so we exercise the same
+	// path production does — `q` / Ctrl+C / `:q` all emit
+	// QuitRequestedMsg, which handleLifecycle routes to
+	// quitWithCleanup.
+	_, cmd := a.Update(QuitRequestedMsg{})
+	require.NotNil(t, cmd,
+		"QuitRequestedMsg handling must produce a Cmd that ultimately emits tea.Quit")
+
+	require.True(t, a.Quitting(),
+		"quitWithCleanup must flip the quitting flag before returning "+
+			"the cleanup batch — otherwise the filter loops QuitMsg "+
+			"back into QuitRequestedMsg and the program never exits")
+}

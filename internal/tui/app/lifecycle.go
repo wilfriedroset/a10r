@@ -188,7 +188,21 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 // Empty stack — pre-PushPage cold-start, or a hypothetical Esc
 // loop that popped every page — still emits tea.Quit so a quit
 // keystroke during cold start exits cleanly.
+//
+// CRITICAL: a.quitting is flipped HERE, before the batch returns,
+// not in handleLifecycle's `case tea.QuitMsg` branch (which is
+// dead code in production — bubbletea's eventLoop catches
+// tea.QuitMsg BEFORE dispatching to Update; see vendor
+// charm.land/bubbletea/v2 tea.go eventLoop). The cleanup-cascade
+// path's terminating tea.Quit emits a QuitMsg into bubbletea's
+// message channel; the wiring-layer filter (cmd/tui.go's
+// newQuitFilter) reads a.Quitting() to decide pass-through vs.
+// rewrite-to-QuitRequestedMsg. Without the flip here, the filter
+// would loop QuitMsg back into QuitRequestedMsg forever and the
+// program would never exit. The dead case in handleLifecycle stays
+// as belt-and-braces.
 func (a *App) quitWithCleanup() tea.Cmd {
+	a.quitting = true
 	cmds := make([]tea.Cmd, 0, len(a.stack)+1)
 	for i := len(a.stack) - 1; i >= 0; i-- {
 		if c := a.stack[i].Close(); c != nil {

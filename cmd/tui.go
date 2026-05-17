@@ -204,7 +204,18 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return fmt.Errorf("user keybindings: %w", err)
 	}
 
-	prog := tea.NewProgram(a, tea.WithContext(cmd.Context()), tea.WithFilter(newQuitFilter(a)))
+	// Deliberately NO tea.WithContext here: bubbletea's eventLoop
+	// short-circuits on `<-p.ctx.Done()` BEFORE invoking the filter
+	// or Update (vendor charm.land/bubbletea/v2 tea.go eventLoop),
+	// so on SIGTERM the ctx-cancellation racing with handleSignals'
+	// QuitMsg push could win and bypass the page-stack Close
+	// cascade entirely. The QuitMsg / InterruptMsg path the filter
+	// already covers is sufficient for program-level shutdown.
+	// cmd.Context() still propagates to per-page editorCtx /
+	// bulkCtx for page-scoped cancellation (silence-form writes,
+	// bulk fanout workers, editor updates) — that wiring is in the
+	// page factories above and is unaffected by this choice.
+	prog := tea.NewProgram(a, tea.WithFilter(newQuitFilter(a)))
 
 	// Spawn the poller for every configured backend and publish
 	// each into the registry so the refresh handler can find them.

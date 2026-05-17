@@ -570,30 +570,51 @@ func TestQuitFilter_TranslatesInterruptMsgWhenAppNotQuitting(t *testing.T) {
 }
 
 // TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised verifies the
-// other side of the contract: once the App has already run the
-// cascade and emitted tea.Quit itself (via QuitRequestedMsg →
-// quitWithCleanup → tea.Quit), the resulting QuitMsg MUST reach the
-// runtime so the program actually exits. The handleLifecycle's
-// tea.QuitMsg branch flips a.quitting before bubbletea reads the
-// next message; the filter consults that flag and passes through
-// unchanged. Without this gate the filter would loop QuitMsg back
-// into QuitRequestedMsg forever and the program would never quit.
+// other side of the contract through the REAL runtime path: once
+// the App has run the cascade via QuitRequestedMsg → quitWithCleanup
+// and emitted tea.Quit, the resulting QuitMsg MUST reach the runtime
+// so the program actually exits.
+//
+// Bubbletea's eventLoop catches tea.QuitMsg BEFORE dispatching to
+// Update (vendor charm.land/bubbletea/v2 tea.go around line 765),
+// so handleLifecycle's `case tea.QuitMsg: a.quitting = true` branch
+// is dead code in production. The earlier version of this test
+// pre-flipped the flag via that dead branch, masking the loop-back
+// bug. This rewrite drives through the production-shaped sequence
+// (QuitRequestedMsg → quitWithCleanup → tea.Quit Cmd resolves to
+// QuitMsg → filter) and asserts the filter passes QuitMsg through
+// unchanged. Without quitWithCleanup flipping the flag itself, this
+// test fails — QuitMsg is rewritten back to QuitRequestedMsg and the
+// program would loop forever.
 func TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised(t *testing.T) {
 	t.Parallel()
 	a := newTestAppForFilter(t)
-	// Run a normal cascade to set a.quitting via the QuitMsg branch
-	// in handleLifecycle. After this, tea.QuitMsg arriving at the
-	// filter must pass through.
-	a.Update(tea.QuitMsg{})
-	require.True(t, a.Quitting(),
-		"handleLifecycle must flip the quitting flag on tea.QuitMsg "+
-			"so the filter has a stable signal to read")
 
+	// 1) Drive the precursor through Update — same path `q` /
+	// Ctrl+C / `:q` take in production. This invokes
+	// quitWithCleanup, which must flip a.quitting and return the
+	// tea.Batch(closeCmds, tea.Quit) Cmd.
+	_, cmd := a.Update(app.QuitRequestedMsg{})
+	require.NotNil(t, cmd, "QuitRequestedMsg must produce a follow-up Cmd")
+
+	// 2) Resolve the Cmd to its terminal message. With an empty
+	// page stack the batch is just [tea.Quit], which resolves to
+	// tea.QuitMsg{}.
+	msg := cmd()
+	require.NotNil(t, msg,
+		"the cleanup batch must ultimately emit a tea.QuitMsg")
+
+	// 3) Feed the resulting QuitMsg through the filter, the exact
+	// sequence bubbletea's eventLoop would run. The filter must
+	// short-circuit (a.Quitting() == true) and pass tea.QuitMsg
+	// through unchanged — anything else loops back into
+	// QuitRequestedMsg and the program never exits.
 	filter := newQuitFilter(a)
-	out := filter(a, tea.QuitMsg{})
+	out := filter(a, msg)
 	require.IsType(t, tea.QuitMsg{}, out,
-		"once the App authorised the quit, the filter must let "+
-			"tea.QuitMsg through so bubbletea's eventLoop exits")
+		"once quitWithCleanup has authorised the quit, the filter must "+
+			"let tea.QuitMsg through so bubbletea's eventLoop exits; "+
+			"this is the test that would have caught the loop-back bug")
 }
 
 // TestQuitFilter_PassesNonQuitMsgsThrough verifies the filter only
