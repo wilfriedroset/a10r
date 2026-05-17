@@ -4,6 +4,7 @@ package log
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -91,16 +92,53 @@ func stripURLUserinfo(s string) string {
 // String attr values are additionally scanned for embedded URL
 // userinfo so a value like "https://alice:hunter2@host" never lands
 // in the log file even when the attr key (e.g. "url") isn't itself
-// a secret key.
+// a secret key. The scan extends to slog.LogValuer and fmt.Stringer
+// values (the two stringification boundaries slog will eventually
+// cross at render time) so the same leak shape can't slip past via
+// a typed wrapper. Random non-Stringer struct shapes flow through
+// untouched: introspecting them via reflection is both noisy and a
+// security smell (the boundary is Stringer).
 func redactAttr(_ []string, a slog.Attr) slog.Attr {
 	if _, ok := secretKeys[strings.ToLower(a.Key)]; ok {
 		return slog.String(a.Key, marker)
 	}
-	if a.Value.Kind() == slog.KindString {
+	switch a.Value.Kind() {
+	case slog.KindString:
 		stripped := stripURLUserinfo(a.Value.String())
 		if stripped != a.Value.String() {
 			return slog.String(a.Key, stripped)
 		}
+	case slog.KindLogValuer:
+		// Resolve one level only — LogValuer returning LogValuer is
+		// pathological and slog itself doesn't recurse here either.
+		// We only act if the resolved value is a string carrying
+		// userinfo; otherwise leave the original attr alone so slog's
+		// own renderer handles it.
+		resolved := a.Value.LogValuer().LogValue()
+		if resolved.Kind() == slog.KindString {
+			stripped := stripURLUserinfo(resolved.String())
+			if stripped != resolved.String() {
+				return slog.String(a.Key, stripped)
+			}
+		}
+	case slog.KindAny:
+		// Stringer is the boundary: anything else stays opaque.
+		// Reflecting into arbitrary structs would risk panics on
+		// unexported fields and quietly redact unrelated string
+		// fields — neither is desirable.
+		if s, ok := a.Value.Any().(fmt.Stringer); ok {
+			raw := s.String()
+			stripped := stripURLUserinfo(raw)
+			if stripped != raw {
+				return slog.String(a.Key, stripped)
+			}
+		}
+	case slog.KindBool, slog.KindDuration, slog.KindFloat64,
+		slog.KindInt64, slog.KindTime, slog.KindUint64, slog.KindGroup:
+		// Numeric, boolean, time, duration, and group attrs cannot
+		// carry an embedded URL — nothing to scan. Listed explicitly
+		// so the exhaustive linter pins this switch against future
+		// slog.Kind additions.
 	}
 	return a
 }

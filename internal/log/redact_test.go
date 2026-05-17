@@ -212,3 +212,122 @@ func TestNew_StripsURLUserinfoFromAttrValues(t *testing.T) {
 	require.NotContains(t, out, "bob:")
 	require.Contains(t, out, "am.example.com/-/ready")
 }
+
+// logValuerURL implements slog.LogValuer and resolves to a string
+// value carrying URL userinfo. Mirrors the real-world shape where a
+// backend client wraps a *url.URL-ish type as a slog.LogValuer so the
+// caller can `slog.Any("conn", c)` without leaking the password in
+// the underlying String() — yet the LogValue() path itself stringifies
+// to the credential-bearing URL.
+type logValuerURL struct{ raw string }
+
+func (l logValuerURL) LogValue() slog.Value { return slog.StringValue(l.raw) }
+
+// TestRedactAttr_StripsURLUserinfoFromLogValuer pins the KindLogValuer
+// branch directly against redactAttr. slog's TextHandler/JSONHandler
+// pre-resolve LogValuer before invoking ReplaceAttr (so the integration
+// path through New() ends up exercising the KindString branch), but
+// downstream handlers or test code calling redactAttr with an
+// unresolved LogValuer must also strip the embedded credential.
+func TestRedactAttr_StripsURLUserinfoFromLogValuer(t *testing.T) {
+	t.Parallel()
+	conn := logValuerURL{raw: "https://carol:swordfish@am.example.com/api/v2/alerts"}
+	a := slog.Any("conn", conn)
+	require.Equalf(t, slog.KindLogValuer, a.Value.Kind(),
+		"sanity: raw slog.Any of a LogValuer surfaces as KindLogValuer")
+	got := redactAttr(nil, a)
+	require.NotContains(t, got.Value.String(), "swordfish",
+		"password from LogValuer-resolved string must be stripped")
+	require.NotContains(t, got.Value.String(), "carol:",
+		"userinfo username from LogValuer must also be stripped")
+	require.Contains(t, got.Value.String(), "am.example.com/api/v2/alerts",
+		"host and path survive the strip")
+}
+
+// TestNew_StripsURLUserinfoFromLogValuer is the integration twin:
+// even though slog's text handler resolves LogValuer before
+// ReplaceAttr, this test pins the end-to-end guarantee that a
+// LogValuer-wrapped credential never lands in the log file.
+func TestNew_StripsURLUserinfoFromLogValuer(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	opener := func(Opts) (io.Writer, io.Closer, string, error) {
+		return &buf, noopCloser{}, "", nil
+	}
+	logger, closer, err := newWithOpener(Opts{Format: FormatLogfmt}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	conn := logValuerURL{raw: "https://carol:swordfish@am.example.com/api/v2/alerts"}
+	logger.Info("dial", slog.Any("conn", conn))
+	out := buf.String()
+	require.NotContains(t, out, "swordfish",
+		"password from LogValuer-resolved string must not land in the log")
+	require.NotContains(t, out, "carol:",
+		"userinfo username from LogValuer must also be stripped")
+	require.Contains(t, out, "am.example.com/api/v2/alerts",
+		"host and path survive the strip")
+}
+
+// stringerURL implements fmt.Stringer. A common shape: net/url.URL has
+// String() that includes userinfo when the URL was constructed with
+// user:pass — passing it via slog.Any wraps the value as
+// slog.KindAny, not slog.KindString, so the attr-value scanner has to
+// detect Stringer-ness explicitly.
+type stringerURL struct{ raw string }
+
+func (s stringerURL) String() string { return s.raw }
+
+// TestNew_StripsURLUserinfoFromStringerAttr pins that values passed
+// via slog.Any whose underlying type implements fmt.Stringer are also
+// scanned. The handler will eventually call String() at render time;
+// the scanner has to do the same and act on the result.
+func TestNew_StripsURLUserinfoFromStringerAttr(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	opener := func(Opts) (io.Writer, io.Closer, string, error) {
+		return &buf, noopCloser{}, "", nil
+	}
+	logger, closer, err := newWithOpener(Opts{Format: FormatLogfmt}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	dest := stringerURL{raw: "redis://dave:p@ssw0rd@cache.example.com:6379/0"}
+	logger.Info("dial", slog.Any("dest", dest))
+	out := buf.String()
+	require.NotContains(t, out, "p@ssw0rd",
+		"password from Stringer must not land in the log")
+	require.NotContains(t, out, "dave:",
+		"Stringer userinfo username must also be stripped")
+	require.Contains(t, out, "cache.example.com:6379/0",
+		"host:port and path survive the strip")
+}
+
+// nonStringer carries no String() method — the security boundary for
+// the KindAny branch is Stringer, and the scanner must NOT introspect
+// random struct shapes. Sanity guard that an opaque value flows
+// through without panic and without spurious redaction.
+type nonStringer struct {
+	Field string
+}
+
+// TestNew_PassesThroughNonStringer_AsAny is the regression guard for
+// the Stringer boundary: a struct without String() must flow through
+// the redactAttr KindAny branch untouched. Catches a future change
+// that tries to scan via reflection — which would both break the
+// security contract and risk panics on unexported fields.
+func TestNew_PassesThroughNonStringer_AsAny(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	opener := func(Opts) (io.Writer, io.Closer, string, error) {
+		return &buf, noopCloser{}, "", nil
+	}
+	logger, closer, err := newWithOpener(Opts{Format: FormatLogfmt}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	logger.Info("opaque", slog.Any("blob", nonStringer{Field: "value"}))
+	out := buf.String()
+	require.Contains(t, out, "blob=", "attr key still rendered")
+	require.NotEmpty(t, out, "no panic, line emitted")
+}
