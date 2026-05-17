@@ -381,53 +381,77 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
-func TestPage_SilenceKeyOnEmptyViewFlashesHint(t *testing.T) {
+func TestPage_SilenceKey(t *testing.T) {
 	t.Parallel()
 
-	// Clients set so the "no writeable backend" path doesn't win;
-	// no DataMsg → empty view.
-	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "no alert under the cursor")
-}
-
-func TestPage_SilenceKeyWithoutClientsFlashesHint(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t) // no Clients configured
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
-		Tenant:   "prod",
-	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "no writeable backend",
-		"`s` with no clients must explain rather than push a broken form")
-}
-
-func TestPage_SilenceKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
-	t.Parallel()
-	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Creator: "wilfried",
-	})
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
-		Tenant:   "prod",
-	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	require.NotNil(t, cmd, "`s` with clients must push the form")
-	_, isFlash := cmd().(footer.FlashShowMsg)
-	require.False(t, isFlash, "`s` with clients must push the form, not flash")
+	// The `s` keypress branches three ways: empty view → flash hint,
+	// no writeable backend → flash hint, otherwise → push the silence
+	// form. seedData = false reproduces "empty view"; the rest cover
+	// the writeability split via the Clients map.
+	withClients := func(t *testing.T, creator string) *Page {
+		t.Helper()
+		return New(Options{
+			Styles:  testutil.LoadStyles(t),
+			Now:     func() time.Time { return fixedNow },
+			Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+			Creator: creator,
+		})
+	}
+	cases := []struct {
+		name              string
+		newPage           func(t *testing.T) *Page
+		seedData          bool
+		wantFlash         bool
+		wantFlashContains string
+	}{
+		{
+			name: "empty view flashes hint",
+			newPage: func(t *testing.T) *Page {
+				t.Helper()
+				return withClients(t, "")
+			},
+			seedData:          false,
+			wantFlash:         true,
+			wantFlashContains: "no alert under the cursor",
+		},
+		{
+			name:              "no writeable backend flashes hint",
+			newPage:           newPage,
+			seedData:          true,
+			wantFlash:         true,
+			wantFlashContains: "no writeable backend",
+		},
+		{
+			name: "writeable backend pushes form",
+			newPage: func(t *testing.T) *Page {
+				t.Helper()
+				return withClients(t, "wilfried")
+			},
+			seedData:  true,
+			wantFlash: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := tc.newPage(t)
+			if tc.seedData {
+				_, _ = p.Update(poll.DataMsg{
+					Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
+					Tenant:   "prod",
+				})
+			}
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+			require.NotNil(t, cmd)
+			msg, isFlash := cmd().(footer.FlashShowMsg)
+			if !tc.wantFlash {
+				require.False(t, isFlash, "`s` with writeable backend must push the form, not flash")
+				return
+			}
+			require.True(t, isFlash, "expected a flash hint")
+			require.Contains(t, msg.Text, tc.wantFlashContains)
+		})
+	}
 }
 
 func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
