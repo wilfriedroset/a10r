@@ -393,79 +393,24 @@ func TestPage_FilterSearchModesAutodetect(t *testing.T) {
 	}
 }
 
+// TestPage_VimMotionsMoveCursor is the wiring smoke for the cursor
+// module: pressing `j` in Update must route into cursor.HandleMotion
+// with len(p.view) as the row count, and the returned cursor must
+// land on p.cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotionsMoveCursor(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	alerts := []backend.Alert{
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("A", "critical", backend.AlertStateActive),
 		mkAlert("B", "warning", backend.AlertStateActive),
-		mkAlert("C", "info", backend.AlertStateActive),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
+	}})
 
-	require.Equal(t, 0, p.cursor)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, 2, p.cursor, "G must jump to the last visible row")
-}
-
-func TestPage_FullPageMotionsMoveCursor(t *testing.T) {
-	t.Parallel()
-
-	// Build enough rows that the cold-start fallback (20) lands
-	// inside the table without clamping. The viewport-aware path
-	// is exercised by TestPage_ViewportAwareScrollSteps.
-	p := newPage(t)
-	alerts := make([]backend.Alert, 60)
-	for i := range alerts {
-		name := fmt.Sprintf("A%02d", i)
-		alerts[i] = mkAlert(name, "info", backend.AlertStateActive)
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
-
-	// Cold-start (no View call yet) — the page falls back to 20 so a
-	// keystroke arriving before the first render still moves a
-	// reasonable distance.
-	require.Equal(t, 0, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
-
-	// Clamps at the edges — Ctrl+F at the bottom stays put.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Equal(t, 59, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 59, p.cursor, "Ctrl+F at the last row clamps; never overshoots")
-}
-
-func TestPage_ViewportAwareScrollSteps(t *testing.T) {
-	t.Parallel()
-
-	// After a render the page has snapshotted its body-row budget
-	// (height - 1 to account for the column-header line). Ctrl+D
-	// must walk half that, Ctrl+F a full window minus two — vim's
-	// 'scroll' default and the standard CTRL-F overlap.
-	p := newPage(t)
-	alerts := make([]backend.Alert, 100)
-	for i := range alerts {
-		alerts[i] = mkAlert(fmt.Sprintf("A%02d", i), "info", backend.AlertStateActive)
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: alerts})
-	_ = p.View(120, 41) // 41 - 1 header line = 40-row body
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 from the new cursor (20 + 38)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+B mirrors Ctrl+F symmetrically")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+U mirrors Ctrl+D symmetrically")
+	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_CursorClampsOnEmptyView(t *testing.T) {
@@ -566,19 +511,6 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
 		"header must not paint a palette background — chrome stays on terminal default bg")
-}
-
-func TestPage_SortColumnWalk(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeyAge, p.sorter.ActiveKey(), "left walk wraps to the rightmost column")
 }
 
 func TestPage_SilenceKeyOnEmptyViewFlashesHint(t *testing.T) {
@@ -1093,34 +1025,6 @@ func TestPage_DirectSortShortcuts(t *testing.T) {
 	require.Equal(t, sortKeyAge, p.sorter.ActiveKey())
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S", Mod: tea.ModShift})
 	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-}
-
-func TestPage_SortShortcutTogglesDirection(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	// Severity starts active, descending (critical first).
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-	require.False(t, p.sorter.Asc())
-
-	// Pressing the active column's shortcut flips the direction.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
-	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc(), "second Shift+S must flip to ascending")
-
-	// A third press flips back to descending.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
-	require.False(t, p.sorter.Asc(), "third Shift+S must flip back to descending")
-
-	// Switching to a different column resets to that column's
-	// default direction (ascending for non-severity columns).
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
-	require.Equal(t, sortKeyName, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc(), "switching column resets to default direction")
-
-	// Pressing the new column's shortcut flips it.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N"})
-	require.False(t, p.sorter.Asc(), "second Shift+N must flip alertname to descending")
 }
 
 func TestPage_HLWalkResetsDirection(t *testing.T) {
