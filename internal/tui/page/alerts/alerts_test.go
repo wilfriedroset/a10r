@@ -19,6 +19,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
@@ -1283,8 +1284,8 @@ func runBulkSilence(t *testing.T, p *Page, msg silenceform.BulkSubmittedMsg) tea
 	_, dispatch := p.Update(msg)
 	require.NotNil(t, dispatch, "BulkSubmittedMsg must produce a dispatch Cmd")
 	doneMsg := dispatch()
-	done, ok := doneMsg.(bulkSilenceDoneMsg)
-	require.True(t, ok, "dispatch must emit bulkSilenceDoneMsg, got %T", doneMsg)
+	done, ok := doneMsg.(bulkop.DoneMsg[string])
+	require.True(t, ok, "dispatch must emit bulkop.DoneMsg[string], got %T", doneMsg)
 	_, flashCmd := p.Update(done)
 	return flashCmd
 }
@@ -1583,9 +1584,9 @@ func TestPage_BulkSilenceCancelsOnPageClose(t *testing.T) {
 	_ = p.Close()
 	gate <- struct{}{} // release the in-flight caller so the round can drain
 	doneMsg := <-doneCh
-	done := doneMsg.(bulkSilenceDoneMsg)
-	require.Less(t, len(done.successes), 5,
-		"Close must short-circuit the fanout; got %d successes", len(done.successes))
+	done := doneMsg.(bulkop.DoneMsg[string])
+	require.Less(t, len(done.Successes()), 5,
+		"Close must short-circuit the fanout; got %d successes", len(done.Successes()))
 	require.LessOrEqual(t, fake.callCount(), 1,
 		"after Close the dispatcher must not start additional CreateSilence calls; got %d", fake.callCount())
 }

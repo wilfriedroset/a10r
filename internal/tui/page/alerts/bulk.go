@@ -4,17 +4,16 @@ package alerts
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
-	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -206,24 +205,13 @@ func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	return p.pushBulkSilenceForm()
 }
 
-// bulkSilenceDoneMsg is the result envelope for a completed
-// bulk-silence fanout. Successes carries the alert fingerprints
-// whose CreateSilence returned nil — Update unmarks those rows;
-// fingerprints absent from the list (failures or unstarted-due-
-// cancel) keep their marks so retry is one keystroke. Total is
-// the original target count so the flash can read "silenced N of
-// Total".
-type bulkSilenceDoneMsg struct {
-	total     int
-	successes []string
-}
-
 // handleBulkSilenceSubmit runs after the bulk form auto-pops on
 // Ctrl+S submit. The user has filled the metadata (comment,
 // starts/ends, creator) once; the page stamps it onto every
-// pending target's matcher set and dispatches the fanout. The
-// returned Cmd performs the worker-pool dispatch and emits
-// bulkSilenceDoneMsg when every result has landed.
+// pending target's matcher set and dispatches the fanout via
+// bulkop.Dispatch. The returned Cmd emits bulkop.DoneMsg[string]
+// once every CreateSilence has either landed or been short-
+// circuited by ctx cancellation.
 func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 	pending := p.pendingBulkSilence
 	p.pendingBulkSilence = pendingBulkSilence{}
@@ -243,25 +231,34 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 	ctx, cancel := context.WithCancel(parent)
 	p.cancelBulk = cancel
 	clients := p.clients
-	concurrency := p.bulkConcurrency
-	logger := p.logger
-	targets := pending.targets
-	spec := backend.SilenceSpec{
+	specBase := backend.SilenceSpec{
 		StartsAt:  m.StartsAt,
 		EndsAt:    m.EndsAt,
 		CreatedBy: m.Creator,
 		Comment:   m.Comment,
 	}
+	matchersByFP := map[string][]backend.Matcher{}
+	ops := make([]bulkop.Op[string], 0, len(pending.targets))
+	for _, t := range pending.targets {
+		matchersByFP[t.Fingerprint] = t.Matchers
+		ops = append(ops, bulkop.Op[string]{Key: t.Fingerprint, Tenant: t.Tenant})
+	}
+	writer := func(ctx context.Context, tenant string, op bulkop.Op[string]) (string, error) {
+		c, ok := clients[tenant]
+		if !ok {
+			return "", bulkop.ErrNoWriteableBackend
+		}
+		spec := specBase
+		spec.Matchers = matchersByFP[op.Key]
+		return c.CreateSilence(ctx, spec)
+	}
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
 	return func() tea.Msg {
 		// Local cancel: releases this round's ctx subtree the moment
 		// dispatch returns, regardless of whether p.cancelBulk has
 		// since been overwritten by a newer round.
 		defer cancel()
-		successes := dispatchBulkSilence(ctx, clients, targets, spec, concurrency, logger)
-		return bulkSilenceDoneMsg{
-			total:     len(targets),
-			successes: successes,
-		}
+		return dispatch()
 	}
 }
 
@@ -270,21 +267,38 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 // unstarted-due-cancel) keeps its mark. Does not touch p.cancelBulk
 // — that field may now refer to a newer round; the producing Cmd
 // already deferred its own cancel().
-func (p *Page) handleBulkSilenceDone(m bulkSilenceDoneMsg) tea.Cmd {
-	for _, fp := range m.successes {
-		delete(p.marks, fp)
-		// successes carries alert fingerprints (the bulk fanout
-		// emits one CreateSilence per alert; the resulting silence
-		// IDs are not propagated back). The audit log uses the
-		// fingerprint as the identifier so reconstruction can
-		// correlate against the alerts list / backend snapshot.
-		slog.Default().Info("silence write succeeded",
-			slog.String("op", "created"),
-			slog.String("alert_fingerprint", fp),
-			slog.String("surface", "bulk-silence"))
+//
+// Per-failure attribution is emitted here (not in bulkop) because
+// the slog field names are page-specific: alerts logs
+// alert_fingerprint, silences logs silence_id.
+func (p *Page) handleBulkSilenceDone(m bulkop.DoneMsg[string]) tea.Cmd {
+	total := len(m.Results)
+	successes := 0
+	for _, r := range m.Results {
+		if r.Err == nil {
+			delete(p.marks, r.Op.Key)
+			// Op.Key is the alert fingerprint (the bulk fanout emits
+			// one CreateSilence per alert; the resulting silence IDs
+			// surface on Result.Ack but the audit log keeps the
+			// fingerprint as the identifier so reconstruction can
+			// correlate against the alerts list / backend snapshot).
+			slog.Default().Info("silence write succeeded",
+				slog.String("op", "created"),
+				slog.String("alert_fingerprint", r.Op.Key),
+				slog.String("surface", "bulk-silence"))
+			successes++
+			continue
+		}
+		if p.logger != nil {
+			p.logger.Error("bulk silence: alert silence failed",
+				slog.String("backend", r.Op.Tenant),
+				slog.String("tenant", r.Op.Tenant),
+				slog.String("alert_fingerprint", r.Op.Key),
+				slog.String("err", r.Err.Error()),
+			)
+		}
 	}
-	failed := m.total - len(m.successes)
-	return flashBulkSilenceResult(m.total, len(m.successes), failed)
+	return flashBulkSilenceResult(total, successes, total-successes)
 }
 
 // flashBulkSilenceResult formats the success / partial / total-
@@ -305,127 +319,6 @@ func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
 		return flashFn(footer.FlashError, fmt.Sprintf("silence failed for %d alerts", failed))
 	}
 	return flashFn(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
-}
-
-// silenceResult is the per-call outcome the worker pool emits
-// onto the shared results channel. Tenant rides along for
-// structured-log attribution on failure.
-type silenceResult struct {
-	fingerprint string
-	tenant      string
-	err         error
-}
-
-// dispatchBulkSilence runs the per-tenant fanout. Tenants run in
-// parallel goroutines; inside each tenant a bounded worker pool
-// of `min(concurrency, len(targets))` workers consumes from a
-// per-tenant jobs channel. concurrency=1 collapses to fully
-// sequential per tenant. Mirrors the silences page's
-// dispatchBulkExpire shape — the only differences are the verb
-// (CreateSilence vs ExpireSilence) and the result shape.
-//
-// Returns the alert fingerprints whose CreateSilence returned
-// nil. The caller derives "failed = total - len(successes)"; that
-// bucket includes both real errors and unstarted-due-cancel. Both
-// keep their marks so the user can retry only the unfinished work.
-func dispatchBulkSilence(
-	ctx context.Context,
-	clients map[string]silenceform.Client,
-	targets []bulkSilenceTarget,
-	specBase backend.SilenceSpec,
-	concurrency int,
-	logger *slog.Logger,
-) []string {
-	byTenant := map[string][]bulkSilenceTarget{}
-	tenants := []string{}
-	for _, t := range targets {
-		if _, seen := byTenant[t.Tenant]; !seen {
-			tenants = append(tenants, t.Tenant)
-		}
-		byTenant[t.Tenant] = append(byTenant[t.Tenant], t)
-	}
-	resCh := make(chan silenceResult, len(targets))
-	var tenantWg sync.WaitGroup
-	for _, tenant := range tenants {
-		client, ok := clients[tenant]
-		group := byTenant[tenant]
-		if !ok {
-			for _, t := range group {
-				resCh <- silenceResult{
-					fingerprint: t.Fingerprint,
-					tenant:      tenant,
-					err:         errors.New("no writeable backend for tenant"),
-				}
-			}
-			continue
-		}
-		tenantWg.Add(1)
-		go func(tenant string, ts []bulkSilenceTarget, c silenceform.Client) {
-			defer tenantWg.Done()
-			runTenantSilencePool(ctx, tenant, ts, c, specBase, concurrency, resCh)
-		}(tenant, group, client)
-	}
-	go func() {
-		tenantWg.Wait()
-		close(resCh)
-	}()
-	successes := make([]string, 0, len(targets))
-	for r := range resCh {
-		if r.err == nil {
-			successes = append(successes, r.fingerprint)
-			continue
-		}
-		if logger != nil {
-			logger.Error("bulk silence: alert silence failed",
-				slog.String("backend", r.tenant),
-				slog.String("tenant", r.tenant),
-				slog.String("alert_fingerprint", r.fingerprint),
-				slog.String("err", r.err.Error()),
-			)
-		}
-	}
-	return successes
-}
-
-// runTenantSilencePool is the per-tenant bounded worker pool.
-// Producer feeds the jobs channel under ctx.Done so a Close()
-// mid-flight stops dispatching new work; consumers run
-// CreateSilence and emit results regardless of the ctx state for
-// jobs they've already pulled, so an in-flight request completes
-// naturally. Workers cap at min(concurrency, len(targets)).
-func runTenantSilencePool(
-	ctx context.Context,
-	tenant string,
-	targets []bulkSilenceTarget,
-	client silenceform.Client,
-	specBase backend.SilenceSpec,
-	concurrency int,
-	resCh chan<- silenceResult,
-) {
-	workers := max(min(concurrency, len(targets)), 1)
-	jobs := make(chan bulkSilenceTarget)
-	go func() {
-		defer close(jobs)
-		for _, t := range targets {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- t:
-			}
-		}
-	}()
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Go(func() {
-			for t := range jobs {
-				spec := specBase
-				spec.Matchers = t.Matchers
-				_, err := client.CreateSilence(ctx, spec)
-				resCh <- silenceResult{fingerprint: t.Fingerprint, tenant: tenant, err: err}
-			}
-		})
-	}
-	wg.Wait()
 }
 
 // hintNoWriteableBackend is the shared "configure a writeable

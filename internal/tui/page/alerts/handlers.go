@@ -9,6 +9,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -115,7 +116,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case modal.ConfirmResultMsg:
 		cmd := p.handleBulkSilenceConfirm(m)
 		return p, cmd
-	case bulkSilenceDoneMsg:
+	case bulkop.DoneMsg[string]:
 		cmd := p.handleBulkSilenceDone(m)
 		return p, cmd
 	case tea.KeyPressMsg:
