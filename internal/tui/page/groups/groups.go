@@ -290,7 +290,7 @@ func (p *Page) Footer() string {
 	if next.IsZero() {
 		return ""
 	}
-	return "next refresh " + nextRefreshLabel(p.now(), next)
+	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
 }
 
 // soonestNextRefresh returns the earliest in-scope DataMsg.NextAt.
@@ -305,25 +305,6 @@ func (p *Page) soonestNextRefresh() time.Time {
 		}
 	}
 	return soonest
-}
-
-// nextRefreshLabel formats the bottom-border deadline. Past-due
-// renders as "due" so a slow tick reads honestly.
-func nextRefreshLabel(now, next time.Time) string {
-	d := next.Sub(now)
-	if d <= 0 {
-		return "due"
-	}
-	if d < time.Second {
-		return "<1s"
-	}
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%dh", int(d.Hours()))
 }
 
 // polled reports whether at least one in-scope tenant has produced

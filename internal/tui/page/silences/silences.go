@@ -419,7 +419,7 @@ func (p *Page) Footer() string {
 	if next.IsZero() {
 		return ""
 	}
-	return "next refresh " + nextRefreshLabel(p.now(), next)
+	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
 }
 
 // soonestNextRefresh returns the earliest DataMsg.NextAt across
@@ -436,27 +436,6 @@ func (p *Page) soonestNextRefresh() time.Time {
 		}
 	}
 	return soonest
-}
-
-// nextRefreshLabel formats the "25s" / "due" / "3m" segment for
-// the bottom-border footer. Past-due is rendered as "due" so a
-// slow tick or paused loop reads honestly without flashing a
-// negative duration.
-func nextRefreshLabel(now, next time.Time) string {
-	d := next.Sub(now)
-	if d <= 0 {
-		return "due"
-	}
-	if d < time.Second {
-		return "<1s"
-	}
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%dh", int(d.Hours()))
 }
 
 // PollResources implements app.PollAwarePage so the App-level

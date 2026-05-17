@@ -3,6 +3,7 @@
 package listpage
 
 import (
+	"fmt"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -23,4 +24,26 @@ type PollingUI struct {
 	PolledTenants map[string]struct{}
 	NextRefresh   map[string]time.Time
 	Spinner       spinner.Model
+}
+
+// NextRefreshLabel formats the bottom-border deadline used by the
+// list pages' Footer ("next refresh 25s"). Past-due renders as
+// "due" so a slow tick reads honestly without flashing a negative
+// duration. Pure helper — kept in the listpage package because it
+// only makes sense for pages that present a refresh UI.
+func NextRefreshLabel(now, next time.Time) string {
+	d := next.Sub(now)
+	if d <= 0 {
+		return "due"
+	}
+	if d < time.Second {
+		return "<1s"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(d.Hours()))
 }

@@ -928,33 +928,6 @@ func TestPage_FooterShowsNextRefreshAfterPoll(t *testing.T) {
 		"the dropped \"last X ago\" segment must not resurrect in the header")
 }
 
-func TestPage_NextRefreshLabelEdgeCases(t *testing.T) {
-	t.Parallel()
-
-	// Past-due reads "due"; sub-second reads "<1s"; minute / hour
-	// boundaries truncate. The subtitle is the user's only signal
-	// when the next pull will land — wording stability matters.
-	now := fixedNow
-	cases := []struct {
-		name string
-		next time.Time
-		want string
-	}{
-		{"due-now", now, "due"},
-		{"past", now.Add(-time.Second), "due"},
-		{"sub-second", now.Add(500 * time.Millisecond), "<1s"},
-		{"seconds", now.Add(25 * time.Second), "25s"},
-		{"minutes", now.Add(3 * time.Minute), "3m"},
-		{"hours", now.Add(2 * time.Hour), "2h"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, nextRefreshLabel(now, tc.next))
-		})
-	}
-}
-
 func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 	t.Parallel()
 
