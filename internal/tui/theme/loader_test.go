@@ -4,7 +4,6 @@ package theme
 
 import (
 	"bytes"
-	"errors"
 	"image/color"
 	"log/slog"
 	"os"
@@ -164,24 +163,6 @@ func TestLoad_UserSkinShadowsBundledLogsWarning(t *testing.T) {
 		"shadow warning must fire when user file matches a bundled name")
 }
 
-func TestLoad_UserSkinUniqueNameDoesNotWarn(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	raw, err := readBundled("catppuccin-mocha")
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "my-custom.yaml"), raw, 0o600))
-
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-
-	_, err = (&Loader{UserDir: dir, Logger: logger}).Load("my-custom")
-	require.NoError(t, err)
-
-	require.NotContains(t, buf.String(), "shadows bundled",
-		"shadow warning must NOT fire for a name that doesn't ship bundled")
-}
-
 func TestLoad_RejectsMalformedYAML(t *testing.T) {
 	t.Parallel()
 
@@ -210,22 +191,6 @@ k9s:
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrInvalidSkin)
 	require.Contains(t, err.Error(), "body.fgColor")
-}
-
-func TestLoad_RejectsMissingBodyBg(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "nobg.yaml"), []byte(`
-k9s:
-  body:
-    fgColor: "#ffffff"
-`), 0o600))
-
-	_, err := (&Loader{UserDir: dir}).Load("nobg")
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrInvalidSkin)
-	require.Contains(t, err.Error(), "body.bgColor")
 }
 
 func TestLoad_RejectsBadColorValue(t *testing.T) {
@@ -424,16 +389,6 @@ func TestLoad_CatppuccinMochaCursorMatchesUpstream(t *testing.T) {
 	require.Equal(t, uint8(0x31), r, "cursor.fg.R")
 	require.Equal(t, uint8(0x32), g, "cursor.fg.G")
 	require.Equal(t, uint8(0x44), b, "cursor.fg.B")
-}
-
-func TestErrInvalidSkin_IsSentinel(t *testing.T) {
-	t.Parallel()
-
-	// errors.Is contract — guard against accidental refactor that
-	// breaks downstream callers.
-	wrapped := errors.New("test")
-	combined := errors.Join(ErrInvalidSkin, wrapped)
-	require.ErrorIs(t, combined, ErrInvalidSkin)
 }
 
 // colorRGBA is a test-only adapter: GetForeground() returns

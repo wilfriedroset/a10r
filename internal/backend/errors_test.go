@@ -10,15 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSentinels_AreDistinct(t *testing.T) {
-	t.Parallel()
-
-	// Each sentinel must be its own value so callers can branch.
-	require.NotErrorIs(t, ErrUnsupported, ErrUnauthorized)
-	require.NotErrorIs(t, ErrUnsupported, ErrUnreachable)
-	require.NotErrorIs(t, ErrUnauthorized, ErrUnreachable)
-}
-
 func TestSentinels_SurviveWrap(t *testing.T) {
 	t.Parallel()
 

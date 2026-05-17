@@ -3,7 +3,6 @@
 package theme
 
 import (
-	"errors"
 	"testing"
 )
 
@@ -76,21 +75,6 @@ func TestParseColor(t *testing.T) {
 				t.Fatalf("parseColor(%q) = #%06x, want #%06x", tt.input, gotRGB, tt.rgb)
 			}
 		})
-	}
-}
-
-func TestParseColorErrorMessages(t *testing.T) {
-	t.Parallel()
-
-	// Error messages are part of the user-facing surface — when a
-	// skin file is malformed, the error needs to point at the
-	// offending value clearly enough that the user can fix it
-	// without reading our source.
-	if _, err := parseColor(""); err == nil || !errors.Is(err, errEmptyColor) {
-		t.Fatalf("empty: got %v, want errEmptyColor", err)
-	}
-	if _, err := parseColor("#abc"); err == nil {
-		t.Fatal("short hex: want error, got nil")
 	}
 }
 

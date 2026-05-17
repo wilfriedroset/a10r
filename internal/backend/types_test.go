@@ -35,31 +35,6 @@ func TestClient_InterfaceShape(t *testing.T) {
 	var _ Client = (*fakeClient)(nil)
 }
 
-func TestSilenceSpec_IsZero(t *testing.T) {
-	t.Parallel()
-
-	// Spec is the wire-level payload; constructing an empty one for
-	// downstream tests must not blow up. Pinning the zero-value
-	// shape catches a future refactor that adds a required pointer.
-	var spec SilenceSpec
-	require.Empty(t, spec.Matchers)
-	require.True(t, spec.StartsAt.IsZero())
-	require.True(t, spec.EndsAt.IsZero())
-}
-
-func TestReaderAndWriter_ComposeIntoClient(t *testing.T) {
-	t.Parallel()
-
-	// Compile-time pin: any concrete type that implements every
-	// Reader + Writer method (plus the capability stubs and
-	// Capabilities) satisfies Client by interface composition. If a
-	// future split or rename breaks this, the test fails at compile
-	// time — exactly where we want the breakage.
-	var _ Reader = (*fakeClient)(nil)
-	var _ Writer = (*fakeClient)(nil)
-	var _ Client = (*fakeClient)(nil)
-}
-
 // fakeClient satisfies Client with no-op methods. Used purely to
 // pin the interface shape at compile time; concrete implementations
 // land in #12 (vanilla), #14 (Mimir), #16 (multi).

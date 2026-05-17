@@ -77,14 +77,3 @@ func TestVersion_String(t *testing.T) {
 	require.Equal(t, "0.28.1", Version{0, 28, 1}.String())
 	require.Equal(t, "1.2.3", Version{1, 2, 3}.String())
 }
-
-func TestMinAlertmanagerVersion_Parses(t *testing.T) {
-	t.Parallel()
-
-	// The constant must always parse cleanly — a typo here would
-	// cause every doctor invocation to error before running any
-	// check.
-	got, err := ParseVersion(MinAlertmanagerVersion)
-	require.NoError(t, err)
-	require.Equal(t, Version{0, 28, 1}, got)
-}

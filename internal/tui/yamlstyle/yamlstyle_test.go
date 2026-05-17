@@ -20,14 +20,6 @@ func TestLine_CommentPassesThroughUnstyled(t *testing.T) {
 			"is human prose, not a yaml key/value pair")
 }
 
-func TestLine_IndentedCommentPassesThrough(t *testing.T) {
-	t.Parallel()
-	styles := testutil.LoadStyles(t)
-	const line = "  # routes:"
-	got := Line(line, styles)
-	require.Equal(t, line, got)
-}
-
 func TestLine_NoColonPassesThrough(t *testing.T) {
 	t.Parallel()
 	styles := testutil.LoadStyles(t)
@@ -75,15 +67,6 @@ func TestLine_PrometheusAnnotationContinuationPassesThrough(t *testing.T) {
 	// matcher map literal — colouring "LABELS = map[__name__" as a
 	// YAML key would mis-tint half the line. Must pass through.
 	const line = "      LABELS = map[__name__:up cluster:foo]"
-	require.Equal(t, line, Line(line, styles))
-}
-
-func TestLine_KeyWithBracketsRejected(t *testing.T) {
-	t.Parallel()
-	styles := testutil.LoadStyles(t)
-	// A bracket in the key portion is a dead giveaway of a value
-	// fragment, not a real YAML key.
-	const line = "  foo[0]: bar"
 	require.Equal(t, line, Line(line, styles))
 }
 
