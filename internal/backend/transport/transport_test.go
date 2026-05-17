@@ -81,76 +81,55 @@ func TestNewAuth_NilBaseDefaultsToDefaultTransport(t *testing.T) {
 		"nil base + zero-value auth must return http.DefaultTransport unchanged")
 }
 
-func TestNewAuth_BasicAuthHeader(t *testing.T) {
+func TestNewAuth_HeadersOnWire(t *testing.T) {
 	t.Parallel()
 
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
+	// Each case wires one auth scheme through NewAuth, drives a real
+	// round-trip, and asserts the Authorization header captured server-
+	// side. The Authorization rows cover the Type-defaults-to-Bearer
+	// (Prometheus parity) and custom-Type (Token, GenieKey, etc.) paths.
+	cases := []struct {
+		name string
+		opts AuthOptions
+		want string
+	}{
+		{
+			name: "basic auth",
+			opts: AuthOptions{BasicAuth: &config.BasicAuth{Username: "alice", Password: "s3cret"}},
+			want: "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret")),
+		},
+		{
+			name: "bearer token",
+			opts: AuthOptions{BearerToken: "abc.def.ghi"},
+			want: "Bearer abc.def.ghi",
+		},
+		{
+			name: "authorization default type is bearer",
+			opts: AuthOptions{Authorization: &config.Authorization{Credentials: "tok"}},
+			want: "Bearer tok",
+		},
+		{
+			name: "authorization custom type",
+			opts: AuthOptions{Authorization: &config.Authorization{Type: "Token", Credentials: "abcdef"}},
+			want: "Token abcdef",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	rt, err := NewAuth(AuthOptions{
-		BasicAuth: &config.BasicAuth{Username: "alice", Password: "s3cret"},
-	}, http.DefaultTransport)
-	require.NoError(t, err)
+			srvCap := &captureHandler{}
+			srv := httptest.NewServer(srvCap)
+			t.Cleanup(srv.Close)
 
-	roundTripOnce(t, rt, srv)
+			rt, err := NewAuth(tc.opts, http.DefaultTransport)
+			require.NoError(t, err)
 
-	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
-	require.Equal(t, want, srvCap.headers.Get(headerAuthorization))
-}
+			roundTripOnce(t, rt, srv)
 
-func TestNewAuth_BearerToken(t *testing.T) {
-	t.Parallel()
-
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
-
-	rt, err := NewAuth(AuthOptions{
-		BearerToken: "abc.def.ghi",
-	}, http.DefaultTransport)
-	require.NoError(t, err)
-
-	roundTripOnce(t, rt, srv)
-
-	require.Equal(t, "Bearer abc.def.ghi", srvCap.headers.Get(headerAuthorization))
-}
-
-func TestNewAuth_AuthorizationDefaultType(t *testing.T) {
-	t.Parallel()
-
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
-
-	// Empty Type defaults to Bearer per Prometheus parity.
-	rt, err := NewAuth(AuthOptions{
-		Authorization: &config.Authorization{Credentials: "tok"},
-	}, http.DefaultTransport)
-	require.NoError(t, err)
-
-	roundTripOnce(t, rt, srv)
-
-	require.Equal(t, "Bearer tok", srvCap.headers.Get(headerAuthorization))
-}
-
-func TestNewAuth_AuthorizationCustomType(t *testing.T) {
-	t.Parallel()
-
-	srvCap := &captureHandler{}
-	srv := httptest.NewServer(srvCap)
-	t.Cleanup(srv.Close)
-
-	// A non-Bearer auth scheme (e.g. "Token", "GenieKey", any value
-	// the upstream gateway expects) flows through unchanged.
-	rt, err := NewAuth(AuthOptions{
-		Authorization: &config.Authorization{Type: "Token", Credentials: "abcdef"},
-	}, http.DefaultTransport)
-	require.NoError(t, err)
-
-	roundTripOnce(t, rt, srv)
-
-	require.Equal(t, "Token abcdef", srvCap.headers.Get(headerAuthorization))
+			require.Equal(t, tc.want, srvCap.headers.Get(headerAuthorization))
+		})
+	}
 }
 
 func TestNewAuth_MalformedInputsReturnSentinels(t *testing.T) {
