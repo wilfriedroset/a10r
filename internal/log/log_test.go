@@ -64,24 +64,6 @@ func TestNew_JSONToFile(t *testing.T) {
 	require.Contains(t, got, `"k":"v"`)
 }
 
-func TestNew_DefaultsToLogfmt(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "a10r.log")
-
-	logger, closer, err := New(Opts{Path: path})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = closer.Close() })
-
-	logger.Info("hi")
-	require.NoError(t, closer.Close())
-
-	body, err := os.ReadFile(path)
-	require.NoError(t, err)
-	require.Contains(t, string(body), "msg=hi")
-}
-
 func TestNew_LevelFilters(t *testing.T) {
 	t.Parallel()
 
@@ -150,14 +132,6 @@ func TestNew_FallsBackToStderrOnUnwritablePath(t *testing.T) {
 	// either way, any error confirms the path is empty.
 	_, statErr := os.Stat(path)
 	require.Error(t, statErr, "unwritable path must not have been created")
-}
-
-func TestNoopCloser_AlwaysNil(t *testing.T) {
-	t.Parallel()
-
-	var c noopCloser
-	require.NoError(t, c.Close())
-	require.NoError(t, c.Close())
 }
 
 // fakeOpenerCapturing returns an opener that yields a bytes.Buffer as

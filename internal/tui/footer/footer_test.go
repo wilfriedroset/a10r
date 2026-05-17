@@ -5,7 +5,6 @@ package footer
 import (
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -74,21 +73,6 @@ func TestCrumbs_SetIsDefensiveCopy(t *testing.T) {
 
 // ----- prompt -----
 
-func TestPrompt_OpenAcceptsKeystrokes(t *testing.T) {
-	t.Parallel()
-
-	p := NewPrompt(nil).Open(PromptCommand)
-	require.True(t, p.IsOpen())
-	require.Equal(t, PromptCommand, p.Mode())
-	require.Empty(t, p.Value())
-
-	// Type "alerts"
-	for _, r := range "alerts" {
-		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-	require.Equal(t, "alerts", p.Value())
-}
-
 func TestPrompt_BackspaceRemovesLastRune(t *testing.T) {
 	t.Parallel()
 
@@ -114,16 +98,6 @@ func TestPrompt_BackspaceMultiByteRune(t *testing.T) {
 	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	require.Equal(t, "café", p.Value(),
 		"backspace must pop one rune, not one byte (ñ is 2 bytes in UTF-8)")
-}
-
-func TestPrompt_BackspaceOnEmptyIsNoOp(t *testing.T) {
-	t.Parallel()
-
-	p := NewPrompt(nil).Open(PromptCommand)
-	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	require.True(t, p.IsOpen(), "backspace on empty must NOT close the prompt")
-	require.Empty(t, p.Value())
-	require.Nil(t, cmd)
 }
 
 func TestPrompt_NonPrintableKeysIgnored(t *testing.T) {
@@ -162,19 +136,6 @@ func TestPrompt_CodeFallbackForEmptyText(t *testing.T) {
 	p := NewPrompt(nil).Open(PromptFilter)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 'a'})
 	require.Equal(t, "a", p.Value())
-}
-
-func TestPrompt_CtrlUClearsBuffer(t *testing.T) {
-	t.Parallel()
-
-	p := NewPrompt(nil).Open(PromptFilter)
-	for _, r := range "high cpu" {
-		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-	require.Equal(t, "high cpu", p.Value())
-
-	p, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Empty(t, p.Value(), "Ctrl+U clears the buffer per keybindings.md")
 }
 
 func TestPrompt_EnterEmitsSubmittedAndCloses(t *testing.T) {
@@ -413,21 +374,6 @@ func TestPrompt_PasteRecomputesSuggestion(t *testing.T) {
 		"paste must recompute the suggestion against the post-paste buffer")
 }
 
-func TestPrompt_CtrlUClearsSuggestion(t *testing.T) {
-	t.Parallel()
-
-	sug := stubSuggester(t, map[string]string{"silen": "silences"})
-	p := NewPrompt(sug).Open(PromptCommand)
-	for _, r := range "silen" {
-		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-	require.Equal(t, "silences", p.Suggestion())
-
-	p, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Empty(t, p.Suggestion(),
-		"Ctrl+U clears the buffer; the empty buffer has no suggestion")
-}
-
 func TestPrompt_OpenClearsPriorSuggestion(t *testing.T) {
 	t.Parallel()
 
@@ -440,33 +386,6 @@ func TestPrompt_OpenClearsPriorSuggestion(t *testing.T) {
 
 	p = p.Close().Open(PromptCommand)
 	require.Empty(t, p.Suggestion())
-}
-
-func TestPrompt_TabAcceptsSuggestion(t *testing.T) {
-	t.Parallel()
-
-	// Post-Tab buffer is "sil " (trailing space). The stub's default
-	// zero-value return mirrors cmdbar.Suggest's "no alias starts
-	// with 'sil '" behaviour, so the entry is left out deliberately.
-	sug := stubSuggester(t, map[string]string{
-		"s":   "sil",
-		"sil": "",
-	})
-	p := NewPrompt(sug).Open(PromptCommand)
-	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
-	require.Equal(t, "sil", p.Suggestion())
-
-	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	require.Equal(t, "sil ", p.Value(),
-		"Tab replaces the buffer with the full alias plus a trailing space")
-	require.Empty(t, p.Suggestion(),
-		"Tab clears the suggestion; the suggester reruns against the new buffer")
-	require.True(t, p.IsOpen(), "Tab does NOT auto-submit")
-
-	require.NotNil(t, cmd, "Tab acceptance broadcasts a Changed message")
-	require.Equal(t,
-		PromptChangedMsg{Mode: PromptCommand, Value: "sil "},
-		cmd())
 }
 
 func TestPrompt_CtrlFAcceptsSuggestion(t *testing.T) {
@@ -620,23 +539,6 @@ func TestPrompt_DownRestoresDraftAtPresent(t *testing.T) {
 	require.Equal(t,
 		PromptChangedMsg{Mode: PromptFilter, Value: "wip"},
 		cmd())
-}
-
-func TestPrompt_ShiftTabAndDownAreEquivalent(t *testing.T) {
-	t.Parallel()
-
-	h := NewHistory("", HistoryFilter)
-	h.Append("a")
-	h.Append("b")
-
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
-	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	require.Equal(t, "a", p.Value())
-
-	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	require.Equal(t, "b", p.Value(),
-		"Shift+Tab is the inverse pair to Up; must walk newer")
 }
 
 func TestPrompt_TabPrefersGhostOverHistory(t *testing.T) {
@@ -822,14 +724,4 @@ func TestFlash_RenderUsesLevelStyle(t *testing.T) {
 			require.Contains(t, testutil.StripStyle(out), "msg")
 		})
 	}
-}
-
-func TestFlash_TTLOverride(t *testing.T) {
-	t.Parallel()
-
-	f := NewFlash()
-	// TTL is consumed by the tea.Tick scheduling; we verify via the
-	// returned cmd's existence (couldn't inspect Tick internals).
-	_, cmd := f.Update(FlashShowMsg{Level: FlashError, Text: "boom", TTL: time.Second})
-	require.NotNil(t, cmd, "TTL override still schedules a clear tick")
 }

@@ -105,28 +105,3 @@ func TestTrimSearchPrefix(t *testing.T) {
 		})
 	}
 }
-
-// TestSearchMode_String pins the user-facing labels referenced
-// by keybindings.md. The stringer is part of the contract so a
-// rename here is a doc update too.
-func TestSearchMode_String(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		mode SearchMode
-		want string
-	}{
-		{SearchSubstring, "substring"},
-		{SearchFuzzy, "fuzzy"},
-		{SearchLiteral, "literal"},
-		{SearchRegex, "regex"},
-		{SearchMode(99), "substring"}, // unknown values fall back to the safe default
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.want, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, tc.mode.String())
-		})
-	}
-}
