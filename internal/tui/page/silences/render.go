@@ -53,12 +53,16 @@ func (p *Page) View(width, height int) string {
 // (Title swaps to "<spinner> loading silences…" while !polled
 // or refreshing), so the body stays empty in that window — no
 // duplicate spinner. After the first DataMsg lands and there's
-// genuinely nothing to show, the body explains why: "no silences
-// (yet)" for an empty backend, "no silences in view" when a
-// filter is the cause.
+// genuinely nothing to show, three distinct branches: filter
+// masks every row (actionable — show the Esc affordance), empty
+// backend ("no silences (yet)"), or a non-filter narrowing that
+// still hides every row ("no silences in view").
 func (p *Page) emptyState() string {
 	if !p.polled() || p.Refreshing {
 		return ""
+	}
+	if p.Filter != "" {
+		return "no silences match the active filter — Esc clears the prompt"
 	}
 	if p.totalSilences() == 0 {
 		return "no silences (yet)"

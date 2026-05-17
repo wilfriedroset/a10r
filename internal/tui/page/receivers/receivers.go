@@ -398,7 +398,7 @@ func (p *Page) View(width, height int) string {
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
 		if len(p.unionScoped()) > 0 && p.Filter != "" {
-			msg = "no receivers match the active filter"
+			msg = "no receivers match the active filter — Esc clears the prompt"
 		}
 		// Render bg-less so the empty state matches the regular
 		// table view's framing — both use the terminal default
