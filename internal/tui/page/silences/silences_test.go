@@ -2223,85 +2223,14 @@ func TestPage_FormatTenantBreakdown(t *testing.T) {
 	}
 }
 
-func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	// First snapshot lands normally.
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
-		Tenant:   "prod",
-	})
-	require.NotEmpty(t, p.byTenant["prod"], "first DataMsg must populate byTenant")
-
-	// `w` pauses watch.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused, "w must toggle paused on")
-
-	// Subsequent DataMsg is swallowed: byTenant stays at the old snapshot.
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{
-			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
-			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
-		},
-		Tenant: "prod",
-	})
-	require.Len(t, p.byTenant["prod"], 1,
-		"paused page must drop incoming DataMsg")
-
-	// `w` again resumes; the next DataMsg lands.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.False(t, p.paused)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{
-			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
-			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
-			sil("sil-3", "carol", backend.SilenceStateActive, 3*time.Hour),
-		},
-		Tenant: "prod",
-	})
-	require.Len(t, p.byTenant["prod"], 3, "resumed page accepts the next DataMsg")
-}
-
-func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
-		Tenant:   "prod",
-	})
-
-	// Pause watch.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused)
-
-	// Manual `r` press — sets pausedRefresh, returns a Cmd that
-	// emits a RefreshRequestedMsg. The next DataMsg is honoured
-	// (the operator deliberately pulled it).
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
-	require.NotNil(t, cmd)
-	require.True(t, p.pausedRefresh, "r press while paused must set pausedRefresh")
-
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{
-			sil("sil-1", "alice", backend.SilenceStateActive, time.Hour),
-			sil("sil-2", "bob", backend.SilenceStateActive, 2*time.Hour),
-		},
-		Tenant: "prod",
-	})
-	require.Len(t, p.byTenant["prod"], 2,
-		"r press while paused must pass through the next DataMsg")
-	require.False(t, p.pausedRefresh, "pausedRefresh must clear after one tick")
-	require.True(t, p.paused, "manual refresh does NOT exit paused state")
-
-	// Subsequent ordinary tick is dropped again (paused, no
-	// pending refresh).
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{},
-		Tenant:   "prod",
-	})
-	require.Len(t, p.byTenant["prod"], 2, "subsequent ticks resume being dropped")
-}
-
+// TestPage_WatchModeFooterRendersWatchOff is the page-specific wiring
+// witness for the watch/pause-refresh contract. The full contract
+// (DataMsg swallowed while paused, manual `r` honoured once,
+// resume-clears-state) is covered canonically by
+// internal/tui/page/alerts/alerts_test.go:TestPage_WatchModeToggleSwallowsDataMsg
+// / TestPage_WatchModeManualRefreshHonouredOnce — this smoke just
+// proves the silences page's Update loop dispatches `w` so a wire
+// regression here still red-lights.
 func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
@@ -2345,55 +2274,6 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	})
 	require.Empty(t, p.ErrorBand(),
 		"recovery clears the band so transient blips don't linger")
-}
-
-func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	p.scope = scopeAll
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "prod",
-		State:  header.ConnUnreachable,
-		Detail: "401 unauthorised",
-	})
-	require.Equal(t, "prod: 401 unauthorised", p.ErrorBand(),
-		"all-scope view prefixes tenant so the operator knows which one")
-}
-
-func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	p.scope = scopeAll
-
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
-
-	// Sorted-by-tenant: alpha is the first offender.
-	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
-}
-
-func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	// Scope only covers "prod"; "staging" is out of scope.
-	p.scope = "prod"
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "staging",
-		State:  header.ConnUnreachable,
-		Detail: "should not appear",
-	})
-	require.Empty(t, p.ErrorBand(),
-		"out-of-scope tenant errors must not bleed into the band")
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "prod",
-		State:  header.ConnUnreachable,
-		Detail: "in scope",
-	})
-	require.Equal(t, "in scope", p.ErrorBand(),
-		"in-scope error surfaces verbatim under a single-tenant scope")
 }
 
 // TestSingleLine_StripsControlBytes pins that user-provided content

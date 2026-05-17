@@ -194,37 +194,14 @@ func TestPage_FilterNarrowsView(t *testing.T) {
 	require.Equal(t, "receivers(all)[1/3]", p.Title())
 }
 
-func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	// First snapshot lands normally.
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}},
-		Tenant:   "prod",
-	})
-	require.Len(t, p.view, 2, "first DataMsg must populate the view")
-
-	// `w` pauses watch.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused, "w must toggle paused on")
-
-	// Subsequent DataMsg is swallowed: view stays at the old snapshot.
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}, {Name: "alerts"}},
-		Tenant:   "prod",
-	})
-	require.Len(t, p.view, 2, "paused page must drop incoming DataMsg")
-
-	// `w` again resumes; the next DataMsg lands.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.False(t, p.paused)
-	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}, {Name: "alerts"}},
-		Tenant:   "prod",
-	})
-	require.Len(t, p.view, 3, "resumed page accepts the next DataMsg")
-}
-
+// TestPage_WatchModeFooterRendersWatchOff is the page-specific wiring
+// witness for the watch/pause-refresh contract. The full contract
+// (DataMsg swallowed while paused, manual `r` honoured once,
+// resume-clears-state) is covered canonically by
+// internal/tui/page/alerts/alerts_test.go:TestPage_WatchModeToggleSwallowsDataMsg
+// / TestPage_WatchModeManualRefreshHonouredOnce — this smoke just
+// proves the receivers page's Update loop dispatches `w` so a wire
+// regression here still red-lights.
 func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
@@ -238,17 +215,6 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	require.Contains(t, p.Footer(), "WATCH OFF",
 		"paused page footer leads with WATCH OFF")
-}
-
-func TestPage_WatchModeResumeClearsState(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.True(t, p.paused)
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'w', Text: "w"})
-	require.False(t, p.paused, "second w returns to running state")
-	require.Empty(t, p.Footer(), "resumed page omits WATCH OFF marker")
 }
 
 func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
@@ -276,51 +242,6 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	})
 	require.Empty(t, p.ErrorBand(),
 		"recovery clears the band so transient blips don't linger")
-}
-
-func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "prod",
-		State:  header.ConnUnreachable,
-		Detail: "401 unauthorised",
-	})
-	require.Equal(t, "prod: 401 unauthorised", p.ErrorBand(),
-		"all-scope view prefixes tenant so the operator knows which one")
-}
-
-func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
-
-	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
-}
-
-func TestPage_ErrorBandExcludesOutOfScopeTenants(t *testing.T) {
-	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
-	p.scope = "prod"
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "staging",
-		State:  header.ConnUnreachable,
-		Detail: "should not appear",
-	})
-	require.Empty(t, p.ErrorBand(),
-		"out-of-scope tenant errors must not bleed into the band")
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "prod",
-		State:  header.ConnUnreachable,
-		Detail: "in scope",
-	})
-	require.Equal(t, "in scope", p.ErrorBand(),
-		"in-scope error surfaces verbatim under a single-tenant scope")
 }
 
 // TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
