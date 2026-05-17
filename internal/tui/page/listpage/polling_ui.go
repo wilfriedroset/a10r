@@ -19,11 +19,29 @@ import (
 // as Base: embedders in sibling packages cannot access unexported
 // fields via promotion.
 type PollingUI struct {
-	Refreshing    bool
+	// Refreshing is true between an `r` press and the next in-scope
+	// poll.DataMsg arrival so the renderer keeps the spinner up
+	// while the caller's nudge is in flight. Cleared only on the
+	// first in-scope DataMsg afterward.
+	Refreshing bool
+	// PausedRefresh, when true, signals "the next DataMsg is from
+	// an explicit r-press; honour it even though paused". Cleared
+	// after the first DataMsg consumes it — lets the operator hold
+	// pause but pull a single fresh snapshot on demand.
 	PausedRefresh bool
+	// PolledTenants is the set of tenants that have produced at
+	// least one DataMsg in this page's lifetime. Scope-aware so a
+	// fast out-of-scope tenant returning [] doesn't flip the page
+	// out of loading state before the in-scope tenant has answered.
 	PolledTenants map[string]struct{}
-	NextRefresh   map[string]time.Time
-	Spinner       spinner.Model
+	// NextRefresh is the per-tenant DataMsg.NextAt timestamp. The
+	// footer collapses it into "next refresh Ns" by picking the
+	// soonest entry across in-scope tenants.
+	NextRefresh map[string]time.Time
+	// Spinner is the cold-start / refresh-in-flight indicator.
+	// Stopped (Tick chain broken) outside of those two windows; see
+	// each page's spinner.TickMsg branch in Update.
+	Spinner spinner.Model
 }
 
 // NextRefreshLabel formats the bottom-border deadline used by the

@@ -21,12 +21,35 @@ package listpage
 // later commits that introduce such methods must validate non-nil
 // at the page constructor.
 type Base struct {
-	Cursor, TopRow, BodyHeight int
-	Filter                     string
-	PreFilter                  *string
-	Scope                      string
-	Paused                     bool
-	LastErrors                 map[string]string
-	Tenants                    []string
-	Recompute                  func()
+	Cursor int
+	// TopRow tracks the first visible row index. The renderer
+	// reconciles it with Cursor every frame so the cursor stays
+	// inside the visible window.
+	TopRow int
+	// BodyHeight is the table-row capacity snapshotted on the most
+	// recent View. Zero before the first WindowSizeMsg; handlers
+	// fall back to 10/20 so a keystroke that beats the initial
+	// WindowSizeMsg still moves a sane distance.
+	BodyHeight int
+	Filter     string
+	// PreFilter is the pre-prompt snapshot the page restores on
+	// PromptCancelledMsg{Mode: PromptFilter}. Nil iff no filter
+	// prompt is open — invariant relies on the App auto-forwarding
+	// PromptOpenedMsg to the top page.
+	PreFilter *string
+	Scope     string
+	// Paused, when true, suppresses the byTenant/recompute branch
+	// on incoming poll.DataMsg so the table stops updating under
+	// the cursor mid-read. Toggled by `w` (watch mode).
+	Paused bool
+	// LastErrors holds the most recent per-tenant transport error
+	// surfaced via poll.BackendStatusMsg.Detail. A successful tick
+	// clears the row; the renderer collapses the in-scope subset
+	// into a one-line error band above the table.
+	LastErrors map[string]string
+	// Tenants is the canonical configured-backend list. Drives the
+	// TENANT-column visibility so a tenant that never replies still
+	// counts toward "is this a multi-tenant fleet?".
+	Tenants   []string
+	Recompute func()
 }
