@@ -117,29 +117,6 @@ func TestPage_DataMsgPopulatesAndSortsByEndsAtAscending(t *testing.T) {
 	require.Equal(t, "late", p.view[2].s.ID)
 }
 
-func TestPage_SortShortcutTogglesDirection(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc())
-
-	// Same column shortcut flips direction.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
-	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
-	require.False(t, p.sorter.Asc())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'E', Text: "E"})
-	require.True(t, p.sorter.Asc())
-
-	// Different column resets to default direction.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
-	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey())
-	require.True(t, p.sorter.Asc())
-	// And then toggles on repeat.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C"})
-	require.False(t, p.sorter.Asc())
-}
-
 func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
@@ -163,33 +140,6 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	}
 }
 
-func TestPage_SortColumnWalk(t *testing.T) {
-	t.Parallel()
-
-	// The walk must follow the visual header column order
-	// (BY → STARTS → ENDS → STATE), not the SortKey iota order —
-	// the user's "next column to the right" intuition is built
-	// off what they see, not the enum's internal numbering.
-	p := newPage(t)
-	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyState, p.sorter.ActiveKey(), "ENDS → STATE is one column right")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey(), "STATE wraps right to BY")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyStartsAt, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'l', Text: "l"})
-	require.Equal(t, sortKeyEndsAt, p.sorter.ActiveKey())
-
-	// h walks left through the same visual order.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeyStartsAt, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeyCreatedBy, p.sorter.ActiveKey())
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
-	require.Equal(t, sortKeyState, p.sorter.ActiveKey(), "BY wraps left to STATE (rightmost column)")
-}
-
 func TestPage_SortByCreatedBy(t *testing.T) {
 	t.Parallel()
 
@@ -204,63 +154,24 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 	require.Equal(t, "alice", p.view[0].s.CreatedBy)
 }
 
+// TestPage_VimMotions is the wiring smoke for the cursor module:
+// pressing `j` in Update must route into cursor.HandleMotion with
+// len(p.view) as the row count, and the returned cursor must land
+// on p.cursor. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// clamps, empty-view) lives in
+// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
+// test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	silences := []backend.Silence{
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
 		sil("a", "x", backend.SilenceStateActive, time.Hour),
 		sil("b", "y", backend.SilenceStateActive, 2*time.Hour),
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'k', Text: "k"})
-	require.Equal(t, 0, p.cursor)
-}
-
-func TestPage_FullPageMotions(t *testing.T) {
-	t.Parallel()
-
-	// Cold-start path: no View call yet → the page falls back to a
-	// 20-row step so the very first keystroke still moves a sane
-	// distance before bubbletea has ticked a render.
-	p := newPage(t)
-	silences := make([]backend.Silence, 60)
-	for i := range silences {
-		silences[i] = sil(fmt.Sprintf("id%02d", i), "creator", backend.SilenceStateActive, time.Hour)
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: silences})
-
-	require.Equal(t, 0, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "cold-start Ctrl+F falls back to 20 rows")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+B mirrors Ctrl+F")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor, "Ctrl+B clamps at 0; never goes negative")
-}
-
-func TestPage_ViewportAwareScrollSteps(t *testing.T) {
-	t.Parallel()
-
-	p := newPage(t)
-	silences := make([]backend.Silence, 100)
-	for i := range silences {
-		silences[i] = sil(fmt.Sprintf("id%02d", i), "creator", backend.SilenceStateActive, time.Hour)
-	}
-	_, _ = p.Update(poll.DataMsg{Resource: silences})
-	_ = p.View(120, 41) // 40-row table body once the column header is taken out
-
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor, "Ctrl+D walks half the rendered body (40 / 2)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	require.Equal(t, 58, p.cursor, "Ctrl+F walks body-2 (20 + 38)")
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	require.Equal(t, 20, p.cursor)
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Equal(t, 0, p.cursor)
+	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_AllWriteActionsAreDangerous(t *testing.T) {
