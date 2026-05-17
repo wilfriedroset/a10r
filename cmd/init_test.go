@@ -223,32 +223,42 @@ func TestRunInit_WritesConfigAndRoundTrips(t *testing.T) {
 	require.Equal(t, os.FileMode(0o600), st.Mode().Perm())
 }
 
-func TestValidateURL(t *testing.T) {
+func TestValidators(t *testing.T) {
 	t.Parallel()
 
-	require.NoError(t, validateURL("https://am.example"))
-	require.NoError(t, validateURL("http://localhost:9093"))
-	require.Error(t, validateURL(""))
-	require.Error(t, validateURL("just-a-host"))
-	require.Error(t, validateURL("scheme:nohost"))
-}
+	cases := []struct {
+		name    string
+		fn      func(string) error
+		input   string
+		wantErr bool
+	}{
+		{name: "url/https", fn: validateURL, input: "https://am.example"},
+		{name: "url/http localhost", fn: validateURL, input: "http://localhost:9093"},
+		{name: "url/empty", fn: validateURL, input: "", wantErr: true},
+		{name: "url/no scheme", fn: validateURL, input: "just-a-host", wantErr: true},
+		{name: "url/scheme without host", fn: validateURL, input: "scheme:nohost", wantErr: true},
 
-func TestValidateBackendName(t *testing.T) {
-	t.Parallel()
+		{name: "name/ok", fn: validateBackendName, input: "prod"},
+		{name: "name/empty", fn: validateBackendName, input: "", wantErr: true},
+		{name: "name/whitespace", fn: validateBackendName, input: "   ", wantErr: true},
+		{name: "name/too long", fn: validateBackendName, input: strings.Repeat("x", 65), wantErr: true},
 
-	require.NoError(t, validateBackendName("prod"))
-	require.Error(t, validateBackendName(""))
-	require.Error(t, validateBackendName("   "))
-	require.Error(t, validateBackendName(strings.Repeat("x", 65)))
-}
-
-func TestValidateDuration(t *testing.T) {
-	t.Parallel()
-
-	require.NoError(t, validateDuration("30s"))
-	require.NoError(t, validateDuration("1h30m"))
-	require.Error(t, validateDuration(""))
-	require.Error(t, validateDuration("forever"))
+		{name: "duration/seconds", fn: validateDuration, input: "30s"},
+		{name: "duration/compound", fn: validateDuration, input: "1h30m"},
+		{name: "duration/empty", fn: validateDuration, input: "", wantErr: true},
+		{name: "duration/garbage", fn: validateDuration, input: "forever", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.fn(tc.input)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestNonEmpty(t *testing.T) {
