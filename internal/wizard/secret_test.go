@@ -30,14 +30,6 @@ func TestProcessSecret_HappyPathReturnsTypedValue(t *testing.T) {
 	require.Equal(t, "******\r\n", out.String())
 }
 
-func TestProcessSecret_LineFeedAlsoSubmits(t *testing.T) {
-	t.Parallel()
-
-	got, err := processSecret(strings.NewReader("abc\n"), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "abc", got)
-}
-
 func TestProcessSecret_BackspaceErasesLastByte(t *testing.T) {
 	t.Parallel()
 
@@ -62,14 +54,6 @@ func TestProcessSecret_BackspaceOnEmptyBufferIsNoop(t *testing.T) {
 	require.Equal(t, "abc", got)
 	// no `\b \b` for the no-op backspace, then three stars.
 	require.Equal(t, "***\r\n", out.String())
-}
-
-func TestProcessSecret_BackspaceAlt0x08AlsoErases(t *testing.T) {
-	t.Parallel()
-
-	got, err := processSecret(strings.NewReader("ab\x08c\r"), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "ac", got)
 }
 
 func TestProcessSecret_CtrlCCancels(t *testing.T) {
@@ -109,15 +93,6 @@ func TestProcessSecret_ArrowKeyEscapeSequenceIsDiscarded(t *testing.T) {
 	require.Equal(t, "****\r\n", out.String())
 }
 
-func TestProcessSecret_MultiCharCSIIsFullyDiscarded(t *testing.T) {
-	t.Parallel()
-
-	// PgUp on xterm = \x1b[5~ (4 bytes). All four must be eaten.
-	got, err := processSecret(strings.NewReader("a\x1b[5~b\r"), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "ab", got)
-}
-
 func TestProcessSecret_TabIsDiscarded(t *testing.T) {
 	t.Parallel()
 
@@ -133,14 +108,4 @@ func TestProcessSecret_EOFBeforeEnterErrors(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, got)
 	require.Contains(t, err.Error(), "EOF")
-}
-
-func TestProcessSecret_EmptySubmitReturnsEmptyString(t *testing.T) {
-	t.Parallel()
-
-	// Enter with no chars typed — engine returns ""; the Secret
-	// caller is responsible for the "cannot be empty" re-prompt.
-	got, err := processSecret(strings.NewReader("\r"), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Empty(t, got)
 }

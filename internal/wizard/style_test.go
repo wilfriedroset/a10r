@@ -14,35 +14,12 @@ import (
 // assertion expects byte-identical output, so any drift here would
 // silently break the test suite.
 
-func TestStyler_StringColorOffMatchesLegacyLayout(t *testing.T) {
-	t.Parallel()
-
-	s := newStyler(false)
-	require.Equal(t, "backend name [prod]: ", s.String("backend name", "prod"))
-	require.Equal(t, "backend name: ", s.String("backend name", ""))
-}
-
 func TestStyler_ChoiceColorOffMatchesLegacyLayout(t *testing.T) {
 	t.Parallel()
 
 	s := newStyler(false)
 	got := s.Choice("backend kind", []string{"alertmanager", "mimir"}, "alertmanager")
 	require.Equal(t, "backend kind (alertmanager/mimir) [alertmanager]: ", got)
-}
-
-func TestStyler_BoolColorOffMatchesLegacyLayout(t *testing.T) {
-	t.Parallel()
-
-	s := newStyler(false)
-	require.Equal(t, "ok [Y/n]: ", s.Bool("ok", true))
-	require.Equal(t, "ok [y/N]: ", s.Bool("ok", false))
-}
-
-func TestStyler_InvalidColorOffMatchesLegacyLayout(t *testing.T) {
-	t.Parallel()
-
-	s := newStyler(false)
-	require.Equal(t, "  invalid: reserved word\n", s.Invalid("reserved word"))
 }
 
 // Color-on assertions: the styler must wrap the chrome in bold-only

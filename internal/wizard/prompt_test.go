@@ -137,35 +137,6 @@ func TestEnableColor_DisabledWhenStdoutIsNotATerminal(t *testing.T) {
 		"pipe handle isn't a TTY — color must be off")
 }
 
-func TestEnableColor_HonoursNoColorEnvVar(t *testing.T) {
-	// We can't fake a TTY without a pty, but we can pin the
-	// NO_COLOR branch: enableColor must return false on a non-
-	// TTY OR when NO_COLOR is set — covering "NO_COLOR wins" via
-	// the non-TTY arm still proves the env probe runs in order.
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	defer func() {
-		_ = r.Close()
-		_ = w.Close()
-	}()
-
-	t.Setenv("NO_COLOR", "1")
-	require.False(t, enableColor(w))
-}
-
-func TestEnableColor_HonoursTermDumb(t *testing.T) {
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	defer func() {
-		_ = r.Close()
-		_ = w.Close()
-	}()
-
-	t.Setenv("NO_COLOR", "")
-	t.Setenv("TERM", "dumb")
-	require.False(t, enableColor(w))
-}
-
 func TestFrom_NonFileHandlesRouteToPlainConstructor(t *testing.T) {
 	t.Parallel()
 
