@@ -28,15 +28,15 @@ func (p *Page) totalGroups() int {
 // state mutations. An empty configured list disables the guard so
 // test fixtures that don't pin Tenants keep working.
 func (p *Page) knownTenant(name string) bool {
-	if len(p.tenants) == 0 {
+	if len(p.Tenants) == 0 {
 		return true
 	}
-	return slices.Contains(p.tenants, name)
+	return slices.Contains(p.Tenants, name)
 }
 
 // scopeIncludes reports whether tenant should appear in the view.
 func (p *Page) scopeIncludes(tenant string) bool {
-	scope := strings.TrimSpace(p.scope)
+	scope := strings.TrimSpace(p.Scope)
 	if scope == "" || scope == scopeAll {
 		return true
 	}
@@ -90,7 +90,7 @@ func (p *Page) recompute() {
 		rows := p.rows()
 		for i, r := range rows {
 			if rowKey(p.flat, r) == p.focusKey {
-				p.cursor = i
+				p.Cursor = i
 				return
 			}
 		}
@@ -122,11 +122,11 @@ func rowKey(flat []groupEntry, r row) string {
 // view leaves focus empty.
 func (p *Page) snapshotFocus() {
 	rows := p.rows()
-	if p.cursor < 0 || p.cursor >= len(rows) {
+	if p.Cursor < 0 || p.Cursor >= len(rows) {
 		p.focusKey = ""
 		return
 	}
-	p.focusKey = rowKey(p.flat, rows[p.cursor])
+	p.focusKey = rowKey(p.flat, rows[p.Cursor])
 }
 
 // groupSeverityRank returns the worst severity in g, encoded so
@@ -150,20 +150,20 @@ func groupKey(e groupEntry) string {
 }
 
 func (p *Page) clampCursor() {
-	if p.cursor >= len(p.rows()) {
-		p.cursor = max(len(p.rows())-1, 0)
+	if p.Cursor >= len(p.rows()) {
+		p.Cursor = max(len(p.rows())-1, 0)
 	}
 	p.recomputeScroll()
 }
 
-// recomputeScroll re-aligns p.topRow with p.cursor for the cached
+// recomputeScroll re-aligns p.TopRow with p.Cursor for the cached
 // body height. Mirror of the alerts page's helper — see that file
 // for the rationale on keeping View as a pure reader.
 func (p *Page) recomputeScroll() {
-	if p.bodyHeight <= 0 {
+	if p.BodyHeight <= 0 {
 		return
 	}
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, p.bodyHeight, len(p.rows()))
+	p.TopRow = cursor.ReconcileScroll(p.Cursor, p.TopRow, p.BodyHeight, len(p.rows()))
 }
 
 // row is one rendered line. groupIdx points at the parent group;
@@ -174,7 +174,7 @@ type row struct {
 }
 
 // rows builds the visible row list from p.flat + p.expanded,
-// skipping any group whose label-set doesn't match p.filter (when
+// skipping any group whose label-set doesn't match p.Filter (when
 // set). Leaves of an expanded matched group always appear — once
 // the user expands a matched group, every alert in it shows up
 // regardless of whether the alert's labels would match the filter
@@ -190,7 +190,7 @@ func (p *Page) rows() []row {
 	if p.cachedRows != nil {
 		return p.cachedRows
 	}
-	matcher := footer.NewMatcher(p.filter)
+	matcher := footer.NewMatcher(p.Filter)
 	out := make([]row, 0, len(p.flat))
 	for gi, e := range p.flat {
 		if !matcher.MatchAll() && !matcher.Match(e.lowerSummary) {
@@ -208,12 +208,12 @@ func (p *Page) rows() []row {
 }
 
 // visibleGroups returns the slice of in-scope groups whose
-// label-set matches p.filter — same predicate rows() uses for
+// label-set matches p.Filter — same predicate rows() uses for
 // headers. Reads the per-entry lowerSummary cache populated at
 // recompute to avoid re-running strings.ToLower(labelSummary())
 // on every call.
 func (p *Page) visibleGroups() []backend.AlertGroup {
-	matcher := footer.NewMatcher(p.filter)
+	matcher := footer.NewMatcher(p.Filter)
 	if matcher.MatchAll() {
 		out := make([]backend.AlertGroup, len(p.flat))
 		for i, e := range p.flat {
@@ -237,10 +237,10 @@ func (p *Page) visibleGroups() []backend.AlertGroup {
 // column for a two-backend fleet). Falls back to byTenant when no
 // configured list is plumbed in (tests).
 func (p *Page) showTenantColumn() bool {
-	if p.scope != scopeAll {
+	if p.Scope != scopeAll {
 		return false
 	}
-	if n := len(p.tenants); n > 0 {
+	if n := len(p.Tenants); n > 0 {
 		return n > 1
 	}
 	in := 0

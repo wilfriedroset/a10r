@@ -25,7 +25,7 @@ func (p *Page) emptyState() string {
 	if !p.polled() || p.refreshing {
 		return ""
 	}
-	if p.filter != "" {
+	if p.Filter != "" {
 		return "no groups match the active filter — Esc clears the prompt"
 	}
 	return "no groups (yet)"
@@ -79,7 +79,7 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.bodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
+	p.BodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
 	rows := p.rows()
 	if len(rows) == 0 {
 		// Render bg-less so the empty state matches the regular
@@ -96,15 +96,15 @@ func (p *Page) View(width, height int) string {
 	}
 	maxRows := min(height-1-bandLines, len(rows))
 	p.recomputeScroll()
-	end := min(p.topRow+maxRows, len(rows))
-	out := make([]string, 0, end-p.topRow+2)
+	end := min(p.TopRow+maxRows, len(rows))
+	out := make([]string, 0, end-p.TopRow+2)
 	if band != "" {
 		out = append(out, band)
 	}
 	out = append(out, p.renderHeader(width))
-	for i := p.topRow; i < end; i++ {
+	for i := p.TopRow; i < end; i++ {
 		r := rows[i]
-		out = append(out, p.renderRow(r, i == p.cursor, width))
+		out = append(out, p.renderRow(r, i == p.Cursor, width))
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
 }

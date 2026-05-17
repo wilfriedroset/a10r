@@ -31,9 +31,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// the operator should see. Mirror of the alerts page's
 		// handler.
 		if m.Detail == "" {
-			delete(p.lastErrors, m.Tenant)
+			delete(p.LastErrors, m.Tenant)
 		} else {
-			p.lastErrors[m.Tenant] = m.Detail
+			p.LastErrors[m.Tenant] = m.Detail
 		}
 		return p, nil
 	case poll.DataMsg:
@@ -49,7 +49,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// pausedRefresh from a manual `r` press lets a single tick
 		// through and clears itself, so the operator can pull
 		// fresh data on demand without leaving paused state.
-		if p.paused && !p.pausedRefresh {
+		if p.Paused && !p.pausedRefresh {
 			return p, nil
 		}
 		p.pausedRefresh = false
@@ -71,11 +71,11 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.spinner, cmd = p.spinner.Update(m)
 		return p, cmd
 	case app.ScopeChangedMsg:
-		p.scope = m.Scope
+		p.Scope = m.Scope
 		p.recompute()
 		return p, nil
 	case app.GoToFirstRowMsg:
-		p.cursor = 0
+		p.Cursor = 0
 		p.snapshotFocus()
 		p.recomputeScroll()
 		return p, nil
@@ -109,10 +109,10 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		snap := p.filter
-		p.preFilter = &snap
-		if p.filter != "" {
-			p.filter = ""
+		snap := p.Filter
+		p.PreFilter = &snap
+		if p.Filter != "" {
+			p.Filter = ""
 			p.cachedRows = nil
 			p.clampCursor()
 		}
@@ -120,23 +120,23 @@ func (p *Page) handleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
+		p.Filter = m.Value
 		p.cachedRows = nil
 		p.clampCursor()
 	case footer.PromptSubmittedMsg:
 		if m.Mode != footer.PromptFilter {
 			return
 		}
-		p.filter = m.Value
-		p.preFilter = nil
+		p.Filter = m.Value
+		p.PreFilter = nil
 		p.cachedRows = nil
 		p.clampCursor()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || p.preFilter == nil {
+		if m.Mode != footer.PromptFilter || p.PreFilter == nil {
 			return
 		}
-		p.filter = *p.preFilter
-		p.preFilter = nil
+		p.Filter = *p.PreFilter
+		p.PreFilter = nil
 		p.cachedRows = nil
 		p.clampCursor()
 	}
@@ -158,12 +158,12 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	// handled in Update.
 	if newCursor, handled := cursor.HandleMotion(
 		m.String(),
-		p.cursor,
+		p.Cursor,
 		len(rows),
-		cursor.HalfPageStep(p.bodyHeight),
-		cursor.FullPageStep(p.bodyHeight),
+		cursor.HalfPageStep(p.BodyHeight),
+		cursor.FullPageStep(p.BodyHeight),
 	); handled {
-		p.cursor = newCursor
+		p.Cursor = newCursor
 		p.snapshotFocus()
 		p.recomputeScroll()
 		return p, nil
@@ -196,8 +196,8 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // the next ordinary DataMsg is silently dropped. Mirrors the
 // alerts page's helper.
 func (p *Page) toggleWatch() {
-	p.paused = !p.paused
-	if !p.paused {
+	p.Paused = !p.Paused
+	if !p.Paused {
 		p.pausedRefresh = false
 	}
 }
@@ -227,10 +227,10 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 // and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
 	p.refreshing = true
-	if p.paused {
+	if p.Paused {
 		p.pausedRefresh = true
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
@@ -260,10 +260,10 @@ func (p *Page) toggleExpandAll() {
 // onEnter expands / collapses a group header or drills to a leaf
 // alert.
 func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
-	if p.cursor >= len(rows) {
+	if p.Cursor >= len(rows) {
 		return p, nil
 	}
-	r := rows[p.cursor]
+	r := rows[p.Cursor]
 	if r.alertIdx == -1 {
 		p.expanded[r.groupIdx] = !p.expanded[r.groupIdx]
 		p.cachedRows = nil
@@ -281,10 +281,10 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 // Enter, then `s` on the detail page; `s` from the groups view
 // always covers every alert in the group.
 func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
-	if p.cursor >= len(rows) {
+	if p.Cursor >= len(rows) {
 		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}
-	r := rows[p.cursor]
+	r := rows[p.Cursor]
 	if r.groupIdx >= len(p.flat) {
 		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}

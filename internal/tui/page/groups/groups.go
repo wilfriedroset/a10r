@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -141,6 +142,8 @@ type Options struct {
 
 // Page is the groups view.
 type Page struct {
+	listpage.Base
+
 	styles *theme.Styles
 	now    func() time.Time
 
@@ -156,34 +159,12 @@ type Page struct {
 	// `cursor` reference.
 	flat     []groupEntry
 	expanded []bool // per-group flag, indexed against p.flat
-	cursor   int    // index into the visible row list
-	topRow   int    // first visible row; reconciled in renderRows
 
 	// cachedRows is the materialised rows() result. Invalidated
 	// (set to nil) by every state change that would alter the
 	// rendered row list: recompute, filter change, expand toggle.
 	// rows() rebuilds and re-caches when it sees a nil cache.
 	cachedRows []row
-
-	// bodyHeight is the row capacity snapshotted on the most recent
-	// View. Ctrl+D / Ctrl+U step half this; Ctrl+F / Ctrl+B step
-	// body-2 (vim's CTRL-F two-line overlap convention). Zero before
-	// the first render — handlers fall back to 10 / 20 so a keystroke
-	// that beats the initial WindowSizeMsg still moves a sane distance.
-	bodyHeight int
-
-	// filter is the active substring filter applied to a group's
-	// label-set (k=v pairs joined). preFilter is the snapshot the
-	// page restores on PromptCancelledMsg per the shared
-	// `/`-prompt contract (see alerts page for the lifecycle doc).
-	// Filtering operates at group granularity: a group either is
-	// or isn't in the rendered list; expanding a matched group
-	// shows every alert it carries, unfiltered.
-	filter    string
-	preFilter *string
-
-	// scope mirrors the active tenant scope.
-	scope string
 
 	// sorter owns the active sort axis and direction. Default:
 	// name ASC — alphabetical label-set, matching the historical
@@ -207,38 +188,16 @@ type Page struct {
 	nextRefresh   map[string]time.Time
 	refreshing    bool
 	spinner       spinner.Model
-	// paused, when true, suppresses the byTenant/recompute branch
-	// on incoming poll.DataMsg so the table stops updating under
-	// the cursor mid-read. Toggled by `w` ("watch mode"); manual
-	// `r` refresh still emits a RefreshRequestedMsg and the next
-	// DataMsg under that nudge is honoured (the watch-off window
-	// for one tick) so the operator can deliberately re-pull
-	// without leaving paused state. Mirrors the alerts page —
-	// see internal/tui/page/alerts/alerts.go for the design notes.
-	paused bool
 	// pausedRefresh, when true, signals "the next DataMsg is from
 	// an explicit r-press; honour it even though paused". Cleared
 	// after the first DataMsg consumes it. Lets the operator hold
 	// pause but pull a single fresh snapshot on demand.
 	pausedRefresh bool
-	// lastErrors holds the most recent per-tenant transport error
-	// surfaced via poll.BackendStatusMsg.Detail. Empty entries are
-	// pruned (a successful tick clears the row). Renderer collapses
-	// the in-scope subset into a single one-line error band above
-	// the table so the operator sees what's wrong without leaving
-	// the page. Mirrors the alerts page's contract.
-	lastErrors map[string]string
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint
 	// instead of pushing the silence form.
 	readOnly bool
-
-	// tenants is the canonical configured-backend list. Drives the
-	// TENANT-column visibility decision so a tenant that never
-	// replies still counts toward "is this a multi-tenant fleet?".
-	// See Options.Tenants.
-	tenants []string
 
 	// submitCtx parents the silence form's submit ctx. See
 	// Options.SubmitCtx for the rationale.
@@ -259,19 +218,21 @@ func New(opts Options) *Page {
 		spinner.WithStyle(opts.Styles.Header.Accent),
 	)
 	return &Page{
+		Base: listpage.Base{
+			Scope:      scopeAll,
+			LastErrors: map[string]string{},
+			Tenants:    opts.Tenants,
+		},
 		styles:        opts.Styles,
 		now:           now,
 		clients:       opts.Clients,
 		creator:       opts.Creator,
 		byTenant:      map[string][]backend.AlertGroup{},
-		scope:         scopeAll,
 		polledTenants: map[string]struct{}{},
 		nextRefresh:   map[string]time.Time{},
-		lastErrors:    map[string]string{},
 		spinner:       sp,
 		sorter:        tablesort.New(groupSortColumns(), sortKeyName),
 		readOnly:      opts.ReadOnly,
-		tenants:       opts.Tenants,
 		submitCtx:     opts.SubmitCtx,
 	}
 }
@@ -296,21 +257,21 @@ func (p *Page) Title() string {
 	if !p.polled() || p.refreshing {
 		return p.spinner.View() + " loading groups…"
 	}
-	scope := p.scope
+	scope := p.Scope
 	if scope == "" {
 		scope = scopeAll
 	}
 	total := p.totalGroups()
 	visible := len(p.visibleGroups())
-	if p.filter != "" {
+	if p.Filter != "" {
 		return fmt.Sprintf("groups(%s)[%d/%d]", scope, visible, total)
 	}
 	return fmt.Sprintf("groups(%s)[%d]", scope, visible)
 }
 
 func (p *Page) HeaderContent() string {
-	if p.filter != "" {
-		return "filter:" + p.filter
+	if p.Filter != "" {
+		return "filter:" + p.Filter
 	}
 	return ""
 }
@@ -319,7 +280,7 @@ func (p *Page) HeaderContent() string {
 // — or "refreshing…" while a manual `r` is in flight — into the
 // bordered body's bottom edge. Same shape as alerts / silences.
 func (p *Page) Footer() string {
-	if p.paused {
+	if p.Paused {
 		// Paused state takes precedence over the refresh countdown
 		// so the operator immediately sees that auto-poll is off.
 		// The refreshing indicator is kept too — a pausedRefresh
@@ -354,7 +315,7 @@ func (p *Page) ErrorBand() string {
 		detail string
 	}
 	var bad []entry
-	for tenant, detail := range p.lastErrors {
+	for tenant, detail := range p.LastErrors {
 		if detail == "" {
 			continue
 		}
@@ -373,7 +334,7 @@ func (p *Page) ErrorBand() string {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
 		// single-tenant view).
-		if p.scope == scopeAll || strings.Contains(p.scope, ",") {
+		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
 			return bad[0].tenant + ": " + bad[0].detail
 		}
 		return bad[0].detail
