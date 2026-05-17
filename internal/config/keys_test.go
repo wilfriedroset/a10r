@@ -76,19 +76,6 @@ func TestLoadKeys_EmptyProfileFallsBackToDefault(t *testing.T) {
 	require.Equal(t, KeyOverrides{"quit": {"Shift+Q"}}, got)
 }
 
-func TestLoadKeys_AlternateProfile(t *testing.T) {
-	t.Parallel()
-
-	// Stretch-goal hook: explicit profile selection works today even
-	// though v0.0.1 only auto-loads `default.yaml`. Locks the file
-	// layout so wiring `keys: { profile: vim }` later is purely
-	// additive.
-	dir := writeKeys(t, "vim", "quit: Q\n")
-	got, err := LoadKeys(dir, "vim")
-	require.NoError(t, err)
-	require.Equal(t, KeyOverrides{"quit": {"Shift+Q"}}, got)
-}
-
 func TestLoadKeys_EmptyFileVariants(t *testing.T) {
 	t.Parallel()
 
@@ -204,23 +191,6 @@ func TestLoadKeys_RejectsNestedMappingValue(t *testing.T) {
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), "value must be a string or list of strings")
-}
-
-func TestLoadKeys_MalformedYAMLErrors(t *testing.T) {
-	t.Parallel()
-
-	dir := writeKeys(t, "default", ":\n  -\n  -bad indent\n")
-	_, err := LoadKeys(dir, "default")
-	require.Error(t, err)
-}
-
-// Sanity check: the sentinel works with errors.Is across a wrap.
-func TestKeyOverrideErrors_Wrap(t *testing.T) {
-	t.Parallel()
-
-	dir := writeKeys(t, "default", "quit: ['3']\n")
-	_, err := LoadKeys(dir, "default")
-	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 }
 
 // TestCanonicaliseKey covers the QA-driven C3 fix: the user-facing

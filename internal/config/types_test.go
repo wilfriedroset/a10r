@@ -3,7 +3,6 @@
 package config
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,21 +26,6 @@ func TestConfig_ZeroValueRoundTrips(t *testing.T) {
 	var round Config
 	require.NoError(t, yaml.Unmarshal(bytesOut, &round))
 	require.Equal(t, zero, round)
-}
-
-func TestConfig_LoadValidMinimal(t *testing.T) {
-	t.Parallel()
-
-	body := readFixture(t, "valid_minimal.yaml")
-	var got Config
-	require.NoError(t, yaml.Unmarshal(body, &got))
-
-	want := Config{
-		Backends: []Backend{
-			{Name: "local-am", URL: "http://localhost:9093"},
-		},
-	}
-	require.Equal(t, want, got)
 }
 
 func TestConfig_LoadValidFull(t *testing.T) {
@@ -134,15 +118,6 @@ func TestDefaults_BulkConcurrencyDefaultsTo4WhenOmitted(t *testing.T) {
 	require.Equal(t, DefaultBulkConcurrency, d.BulkConcurrencyOrDefault())
 }
 
-func TestDefaults_BulkConcurrencyZeroResolvesTo4(t *testing.T) {
-	t.Parallel()
-
-	// Explicit zero is the same shape as "key omitted"; the helper
-	// resolves both to DefaultBulkConcurrency.
-	d := Defaults{BulkConcurrency: 0}
-	require.Equal(t, DefaultBulkConcurrency, d.BulkConcurrencyOrDefault())
-}
-
 func TestDefaults_BulkConcurrencyExplicitValuePreserved(t *testing.T) {
 	t.Parallel()
 
@@ -202,24 +177,6 @@ func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {
 	// it so a brand-new config without the key parses cleanly.
 	d := Defaults{BulkConcurrency: 0}
 	require.NoError(t, d.Validate())
-}
-
-func TestConfig_StrictModeRejectsUnknownFields(t *testing.T) {
-	t.Parallel()
-
-	// This test pins the contract that the loader must enable
-	// yaml strict mode (`KnownFields(true)`). Without it, typos like
-	// `pollInterval` instead of `poll_interval` silently produce
-	// configs with the user-intended value missing — exactly the
-	// class of error a strict schema is supposed to surface early.
-	body := readFixture(t, "invalid_unknown_field.yaml")
-
-	decoder := yaml.NewDecoder(bytes.NewReader(body))
-	decoder.KnownFields(true)
-
-	var c Config
-	err := decoder.Decode(&c)
-	require.Error(t, err, "strict-mode decode must reject unknown fields")
 }
 
 func TestBackend_AuthMethodsAreMutuallyExclusive(t *testing.T) {

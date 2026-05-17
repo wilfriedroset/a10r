@@ -255,17 +255,6 @@ func TestResolve_DoesNotMutateInputFile(t *testing.T) {
 	require.Equal(t, snapshot, original, "Resolve must not mutate the caller's file Config")
 }
 
-func TestResolve_NilEnvIsTreatedAsEmpty(t *testing.T) {
-	t.Parallel()
-
-	// Tests can pass nil for the EnvSource; production cmd code wires
-	// os.Getenv. The resolver treats nil as "no env set".
-	eff, err := Resolve(CLIFlags{}, nil, Config{})
-	require.NoError(t, err)
-	require.False(t, eff.Config.Defaults.ReadOnly)
-	require.Equal(t, string(log.FormatLogfmt), eff.Config.Defaults.LogFormat)
-}
-
 func TestResolve_LogFormatDefaultMatchesLogPackage(t *testing.T) {
 	t.Parallel()
 

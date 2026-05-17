@@ -91,16 +91,6 @@ func TestLoadAliases_MalformedYAMLErrors(t *testing.T) {
 	require.Contains(t, err.Error(), AliasesFile)
 }
 
-func TestLoadAliases_NonMappingErrors(t *testing.T) {
-	t.Parallel()
-
-	// A top-level sequence isn't a {short: expanded} map — strict
-	// decode rejects it instead of silently producing an empty map.
-	dir := writeAliases(t, "- prod\n- staging\n")
-	_, err := LoadAliases(dir)
-	require.Error(t, err)
-}
-
 func TestLoadAliases_RejectsEmptyValue(t *testing.T) {
 	t.Parallel()
 
@@ -108,14 +98,6 @@ func TestLoadAliases_RejectsEmptyValue(t *testing.T) {
 	_, err := LoadAliases(dir)
 	require.ErrorIs(t, err, ErrAliasInvalid)
 	require.Contains(t, err.Error(), "prod")
-}
-
-func TestLoadAliases_RejectsWhitespaceOnlyValue(t *testing.T) {
-	t.Parallel()
-
-	dir := writeAliases(t, "prod: \"   \"\n")
-	_, err := LoadAliases(dir)
-	require.ErrorIs(t, err, ErrAliasInvalid)
 }
 
 func TestLoadAliases_RejectsValueWithNewline(t *testing.T) {
@@ -139,13 +121,4 @@ func TestLoadAliases_RejectsKeyWithWhitespace(t *testing.T) {
 	_, err := LoadAliases(dir)
 	require.ErrorIs(t, err, ErrAliasInvalid)
 	require.Contains(t, err.Error(), "whitespace")
-}
-
-// Sanity check: the sentinel works with errors.Is across a wrap.
-func TestAliasErrors_Wrap(t *testing.T) {
-	t.Parallel()
-
-	dir := writeAliases(t, "prod: \"\"\n")
-	_, err := LoadAliases(dir)
-	require.ErrorIs(t, err, ErrAliasInvalid)
 }

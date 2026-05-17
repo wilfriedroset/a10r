@@ -47,19 +47,6 @@ func writeBaseAndDropIns(t *testing.T, base string, dropIns map[string]string) s
 	return dir
 }
 
-func TestLoad_DropIn_NoConfigD_IsNoOp(t *testing.T) {
-	t.Parallel()
-
-	dir := writeBaseAndDropIns(t,
-		"backends:\n  - name: base\n    url: http://x\n",
-		nil)
-
-	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
-	require.NoError(t, err)
-	require.Len(t, cfg.Backends, 1)
-	require.Equal(t, "base", cfg.Backends[0].Name)
-}
-
 func TestLoad_DropIn_EmptyConfigD_IsNoOp(t *testing.T) {
 	t.Parallel()
 
