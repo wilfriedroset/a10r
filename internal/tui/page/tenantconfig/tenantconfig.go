@@ -8,6 +8,7 @@ package tenantconfig
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -216,6 +217,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case statusFetchedMsg:
 		p.loading = false
 		if m.err != nil {
+			if errors.Is(m.err, context.Canceled) {
+				// ditto: ctx-cancel is shutdown noise, not a real fetch
+				// failure. Drop silently rather than rendering
+				// "(fetch failed: context canceled)" on the last frame.
+				return p, nil
+			}
 			p.amErr = m.err
 			return p, nil
 		}

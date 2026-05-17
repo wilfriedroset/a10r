@@ -543,6 +543,31 @@ func TestForm_StaleSubmitDoneMsgIsDropped(t *testing.T) {
 	require.Nil(t, cmd, "stale submitDoneMsg must produce no Cmd; current gen is 0, stale carries 99")
 }
 
+// TestForm_SubmitContextCancelDropsSilently pins the defensive
+// contract: a submitDoneMsg whose err is context.Canceled (the
+// SubmitCtx parent fired during shutdown) must NOT flash
+// "silence: context canceled" on whatever page is being torn
+// down. The render path is unreachable in prod because Close()
+// pops the form before the message lands, but rendering a
+// fake "failed" on the last frame would be misleading — the
+// audit asked for an explicit short-circuit so the contract
+// is visible in code.
+func TestForm_SubmitContextCancelDropsSilently(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	// Match the active gen (fresh form is at 0) so we exercise the
+	// real apply branch rather than the stale-drop short-circuit.
+	f.submitting = true
+	msg := submitDoneMsg{gen: f.submitGen, err: context.Canceled}
+	_, cmd := f.Update(msg)
+	require.Nil(t, cmd,
+		"context.Canceled must drop silently — no flash on a page that's being torn down")
+	require.Empty(t, f.err,
+		"ctx-cancel is shutdown noise; the form must not record it as a submit error")
+	require.False(t, f.submitting,
+		"submitting must clear so a future re-open of the form starts clean")
+}
+
 func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{wantID: "sil-42"}

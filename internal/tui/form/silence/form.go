@@ -810,6 +810,13 @@ func (f *Form) applySubmitDone(m submitDoneMsg) tea.Cmd {
 	}
 	f.submitting = false
 	if m.err != nil {
+		if errors.Is(m.err, context.Canceled) {
+			// Cancellation is shutdown noise, not a backend failure.
+			// The submit goroutine returned because Close() / SIGTERM
+			// cancelled SubmitCtx — the user sees no misleading flash
+			// and the page-pop has already auto-popped the form.
+			return nil
+		}
 		return f.fail(m.err.Error())
 	}
 	id := m.id

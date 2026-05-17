@@ -268,6 +268,33 @@ func TestPage_FetchFailureSurfacesError(t *testing.T) {
 	require.Contains(t, out, "backend unreachable")
 }
 
+// TestPage_StatusFetchContextCancelDropsSilently pins the defensive
+// contract: when the FetchCtx parent is cancelled (typically during
+// SIGTERM-driven shutdown), the resulting context.Canceled error
+// must NOT surface as "(fetch failed: context canceled)" on the
+// last frame. The render path is unreachable in prod because the
+// page-pop already removes the page from top, but the audit asked
+// for an explicit short-circuit so the contract is visible in code.
+func TestPage_StatusFetchContextCancelDropsSilently(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Tenant:  "prod",
+		Backend: config.Backend{Name: "prod"},
+		Fetcher: &fakeFetcher{err: context.Canceled},
+		Styles:  testutil.LoadStyles(t),
+	})
+	cmd := p.Init()
+	require.NotNil(t, cmd)
+	_, _ = p.Update(cmd())
+	require.NoError(t, p.amErr,
+		"ctx-cancel is shutdown noise; the page must not record it as a fetch error")
+	require.False(t, p.loading,
+		"loading must flip false so a stale spinner doesn't paint the final frame")
+	out := testutil.StripStyle(p.View(120, 30))
+	require.NotContains(t, out, "fetch failed",
+		"context.Canceled must drop silently — no misleading error on a torn-down frame")
+}
+
 func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
