@@ -236,6 +236,56 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 			"was focused on before narrowing to zero")
 }
 
+// TestPage_PrunesStaleFocusFingerprintAfterAlertResolved pins the
+// other half of the cursor-by-fingerprint contract that snapshotFocus's
+// empty-view preservation introduced (commit c4028d7). Preserving the
+// fingerprint is correct for the filter-narrowing path (the alert is
+// hidden, not gone), but wrong for the poll-removal path (the alert
+// resolved upstream and is genuinely absent from byTenant). Without
+// this prune, focusFingerprint sticks on a phantom across recomputes
+// that leave the view empty — a later scope/filter widening would
+// try to re-anchor on a fingerprint no source knows about.
+//
+// The scenario exercises an active filter that masks all but the
+// focused alert: when a fresh poll drops the focused alert, the view
+// recomputes to empty and snapshotFocus's preserve-on-empty branch
+// would keep focusFingerprint set. The discriminator is the FULL
+// byTenant union (across every tenant, not the active scope): if no
+// snapshot contains the fingerprint, the alert is truly gone and
+// stickiness has to clear.
+func TestPage_PrunesStaleFocusFingerprintAfterAlertResolved(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	// Explicit Fingerprint values — mkAlert doesn't set them.
+	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	a.Fingerprint = "fp-a"
+	b := mkAlert("DiskSpace", "warning", backend.AlertStateActive)
+	b.Fingerprint = "fp-b"
+	c := mkAlert("MemPressure", "warning", backend.AlertStateActive)
+	c.Fingerprint = "fp-c"
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a, b, c}})
+
+	// Narrow the filter so only DiskSpace (fp-b) is visible, then
+	// focus it (the only row → cursor at 0).
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "disk"})
+	require.Len(t, p.view, 1, "sanity: filter must narrow to one row")
+	require.Equal(t, "fp-b", p.focusFingerprint,
+		"sanity: focus must rest on fp-b after filter narrows to it")
+
+	// A fresh poll drops fp-b (alert resolved upstream); the other
+	// two stay. Under the active filter the view recomputes to empty,
+	// so snapshotFocus's preserve-on-empty branch would leave
+	// focusFingerprint pointing at fp-b — but fp-b is gone from every
+	// tenant's snapshot and a later filter-clear would re-anchor on a
+	// phantom.
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a, c}})
+	require.Empty(t, p.view,
+		"sanity: poll drop + active filter must leave the view empty")
+	require.Empty(t, p.focusFingerprint,
+		"focus must clear when the focused alert is gone from byTenant "+
+			"so a later scope/filter change does not re-anchor on a phantom")
+}
+
 // TestPage_VimMotionsMoveCursor is the wiring smoke for the cursor
 // module: pressing `j` in Update must route into cursor.HandleMotion
 // with len(p.view) as the row count, and the returned cursor must

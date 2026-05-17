@@ -77,9 +77,22 @@ func (p *Page) scopeIncludes(tenant string) bool {
 func (p *Page) recompute() {
 	defer p.recomputeScroll()
 	total := 0
+	knownFP := false
 	for tenant, alerts := range p.byTenant {
 		if p.scopeIncludes(tenant) {
 			total += len(alerts)
+		}
+		// Scan every tenant (not just the in-scope ones) so a scope-
+		// narrowed-out alert still counts as "source knows about
+		// this" — keeps the fingerprint anchored across a scope
+		// switch back. Cheap: same map we iterate for `total`.
+		if p.focusFingerprint != "" && !knownFP {
+			for _, a := range alerts {
+				if a.Fingerprint == p.focusFingerprint {
+					knownFP = true
+					break
+				}
+			}
 		}
 	}
 	flat := make([]alertEntry, 0, total)
@@ -105,6 +118,15 @@ func (p *Page) recompute() {
 				p.cursor = i
 				return
 			}
+		}
+		// Fell through: the focused alert is not in the view. Two
+		// shapes: (a) filter/scope narrowed it out — source still
+		// has it, keep focusFingerprint so a later widening re-
+		// anchors; (b) alert resolved upstream — every tenant's
+		// snapshot has dropped it, clear so a later widening does
+		// not chase a phantom.
+		if !knownFP {
+			p.focusFingerprint = ""
 		}
 	}
 	if p.cursor >= len(p.view) {
