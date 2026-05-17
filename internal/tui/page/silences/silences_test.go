@@ -1157,6 +1157,16 @@ func TestPage_HeaderColumnOrder(t *testing.T) {
 		require.Less(t, idxs[i-1], idxs[i],
 			"header column order broke at %q (header=%q)", want[i], headerLine)
 	}
+	// Silences-specific re-derivation of the TENANT-visibility
+	// contract: on the single-tenant code path (Options.Tenants
+	// unset above via newPage), the rendered header MUST NOT carry
+	// the TENANT column. The cross-page predicate is canonical at
+	// alerts/TestPage_TenantColumnHiddenForSingleBackend; this line
+	// pins the silences renderer's wiring to it so a future
+	// silences-only divergence (e.g. a hard-coded TENANT cell added
+	// to the silences header builder) is caught at the page layer.
+	require.NotContains(t, headerLine, "TENANT",
+		"single-tenant header must not surface the TENANT column (header=%q)", headerLine)
 }
 
 // TestPage_RendersUUIDColumnClipped verifies the long UUID

@@ -107,6 +107,64 @@ func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
 	require.Equal(t, "DiskSpace", p.view[0].a.Labels["alertname"])
 }
 
+// TestPage_FilterModesDriveThroughPipeline pins the page-layer
+// wiring between the `/`-prompt buffer and the matcher: each of
+// the four search modes (substring, fuzzy, literal, regex) must
+// reach the per-row predicate via PromptSubmittedMsg with the
+// documented sigil semantics.
+//
+// The unit-level mode classifier and matcher predicates are pinned
+// by footer/searchmode_test.go and footer/matcher_test.go; this
+// test only proves the page hands the raw buffer to
+// footer.NewMatcher (no pre-strip, no substring short-circuit) so
+// a future regression that special-cased substring before
+// detection would surface here. Each sub-case uses a needle that
+// only the targeted mode can resolve to its expected match:
+//
+//   - "~hcpu" is not a contiguous substring of "highcpu" — only
+//     the fuzzy path can hit HighCPU.
+//   - "[d]isk" matches "disk" as a character class, never as a
+//     literal string — only the regex path can hit DiskSpace.
+//   - `\highcpu` strips the leading backslash and substring-matches
+//     "highcpu"; the body is mode-neutral so the assertion is
+//     really "the prefix strip ran".
+//   - "disk" is the substring default that the page handled long
+//     before the four-mode work; it stays on the table as the
+//     baseline so a regression that broke substring (and only
+//     substring) is still caught here.
+func TestPage_FilterModesDriveThroughPipeline(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		buffer    string
+		wantAlert string
+	}{
+		{"substring matches plain needle", "disk", "DiskSpace"},
+		{"tilde prefix drives fuzzy path", "~hcpu", "HighCPU"},
+		{"bracket pair drives regex path", "[d]isk", "DiskSpace"},
+		{"backslash prefix drives literal path", `\highcpu`, "HighCPU"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := newPage(t)
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+				mkAlert("HighCPU", "critical", backend.AlertStateActive),
+				mkAlert("DiskSpace", "warning", backend.AlertStateActive),
+			}})
+
+			_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: tc.buffer})
+			require.Len(t, p.view, 1,
+				"mode %q must narrow to one entry through the page pipeline", tc.buffer)
+			require.Equal(t, tc.wantAlert, p.view[0].a.Labels["alertname"],
+				"mode %q must surface %q via the page→matcher pipeline", tc.buffer, tc.wantAlert)
+		})
+	}
+}
+
 // TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
 // BackendStatusMsg arriving with a tenant name not in the configured
 // list is dropped — closes the leak class where a wire-layer bug,
