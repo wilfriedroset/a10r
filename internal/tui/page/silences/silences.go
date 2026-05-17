@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -453,45 +452,6 @@ func (p *Page) Footer() string {
 		return ""
 	}
 	return "next refresh " + nextRefreshLabel(p.now(), next)
-}
-
-// ErrorBand returns the one-line message rendered above the
-// table when at least one in-scope tenant is reporting a
-// transport error. Empty when every in-scope tenant is healthy
-// (or unpolled) so the renderer can short-circuit. Mirrors the
-// alerts page — see internal/tui/page/alerts/alerts.go for the
-// canonical doc.
-func (p *Page) ErrorBand() string {
-	type entry struct {
-		tenant string
-		detail string
-	}
-	var bad []entry
-	for tenant, detail := range p.LastErrors {
-		if detail == "" {
-			continue
-		}
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		bad = append(bad, entry{tenant: tenant, detail: detail})
-	}
-	if len(bad) == 0 {
-		return ""
-	}
-	// Sort by tenant for deterministic output across runs (map
-	// iteration order is unspecified).
-	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
-	if len(bad) == 1 {
-		// Single offender: tenant prefix only useful when scope
-		// covers >1 tenant (avoids "prod: …" noise on a
-		// single-tenant view).
-		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
-			return bad[0].tenant + ": " + bad[0].detail
-		}
-		return bad[0].detail
-	}
-	return fmt.Sprintf("%d backends erroring; %s: %s", len(bad), bad[0].tenant, bad[0].detail)
 }
 
 // soonestNextRefresh returns the earliest DataMsg.NextAt across

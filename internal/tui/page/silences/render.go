@@ -20,7 +20,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	band := p.renderErrorBand(width)
+	band := p.RenderErrorBand(width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
 		bandLines = 1
@@ -46,26 +46,6 @@ func (p *Page) View(width, height int) string {
 		body = band + "\n" + body
 	}
 	return lipgloss.NewStyle().Width(width).Render(body)
-}
-
-// renderErrorBand returns a one-line styled error message for the
-// View to prepend, or "" when no in-scope tenant is reporting an
-// error. Mirrors the alerts page's helper — fg-tinted with the
-// severity-critical foreground (no painted background per the
-// chrome-rendering memory) and clipped to width with SGRTruncate
-// so a long upstream error doesn't break the layout.
-func (p *Page) renderErrorBand(width int) string {
-	msg := p.ErrorBand()
-	if msg == "" {
-		return ""
-	}
-	prefix := "! "
-	full := prefix + msg
-	if lipgloss.Width(full) > width {
-		full = format.SGRTruncate(full, width)
-	}
-	style := lipgloss.NewStyle().Foreground(p.styles.Severity.Critical.GetForeground())
-	return style.Render(full)
 }
 
 // emptyState picks the right body for an empty list. The cold-

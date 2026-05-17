@@ -188,45 +188,6 @@ func (p *Page) Footer() string {
 	return ""
 }
 
-// ErrorBand returns the one-line message rendered above the
-// table when at least one in-scope tenant is reporting a
-// transport error. Empty when every in-scope tenant is healthy
-// (or unpolled) so the renderer can short-circuit. Mirrors the
-// alerts page — see internal/tui/page/alerts/alerts.go for the
-// canonical doc.
-func (p *Page) ErrorBand() string {
-	type entry struct {
-		tenant string
-		detail string
-	}
-	var bad []entry
-	for tenant, detail := range p.LastErrors {
-		if detail == "" {
-			continue
-		}
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		bad = append(bad, entry{tenant: tenant, detail: detail})
-	}
-	if len(bad) == 0 {
-		return ""
-	}
-	// Sort by tenant for deterministic output across runs (map
-	// iteration order is unspecified).
-	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
-	if len(bad) == 1 {
-		// Single offender: tenant prefix only useful when scope
-		// covers >1 tenant (avoids "prod: …" noise on a
-		// single-tenant view).
-		if p.Scope == scopeAll || strings.Contains(p.Scope, ",") {
-			return bad[0].tenant + ": " + bad[0].detail
-		}
-		return bad[0].detail
-	}
-	return fmt.Sprintf("%d backends erroring; %s: %s", len(bad), bad[0].tenant, bad[0].detail)
-}
-
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
 // page on push.
@@ -429,7 +390,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	band := p.renderErrorBand(width)
+	band := p.RenderErrorBand(width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
 		bandLines = 1
@@ -479,26 +440,6 @@ func (p *Page) View(width, height int) string {
 		rows = append(rows, row)
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(rows, "\n"))
-}
-
-// renderErrorBand returns a one-line styled error message for the
-// View to prepend, or "" when no in-scope tenant is reporting an
-// error. Mirrors the alerts page's helper — fg-tinted with the
-// severity-critical foreground (no painted background per the
-// chrome-rendering memory) and clipped to width with SGRTruncate
-// so a long upstream error doesn't break the layout.
-func (p *Page) renderErrorBand(width int) string {
-	msg := p.ErrorBand()
-	if msg == "" {
-		return ""
-	}
-	prefix := "! "
-	full := prefix + msg
-	if lipgloss.Width(full) > width {
-		full = format.SGRTruncate(full, width)
-	}
-	style := lipgloss.NewStyle().Foreground(p.styles.Severity.Critical.GetForeground())
-	return style.Render(full)
 }
 
 // renderHeader emits the column-title strip with the active sort
