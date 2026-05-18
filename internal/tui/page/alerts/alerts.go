@@ -303,6 +303,10 @@ func New(opts Options) *Page {
 		stateFilter:     opts.InitialStateFilter,
 	}
 	p.Recompute = p.recompute
+	p.RowCount = func() int { return len(p.view) }
+	p.SnapshotFocus = p.snapshotFocus
+	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
+	p.ClearMarks = p.handleClearMarks
 	return p
 }
 
