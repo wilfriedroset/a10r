@@ -61,9 +61,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleScopeChangedMsg(m)
 		return p, nil
 	case app.GoToFirstRowMsg:
-		p.Cursor = 0
+		p.SetIndex(0, len(p.rows()))
 		p.snapshotFocus()
-		p.ReconcileScroll(len(p.rows()))
 		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash so the user sees
@@ -99,22 +98,16 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
-	if newCursor, handled := cursor.HandleMotion(
-		m.String(),
-		p.Cursor,
-		len(rows),
-		cursor.HalfPageStep(p.BodyHeight),
-		cursor.FullPageStep(p.BodyHeight),
-	); handled {
-		p.Cursor = newCursor
-		p.snapshotFocus()
-		p.ReconcileScroll(len(p.rows()))
+	if changed, handled := p.MoveCursor(m.String(), len(rows)); handled {
+		if changed {
+			p.snapshotFocus()
+		}
 		return p, nil
 	}
 	switch m.String() {
 	case "tab":
 		p.toggleExpandAll()
-		p.ReconcileScroll(len(p.rows()))
+		p.Clamp(len(p.rows()))
 	case "enter":
 		return p.onEnter(rows)
 	case "s":
@@ -203,14 +196,14 @@ func (p *Page) toggleExpandAll() {
 // onEnter expands / collapses a group header or drills to a leaf
 // alert.
 func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
-	if p.Cursor >= len(rows) {
+	if p.Index() >= len(rows) {
 		return p, nil
 	}
-	r := rows[p.Cursor]
+	r := rows[p.Index()]
 	if r.alertIdx == -1 {
 		p.expanded[r.groupIdx] = !p.expanded[r.groupIdx]
 		p.cachedRows = nil
-		p.ReconcileScroll(len(p.rows()))
+		p.Clamp(len(p.rows()))
 		return p, nil
 	}
 	alert := p.flat[r.groupIdx].g.Alerts[r.alertIdx]
@@ -224,10 +217,10 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 // Enter, then `s` on the detail page; `s` from the groups view
 // always covers every alert in the group.
 func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
-	if p.Cursor >= len(rows) {
+	if p.Index() >= len(rows) {
 		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}
-	r := rows[p.Cursor]
+	r := rows[p.Index()]
 	if r.groupIdx >= len(p.flat) {
 		return p, flashFn(footer.FlashInfo, "no group under the cursor")
 	}

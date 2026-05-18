@@ -26,7 +26,6 @@ func (p *Page) totalSilences() int {
 // scope and substring filters, then sorting. Cursor is preserved
 // across rebuilds by silence ID when possible — see snapshotFocus.
 func (p *Page) recompute() {
-	defer p.ReconcileScroll(len(p.view))
 	total := 0
 	for tenant, sils := range p.byTenant {
 		if p.ScopeIncludes(tenant) {
@@ -51,12 +50,12 @@ func (p *Page) recompute() {
 	if p.focusID != "" {
 		for i, e := range p.view {
 			if e.s.ID == p.focusID {
-				p.Cursor = i
+				p.SetIndex(i, len(p.view))
 				return
 			}
 		}
 	}
-	p.ClampCursor(len(p.view))
+	p.Clamp(len(p.view))
 	p.snapshotFocus()
 }
 
@@ -120,8 +119,8 @@ func silenceLowerComposite(s backend.Silence) string {
 // row is focused; recompute clears p.focusID by passing through
 // here.
 func (p *Page) snapshotFocus() {
-	if p.Cursor < len(p.view) {
-		p.focusID = p.view[p.Cursor].s.ID
+	if p.Index() < len(p.view) {
+		p.focusID = p.view[p.Index()].s.ID
 		return
 	}
 	p.focusID = ""

@@ -24,7 +24,7 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.BodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
+	p.SetViewport(height-1-bandLines, len(p.view))
 	if len(p.view) == 0 {
 		// Render bg-less so the empty state matches the regular
 		// table view's framing — both use the terminal default
@@ -137,12 +137,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
-	p.ReconcileScroll(len(p.view))
-	end := min(p.TopRow+maxRows, len(p.view))
+	end := min(p.TopRow()+maxRows, len(p.view))
 	showMark := p.hasMarks()
 	var b strings.Builder
-	b.Grow((end - p.TopRow) * width * 2)
-	for i := p.TopRow; i < end; i++ {
+	b.Grow((end - p.TopRow()) * width * 2)
+	for i := p.TopRow(); i < end; i++ {
 		e := p.view[i]
 		row := make([]string, 0, 7)
 		if p.ShowTenantColumn(len(p.byTenant)) {
@@ -157,7 +156,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 			string(e.s.State),
 		)
 		prefix := "  "
-		if i == p.Cursor {
+		if i == p.Index() {
 			prefix = "▸ "
 		}
 		_, marked := p.marks[e.s.ID]
@@ -184,7 +183,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// state.
 		line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
 		switch {
-		case i == p.Cursor:
+		case i == p.Index():
 			// k9s parity: cursor bg tracks the silence-state
 			// colour (active/pending/expired) rather than the
 			// static cursorBgColor — see select_table.go:128 in

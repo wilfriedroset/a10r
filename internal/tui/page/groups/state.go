@@ -27,7 +27,6 @@ func (p *Page) totalGroups() int {
 // groups simply drop out. Sort is applied after the slice is
 // rebuilt so the active sort column + direction govern row order.
 func (p *Page) recompute() {
-	defer p.ReconcileScroll(len(p.rows()))
 	prev := make(map[string]bool, len(p.flat))
 	for i, e := range p.flat {
 		prev[groupKey(e)] = i < len(p.expanded) && p.expanded[i]
@@ -63,13 +62,12 @@ func (p *Page) recompute() {
 		rows := p.rows()
 		for i, r := range rows {
 			if rowKey(p.flat, r) == p.focusKey {
-				p.Cursor = i
+				p.SetIndex(i, len(rows))
 				return
 			}
 		}
 	}
-	p.ClampCursor(len(p.rows()))
-	p.ReconcileScroll(len(p.rows()))
+	p.Clamp(len(p.rows()))
 	p.snapshotFocus()
 }
 
@@ -96,11 +94,11 @@ func rowKey(flat []groupEntry, r row) string {
 // view leaves focus empty.
 func (p *Page) snapshotFocus() {
 	rows := p.rows()
-	if p.Cursor < 0 || p.Cursor >= len(rows) {
+	if p.Index() < 0 || p.Index() >= len(rows) {
 		p.focusKey = ""
 		return
 	}
-	p.focusKey = rowKey(p.flat, rows[p.Cursor])
+	p.focusKey = rowKey(p.flat, rows[p.Index()])
 }
 
 // groupSeverityRank returns the worst severity in g, encoded so

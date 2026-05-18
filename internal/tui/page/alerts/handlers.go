@@ -123,9 +123,8 @@ func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 		p.timeFormat = m.Format
 		return true, nil
 	case app.GoToFirstRowMsg:
-		p.Cursor = 0
+		p.SetIndex(0, len(p.view))
 		p.snapshotFocus()
-		p.ReconcileScroll(len(p.view))
 		return true, nil
 	case app.ClearMarksMsg:
 		return true, p.handleClearMarks()
@@ -149,19 +148,13 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 // handleMotion processes cursor-walk keys. Returns true when the
 // key was a motion so the caller stops the keymap walk.
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
-	newCursor, handled := cursor.HandleMotion(
-		m.String(),
-		p.Cursor,
-		len(p.view),
-		cursor.HalfPageStep(p.BodyHeight),
-		cursor.FullPageStep(p.BodyHeight),
-	)
+	changed, handled := p.MoveCursor(m.String(), len(p.view))
 	if !handled {
 		return false
 	}
-	p.Cursor = newCursor
-	p.snapshotFocus()
-	p.ReconcileScroll(len(p.view))
+	if changed {
+		p.snapshotFocus()
+	}
 	return true
 }
 
@@ -282,10 +275,10 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -342,10 +335,10 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // stable identifier) are silently skipped — there's no key to
 // associate the mark with.
 func (p *Page) toggleMarkAtCursor() {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return
 	}
-	fp := p.view[p.Cursor].a.Fingerprint
+	fp := p.view[p.Index()].a.Fingerprint
 	if fp == "" {
 		return
 	}
@@ -364,10 +357,10 @@ func (p *Page) toggleMarkAtCursor() {
 // hits the same backend the alerts list `s` would. Same map by
 // reference — pages share the wiring layer's authoritative copy.
 func (p *Page) drillToDetail() tea.Cmd {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no alert under the cursor")
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	styles := p.styles
 	now := p.now
 	clients := p.clients

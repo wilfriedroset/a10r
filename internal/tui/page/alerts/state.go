@@ -31,7 +31,6 @@ func (p *Page) totalAlerts() int {
 // data / scope / filter / sort change; cheap relative to the
 // poll cadence (O(N log N) on hundreds of alerts).
 func (p *Page) recompute() {
-	defer p.ReconcileScroll(len(p.view))
 	total := 0
 	knownFP := false
 	for tenant, alerts := range p.byTenant {
@@ -71,7 +70,7 @@ func (p *Page) recompute() {
 	if p.focusFingerprint != "" {
 		for i, e := range p.view {
 			if e.a.Fingerprint == p.focusFingerprint {
-				p.Cursor = i
+				p.SetIndex(i, len(p.view))
 				return
 			}
 		}
@@ -85,7 +84,7 @@ func (p *Page) recompute() {
 			p.focusFingerprint = ""
 		}
 	}
-	p.ClampCursor(len(p.view))
+	p.Clamp(len(p.view))
 	p.snapshotFocus()
 }
 
@@ -98,8 +97,8 @@ func (p *Page) recompute() {
 // cursor on row 0 instead of the user's prior position — silent
 // loss-of-place that violates the cursor-by-id contract.
 func (p *Page) snapshotFocus() {
-	if p.Cursor < len(p.view) {
-		p.focusFingerprint = p.view[p.Cursor].a.Fingerprint
+	if p.Index() < len(p.view) {
+		p.focusFingerprint = p.view[p.Index()].a.Fingerprint
 	}
 }
 

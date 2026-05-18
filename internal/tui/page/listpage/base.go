@@ -1,37 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package listpage holds the shared base for the list-style pages
-// (alerts, silences, groups, receivers). Base carries the nine
-// type-independent fields every list page needs and (in later
-// commits) exposes the helpers shared at 3+ callers. Pages embed
-// Base directly; Base does NOT implement tea.Model — each page
-// keeps its own Update/View/Init and calls into Base explicitly.
-// See ADR 0013.
+// (alerts, silences, groups, receivers). Base carries the
+// type-independent fields every list page needs and exposes the
+// helpers shared at 3+ callers. Pages embed Base directly; Base
+// does NOT implement tea.Model — each page keeps its own
+// Update/View/Init and calls into Base explicitly. See ADR 0013.
 //
-// Fields are exported so embedders in sibling packages can access
-// them via promotion. The fields are simple value state with no
-// invariants — getters/setters would be boilerplate.
+// Cursor / topRow / bodyHeight are bundled into the embedded
+// cursor.Window so pages access them through promoted methods
+// (Index, TopRow, MoveCursor, SetIndex, SetViewport, Clamp) and
+// the reconcile-on-change invariant is enforced by the type rather
+// than by convention. See ADR 0016.
 package listpage
 
-// Base is the embedded substruct that holds the nine universal
-// list-page fields. Recompute is the per-page recompute callback
-// wired by each page's constructor; Base methods that mutate state
-// requiring a view rebuild call it instead of touching the page
-// directly. Nil-safe in this commit (no Base method yet calls it);
-// later commits that introduce such methods must validate non-nil
-// at the page constructor.
+import "github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+
+// Base is the embedded substruct that holds the universal list-page
+// fields. Recompute is the per-page recompute callback wired by
+// each page's constructor.
 type Base struct {
-	Cursor int
-	// TopRow tracks the first visible row index. The renderer
-	// reconciles it with Cursor every frame so the cursor stays
-	// inside the visible window.
-	TopRow int
-	// BodyHeight is the table-row capacity snapshotted on the most
-	// recent View. Zero before the first WindowSizeMsg; handlers
-	// fall back to 10/20 so a keystroke that beats the initial
-	// WindowSizeMsg still moves a sane distance.
-	BodyHeight int
-	Filter     string
+	cursor.Window
+	Filter string
 	// PreFilter is the pre-prompt snapshot the page restores on
 	// PromptCancelledMsg{Mode: PromptFilter}. Nil iff no filter
 	// prompt is open — invariant relies on the App auto-forwarding

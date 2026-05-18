@@ -145,9 +145,8 @@ func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 		p.timeFormat = m.Format
 		return true, nil
 	case app.GoToFirstRowMsg:
-		p.Cursor = 0
+		p.SetIndex(0, len(p.view))
 		p.snapshotFocus()
-		p.ReconcileScroll(len(p.view))
 		return true, nil
 	case app.ClearMarksMsg:
 		return true, p.handleClearMarks()
@@ -166,19 +165,13 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 }
 
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {
-	newCursor, handled := cursor.HandleMotion(
-		m.String(),
-		p.Cursor,
-		len(p.view),
-		cursor.HalfPageStep(p.BodyHeight),
-		cursor.FullPageStep(p.BodyHeight),
-	)
+	changed, handled := p.MoveCursor(m.String(), len(p.view))
 	if !handled {
 		return false
 	}
-	p.Cursor = newCursor
-	p.snapshotFocus()
-	p.ReconcileScroll(len(p.view))
+	if changed {
+		p.snapshotFocus()
+	}
 	return true
 }
 
@@ -265,10 +258,10 @@ const hintReadOnly = "read-only mode — silences cannot be modified"
 // for the row under the cursor. Empty view falls through to a soft
 // Info flash so the user sees a reason for the no-op.
 func (p *Page) drillToDetail() tea.Cmd {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	styles := p.styles
 	return app.PushPage(func() app.Page {
 		return silencepage.New(silencepage.Options{
@@ -318,10 +311,10 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // an empty view; silences without an ID are silently skipped
 // (defensive — every backend.Silence the v2 API returns has one).
 func (p *Page) toggleMarkAtCursor() {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return
 	}
-	id := p.view[p.Cursor].s.ID
+	id := p.view[p.Index()].s.ID
 	if id == "" {
 		return
 	}
@@ -342,13 +335,13 @@ func (p *Page) toggleMarkAtCursor() {
 // is handed through unchanged — the form's tenantDisabled logic
 // freezes the selection on entry.tenant.
 func (p *Page) openEditSilenceForm() tea.Cmd {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -396,13 +389,13 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 // with no "2h" footgun, and leave EditID empty so submit fires
 // CreateSilence rather than UpdateSilence.
 func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return silenceform.Options{}, flashFn(footer.FlashInfo, "no silence under the cursor"), false
 	}
 	if len(p.clients) == 0 {
 		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	if entry.s.State != backend.SilenceStateExpired {
 		return silenceform.Options{}, flashFn(footer.FlashInfo,
 			"only expired silences can be recreated — use `e` to edit a live silence"), false
@@ -466,13 +459,13 @@ type editorUpdateResultMsg struct {
 // handler can route UpdateSilence at the right backend after the
 // editor returns.
 func (p *Page) openEditorForCursor() tea.Cmd {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.editor.EditorEnv) == 0 && p.editor.DefaultEditor == "" {
 		return flashFn(footer.FlashWarn, "editor handoff requires $EDITOR or $A10R_EDITOR")
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
@@ -689,8 +682,8 @@ func (p *Page) pickWriteTarget() (string, Client, bool) {
 	if len(p.clients) == 0 {
 		return "", nil, false
 	}
-	if p.Cursor < len(p.view) {
-		t := p.view[p.Cursor].tenant
+	if p.Index() < len(p.view) {
+		t := p.view[p.Index()].tenant
 		if c, ok := p.clients[t]; ok {
 			return t, c, true
 		}

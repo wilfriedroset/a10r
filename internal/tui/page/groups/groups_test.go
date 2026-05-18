@@ -84,15 +84,15 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
 	// platform (row 1).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.Cursor)
-	require.Equal(t, "platform", p.flat[p.Cursor].g.Labels["team"])
+	require.Equal(t, 1, p.Index())
+	require.Equal(t, "platform", p.flat[p.Index()].g.Labels["team"])
 
 	// Shift+C → Count DESC. platform (2 alerts) moves to row 0,
 	// data to row 1. Cursor must STAY at row 1 (now data), not
 	// follow platform.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
-	require.Equal(t, 1, p.Cursor, "cursor stays at row index on user re-sort")
-	require.Equal(t, "data", p.flat[p.Cursor].g.Labels["team"],
+	require.Equal(t, 1, p.Index(), "cursor stays at row index on user re-sort")
+	require.Equal(t, "data", p.flat[p.Index()].g.Labels["team"],
 		"the group landing at the held index becomes the new focus")
 }
 
@@ -315,7 +315,7 @@ func TestPage_VimMotions(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.Cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Index(), "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
@@ -377,7 +377,7 @@ func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 	// default sort lands platform at row 0 vs row 1. The assertion
 	// below requires platform to render through the per-cell style,
 	// not the cursor-row wrap.
-	for p.flat[p.Cursor].g.Labels["team"] == "platform" {
+	for p.flat[p.Index()].g.Labels["team"] == "platform" {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
 

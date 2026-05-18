@@ -61,13 +61,13 @@ func (p *Page) openExpireConfirmUnified() tea.Cmd {
 // captured at modal-open time so a poll-tick reordering between
 // open and Yes still routes ExpireSilence at the right backend.
 func (p *Page) openExpireConfirm() tea.Cmd {
-	if p.Cursor >= len(p.view) {
+	if p.Index() >= len(p.view) {
 		return flashFn(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	entry := p.view[p.Cursor]
+	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
 	}

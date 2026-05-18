@@ -244,7 +244,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleScopeChangedMsg(m)
 		return p, nil
 	case app.GoToFirstRowMsg:
-		p.Cursor = 0
+		p.SetIndex(0, len(p.view))
 		p.snapshotFocus()
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
@@ -287,12 +287,12 @@ func (p *Page) recompute() {
 	if p.focusName != "" {
 		for i, name := range p.view {
 			if name == p.focusName {
-				p.Cursor = i
+				p.SetIndex(i, len(p.view))
 				return
 			}
 		}
 	}
-	p.ClampCursor(len(p.view))
+	p.Clamp(len(p.view))
 	p.snapshotFocus()
 }
 
@@ -300,11 +300,11 @@ func (p *Page) recompute() {
 // cursor so the next recompute can re-resolve it. Empty view
 // leaves focus empty.
 func (p *Page) snapshotFocus() {
-	if p.Cursor < 0 || p.Cursor >= len(p.view) {
+	if p.Index() < 0 || p.Index() >= len(p.view) {
 		p.focusName = ""
 		return
 	}
-	p.focusName = p.view[p.Cursor]
+	p.focusName = p.view[p.Index()]
 }
 
 // handleSort processes sort-axis shortcuts. The tablesort helper's
@@ -337,19 +337,14 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
-	if newCursor, handled := cursor.HandleMotion(
-		m.String(),
-		p.Cursor,
-		len(p.view),
-		cursor.HalfPageStep(p.BodyHeight),
-		cursor.FullPageStep(p.BodyHeight),
-	); handled {
-		p.Cursor = newCursor
-		p.snapshotFocus()
+	if changed, handled := p.MoveCursor(m.String(), len(p.view)); handled {
+		if changed {
+			p.snapshotFocus()
+		}
 		return p, nil
 	}
-	if m.String() == "enter" && p.Cursor < len(p.view) {
-		rec := p.view[p.Cursor]
+	if m.String() == "enter" && p.Index() < len(p.view) {
+		rec := p.view[p.Index()]
 		return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 	}
 	if m.String() == "w" {
@@ -377,7 +372,7 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.BodyHeight = height - 1 - bandLines // header + optional error band; rest is row budget
+	p.SetViewport(height-1-bandLines, len(p.view))
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
 		if len(p.unionScoped()) > 0 && p.Filter != "" {
@@ -395,24 +390,23 @@ func (p *Page) View(width, height int) string {
 		}
 		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
 	}
-	p.ReconcileScroll(len(p.view))
 	maxRows := min(height-1-bandLines, len(p.view))
-	end := min(p.TopRow+maxRows, len(p.view))
-	rows := make([]string, 0, end-p.TopRow+2)
+	end := min(p.TopRow()+maxRows, len(p.view))
+	rows := make([]string, 0, end-p.TopRow()+2)
 	if band != "" {
 		rows = append(rows, band)
 	}
 	rows = append(rows, p.renderHeader(width))
-	for i := p.TopRow; i < end; i++ {
+	for i := p.TopRow(); i < end; i++ {
 		text := p.view[i]
 		prefix := "  "
-		if i == p.Cursor {
+		if i == p.Index() {
 			prefix = "▸ "
 		}
 		// Pad to width before applying the cursor style so the
 		// background extends across the whole row k9s-style.
 		row := format.PadRight(prefix+text, width)
-		if i == p.Cursor {
+		if i == p.Index() {
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour. Receiver rows have no severity / state, so
 			// we use Severity.Info (k9s StdColor equivalent).

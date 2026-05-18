@@ -47,7 +47,7 @@ func TestPage_VimMotions(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "a"}, {Name: "b"}, {Name: "c"}}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.Cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Index(), "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestPage_RenderShowsRows(t *testing.T) {
@@ -83,10 +83,10 @@ func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	// the order is web, ops, default — the cursor must follow ops
 	// to row 1, not stay on whatever row 1 contained before.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "ops", p.view[p.Cursor])
+	require.Equal(t, "ops", p.view[p.Index()])
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
 	require.Equal(t, []string{"web", "ops", "default"}, p.view)
-	require.Equal(t, "ops", p.view[p.Cursor],
+	require.Equal(t, "ops", p.view[p.Index()],
 		"DESC must keep the cursor on the same receiver, not the same index")
 }
 
