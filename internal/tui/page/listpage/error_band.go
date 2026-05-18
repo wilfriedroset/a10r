@@ -54,7 +54,7 @@ func (b *Base) ErrorBand(now time.Time) string {
 	// iteration order is unspecified).
 	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
 	head := bad[0]
-	suffix := " — " + nextAttemptLabel(now, head.nextAt)
+	suffix := " — " + timerender.NextAttempt(now, head.nextAt)
 	if len(bad) == 1 {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
@@ -84,19 +84,4 @@ func (b *Base) RenderErrorBand(now time.Time, width int, fg color.Color) string 
 		full = format.SGRTruncate(full, width)
 	}
 	return lipgloss.NewStyle().Foreground(fg).Render(full)
-}
-
-// nextAttemptLabel renders the "Next attempt" relative-time suffix
-// per CONTEXT.md, reusing the s/m/h/d ladder from
-// timerender.Duration so the vocabulary stays in lockstep with
-// every other compact relative-time site. Past-due (negative
-// delta, zero NextAt, or sub-second future) returns the literal
-// `retrying now` (active voice); a future NextAt prefixes the
-// formatted duration with `retrying in `.
-func nextAttemptLabel(now, nextAt time.Time) string {
-	d := nextAt.Sub(now)
-	if d < time.Second {
-		return "retrying now"
-	}
-	return "retrying in " + timerender.Duration(d)
 }
