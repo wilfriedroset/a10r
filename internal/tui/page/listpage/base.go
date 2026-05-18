@@ -14,7 +14,12 @@
 // than by convention. See ADR 0016.
 package listpage
 
-import "github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+import (
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
+
+	tea "charm.land/bubbletea/v2"
+)
 
 // Base is the embedded substruct that holds the universal list-page
 // fields. Recompute is the per-page recompute callback wired by
@@ -43,4 +48,24 @@ type Base struct {
 	// counts toward "is this a multi-tenant fleet?".
 	Tenants   []string
 	Recompute func()
+	// RowCount returns the number of rows the page currently
+	// presents. Wired by each page constructor; used by
+	// HandleSidebandMsg to clamp the cursor on GoToFirstRowMsg.
+	// Panics on nil when GoToFirstRowMsg arrives — see ADR-0018.
+	RowCount func() int
+	// SnapshotFocus captures the focus identity of the current
+	// row so the next recompute can re-resolve it. Wired by each
+	// page constructor; panics on nil when GoToFirstRowMsg
+	// arrives — see ADR-0018.
+	SnapshotFocus func()
+	// SetTimeFormat applies the new format on a TimeFormatChangedMsg.
+	// Nil on pages that do not render time (groups, receivers);
+	// HandleSidebandMsg returns handled=false in that case so the
+	// page's main switch sees the message unchanged — see ADR-0018.
+	SetTimeFormat func(timerender.Format)
+	// ClearMarks runs the page's mark-clearing routine on a
+	// ClearMarksMsg and returns any follow-up flash command. Nil
+	// on pages without marks (groups, receivers); HandleSidebandMsg
+	// returns handled=false in that case — see ADR-0018.
+	ClearMarks func() tea.Cmd
 }
