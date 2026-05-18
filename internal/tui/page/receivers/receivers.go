@@ -120,6 +120,8 @@ func New(opts Options) *Page {
 		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
 	}
 	p.Recompute = p.recompute
+	p.RowCount = func() int { return len(p.view) }
+	p.SnapshotFocus = p.snapshotFocus
 	return p
 }
 
@@ -209,6 +211,9 @@ func (p *Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
+		return p, cmd
+	}
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
 		p.HandleBackendStatusMsg(m)
@@ -239,13 +244,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		sort.Strings(names)
 		p.byTenant[m.Tenant] = names
 		p.recompute()
-		return p, nil
-	case app.ScopeChangedMsg:
-		p.HandleScopeChangedMsg(m)
-		return p, nil
-	case app.GoToFirstRowMsg:
-		p.SetIndex(0, len(p.view))
-		p.snapshotFocus()
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
 		footer.PromptSubmittedMsg, footer.PromptCancelledMsg:
