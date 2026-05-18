@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 
 	"charm.land/bubbles/v2/spinner"
@@ -30,41 +31,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
-		alerts, ok := m.Resource.([]backend.Alert)
-		if !ok {
-			return p, nil
-		}
-		// Same guard as BackendStatusMsg: refuse data from tenants
-		// not in the configured list so byTenant/polledTenants don't
-		// hold entries for names that will never be polled or rendered.
-		if !p.KnownTenant(m.Tenant) {
-			return p, nil
-		}
-		// Watch-mode: paused pages drop the snapshot so the table
-		// does not move under the cursor mid-read. A pending
-		// pausedRefresh from a manual `r` press lets a single tick
-		// through and clears itself, so the operator can pull
-		// fresh data on demand without leaving paused state.
-		if p.Paused && !p.PausedRefresh {
-			return p, nil
-		}
-		p.PausedRefresh = false
-		p.byTenant[m.Tenant] = alerts
-		// Capture poll metadata so Footer / Title can render without
-		// a parallel ticker. Zero-valued NextAt (legacy / test
-		// DataMsgs) leaves the prior entry intact.
-		if !m.NextAt.IsZero() {
-			p.NextRefresh[m.Tenant] = m.NextAt
-		}
-		p.PolledTenants[m.Tenant] = struct{}{}
-		// Only clear refreshing once an in-scope tenant has answered;
-		// an out-of-scope reply during a manual `r` window would
-		// otherwise drop the spinner before the user has actually
-		// seen fresh data for the scope they're looking at.
-		if p.ScopeIncludes(m.Tenant) {
-			p.Refreshing = false
-		}
-		p.recompute()
+		listpage.ApplyDataMsg(&p.Base, &p.PollingUI, m, func(tenant string, alerts []backend.Alert) {
+			p.byTenant[tenant] = alerts
+		})
 		return p, nil
 	case spinner.TickMsg:
 		// Drop ticks outside the cold-start / refresh-in-flight
