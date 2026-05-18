@@ -12,6 +12,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 
 	"charm.land/bubbles/v2/spinner"
@@ -27,31 +28,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
-		groups, ok := m.Resource.([]backend.AlertGroup)
-		if !ok {
-			return p, nil
-		}
-		if !p.KnownTenant(m.Tenant) {
-			return p, nil
-		}
-		// Watch-mode: paused pages drop the snapshot so the table
-		// does not move under the cursor mid-read. A pending
-		// pausedRefresh from a manual `r` press lets a single tick
-		// through and clears itself, so the operator can pull
-		// fresh data on demand without leaving paused state.
-		if p.Paused && !p.PausedRefresh {
-			return p, nil
-		}
-		p.PausedRefresh = false
-		p.byTenant[m.Tenant] = groups
-		if !m.NextAt.IsZero() {
-			p.NextRefresh[m.Tenant] = m.NextAt
-		}
-		p.PolledTenants[m.Tenant] = struct{}{}
-		if p.ScopeIncludes(m.Tenant) {
-			p.Refreshing = false
-		}
-		p.recompute()
+		listpage.ApplyDataMsg(&p.Base, &p.PollingUI, m, func(tenant string, groups []backend.AlertGroup) {
+			p.byTenant[tenant] = groups
+		})
 		return p, nil
 	case spinner.TickMsg:
 		if !p.spinnerActive() {
