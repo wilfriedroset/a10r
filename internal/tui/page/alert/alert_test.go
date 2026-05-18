@@ -885,27 +885,38 @@ func TestClipComment_NeverExceedsBudget(t *testing.T) {
 	}
 }
 
-func TestFormatRemaining(t *testing.T) {
+// TestPage_ExpiryField_PastCaseLabel pins the alert-domain "expired"
+// label expiryField now absorbs in place of the old formatRemaining
+// past-case string. timerender.Remaining stays strictly forward-
+// looking per CONTEXT.md, so the past-case label must live next to
+// the only caller that wants it.
+func TestPage_ExpiryField_PastCaseLabel(t *testing.T) {
 	t.Parallel()
+
 	now := fixedNow
+	newPageAt := func() *Page {
+		return New(Options{
+			Alert:  sample(),
+			Styles: testutil.LoadStyles(t),
+			Now:    func() time.Time { return now },
+		})
+	}
+
 	cases := []struct {
 		name string
-		when time.Duration
+		ts   time.Time
 		want string
 	}{
-		{"past collapses to expired", -time.Hour, "expired"},
-		{"zero is expired", 0, "expired"},
-		{"sub-minute renders seconds", 30 * time.Second, "30s"},
-		{"sub-hour renders minutes", 45 * time.Minute, "45m"},
-		{"hours and minutes", 2*time.Hour + 13*time.Minute, "2h13m"},
-		{"whole hours drop the m suffix", 3 * time.Hour, "3h"},
-		{"days swallow hours and minutes", 49 * time.Hour, "2d"},
+		{name: "past renders expired", ts: now.Add(-time.Hour), want: "expired"},
+		{name: "zero ts renders expired", ts: time.Time{}, want: "expired"},
+		{name: "now renders expired", ts: now, want: "expired"},
+		{name: "future renders expires-in", ts: now.Add(2*time.Hour + 13*time.Minute), want: "expires in 2h13m"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := formatRemaining(now, now.Add(tc.when))
-			require.Equal(t, tc.want, got)
+			p := newPageAt()
+			require.Equal(t, tc.want, p.expiryField(tc.ts))
 		})
 	}
 }

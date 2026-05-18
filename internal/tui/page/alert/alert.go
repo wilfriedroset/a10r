@@ -663,46 +663,17 @@ func (p *Page) silencePickerLine(id string) string {
 // flips with the app-global TimeFormat — "expires in" reads as a
 // duration, "ends" reads as a wall-clock — so the row stays
 // semantically honest in either mode and matches the summary-block
-// pattern at renderSummary's age/started flip.
+// pattern at renderSummary's age/started flip. Past-case `expired`
+// is an alert-domain UX label absorbed here so timerender.Remaining
+// stays strictly forward-looking per CONTEXT.md.
 func (p *Page) expiryField(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
 		return "ends " + timerender.Display(timerender.Absolute, p.now(), ts)
 	}
-	return "expires in " + formatRemaining(p.now(), ts)
-}
-
-// formatRemaining renders the duration from now until future as a
-// short forward-looking string ("2h13m", "4d", "expired"). Distinct
-// from header.FormatRelative: this helper produces mixed-unit prose
-// ("2h13m") for the alert-detail "expires in …" line, while
-// FormatRelative emits the compact single-unit column form
-// ("in 2h") used by the alerts / silences tables. Two shapes, two
-// callers, no overlap.
-//
-// Granularity matches what an operator wants to see at a glance:
-// days when ≥1d, hours+minutes when ≥1h, minutes when ≥1m, seconds
-// otherwise. No mixed h/m/s rendering — the third unit rarely
-// changes the operator's decision and adds visual noise.
-func formatRemaining(now, future time.Time) string {
-	d := future.Sub(now)
-	if d <= 0 {
+	if ts.Sub(p.now()) <= 0 {
 		return "expired"
 	}
-	if d >= 24*time.Hour {
-		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
-	}
-	if d >= time.Hour {
-		hours := int(d / time.Hour)
-		mins := int((d - time.Duration(hours)*time.Hour) / time.Minute)
-		if mins == 0 {
-			return fmt.Sprintf("%dh", hours)
-		}
-		return fmt.Sprintf("%dh%dm", hours, mins)
-	}
-	if d >= time.Minute {
-		return fmt.Sprintf("%dm", int(d/time.Minute))
-	}
-	return fmt.Sprintf("%ds", int(d/time.Second))
+	return "expires in " + timerender.Remaining(p.now(), ts)
 }
 
 // clipComment truncates s so it fits within budget columns (never
