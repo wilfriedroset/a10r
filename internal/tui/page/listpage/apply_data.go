@@ -6,35 +6,29 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
-// ApplyDataMsg runs the success-path ritual every polled list page
-// duplicates today: validate the tenant, gate on pause + watch-
-// mode escape hatch, write the typed payload through the page-
-// provided store closure, capture poll metadata (NextRefresh +
-// PolledTenants), drop the spinner once an in-scope tenant has
-// answered, and trigger the page's Recompute. Returns true when
-// the message was claimed (handled or silently dropped).
-//
-// Generic over the resource type R because each page stores a
-// different concrete slice (`[]backend.Alert`, `[]backend.Silence`,
-// `[]backend.AlertGroup`). A free function rather than a method on
-// Base because Go does not allow generic methods. See ADR-0018.
+// ApplyDataMsg implements the success-path ritual every polled list
+// page duplicates today. Generic over the resource type R because
+// each page stores a different concrete slice; a free function
+// rather than a method on Base because Go does not allow generic
+// methods. Wrong payload type / unknown tenant / paused-without-
+// PausedRefresh leave state unchanged — matching the prior inline
+// `if !ok { return p, nil }` behaviour byte-for-byte. See ADR-0018.
 //
 // Panics with a clear message when Base.Recompute is nil — a page
-// that ingests data without re-rendering is a wiring bug, not a
-// silent-no-op condition.
-func ApplyDataMsg[R any](b *Base, u *PollingUI, msg poll.DataMsg, store func(tenant string, payload R)) bool {
+// that ingests data without re-rendering is a wiring bug.
+func ApplyDataMsg[R any](b *Base, u *PollingUI, msg poll.DataMsg, store func(tenant string, payload R)) {
 	if b.Recompute == nil {
 		panic("listpage.ApplyDataMsg: Base.Recompute callback not wired by page constructor")
 	}
 	r, ok := msg.Resource.(R)
 	if !ok {
-		return false
+		return
 	}
 	if !b.KnownTenant(msg.Tenant) {
-		return true
+		return
 	}
 	if b.Paused && !u.PausedRefresh {
-		return true
+		return
 	}
 	u.PausedRefresh = false
 	store(msg.Tenant, r)
@@ -46,5 +40,4 @@ func ApplyDataMsg[R any](b *Base, u *PollingUI, msg poll.DataMsg, store func(ten
 		u.Refreshing = false
 	}
 	b.Recompute()
-	return true
 }

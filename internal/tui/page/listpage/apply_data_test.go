@@ -52,13 +52,12 @@ func TestApplyDataMsg_ZeroNextAtPreservesPriorEntry(t *testing.T) {
 		NextRefresh:   map[string]time.Time{"prod": prior},
 	}
 
-	handled := listpage.ApplyDataMsg(b, u, poll.DataMsg{
+	listpage.ApplyDataMsg(b, u, poll.DataMsg{
 		Resource: payload{},
 		Tenant:   "prod",
 		// NextAt deliberately zero — covers legacy/test DataMsgs.
 	}, func(string, payload) {})
 
-	require.True(t, handled)
 	require.Equal(t, prior, u.NextRefresh["prod"], "zero NextAt must not clobber a prior entry")
 }
 
@@ -89,12 +88,11 @@ func TestApplyDataMsg_RefreshingClearedOnlyForInScopeReply(t *testing.T) {
 				Refreshing:    true,
 			}
 
-			handled := listpage.ApplyDataMsg(b, u, poll.DataMsg{
+			listpage.ApplyDataMsg(b, u, poll.DataMsg{
 				Resource: payload{},
 				Tenant:   tc.tenant,
 			}, func(string, payload) {})
 
-			require.True(t, handled)
 			require.Equal(t, tc.wantRefreshing, u.Refreshing)
 		})
 	}
@@ -114,12 +112,11 @@ func TestApplyDataMsg_PausedDropsSnapshot(t *testing.T) {
 		NextRefresh:   map[string]time.Time{},
 	}
 
-	handled := listpage.ApplyDataMsg(b, u, poll.DataMsg{
+	listpage.ApplyDataMsg(b, u, poll.DataMsg{
 		Resource: payload{N: 1},
 		Tenant:   "prod",
 	}, func(string, payload) { stores++ })
 
-	require.True(t, handled, "paused page claims and drops the DataMsg")
 	require.Zero(t, stores, "paused page must not write byTenant under the cursor")
 }
 
@@ -138,12 +135,11 @@ func TestApplyDataMsg_PausedRefreshLetsOneSnapshotThrough(t *testing.T) {
 		PausedRefresh: true,
 	}
 
-	handled := listpage.ApplyDataMsg(b, u, poll.DataMsg{
+	listpage.ApplyDataMsg(b, u, poll.DataMsg{
 		Resource: payload{N: 7},
 		Tenant:   "prod",
 	}, func(string, payload) { stores++ })
 
-	require.True(t, handled)
 	require.Equal(t, 1, stores, "PausedRefresh must let one DataMsg through")
 	require.False(t, u.PausedRefresh, "PausedRefresh must self-clear after the next DataMsg")
 }
@@ -167,15 +163,14 @@ func TestApplyDataMsg_UnknownTenantClaimedAndIgnored(t *testing.T) {
 		Tenant:   "intruder",
 	}
 
-	handled := listpage.ApplyDataMsg(b, u, msg, func(string, payload) { stores++ })
+	listpage.ApplyDataMsg(b, u, msg, func(string, payload) { stores++ })
 
-	require.True(t, handled, "unknown-tenant DataMsg is claimed so the page short-circuits")
 	require.Zero(t, stores, "store must not be called for an unknown tenant")
 	require.Zero(t, recomputes, "Recompute must not fire for an unknown tenant")
 	require.NotContains(t, u.PolledTenants, "intruder", "PolledTenants must reject the unknown tenant")
 }
 
-func TestApplyDataMsg_WrongPayloadFallsThrough(t *testing.T) {
+func TestApplyDataMsg_WrongPayloadDropped(t *testing.T) {
 	t.Parallel()
 
 	recomputes := 0
@@ -189,16 +184,14 @@ func TestApplyDataMsg_WrongPayloadFallsThrough(t *testing.T) {
 		NextRefresh:   map[string]time.Time{},
 	}
 
-	msg := poll.DataMsg{
+	listpage.ApplyDataMsg(b, u, poll.DataMsg{
 		Resource: "not the expected payload type",
 		Tenant:   "prod",
-	}
+	}, func(string, payload) { stores++ })
 
-	handled := listpage.ApplyDataMsg(b, u, msg, func(string, payload) { stores++ })
-
-	require.False(t, handled, "wrong payload type must fall through so the page's main switch can see it")
 	require.Zero(t, stores, "store must not be called for a wrong payload type")
 	require.Zero(t, recomputes, "Recompute must not fire for a wrong payload type")
+	require.NotContains(t, u.PolledTenants, "prod", "PolledTenants must not record a tenant that delivered the wrong payload type")
 }
 
 func TestApplyDataMsg_HappyPath(t *testing.T) {
@@ -224,11 +217,10 @@ func TestApplyDataMsg_HappyPath(t *testing.T) {
 		NextAt:   nextAt,
 	}
 
-	handled := listpage.ApplyDataMsg(b, u, msg, func(tenant string, p payload) {
+	listpage.ApplyDataMsg(b, u, msg, func(tenant string, p payload) {
 		stored[tenant] = p
 	})
 
-	require.True(t, handled, "happy-path DataMsg must be claimed by the helper")
 	require.Equal(t, payload{N: 42}, stored["prod"], "store callback must receive the typed payload")
 	require.Equal(t, 1, recomputes, "Recompute must fire exactly once")
 	require.Equal(t, nextAt, u.NextRefresh["prod"], "NextRefresh must capture msg.NextAt")

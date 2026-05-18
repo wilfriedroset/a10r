@@ -19,13 +19,19 @@ split. This ADR introduces two new entry points to keep the
 wire→domain seam in one place: `Base.HandleSidebandMsg(msg)
 (handled bool, cmd tea.Cmd)` for the four app-level cross-cutting
 messages, and `listpage.ApplyDataMsg[R any](b *Base, u *PollingUI,
-msg poll.DataMsg, store func(tenant string, payload R)) bool` for
-the success-path ritual. Pages' `Update` shrinks to a top-level
-`if handled, cmd := p.HandleSidebandMsg(msg); handled { return p,
-cmd }`, a `case poll.DataMsg:` that calls `ApplyDataMsg` with a
-type-asserted store closure, and the page-specific cases
-(`spinner.TickMsg`, write-action results, key dispatch) that
-genuinely differ per page.
+msg poll.DataMsg, store func(tenant string, payload R))` for the
+success-path ritual. Sideband returns `handled` because the page's
+`Update` short-circuits on a claimed message; `ApplyDataMsg` is
+already inside the `case poll.DataMsg:` branch with no other
+routing available, so a return shape would be unobservable —
+wrong-payload / unknown-tenant / paused-without-PausedRefresh
+leave state unchanged byte-for-byte with the prior inline code.
+Pages' `Update` shrinks to a top-level `if handled, cmd :=
+p.HandleSidebandMsg(msg); handled { return p, cmd }`, a `case
+poll.DataMsg:` that calls `ApplyDataMsg` with a type-asserted
+store closure, and the page-specific cases (`spinner.TickMsg`,
+write-action results, key dispatch) that genuinely differ per
+page.
 
 The sideband router uses nilable callback fields on `Base` —
 `RowCount func() int`, `SnapshotFocus func()`, `SetTimeFormat
