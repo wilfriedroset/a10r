@@ -147,17 +147,11 @@ type Page struct {
 	// canonicalRows, not the visible sort).
 	sorter *tablesort.Sorter[Row]
 
-	rows   []Row
-	cursor int
-	topRow int // first visible row; reconciled in View
-
-	// bodyHeight is the row capacity (excluding the column-header
-	// line) snapshotted on the most recent View. Ctrl+D / Ctrl+U
-	// step half this; Ctrl+F / Ctrl+B step body-2 (vim's CTRL-F
-	// two-line overlap convention). Zero before the first render —
-	// handlers fall back to 10 / 20 so a keystroke that beats the
-	// initial WindowSizeMsg still moves a sane distance.
-	bodyHeight int
+	rows []Row
+	// window owns the cursor, topRow, and bodyHeight invariants per
+	// ADR-0016. Held as a value field rather than embedded because
+	// this page does not embed listpage.Base (ADR-0013).
+	window cursor.Window
 
 	// scope tracks the active tenant scope as observed from
 	// app.ScopeChangedMsg — "all" includes every row; a single
@@ -185,9 +179,7 @@ func New(opts Options) *Page {
 // no single DataMsg shape that fits.
 func (p *Page) SetRows(rows []Row) {
 	p.rows = rows
-	if p.cursor >= len(rows) {
-		p.cursor = max(len(rows)-1, 0)
-	}
+	p.window.Clamp(len(rows))
 }
 
 // Init implements app.Page.
@@ -234,7 +226,7 @@ func (p *Page) Bindings() []action.Action {
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case app.GoToFirstRowMsg:
-		p.cursor = 0
+		p.window.SetIndex(0, len(p.rows))
 		return p, nil
 	case app.ScopeChangedMsg:
 		// The App's LayerGlobal numeric quick-switch (`<0>` all,
@@ -257,14 +249,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	// LayerTable consumes the first `g` waiting for the second. The
 	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
 	// handled in Update.
-	if newCursor, handled := cursor.HandleMotion(
-		keyMsg.String(),
-		p.cursor,
-		len(p.rows),
-		cursor.HalfPageStep(p.bodyHeight),
-		cursor.FullPageStep(p.bodyHeight),
-	); handled {
-		p.cursor = newCursor
+	if _, handled := p.window.MoveCursor(keyMsg.String(), len(p.rows)); handled {
 		return p, nil
 	}
 	if keyMsg.String() == "enter" {
@@ -306,10 +291,10 @@ func (p *Page) drillToConfig() tea.Cmd {
 		return nil
 	}
 	rows := p.rowsSorted()
-	if p.cursor >= len(rows) {
+	if p.window.Index() >= len(rows) {
 		return nil
 	}
-	name := rows[p.cursor].Name
+	name := rows[p.window.Index()].Name
 	page, err := p.drill(name)
 	if err != nil {
 		return flashFn(footer.FlashWarn, err.Error())
@@ -342,15 +327,14 @@ func (p *Page) View(width, height int) string {
 	}
 	headerLine := p.renderHeader(width)
 	bodyHeight := max(height-1, 0)
-	p.bodyHeight = bodyHeight
+	p.window.SetViewport(bodyHeight, len(p.rows))
 	maxRows := min(bodyHeight, len(p.rows))
-	p.topRow = cursor.ReconcileScroll(p.cursor, p.topRow, maxRows, len(p.rows))
-	end := min(p.topRow+maxRows, len(p.rows))
-	out := make([]string, 0, end-p.topRow+1)
+	end := min(p.window.TopRow()+maxRows, len(p.rows))
+	out := make([]string, 0, end-p.window.TopRow()+1)
 	out = append(out, headerLine)
 	rows := p.rowsSorted()
 	canonical := canonicalDigits(p.canonicalRows())
-	for i := p.topRow; i < end; i++ {
+	for i := p.window.TopRow(); i < end; i++ {
 		row := rows[i]
 		// Scope glyph indicates whether the row is part of the
 		// active global scope (the numeric quick-switch state).
@@ -376,13 +360,13 @@ func (p *Page) View(width, height int) string {
 			version,
 		}
 		prefix := "  "
-		if i == p.cursor {
+		if i == p.window.Index() {
 			prefix = "▸ "
 		}
 		body := digitGlyph + scopeGlyph + " " + p.padTenantColumns(columns, width)
 		line := format.PadRight(prefix+body, width)
 		switch {
-		case i == p.cursor:
+		case i == p.window.Index():
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour. Tenant rows have no severity / state, so we
 			// use Severity.Info (which maps to k9s's StdColor =

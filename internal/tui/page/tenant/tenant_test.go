@@ -29,9 +29,9 @@ func TestPage_SetRowsClampsCursor(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
-	p.cursor = 99
+	p.window.SetIndex(99, len(sampleRows()))
 	p.SetRows(sampleRows())
-	require.Less(t, p.cursor, len(sampleRows()))
+	require.Less(t, p.window.Index(), len(sampleRows()))
 }
 
 func TestPage_EnterCallsDrillFactoryWithCursorRowName(t *testing.T) {
@@ -211,7 +211,7 @@ func TestPage_VimMotions(t *testing.T) {
 	p.SetRows(sampleRows())
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.window.Index(), "Update must route `j` into cursor.HandleMotion")
 }
 
 func TestSemverLess(t *testing.T) {
@@ -349,13 +349,13 @@ func TestPage_UserReSortKeepsCursorAtRowIndex(t *testing.T) {
 		{Name: "charlie", Version: "1.0.0"},
 	})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.cursor)
-	require.Equal(t, "bravo", p.rowsSorted()[p.cursor].Name)
+	require.Equal(t, 1, p.window.Index())
+	require.Equal(t, "bravo", p.rowsSorted()[p.window.Index()].Name)
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
-	require.Equal(t, 1, p.cursor, "cursor stays at row index on user re-sort")
+	require.Equal(t, 1, p.window.Index(), "cursor stays at row index on user re-sort")
 	// V ASC: bravo, alpha, charlie. cursor 1 is now alpha.
-	require.Equal(t, "alpha", p.rowsSorted()[p.cursor].Name)
+	require.Equal(t, "alpha", p.rowsSorted()[p.window.Index()].Name)
 }
 
 func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
