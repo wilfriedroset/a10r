@@ -26,6 +26,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // fixedNow returns a deterministic clock for the age column tests.
@@ -1008,7 +1009,7 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	// post-batch UX call (max real-estate), the time mode is NOT
 	// surfaced in HeaderContent; the toggle's flash is the
 	// affordance signal and the cell content speaks for itself.
-	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: timerender.Absolute})
 	out = testutil.StripStyle(p.View(140, 20))
 	require.NotContains(t, out, "1m ago")
 	require.Contains(t, out, "2026-",

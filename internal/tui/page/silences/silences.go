@@ -29,12 +29,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
-	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // Sort column keys. Stable identifiers passed to the tablesort
@@ -156,7 +156,7 @@ type Page struct {
 	// timeFormat mirrors the app-global toggle (relative vs.
 	// absolute timestamps). Flipped by app.TimeFormatChangedMsg
 	// so every list page agrees.
-	timeFormat app.TimeFormat
+	timeFormat timerender.Format
 
 	// pendingEdit captures which silence the user is editing in
 	// $EDITOR so the FinishedMsg handler can call UpdateSilence
@@ -232,7 +232,7 @@ type Options struct {
 	// TimeFormat seeds the page's time-format mode at construction
 	// so a page pushed *after* the user toggled `t` doesn't open
 	// in relative while the rest of the app reads absolute.
-	TimeFormat app.TimeFormat
+	TimeFormat timerender.Format
 	// BulkConcurrency caps the per-tenant worker pool for the
 	// bulk-expire fanout. Zero resolves to config.DefaultBulkConcurrency
 	// at construction time so callers can pass the unmaterialised

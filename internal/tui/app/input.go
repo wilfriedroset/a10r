@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // toggleTimeFormatCmd flips the app's TimeFormat and emits the
@@ -22,10 +23,10 @@ import (
 // message ignore it (the dispatcher fires regardless of which
 // page is on top of the stack).
 func (a *App) toggleTimeFormatCmd() tea.Cmd {
-	if a.timeFormat == TimeFormatRelative {
-		a.timeFormat = TimeFormatAbsolute
+	if a.timeFormat == timerender.Relative {
+		a.timeFormat = timerender.Absolute
 	} else {
-		a.timeFormat = TimeFormatRelative
+		a.timeFormat = timerender.Relative
 	}
 	captured := a.timeFormat
 	return tea.Batch(

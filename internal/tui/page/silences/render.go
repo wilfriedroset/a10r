@@ -10,7 +10,6 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -220,7 +219,7 @@ func (p *Page) padColumns(parts []string, width int) string {
 		minDesc = 12
 	)
 	startsW, endsW := 14, 14
-	if p.timeFormat == app.TimeFormatAbsolute {
+	if p.timeFormat == timerender.Absolute {
 		startsW, endsW = 20, 20
 	}
 	fixed := uuidW + byW + startsW + endsW + stateW
@@ -265,10 +264,7 @@ func padCell(s string, w int) string {
 // formatTime renders ts according to the page's active time
 // format. Mirrors the alerts / alert-detail formatters.
 func (p *Page) formatTime(ts time.Time) string {
-	if p.timeFormat == app.TimeFormatAbsolute {
-		return timerender.Display(timerender.Absolute, p.now(), ts)
-	}
-	return timerender.Display(timerender.Relative, p.now(), ts)
+	return timerender.Display(p.timeFormat, p.now(), ts)
 }
 
 // clipSilenceID returns the leading 8 chars of id so the UUID

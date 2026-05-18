@@ -31,6 +31,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
@@ -84,7 +85,7 @@ func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 	require.Contains(t, out, "in 1h",
 		"relative mode renders EndsAt one hour ahead as `in 1h`")
 
-	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: timerender.Absolute})
 	out = testutil.StripStyle(p.View(180, 20))
 	require.Contains(t, out, "2026-",
 		"absolute mode must surface the ISO local date prefix on both columns")

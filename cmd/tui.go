@@ -38,6 +38,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // runTUI assembles the bubbletea program and runs it. Called from
@@ -127,9 +128,9 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// declared and assigned on the line below; closures read it at
 	// invocation time, by which point app.NewApp has run.
 	var a *app.App
-	timeFormat := func() app.TimeFormat {
+	timeFormat := func() timerender.Format {
 		if a == nil {
-			return app.TimeFormatRelative
+			return timerender.Relative
 		}
 		return a.TimeFormat()
 	}
@@ -612,7 +613,7 @@ func newResolver(
 	tenantRows []tenant.Row,
 	cfg *config.Config,
 	clients map[string]backend.Client,
-	timeFormat func() app.TimeFormat,
+	timeFormat func() timerender.Format,
 	readOnly bool,
 ) *cmdbar.Resolver {
 	r := cmdbar.New()

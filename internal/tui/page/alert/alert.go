@@ -78,7 +78,7 @@ type Options struct {
 	// TimeFormat seeds the page's time-format mode at push time
 	// so the detail body opens in the same mode the parent list
 	// page was already showing.
-	TimeFormat app.TimeFormat
+	TimeFormat timerender.Format
 	// ReadOnly hides the page's Dangerous bindings (`s`) from the
 	// hint strip / help overlay and turns the keystroke into a
 	// flash hint. Wired from defaults.read_only / --read-only.
@@ -110,7 +110,7 @@ type Page struct {
 	// timeFormat mirrors the app-global toggle. Flipped by
 	// app.TimeFormatChangedMsg so the summary's "age:" line reads
 	// the same shape as the alerts list it was pushed from.
-	timeFormat app.TimeFormat
+	timeFormat timerender.Format
 
 	// scroll is the index of the first visible body line. j/k/G/gg
 	// walk it; the renderer reconciles against the body height
@@ -667,7 +667,7 @@ func (p *Page) silencePickerLine(id string) string {
 // is an alert-domain UX label absorbed here so timerender.Remaining
 // stays strictly forward-looking per CONTEXT.md.
 func (p *Page) expiryField(ts time.Time) string {
-	if p.timeFormat == app.TimeFormatAbsolute {
+	if p.timeFormat == timerender.Absolute {
 		return "ends " + timerender.Display(timerender.Absolute, p.now(), ts)
 	}
 	if ts.Sub(p.now()) <= 0 {
@@ -829,7 +829,7 @@ func (p *Page) renderSummary() string {
 		// stay semantically honest. Same column width so the
 		// values column doesn't shift on toggle.
 		label := "age:         "
-		if p.timeFormat == app.TimeFormatAbsolute {
+		if p.timeFormat == timerender.Absolute {
 			label = "started:     "
 		}
 		lines = append(lines, label+stamp)
@@ -960,10 +960,7 @@ func bestBreakIndex(s string, limit int) int {
 // format. Mirrors the alerts / silences formatters so the three
 // views agree on how the toggle reads.
 func (p *Page) formatTime(ts time.Time) string {
-	if p.timeFormat == app.TimeFormatAbsolute {
-		return timerender.Display(timerender.Absolute, p.now(), ts)
-	}
-	return timerender.Display(timerender.Relative, p.now(), ts)
+	return timerender.Display(p.timeFormat, p.now(), ts)
 }
 
 // flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so

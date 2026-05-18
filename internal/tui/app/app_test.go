@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // newTestApp builds an App wired to the default skin and a fresh
@@ -124,11 +125,11 @@ func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
 
-	require.Equal(t, TimeFormatRelative, a.timeFormat,
+	require.Equal(t, timerender.Relative, a.timeFormat,
 		"app starts in relative mode")
 
 	_, cmd := a.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
-	require.Equal(t, TimeFormatAbsolute, a.timeFormat,
+	require.Equal(t, timerender.Absolute, a.timeFormat,
 		"first `t` press flips to absolute")
 	require.NotNil(t, cmd)
 
@@ -141,7 +142,7 @@ func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
 	for _, c := range batch {
 		switch m := c().(type) {
 		case TimeFormatChangedMsg:
-			require.Equal(t, TimeFormatAbsolute, m.Format)
+			require.Equal(t, timerender.Absolute, m.Format)
 			sawAnnounce = true
 		case footer.FlashShowMsg:
 			require.Contains(t, m.Text, "absolute")
@@ -153,7 +154,7 @@ func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
 
 	// Second press flips back.
 	_, _ = a.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
-	require.Equal(t, TimeFormatRelative, a.timeFormat)
+	require.Equal(t, timerender.Relative, a.timeFormat)
 }
 
 func TestApp_CtrlCQuits(t *testing.T) {

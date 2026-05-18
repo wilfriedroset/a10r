@@ -21,6 +21,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
@@ -81,7 +82,7 @@ func TestPage_OpensInPushTimeFormat(t *testing.T) {
 		Tenant:     "prod",
 		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
-		TimeFormat: app.TimeFormatAbsolute,
+		TimeFormat: timerender.Absolute,
 	})
 	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "started:",
@@ -104,7 +105,7 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 	require.NotContains(t, out, "2026-",
 		"relative mode must not surface the absolute date")
 
-	_, _ = p.Update(app.TimeFormatChangedMsg{Format: app.TimeFormatAbsolute})
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: timerender.Absolute})
 	out = testutil.StripStyle(p.View(120, 30))
 	require.NotContains(t, out, "5m ago")
 	require.Contains(t, out, "2026-",
@@ -695,7 +696,7 @@ func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
 		Tenant:     "prod",
 		Styles:     testutil.LoadStyles(t),
 		Now:        func() time.Time { return fixedNow },
-		TimeFormat: app.TimeFormatAbsolute,
+		TimeFormat: timerender.Absolute,
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",

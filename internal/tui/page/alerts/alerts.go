@@ -36,11 +36,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
-	"github.com/wilfriedroset/a10r/internal/tui/app"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // Sort column keys. Stable identifiers passed to the tablesort
@@ -113,8 +113,8 @@ type Options struct {
 	// TimeFormat seeds the page's time-format mode at construction
 	// so a page pushed *after* the user toggled `t` doesn't open
 	// in relative while the rest of the app reads absolute. Zero
-	// value (TimeFormatRelative) is the pre-toggle default.
-	TimeFormat app.TimeFormat
+	// value (timerender.Relative) is the pre-toggle default.
+	TimeFormat timerender.Format
 	// BulkConcurrency caps the per-tenant worker pool for the
 	// bulk-silence fanout (one CreateSilence per marked alert).
 	// Zero resolves to config.DefaultBulkConcurrency at construction
@@ -245,7 +245,7 @@ type Page struct {
 	// timeFormat mirrors the app-global toggle. Defaults to
 	// relative; flipped by app.TimeFormatChangedMsg so every list
 	// page agrees on absolute vs. relative timestamps.
-	timeFormat app.TimeFormat
+	timeFormat timerender.Format
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint

@@ -16,9 +16,9 @@
 //   - view.go — View, panel state, body / footer composition,
 //     small render helpers.
 //
-// Page interface, page-stack messages and TimeFormat live in
-// page.go; modal slot messages in modal.go; key-name normalisation
-// in keys.go.
+// Page interface, page-stack messages and TimeFormatChangedMsg live
+// in page.go (the time-format vocabulary itself lives in timerender);
+// modal slot messages in modal.go; key-name normalisation in keys.go.
 package app
 
 import (
@@ -31,6 +31,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // Options collects the dependencies the App needs to operate.
@@ -133,7 +134,7 @@ type App struct {
 	// pages observe TimeFormatChangedMsg and re-render. Defaults
 	// to relative — matches the pre-toggle UX every page shipped
 	// with.
-	timeFormat TimeFormat
+	timeFormat timerender.Format
 
 	// pollCache stores the latest poll.DataMsg per
 	// (ResourceLabel, Tenant) tuple. Updated as a side-effect of
@@ -257,7 +258,7 @@ func NewApp(opts Options) *App {
 // value. Page factories close over the App and read this at push
 // time so a page opened *after* the user toggled `t` doesn't open
 // in relative mode while the rest of the app reads absolute.
-func (a *App) TimeFormat() TimeFormat { return a.timeFormat }
+func (a *App) TimeFormat() timerender.Format { return a.timeFormat }
 
 // Quitting reports whether the App has already authorised the quit
 // (it set the flag when the QuitRequestedMsg cascade ran and
