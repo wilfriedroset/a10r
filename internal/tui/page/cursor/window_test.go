@@ -68,7 +68,7 @@ func TestWindow_MoveCursor(t *testing.T) {
 
 		// Ctrl+F/B use bodyHeight-2 with floor of 20 when unsized
 		{name: "ctrl+f advances by body-2", cursor: 0, topRow: 0, bodyHeight: 20, items: 100, key: "ctrl+f", wantIndex: 18, wantTop: 0, wantChanged: true, wantHandled: true},
-		{name: "ctrl+f unsized advances by 20 floor, no reconcile", cursor: 0, topRow: 0, bodyHeight: 0, items: 100, key: "ctrl+f", wantIndex: 20, wantTop: 0, wantChanged: true, wantHandled: true},
+		{name: "ctrl+f unsized advances by 20 floor, leaves topRow untouched", cursor: 0, topRow: 0, bodyHeight: 0, items: 100, key: "ctrl+f", wantIndex: 20, wantTop: 0, wantChanged: true, wantHandled: true},
 		{name: "ctrl+b retreats by body-2", cursor: 50, topRow: 32, bodyHeight: 20, items: 100, key: "ctrl+b", wantIndex: 32, wantTop: 32, wantChanged: true, wantHandled: true},
 
 		// Reconcile: cursor below window advances top
