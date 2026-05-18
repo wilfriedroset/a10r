@@ -24,12 +24,24 @@ items)`, `SetViewport(height, items)`, `Clamp(items)`, `Index()`,
 internally against the current `(cursor, items, bodyHeight)`, so
 the eight manual `ReconcileScroll` call sites collapse to zero and
 the View→handler implicit-ordering footgun goes away. The
-fallback for `bodyHeight==0` lives inside the type;
-`cursor.HalfPageStep` / `cursor.FullPageStep` are deleted from the
-public API. The motion method returns two distinct signals:
-`handled` for the keymap-walk gate (the existing meaning) and
-`changed` for the focus-snapshot gate (new — pages branch on
-`changed`, eliminating the no-op snapshot on `j`-at-last-row).
+fallback for `bodyHeight==0` lives inside the type; the
+`cursor.HandleMotion` standalone helper is deleted from the public
+API. The motion method returns two distinct signals: `handled` for
+the keymap-walk gate (the existing meaning) and `changed` for the
+focus-snapshot gate (new — pages branch on `changed`, eliminating
+the no-op snapshot on `j`-at-last-row).
+
+`cursor.HalfPageStep` / `cursor.FullPageStep` stay public. The
+five 1D scroll viewers (`internal/tui/page/{alert,silence,status,
+tenantconfig}` for detail / config viewers and `internal/tui/help`
+for the help overlay) own a scalar `scroll` field rather than a
+cursor/topRow/bodyHeight triple, so the Window type doesn't apply
+— but they still want the same half- / full-page step distances
+and the same pre-sizing floor that the Window applies internally.
+Lowering the helpers into the Window would force the 1D viewers
+to either duplicate the arithmetic or wrap a Window they only use
+the `bodyHeight` end of, both worse than leaving the two pure
+functions exported.
 
 `listpage.Base` embeds `cursor.Window` so the four list pages get
 `p.Index()` / `p.MoveCursor(...)` / `p.SetViewport(...)` via field
@@ -57,18 +69,20 @@ fields where the invariants are real and load-bearing.
 Considered and rejected: (a) a `listpage.Window` type instead of
 `cursor.Window` — the tenant page would not share the type since
 it does not embed `Base`, collapsing the seam to one adapter and
-weakening the deepening; (b) keeping the step helpers public for
-callers who want them without a Window — speculative future
-caller, and the fallback semantics travel with the Window concept
-by design; (c) a callback-style `MoveCursor(key, items, onChange
-func()) bool` for the focus snapshot — re-introduces the
-`Base.Recompute` callback pattern (panic-at-runtime invariant
-check, wired at constructor) that this deepening is otherwise
-escaping; (d) `Window` owning an `items func() int` source rather
-than taking `items int` per call — couples the type to page-
-specific state ownership and forces every page to commit to one
-item-count source even when handlers and recompute use different
-ones; (e) keeping fields exported for test ergonomics — defeats
-the invariant-enforcement that is the whole point, and the test
-churn collapses to a one-liner `cursor.NewWindow(...)` replacement
-at literal-struct sites.
+weakening the deepening; (b) re-exposing the step helpers as
+methods on Window for the table pages to call directly —
+speculative future caller, and the fallback semantics travel with
+the Window concept by design (the table pages call MoveCursor,
+which applies the fallback internally; the standalone helpers
+exist only for the 1D viewers that don't own a Window); (c) a
+callback-style `MoveCursor(key, items, onChange func()) bool` for
+the focus snapshot — re-introduces the `Base.Recompute` callback
+pattern (panic-at-runtime invariant check, wired at constructor)
+that this deepening is otherwise escaping; (d) `Window` owning an
+`items func() int` source rather than taking `items int` per call
+— couples the type to page-specific state ownership and forces
+every page to commit to one item-count source even when handlers
+and recompute use different ones; (e) keeping fields exported for
+test ergonomics — defeats the invariant-enforcement that is the
+whole point, and the test churn collapses to a one-liner
+`cursor.NewWindow(...)` replacement at literal-struct sites.
