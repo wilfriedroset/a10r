@@ -19,6 +19,9 @@ import (
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
+		return p, cmd
+	}
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
 		p.HandleBackendStatusMsg(m)
@@ -57,13 +60,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		var cmd tea.Cmd
 		p.Spinner, cmd = p.Spinner.Update(m)
 		return p, cmd
-	case app.ScopeChangedMsg:
-		p.HandleScopeChangedMsg(m)
-		return p, nil
-	case app.GoToFirstRowMsg:
-		p.SetIndex(0, len(p.rows()))
-		p.snapshotFocus()
-		return p, nil
 	case silenceform.SubmittedMsg:
 		// Form auto-popped already; flash so the user sees
 		// confirmation. Same shape alerts / silences use.

@@ -224,6 +224,8 @@ func New(opts Options) *Page {
 		submitCtx: opts.SubmitCtx,
 	}
 	p.Recompute = p.recompute
+	p.RowCount = func() int { return len(p.rows()) }
+	p.SnapshotFocus = p.snapshotFocus
 	return p
 }
 
