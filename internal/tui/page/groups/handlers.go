@@ -86,9 +86,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 
 // handleKey processes vim-motion + per-view keys. Returns the
 // page (possibly mutated) plus a Cmd. Motion goes through the
-// shared cursor.HandleMotion helper; sort cycle through
-// p.handleSort; everything else falls into the action switch
-// (tab toggle-all, enter, s, r).
+// embedded Window.MoveCursor; sort cycle through p.handleSort;
+// everything else falls into the action switch (tab toggle-all,
+// enter, s, r).
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleSort(m) {
 		return p, nil

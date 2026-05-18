@@ -58,19 +58,17 @@ func TestPage_AnchorJumpsToSection(t *testing.T) {
 	require.Equal(t, 0, p.scroll, "`c` must scroll back to the cluster section at the top")
 }
 
-// TestPage_VimMotions is the wiring smoke for the cursor module:
-// pressing `j` in Update must route into cursor.HandleMotion and
-// advance p.scroll. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
-// clamps, empty-view) lives in
-// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
-// test only proves the page is wired to it.
+// TestPage_VimMotions is the wiring smoke for the page's 1D
+// scroll: pressing `j` in Update must advance p.scroll via the
+// cursor.HalfPageStep / cursor.FullPageStep helpers and the page's
+// own j/k walk. This test only proves the page is wired up.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 	p := New(testutil.LoadStyles(t), "prod")
 	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.scroll, "Update must advance p.scroll on `j`")
 }
 
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {

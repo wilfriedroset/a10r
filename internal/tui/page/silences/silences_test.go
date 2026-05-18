@@ -149,12 +149,12 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 }
 
 // TestPage_VimMotions is the wiring smoke for the cursor module:
-// pressing `j` in Update must route into cursor.HandleMotion with
-// len(p.view) as the row count, and the returned cursor must land
-// on p.Index(). The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
+// pressing `j` in Update must route into Window.MoveCursor with
+// len(p.view) as the row count, and the new index must land on
+// p.Index(). The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
 // clamps, empty-view) lives in
-// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
-// test only proves the page is wired to it.
+// internal/tui/page/cursor/window_test.go:TestWindow_MoveCursor;
+// this test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 
@@ -165,7 +165,7 @@ func TestPage_VimMotions(t *testing.T) {
 	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.Index(), "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Index(), "Update must route `j` into Window.MoveCursor")
 }
 
 func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {

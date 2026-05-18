@@ -304,18 +304,18 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 }
 
 // TestPage_VimMotions is the wiring smoke for the cursor module:
-// pressing `j` in Update must route into cursor.HandleMotion with
+// pressing `j` in Update must route into Window.MoveCursor with
 // len(p.rows()) as the row count. The full motion contract
 // (j/k/G/g/Ctrl+D/U/F/B, clamps, empty-view) lives in
-// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
-// test only proves the page is wired to it.
+// internal/tui/page/cursor/window_test.go:TestWindow_MoveCursor;
+// this test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.Index(), "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.Index(), "Update must route `j` into Window.MoveCursor")
 }
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {

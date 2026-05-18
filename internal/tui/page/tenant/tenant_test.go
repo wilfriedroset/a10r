@@ -201,9 +201,9 @@ func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 }
 
 // TestPage_VimMotions is the wiring smoke for the cursor module:
-// pressing `j` in Update must route into cursor.HandleMotion. The
+// pressing `j` in Update must route into Window.MoveCursor. The
 // full motion contract (j/k/G/g/Ctrl+D/U/F/B, clamps, empty-view)
-// lives in internal/tui/page/cursor/motion_test.go:TestHandleMotion;
+// lives in internal/tui/page/cursor/window_test.go:TestWindow_MoveCursor;
 // this test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
@@ -211,7 +211,7 @@ func TestPage_VimMotions(t *testing.T) {
 	p.SetRows(sampleRows())
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.window.Index(), "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.window.Index(), "Update must route `j` into Window.MoveCursor")
 }
 
 func TestSemverLess(t *testing.T) {

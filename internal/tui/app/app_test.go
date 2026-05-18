@@ -554,8 +554,8 @@ func TestApp_ViewEnablesMouseCellMotion(t *testing.T) {
 
 // TestApp_MouseWheelOnTableSynthesizesMotionKey covers the table-
 // page case: wheel up / down become a synthetic 'k' / 'j' key
-// press routed to the top page, so each page's existing
-// cursor.HandleMotion path runs without per-page wheel plumbing.
+// press routed to the top page, so each page's existing vim-motion
+// path runs without per-page wheel plumbing.
 func TestApp_MouseWheelOnTableSynthesizesMotionKey(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

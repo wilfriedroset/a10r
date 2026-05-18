@@ -308,18 +308,16 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 	require.Contains(t, out, "(no client available)")
 }
 
-// TestPage_VimMotionsScroll is the wiring smoke for the cursor
-// module: pressing `j` in Update must route into cursor.HandleMotion
-// and advance p.scroll. The full motion contract (j/k/G/g/Ctrl+D/U/F/B,
-// clamps, empty-view) lives in
-// internal/tui/page/cursor/motion_test.go:TestHandleMotion; this
-// test only proves the page is wired to it.
+// TestPage_VimMotionsScroll is the wiring smoke for the page's
+// 1D scroll: pressing `j` in Update must advance p.scroll via the
+// cursor.HalfPageStep / cursor.FullPageStep helpers and the page's
+// own j/k walk. This test only proves the page is wired up.
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
 	require.Equal(t, 0, p.scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll, "Update must route `j` into cursor.HandleMotion")
+	require.Equal(t, 1, p.scroll, "Update must advance p.scroll on `j`")
 }
 
 // TestPage_CloseCancelsInflightFetch pins that closing the page

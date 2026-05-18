@@ -266,11 +266,11 @@ func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 // ignore the event), then prompt / input-capture (suppress so the
 // wheel doesn't grow a phantom motion behind a typing user), then
 // the top page (translate up/down ticks into a synthetic 'k'/'j'
-// key press so the page's existing cursor.HandleMotion path runs
-// without per-page wheel plumbing). Left/right wheel ticks are
-// ignored — pages don't bind h/l to a wheel motion and the
-// horizontal-wheel hardware is rare enough that surprising the
-// user with column walks is worse than dropping the event.
+// key press so the page's existing vim-motion path runs without
+// per-page wheel plumbing). Left/right wheel ticks are ignored —
+// pages don't bind h/l to a wheel motion and the horizontal-wheel
+// hardware is rare enough that surprising the user with column
+// walks is worse than dropping the event.
 func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
 	if a.modal != nil {
 		next, cmd := a.modal.Update(m)
@@ -288,7 +288,7 @@ func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
 }
 
 // wheelToKey maps a vertical wheel tick to the synthetic key press
-// the cursor.HandleMotion helper consumes. Horizontal ticks return
+// each page's vim-motion handler consumes. Horizontal ticks return
 // (zero, false) so the caller can drop them. Kept package-private
 // so the mapping table lives next to the dispatcher seam that uses
 // it; tested via TestApp_MouseWheel*.
