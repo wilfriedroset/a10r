@@ -20,7 +20,10 @@ toggled app-globally with `t`.
 **Remaining**:
 The mixed-unit forward-looking duration (`2h13m`, `4d`) used in
 narrative fields such as the alert-detail `expires in …` line. Not used
-in tables.
+in tables. The vocabulary is strictly forward-looking — a non-positive
+duration is out-of-domain for Remaining, so the renderer returns the
+empty string and the caller owns any past-case label (the alert detail
+page renders its own `expired`).
 _Avoid_: countdown, ETA.
 
 ### Silence lifecycle
