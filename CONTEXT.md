@@ -37,6 +37,30 @@ the future → rendered as `in X`.
 A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 → rendered as `X ago`.
 
+### Backend health
+
+**Backend health**:
+The per-tenant transport state a list page holds for rendering the
+**error band**; carries (state, detail, failures, **next attempt**).
+State is one of *connected* / *degraded* / *unreachable*. An entry
+exists only while a tenant is not connected; cleared on recovery.
+_Avoid_: backend status (the wire-format message that mutates this
+value), connection state (header chrome only).
+
+**Next attempt**:
+The failure-mode tick clock rendered in the **error band** using
+single-unit **relative time** — `retrying in 5s`, `retrying in 1m`.
+When the clock is past-due (a tick is in flight), the band suffix
+becomes `retrying now`.
+_Avoid_: retry deadline, backoff (poller implementation detail).
+
+**Error band**:
+The one-line surface above the table that narrates per-tenant
+**backend health** for tenants in scope. Empty when every in-scope
+tenant is **connected**. Multi-offender layouts collapse to a count
+plus the alphabetically first offender's detail and **next attempt**.
+_Avoid_: status line, error banner.
+
 ## Relationships
 
 - A **silence** is exactly one of **active**, **pending**, **expired**
@@ -46,6 +70,10 @@ A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 - **Relative time** (compact, single-unit) and **remaining**
   (mixed-unit, prose) are two distinct rendering shapes — the former
   for table columns, the latter for narrative fields.
+- **Backend health** entries exist per tenant only while not
+  **connected**; the **error band** renders only in-scope entries.
+- **Next attempt** reuses the single-unit **relative time** vocabulary
+  with `retrying in` as the prefix instead of bare `in`.
 
 ## Example dialogue
 
