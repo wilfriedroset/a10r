@@ -25,7 +25,7 @@ import (
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	if handled, cmd := p.handleSidebandMsg(msg); handled {
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
 	switch m := msg.(type) {
@@ -129,29 +129,6 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 		return p.handleBulkExpireDone(m)
 	}
 	return nil
-}
-
-// handleSidebandMsg consumes the app-level sideband messages
-// (scope change, time-format toggle, gg-chord first-row, Ctrl+\
-// clear marks) so Update's main switch stays under the cyclop
-// budget. Returns handled=true when the message was claimed and
-// the caller should short-circuit the rest of Update.
-func (p *Page) handleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
-	switch m := msg.(type) {
-	case app.ScopeChangedMsg:
-		p.HandleScopeChangedMsg(m)
-		return true, nil
-	case app.TimeFormatChangedMsg:
-		p.timeFormat = m.Format
-		return true, nil
-	case app.GoToFirstRowMsg:
-		p.SetIndex(0, len(p.view))
-		p.snapshotFocus()
-		return true, nil
-	case app.ClearMarksMsg:
-		return true, p.handleClearMarks()
-	}
-	return false, nil
 }
 
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
