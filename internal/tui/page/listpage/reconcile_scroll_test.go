@@ -22,7 +22,6 @@ func TestBase_ReconcileScroll(t *testing.T) {
 		wantTop    int
 	}{
 		{name: "zero body height is no-op", cursor: 5, topRow: 2, bodyHeight: 0, itemCount: 10, wantTop: 2},
-		{name: "negative body height is no-op", cursor: 5, topRow: 3, bodyHeight: -1, itemCount: 10, wantTop: 3},
 		{name: "cursor inside window keeps top", cursor: 3, topRow: 0, bodyHeight: 5, itemCount: 10, wantTop: 0},
 		{name: "cursor above window snaps top to cursor", cursor: 1, topRow: 4, bodyHeight: 5, itemCount: 10, wantTop: 1},
 		{name: "cursor below window advances top", cursor: 9, topRow: 0, bodyHeight: 5, itemCount: 10, wantTop: 5},

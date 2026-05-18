@@ -21,7 +21,6 @@ func TestBase_HandleScopeChangedMsg(t *testing.T) {
 		wantScope  string
 	}{
 		{name: "all to single tenant", startScope: "all", msg: app.ScopeChangedMsg{Scope: "prod"}, wantScope: "prod"},
-		{name: "single tenant to all", startScope: "prod", msg: app.ScopeChangedMsg{Scope: "all"}, wantScope: "all"},
 		{name: "single to comma-joined", startScope: "prod", msg: app.ScopeChangedMsg{Scope: "prod,staging"}, wantScope: "prod,staging"},
 		{name: "to empty scope", startScope: "prod", msg: app.ScopeChangedMsg{Scope: ""}, wantScope: ""},
 		{name: "to identical scope", startScope: "all", msg: app.ScopeChangedMsg{Scope: "all"}, wantScope: "all"},

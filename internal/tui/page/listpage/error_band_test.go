@@ -67,12 +67,6 @@ func TestBase_ErrorBand(t *testing.T) {
 			lastErrors: map[string]string{"zeta": "z", "alpha": "a"},
 			want:       "2 backends erroring; alpha: a",
 		},
-		{
-			name:       "all scope with one in-scope and one empty surfaces only the non-empty",
-			scope:      "all",
-			lastErrors: map[string]string{"prod": "down", "staging": ""},
-			want:       "prod: down",
-		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

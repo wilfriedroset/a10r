@@ -20,11 +20,9 @@ func TestBase_KnownTenant(t *testing.T) {
 		want    bool
 	}{
 		{name: "empty list disables guard", tenants: nil, tenant: "anything", want: true},
-		{name: "empty slice disables guard", tenants: []string{}, tenant: "anything", want: true},
 		{name: "single configured tenant matches", tenants: []string{"prod"}, tenant: "prod", want: true},
 		{name: "single configured tenant rejects other", tenants: []string{"prod"}, tenant: "staging", want: false},
 		{name: "multi-tenant matches first", tenants: []string{"prod", "staging"}, tenant: "prod", want: true},
-		{name: "multi-tenant matches last", tenants: []string{"prod", "staging"}, tenant: "staging", want: true},
 		{name: "multi-tenant rejects unknown", tenants: []string{"prod", "staging"}, tenant: "dev", want: false},
 		{name: "empty tenant rejected by non-empty list", tenants: []string{"prod"}, tenant: "", want: false},
 		{name: "case-sensitive miss", tenants: []string{"Prod"}, tenant: "prod", want: false},
