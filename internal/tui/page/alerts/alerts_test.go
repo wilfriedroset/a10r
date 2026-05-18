@@ -170,9 +170,9 @@ func TestPage_FilterModesDriveThroughPipeline(t *testing.T) {
 // BackendStatusMsg arriving with a tenant name not in the configured
 // list is dropped — closes the leak class where a wire-layer bug,
 // hot-reload that didn't prune sources, or a stray test fixture
-// could pollute byTenant/lastErrors with names that will never poll
-// or render. Empty Tenants disables the guard so existing tests
-// without an explicit list keep working.
+// could pollute byTenant / BackendHealth with names that will never
+// poll or render. Empty Tenants disables the guard so existing
+// tests without an explicit list keep working.
 func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
@@ -194,8 +194,8 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 
 	// BackendStatusMsg for unknown tenant must also drop.
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
-	require.NotContains(t, p.LastErrors, "ghost",
-		"unknown tenant must not populate lastErrors")
+	require.NotContains(t, p.BackendHealth, "ghost",
+		"unknown tenant must not populate BackendHealth")
 }
 
 // TestPage_FilterToZeroResultsPreservesFocusForRestore pins the

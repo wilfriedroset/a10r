@@ -29,14 +29,14 @@ func (b *Base) ErrorBand() string {
 		detail string
 	}
 	var bad []entry
-	for tenant, detail := range b.LastErrors {
-		if detail == "" {
+	for tenant, h := range b.BackendHealth {
+		if h.Detail == "" {
 			continue
 		}
 		if !b.ScopeIncludes(tenant) {
 			continue
 		}
-		bad = append(bad, entry{tenant: tenant, detail: detail})
+		bad = append(bad, entry{tenant: tenant, detail: h.Detail})
 	}
 	if len(bad) == 0 {
 		return ""

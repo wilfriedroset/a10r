@@ -42,11 +42,12 @@ type Base struct {
 	// on incoming poll.DataMsg so the table stops updating under
 	// the cursor mid-read. Toggled by `w` (watch mode).
 	Paused bool
-	// LastErrors holds the most recent per-tenant transport error
-	// surfaced via poll.BackendStatusMsg.Detail. A successful tick
-	// clears the row; the renderer collapses the in-scope subset
-	// into a one-line error band above the table.
-	LastErrors map[string]string
+	// BackendHealth holds the per-tenant transport state for the
+	// error band. An entry exists only while the tenant is not
+	// connected — HandleBackendStatusMsg clears the row on
+	// recovery. The renderer collapses the in-scope subset into a
+	// one-line error band above the table. See ADR-0014.
+	BackendHealth map[string]BackendHealth
 	// Tenants is the canonical configured-backend list. Drives the
 	// TENANT-column visibility so a tenant that never replies still
 	// counts toward "is this a multi-tenant fleet?".

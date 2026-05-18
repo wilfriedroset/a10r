@@ -21,20 +21,7 @@ import (
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
-		// Drop status for tenants outside the configured list.
-		if !p.KnownTenant(m.Tenant) {
-			return p, nil
-		}
-		// Track per-tenant transport errors for the error band.
-		// A successful transition (Detail empty) clears the row;
-		// failure transitions overwrite with the latest detail
-		// the operator should see. Mirror of the alerts page's
-		// handler.
-		if m.Detail == "" {
-			delete(p.LastErrors, m.Tenant)
-		} else {
-			p.LastErrors[m.Tenant] = m.Detail
-		}
+		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
 		groups, ok := m.Resource.([]backend.AlertGroup)

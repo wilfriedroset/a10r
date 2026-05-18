@@ -27,23 +27,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	}
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
-		// Drop status for tenants outside the configured list — a
-		// wire-layer bug, test leak, or future hot-reload that hasn't
-		// pruned its sources could otherwise pollute lastErrors with
-		// names that will never poll again. Empty Tenants disables
-		// the guard (test fixtures that don't pin the list).
-		if !p.KnownTenant(m.Tenant) {
-			return p, nil
-		}
-		// Track per-tenant transport errors for the error band.
-		// A successful transition (Detail empty) clears the row;
-		// failure transitions overwrite with the latest detail
-		// the operator should see.
-		if m.Detail == "" {
-			delete(p.LastErrors, m.Tenant)
-		} else {
-			p.LastErrors[m.Tenant] = m.Detail
-		}
+		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
 		alerts, ok := m.Resource.([]backend.Alert)

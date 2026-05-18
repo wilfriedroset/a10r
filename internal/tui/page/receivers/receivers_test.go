@@ -189,14 +189,15 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 }
 
 // TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
-// BackendStatusMsg arriving with a tenant name not in the configured
-// list is dropped — closes the same leak class the alerts / silences /
-// groups pages already guard against. The receivers page brainstorm
-// flagged "lastErrors not pruned" / "byTenant retains entries for
-// tenants no longer in scope"; this completes the carve-out from
-// 25d1640 that originally skipped receivers because the page didn't
-// yet carry a tenants list. Empty Tenants disables the guard so
-// existing tests without an explicit list keep working.
+// BackendStatusMsg arriving with a tenant name not in the
+// configured list is dropped — closes the same leak class the
+// alerts / silences / groups pages already guard against. The
+// receivers page brainstorm flagged "BackendHealth not pruned" /
+// "byTenant retains entries for tenants no longer in scope"; this
+// completes the carve-out from 25d1640 that originally skipped
+// receivers because the page didn't yet carry a tenants list.
+// Empty Tenants disables the guard so existing tests without an
+// explicit list keep working.
 func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
@@ -221,6 +222,6 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 
 	// BackendStatusMsg for unknown tenant must also drop.
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
-	require.NotContains(t, p.LastErrors, "ghost",
-		"unknown tenant must not populate lastErrors")
+	require.NotContains(t, p.BackendHealth, "ghost",
+		"unknown tenant must not populate BackendHealth")
 }

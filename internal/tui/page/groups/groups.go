@@ -205,9 +205,9 @@ func New(opts Options) *Page {
 	)
 	p := &Page{
 		Base: listpage.Base{
-			Scope:      scopeAll,
-			LastErrors: map[string]string{},
-			Tenants:    opts.Tenants,
+			Scope:         scopeAll,
+			BackendHealth: map[string]listpage.BackendHealth{},
+			Tenants:       opts.Tenants,
 		},
 		PollingUI: listpage.PollingUI{
 			PolledTenants: map[string]struct{}{},

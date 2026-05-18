@@ -64,7 +64,7 @@ type Options struct {
 	// a broken tenant still counts toward "is this a multi-tenant
 	// fleet?". The page also uses it to gate incoming DataMsg /
 	// BackendStatusMsg state mutations: a tenant name not in this
-	// list never lands in byTenant / lastErrors so a wire-layer
+	// list never lands in byTenant / BackendHealth so a wire-layer
 	// bug, hot-reload that didn't prune sources, or stray test
 	// fixture cannot pollute the page with names that will never
 	// poll or render. Empty disables the guard for tests / legacy
@@ -110,9 +110,9 @@ const scopeAll = "all"
 func New(opts Options) *Page {
 	p := &Page{
 		Base: listpage.Base{
-			Scope:      scopeAll,
-			LastErrors: map[string]string{},
-			Tenants:    opts.Tenants,
+			Scope:         scopeAll,
+			BackendHealth: map[string]listpage.BackendHealth{},
+			Tenants:       opts.Tenants,
 		},
 		styles:   opts.Styles,
 		byTenant: map[string][]string{},
@@ -210,25 +210,7 @@ func (p *Page) Bindings() []action.Action {
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.BackendStatusMsg:
-		// Drop status for tenants outside the configured list — a
-		// wire-layer bug, test leak, or future hot-reload that hasn't
-		// pruned its sources could otherwise pollute lastErrors with
-		// names that will never poll again. Empty Tenants disables
-		// the guard (test fixtures that don't pin the list). Mirror
-		// of the alerts page's handler.
-		if !p.KnownTenant(m.Tenant) {
-			return p, nil
-		}
-		// Track per-tenant transport errors for the error band.
-		// A successful transition (Detail empty) clears the row;
-		// failure transitions overwrite with the latest detail
-		// the operator should see. Mirror of the alerts page's
-		// handler.
-		if m.Detail == "" {
-			delete(p.LastErrors, m.Tenant)
-		} else {
-			p.LastErrors[m.Tenant] = m.Detail
-		}
+		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
 		recs, ok := m.Resource.([]backend.Receiver)
