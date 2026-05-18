@@ -10,9 +10,9 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 func (p *Page) View(width, height int) string {
@@ -374,9 +374,9 @@ func (p *Page) columnSpecs() []format.Column {
 // three views agree on how the toggle reads.
 func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
-		return header.FormatAbsolute(ts)
+		return timerender.Display(timerender.Absolute, p.now(), ts)
 	}
-	return header.FormatRelative(p.now(), ts)
+	return timerender.Display(timerender.Relative, p.now(), ts)
 }
 
 // severityOf returns the printable severity label, falling back

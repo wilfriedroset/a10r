@@ -87,7 +87,7 @@ func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 // the status brainstorm finding HeaderContent_FormatsUptime_AsGoDurationString
 // at status.go:71: a 10-year uptime used to render as the raw Go
 // time.Duration Stringer "87600h0m0s", which is hostile UX for an
-// SRE-targeted TUI. The fix routes Uptime through header.FormatDuration
+// SRE-targeted TUI. The fix routes Uptime through timerender.Duration
 // so the header zone shows compact units (s/m/h/d).
 func TestPage_HeaderContent_HumanisesUptime(t *testing.T) {
 	t.Parallel()

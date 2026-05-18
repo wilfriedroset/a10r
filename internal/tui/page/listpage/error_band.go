@@ -11,8 +11,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // ErrorBand returns the one-line message rendered above the table
@@ -88,7 +88,7 @@ func (b *Base) RenderErrorBand(now time.Time, width int, fg color.Color) string 
 
 // nextAttemptLabel renders the "Next attempt" relative-time suffix
 // per CONTEXT.md, reusing the s/m/h/d ladder from
-// header.FormatDuration so the vocabulary stays in lockstep with
+// timerender.Duration so the vocabulary stays in lockstep with
 // every other compact relative-time site. Past-due (negative
 // delta, zero NextAt, or sub-second future) returns the literal
 // `retrying now` (active voice); a future NextAt prefixes the
@@ -98,5 +98,5 @@ func nextAttemptLabel(now, nextAt time.Time) string {
 	if d < time.Second {
 		return "retrying now"
 	}
-	return "retrying in " + header.FormatDuration(d)
+	return "retrying in " + timerender.Duration(d)
 }

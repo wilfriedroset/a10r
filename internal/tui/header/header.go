@@ -11,9 +11,7 @@
 package header
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -240,90 +238,4 @@ func renderHints(hints []action.Action, styles *theme.Styles) string {
 		}
 	}
 	return b.String()
-}
-
-// FormatRelative renders the duration between now and ts as a compact
-// relative-time string. Past: "X ago" (e.g. "2h ago"). Future: "in X"
-// (e.g. "in 2h"). |Δt|<1s on either side renders "now" to absorb
-// polling jitter. Single-unit ladder: s, m, h, d. Returns "" when ts
-// is zero, mirroring the prior FormatAge contract.
-func FormatRelative(now, ts time.Time) string {
-	if ts.IsZero() {
-		return ""
-	}
-	d := ts.Sub(now)
-	abs := d
-	if abs < 0 {
-		abs = -abs
-	}
-	if abs < time.Second {
-		return "now"
-	}
-	var unit string
-	switch {
-	case abs < time.Minute:
-		unit = fmt.Sprintf("%ds", int(abs.Seconds()))
-	case abs < time.Hour:
-		unit = fmt.Sprintf("%dm", int(abs.Minutes()))
-	case abs < 24*time.Hour:
-		unit = fmt.Sprintf("%dh", int(abs.Hours()))
-	default:
-		unit = fmt.Sprintf("%dd", int(abs/(24*time.Hour)))
-	}
-	if d < 0 {
-		return unit + " ago"
-	}
-	return "in " + unit
-}
-
-// FormatDuration renders d as a compact single-unit string using the
-// same s / m / h / d ladder as FormatRelative — no "ago" / "in"
-// suffix because the caller already labels what the value represents
-// (e.g. "uptime 5d"). Sub-second durations collapse to "0s" so a
-// freshly-booted backend never produces a noisy header. Negative
-// values are taken as |d| so a defensive caller can't render "-2h";
-// uptime is always non-negative in practice.
-//
-// Pulled out as a sibling of FormatRelative so the status page can
-// humanise time.Duration without the round-trip through
-// time.Now().Add(-d) → FormatRelative → strip "ago" — fixes the
-// status brainstorm finding HeaderContent_FormatsUptime_AsGoDurationString
-// where a 10-year uptime rendered as the raw Go Stringer "87600h0m0s".
-func FormatDuration(d time.Duration) string {
-	if d < 0 {
-		d = -d
-	}
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
-	}
-}
-
-// AbsoluteFormat is the layout pages use when the app-global
-// time-format toggle (`t`) is set to absolute. ISO-style local
-// time per Q7.4: year-month-day HH:MM:SS, no timezone marker so
-// the column stays narrow enough for the widened AGE / ENDS /
-// STARTS budgets. Local zone — the operator typically reads at
-// the same wall clock the alerts themselves came in under.
-const AbsoluteFormat = "2006-01-02 15:04:05"
-
-// FormatAbsolute renders last in the AbsoluteFormat (local zone)
-// or returns "" when last is zero, mirroring FormatRelative's empty-
-// state contract. Pulled out here so the alerts / silences /
-// alert-detail pages share one wall-clock conversion. Local zone
-// is deliberate per Q7.4 — operators read TUI timestamps under
-// the same wall clock the alerts arrived under.
-//
-//nolint:gosmopolitan // local time is the explicit operator-facing choice
-func FormatAbsolute(last time.Time) string {
-	if last.IsZero() {
-		return ""
-	}
-	return last.Local().Format(AbsoluteFormat)
 }

@@ -25,12 +25,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
@@ -666,7 +666,7 @@ func (p *Page) silencePickerLine(id string) string {
 // pattern at renderSummary's age/started flip.
 func (p *Page) expiryField(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
-		return "ends " + header.FormatAbsolute(ts)
+		return "ends " + timerender.Display(timerender.Absolute, p.now(), ts)
 	}
 	return "expires in " + formatRemaining(p.now(), ts)
 }
@@ -990,9 +990,9 @@ func bestBreakIndex(s string, limit int) int {
 // views agree on how the toggle reads.
 func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
-		return header.FormatAbsolute(ts)
+		return timerender.Display(timerender.Absolute, p.now(), ts)
 	}
-	return header.FormatRelative(p.now(), ts)
+	return timerender.Display(timerender.Relative, p.now(), ts)
 }
 
 // flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so

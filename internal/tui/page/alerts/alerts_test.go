@@ -990,7 +990,7 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	p := newPage(t)
 	// Pin StartsAt to a known absolute time so the absolute label
 	// is deterministic across runs / hosts. fixedNow is in UTC;
-	// header.FormatAbsolute renders in local time, so the test
+	// timerender.Display renders absolute in local time, so the test
 	// asserts only the date portion which is timezone-stable
 	// within a few hours of UTC.
 	startsAt := fixedNow.Add(-time.Minute)

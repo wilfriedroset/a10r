@@ -16,10 +16,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // Page renders the AM /status output.
@@ -65,7 +65,7 @@ func (p *Page) Title() string {
 }
 
 // HeaderContent implements app.Page. Uptime is humanised via
-// header.FormatDuration so the header zone stays narrow for the
+// timerender.Duration so the header zone stays narrow for the
 // long-uptime case (a 10-year-old backend used to render as the raw
 // Go Stringer "87600h0m0s" — see status brainstorm finding
 // HeaderContent_FormatsUptime_AsGoDurationString).
@@ -74,7 +74,7 @@ func (p *Page) HeaderContent() string {
 		return "status: (loading)"
 	}
 	return fmt.Sprintf("%s · v%s · uptime %s",
-		p.tenant, p.st.Version.Version, header.FormatDuration(p.st.Uptime))
+		p.tenant, p.st.Version.Version, timerender.Duration(p.st.Uptime))
 }
 
 // Footer implements app.Page. Status pane doesn't surface

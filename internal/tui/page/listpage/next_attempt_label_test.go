@@ -10,7 +10,7 @@ import (
 )
 
 // TestNextAttemptLabel pins the s/m/h/d ladder (inherited from
-// header.FormatDuration) and the past-due boundary so a future
+// timerender.Duration) and the past-due boundary so a future
 // ladder edit can't silently reshape the suffix. ErrorBand calls
 // this through the renderer, so a regression here would still
 // surface in the table tests — but the per-unit boundary cases

@@ -11,9 +11,9 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 func (p *Page) View(width, height int) string {
@@ -266,9 +266,9 @@ func padCell(s string, w int) string {
 // format. Mirrors the alerts / alert-detail formatters.
 func (p *Page) formatTime(ts time.Time) string {
 	if p.timeFormat == app.TimeFormatAbsolute {
-		return header.FormatAbsolute(ts)
+		return timerender.Display(timerender.Absolute, p.now(), ts)
 	}
-	return header.FormatRelative(p.now(), ts)
+	return timerender.Display(timerender.Relative, p.now(), ts)
 }
 
 // clipSilenceID returns the leading 8 chars of id so the UUID
