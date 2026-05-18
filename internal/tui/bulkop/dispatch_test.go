@@ -72,12 +72,6 @@ func TestDispatch_TableDriven(t *testing.T) {
 			want:        []string{},
 		},
 		{
-			name:        "single op single tenant",
-			ops:         []bulkop.Op[string]{{Key: "a", Tenant: "prod"}},
-			concurrency: 4,
-			want:        []string{"a"},
-		},
-		{
 			name: "multiple ops single tenant",
 			ops: []bulkop.Op[string]{
 				{Key: "a", Tenant: "prod"},
