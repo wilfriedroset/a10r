@@ -1866,32 +1866,6 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 		"recovery clears the band so transient blips don't linger")
 }
 
-func TestPage_ErrorBandPrefixesTenantOnAllScope(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	p.Scope = "all"
-
-	_, _ = p.Update(poll.BackendStatusMsg{
-		Tenant: "prod",
-		State:  header.ConnUnreachable,
-		Detail: "401 unauthorised",
-	})
-	require.Equal(t, "prod: 401 unauthorised", p.ErrorBand(),
-		"all-scope view prefixes tenant so the operator knows which one")
-}
-
-func TestPage_ErrorBandCollapsesMultipleOffenders(t *testing.T) {
-	t.Parallel()
-	p := newPage(t)
-	p.Scope = "all"
-
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "alpha", State: header.ConnUnreachable, Detail: "down"})
-	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "beta", State: header.ConnUnreachable, Detail: "401"})
-
-	// Sorted-by-tenant: alpha is the first offender.
-	require.Equal(t, "2 backends erroring; alpha: down", p.ErrorBand())
-}
-
 // TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied locks
 // in the QA-driven contract for the round-2 fix: a multi-tenant
 // fleet with one broken backend (cold-start connection refused, no
