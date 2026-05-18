@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -371,7 +372,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	band := p.RenderErrorBand(width, p.styles.Severity.Critical.GetForeground())
+	band := p.RenderErrorBand(time.Now(), width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
 		bandLines = 1

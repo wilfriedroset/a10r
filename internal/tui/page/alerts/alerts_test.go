@@ -1845,24 +1845,24 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	p := newPage(t)
 
 	// No errors → empty band.
-	require.Empty(t, p.ErrorBand())
+	require.Empty(t, p.ErrorBand(fixedNow))
 
-	// Failure transition with a Detail string surfaces it.
+	// Failure transition with a Detail string surfaces it. NextAt is
+	// past-due (zero) so the suffix renders as `retrying now`.
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
 		State:  header.ConnUnreachable,
 		Detail: "connection refused",
 	})
-	require.Equal(t, "connection refused", p.ErrorBand(),
-		"single-tenant scope renders detail verbatim (no tenant prefix)")
+	require.Equal(t, "connection refused — retrying now", p.ErrorBand(fixedNow),
+		"single-tenant scope renders detail verbatim (no tenant prefix) with the retry suffix")
 
-	// Recovery transition (Detail empty) clears the row.
+	// Recovery transition clears the row.
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
 		State:  header.ConnConnected,
-		Detail: "",
 	})
-	require.Empty(t, p.ErrorBand(),
+	require.Empty(t, p.ErrorBand(fixedNow),
 		"recovery clears the band so transient blips don't linger")
 }
 

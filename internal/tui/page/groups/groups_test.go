@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -566,27 +567,28 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 
 func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	t.Parallel()
+	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	// Single-tenant scope: detail is rendered verbatim without a
 	// tenant prefix. The page constructor seeds scope to "all" by
 	// default, so we narrow it for this case.
 	p.Scope = "prod"
 
-	require.Empty(t, p.ErrorBand())
+	require.Empty(t, p.ErrorBand(now))
 
+	// NextAt is past-due (zero) so the suffix renders as `retrying now`.
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
 		State:  header.ConnUnreachable,
 		Detail: "connection refused",
 	})
-	require.Equal(t, "connection refused", p.ErrorBand(),
-		"single-tenant scope renders detail verbatim (no tenant prefix)")
+	require.Equal(t, "connection refused — retrying now", p.ErrorBand(now),
+		"single-tenant scope renders detail verbatim (no tenant prefix) with the retry suffix")
 
 	_, _ = p.Update(poll.BackendStatusMsg{
 		Tenant: "prod",
 		State:  header.ConnConnected,
-		Detail: "",
 	})
-	require.Empty(t, p.ErrorBand(),
+	require.Empty(t, p.ErrorBand(now),
 		"recovery clears the band so transient blips don't linger")
 }

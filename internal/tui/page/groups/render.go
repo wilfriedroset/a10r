@@ -74,7 +74,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	band := p.RenderErrorBand(width, p.styles.Severity.Critical.GetForeground())
+	band := p.RenderErrorBand(p.now(), width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
 		bandLines = 1
