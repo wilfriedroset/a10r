@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package poll runs one (backend, resource) poll loop with
-// backoff, jitter, and transition-only connection-state emission.
+// backoff, jitter, and asymmetric connection-state emission:
+// per-tick during a failure run so consumers can re-render against
+// the running counter and next-attempt clock; transition-only on
+// the success path because per-tick UI is already driven by
+// DataMsg. See ADR-0014.
 //
 // The poller is goroutine-based — bubbletea v2 supports external
 // goroutines via Program.Send, which is the channel the poller
@@ -66,24 +70,32 @@ type DataMsg struct {
 	NextAt        time.Time
 }
 
-// BackendStatusMsg is emitted only when the connection state
-// actually changes. This avoids re-rendering the header on every
-// successful tick when nothing visually changed.
+// BackendStatusMsg is emitted asymmetrically: per failed tick so
+// downstream consumers can re-render against a fresh next-attempt
+// clock, but transition-only on the success path because DataMsg
+// already drives the success-case UI. See ADR-0014.
 //
-// Detail carries a short, operator-facing error message for the
-// transition that triggered the state change — empty on
-// transitions to ConnConnected (the success case has no detail
-// to show). Pages render Detail in the per-page error band so
-// the operator sees what's wrong without opening the log file.
-// The string is the err.Error() form returned by the fetch and
-// is therefore subject to redaction at the underlying transport
-// layer (ADR 0008): no caller may pass a raw bearer token here
-// because the transport's auth wrapper prefixes a sanitised form
-// upstream.
+// Detail carries a short, operator-facing error message — empty
+// on transitions to ConnConnected (the success case has no
+// diagnostic to show). The string is the err.Error() form
+// returned by the fetch and is therefore subject to redaction at
+// the underlying transport layer (ADR 0008): no caller may pass a
+// raw bearer token here because the transport's auth wrapper
+// prefixes a sanitised form upstream.
+//
+// Failures is the running count of consecutive failed fetches.
+// Zero on recovery emissions.
+//
+// NextAt is the clock time the poller will attempt the next fetch
+// at. Zero on recovery emissions. Computed once per tick alongside
+// the loop's actual sleep so a consumer rendering "next - now"
+// stays in lockstep with the goroutine's real wait.
 type BackendStatusMsg struct {
-	Tenant string
-	State  header.ConnState
-	Detail string
+	Tenant   string
+	State    header.ConnState
+	Detail   string
+	Failures int
+	NextAt   time.Time
 }
 
 // Backoff controls how the poller spaces out attempts after a
@@ -159,21 +171,14 @@ type Poller struct {
 	clock    Clock
 	backoff  Backoff
 
-	// state tracks the last connection state we emitted so we only
-	// publish BackendStatusMsg on real transitions. Loop-goroutine
-	// only — see the type doc.
+	// state tracks the last connection state we emitted. The
+	// recovery emit gates on it (skip when already Connected);
+	// failure ticks set it but never gate on it (they emit
+	// per-tick regardless of prior state). Born in
+	// ConnUnreachable so the cold-start success tick naturally
+	// fires its first recovery emission (Connected != Unreachable).
+	// Loop-goroutine only — see the type doc.
 	state header.ConnState
-	// emitted reports whether transition has ever sent a
-	// BackendStatusMsg for this Poller lifetime. Tracked separately
-	// from state because state has a cold-start sentinel
-	// (ConnUnreachable) that would otherwise suppress the very
-	// first failure of class Unreachable: connection refused on
-	// tick 1 maps back to ConnUnreachable, the same value state
-	// was born with, so a naive "emit on change" would drop the
-	// message and the error band on every list page would stay
-	// dark while the poll loop quietly retried in the background.
-	// Loop-goroutine only.
-	emitted bool
 	// failures counts consecutive errors since the last success;
 	// drives the exponential backoff. Loop-goroutine only.
 	failures int
@@ -250,13 +255,11 @@ func New(opts Options) *Poller {
 		clock:    clock,
 		backoff:  bo,
 		refresh:  make(chan struct{}, 1),
-		// Cold-start state is Unreachable — but the first tick
-		// always emits regardless (see transition's emitted-flag
-		// guard) so the choice of sentinel only matters for
-		// subsequent transitions. Keeping Unreachable here keeps
-		// the success-on-first-tick narrative obvious: state went
-		// from Unreachable to Connected the moment the backend
-		// answered.
+		// Cold-start sentinel: Unreachable so a first-tick success
+		// trips transitionToConnected's prior-state check and the
+		// initial recovery emission fires. A first-tick failure
+		// emits unconditionally on the per-tick branch regardless
+		// of this value.
 		state: header.ConnUnreachable,
 	}
 }
@@ -304,7 +307,6 @@ func (p *Poller) Start(ctx context.Context) {
 	// constructed. No data race: the previous goroutine is joined
 	// in Stop before this point is reachable.
 	p.state = header.ConnUnreachable
-	p.emitted = false
 	p.failures = 0
 	go func() {
 		defer close(done)
@@ -394,11 +396,21 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	}
 	if err != nil {
 		p.failures++
-		p.transition(stateFromErr(err), err.Error())
-		return p.nextDelay(), true
+		now := p.clock.Now()
+		delay := p.nextDelay()
+		next := stateFromErr(err)
+		p.state = next
+		p.send(BackendStatusMsg{
+			Tenant:   p.tenant,
+			State:    next,
+			Detail:   err.Error(),
+			Failures: p.failures,
+			NextAt:   now.Add(delay),
+		})
+		return delay, true
 	}
 	p.failures = 0
-	p.transition(header.ConnConnected, "")
+	p.transitionToConnected()
 	now := p.clock.Now()
 	delay := p.nextDelay()
 	p.send(DataMsg{
@@ -411,27 +423,19 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	return delay, true
 }
 
-// transition emits a BackendStatusMsg when state actually changes
-// from the last emitted value, OR when nothing has been emitted
-// yet for this Poller lifetime. The "or" guard exists because the
-// poller is born in the ConnUnreachable cold-start sentinel — a
-// first-tick connection-refused (which classifies as
-// ConnUnreachable) would otherwise match the existing state and
-// be suppressed, leaving every list page's error band dark while
-// the backend never replies. The first emission unconditionally
-// surfaces the operator-visible diagnostic; subsequent ticks fall
-// back to transition-only emission as before.
-//
-// detail carries the err's Error() text on failure transitions;
-// empty on successful transitions where there is no diagnostic to
-// surface.
-func (p *Poller) transition(next header.ConnState, detail string) {
-	if p.emitted && next == p.state {
+// transitionToConnected emits the recovery BackendStatusMsg only
+// when the prior state was not already connected — the cold-start
+// state is ConnUnreachable, so the first successful tick fires the
+// emission naturally. Detail / Failures / NextAt are zero: the
+// success-path UI is driven by DataMsg, so the recovery ping
+// carries no diagnostic and must not hijack downstream consumers
+// that read NextAt for their own success-case cadence.
+func (p *Poller) transitionToConnected() {
+	if p.state == header.ConnConnected {
 		return
 	}
-	p.state = next
-	p.emitted = true
-	p.send(BackendStatusMsg{Tenant: p.tenant, State: next, Detail: detail})
+	p.state = header.ConnConnected
+	p.send(BackendStatusMsg{Tenant: p.tenant, State: header.ConnConnected})
 }
 
 // nextDelay returns the wait before the next tick. Success → full

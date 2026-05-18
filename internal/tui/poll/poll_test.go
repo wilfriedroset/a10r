@@ -687,6 +687,120 @@ func TestStateFromErr(t *testing.T) {
 	}
 }
 
+// TestPoller_FailurePerTickEmissionCarriesFailuresAndNextAt locks
+// the load-bearing half of ADR-0014: a failure run emits a fresh
+// BackendStatusMsg on every tick (not just on state change), each
+// carrying the running consecutive-failure counter and the next-
+// attempt clock the loop is about to sleep until — the same shape
+// DataMsg uses for the success path.
+func TestPoller_FailurePerTickEmissionCarriesFailuresAndNextAt(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+	clock := newFakeClock()
+	startNow := clock.Now()
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "alerts",
+		Interval: 30 * time.Second,
+		Fetch: func(_ context.Context) (any, error) {
+			return nil, backend.ErrUnreachable
+		},
+		Send:    rec.Send,
+		Clock:   clock,
+		Backoff: noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	// Tick 1: first failure. Failures=1, NextAt=now+base (1s).
+	s1, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok)
+	require.Equal(t, header.ConnUnreachable, s1.State)
+	require.Equal(t, 1, s1.Failures)
+	require.Equal(t, startNow.Add(time.Second), s1.NextAt)
+	require.NotEmpty(t, s1.Detail, "failure emission must carry err.Error()")
+
+	// Tick 2: second failure — state did NOT change, but per-tick
+	// emission rule fires a fresh message anyway. fakeClock.fireNext
+	// advances `now` by the fired delay (1s), then the loop's next
+	// nextDelay returns 2s (base<<1).
+	clock.fireNext(t)
+	s2, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok, "second failure tick must emit despite unchanged state")
+	require.Equal(t, header.ConnUnreachable, s2.State)
+	require.Equal(t, 2, s2.Failures)
+	require.Equal(t, startNow.Add(time.Second+2*time.Second), s2.NextAt)
+	require.NotEmpty(t, s2.Detail,
+		"same-state failure tick must keep carrying Detail so consumers don't mistake an empty-Detail message for a recovery")
+
+	// Tick 3: same-state failure, still emits.
+	clock.fireNext(t)
+	s3, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok)
+	require.Equal(t, 3, s3.Failures)
+	require.NotEmpty(t, s3.Detail)
+}
+
+// TestPoller_RecoveryEmissionIsZeroedAndTransitionOnly pins the
+// recovery half of ADR-0014's asymmetric emission: a success after
+// failures emits ONE BackendStatusMsg with State=Connected and
+// zeroed Detail / Failures / NextAt — the success-path UI is fed
+// by DataMsg and the recovery ping must not hijack the footer's
+// "next refresh" countdown. Subsequent successful ticks emit no
+// further status messages.
+func TestPoller_RecoveryEmissionIsZeroedAndTransitionOnly(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+	clock := newFakeClock()
+	var failNext atomic.Int32
+	failNext.Store(1)
+	p := New(Options{
+		Tenant:   "prod",
+		Resource: "alerts",
+		Interval: 5 * time.Second,
+		Fetch: func(_ context.Context) (any, error) {
+			if failNext.Add(-1) >= 0 {
+				return nil, backend.ErrUnreachable
+			}
+			return "ok", nil
+		},
+		Send:    rec.Send,
+		Clock:   clock,
+		Backoff: noJitter,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+
+	// Tick 1: failure carries Failures=1 / non-zero NextAt.
+	require.IsType(t, BackendStatusMsg{}, rec.next(t))
+
+	// Tick 2: recovery. Status payload must be zeroed.
+	clock.fireNext(t)
+	recovery, ok := rec.next(t).(BackendStatusMsg)
+	require.True(t, ok)
+	require.Equal(t, header.ConnConnected, recovery.State)
+	require.Empty(t, recovery.Detail,
+		"recovery emission must not carry a diagnostic detail")
+	require.Equal(t, 0, recovery.Failures,
+		"recovery emission must zero the failures counter")
+	require.True(t, recovery.NextAt.IsZero(),
+		"recovery emission must leave NextAt zero so the footer's countdown is the sole success-path cadence surface")
+	require.IsType(t, DataMsg{}, rec.next(t))
+
+	// Tick 3: success-after-success — no further BackendStatusMsg.
+	clock.fireNext(t)
+	require.IsType(t, DataMsg{}, rec.next(t))
+	rec.drainNoMore(t)
+}
+
 func TestPoller_DataMsgCarriesAtAndNextAt(t *testing.T) {
 	t.Parallel()
 
