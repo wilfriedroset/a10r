@@ -242,7 +242,7 @@ Built-in commands (not view-jumps):
 
 ## Mouse
 
-**Wheel-only.** Cell-motion mouse mode is enabled so the terminal forwards wheel ticks: wheel-up / wheel-down on a list page walks the cursor (the App synthesises `k` / `j` so each page's existing `cursor.HandleMotion` path runs), and wheel ticks on the help overlay scroll its body without dismissing the modal. Click / release / motion events are explicitly dropped — keyboard-first contract: no click-to-focus, no drag-select. The k9s audit flagged inconsistent mouse handling as one thing to do better, so the surface stays minimal; `bubblezone` (already on the shelf in `tui-library-comparison.md`) is the canonical bubbletea path if a richer interaction model becomes load-bearing.
+**Wheel-only.** Cell-motion mouse mode is enabled so the terminal forwards wheel ticks: wheel-up / wheel-down on a list page walks the cursor (the App synthesises `k` / `j` so each page's existing vim-motion path runs), and wheel ticks on the help overlay scroll its body without dismissing the modal. Click / release / motion events are explicitly dropped — keyboard-first contract: no click-to-focus, no drag-select. The k9s audit flagged inconsistent mouse handling as one thing to do better, so the surface stays minimal; `bubblezone` (already on the shelf in `tui-library-comparison.md`) is the canonical bubbletea path if a richer interaction model becomes load-bearing.
 
 ## Stack behaviour
 
