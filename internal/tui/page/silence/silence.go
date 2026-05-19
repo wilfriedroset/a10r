@@ -23,7 +23,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
@@ -40,6 +40,8 @@ type Options struct {
 
 // Page is the silence-detail view. Implements app.Page.
 type Page struct {
+	*detailpage.Base
+
 	s      backend.Silence
 	tenant string
 	styles *theme.Styles
@@ -60,17 +62,6 @@ type Page struct {
 	// is per-page (does not persist across pushes); a fresh drill
 	// always opens structured because that's the curated shape.
 	rawYAML bool
-
-	// scroll is the index of the first visible body line. j/k/G/gg
-	// walk it; the renderer reconciles against the body height
-	// every frame so the user can never scroll past the bottom.
-	scroll int
-
-	// bodyHeight is the viewport size snapshotted on the most
-	// recent View call. Ctrl+D/U step half it; Ctrl+F/B step
-	// body-2. Zero before the first render — handlers fall back to
-	// 10 / 20.
-	bodyHeight int
 }
 
 // New constructs a silence-detail page.
@@ -84,6 +75,7 @@ func New(opts Options) *Page {
 		raw = fmt.Sprintf("(failed to render raw silence: %v)", rawErr)
 	}
 	return &Page{
+		Base:    &detailpage.Base{},
 		s:       opts.Silence,
 		tenant:  opts.Tenant,
 		styles:  opts.Styles,
@@ -91,12 +83,6 @@ func New(opts Options) *Page {
 		rawBody: raw,
 	}
 }
-
-// Init implements app.Page.
-func (*Page) Init() tea.Cmd { return nil }
-
-// Close implements app.Page.
-func (*Page) Close() tea.Cmd { return nil }
 
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "silence" }
@@ -120,15 +106,6 @@ func (p *Page) Title() string {
 	return base
 }
 
-// HeaderContent implements app.Page. The title already shows
-// `<tenant>/<id>` and the YAML body surfaces `state:` on its own
-// line — anything else here would duplicate what's a glance away.
-func (*Page) HeaderContent() string { return "" }
-
-// Footer implements app.Page. Silence detail doesn't surface
-// ambient state in the bottom border.
-func (*Page) Footer() string { return "" }
-
 // Bindings implements app.Page. The only verb the silence-detail
 // page exposes is the `y` raw-YAML toggle (k9s convention). Scroll
 // keys ride on the global vim-motion list — no need to advertise
@@ -143,62 +120,39 @@ func (*Page) Bindings() []action.Action {
 // here — the App's global LayerGlobal Esc binding pops the stack,
 // which is exactly the right behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	if _, ok := msg.(app.GoToFirstRowMsg); ok {
-		p.scroll = 0
-		return p, nil
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
+		return p, cmd
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
-	switch keyMsg.String() {
-	case "y":
+	key := keyMsg.String()
+	if key == "y" {
 		// Toggle between the curated structured YAML and the raw
 		// backend.Silence dump. Reset scroll so the user lands at
 		// the top of the new mode rather than mid-document at an
 		// offset that came from a body of a different length.
 		p.rawYAML = !p.rawYAML
-		p.scroll = 0
-	case "j", "down":
-		p.scroll++
-	case "k", "up":
-		if p.scroll > 0 {
-			p.scroll--
-		}
-	case "ctrl+d":
-		p.scroll += cursor.HalfPageStep(p.bodyHeight)
-	case "ctrl+u":
-		p.scroll = max(p.scroll-cursor.HalfPageStep(p.bodyHeight), 0)
-	case "ctrl+f":
-		p.scroll += cursor.FullPageStep(p.bodyHeight)
-	case "ctrl+b":
-		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
-	case "G":
-		// Pin the last line; the renderer clamps against the actual
-		// body length on the next frame.
-		p.scroll = 1 << 30
+		p.Scroll = 0
+		return p, nil
 	}
+	p.HandleScrollKey(key)
 	return p, nil
 }
 
 // View implements app.Page. Builds the styled YAML, slices the
-// visible window starting at p.scroll. Width clamps the body so a
+// visible window starting at p.Scroll. Width clamps the body so a
 // long matcher value doesn't bleed across the borders.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height
+	p.BodyHeight = height
 	lines := p.bodyLines()
-	if p.scroll < 0 {
-		p.scroll = 0
-	}
-	maxScroll := max(len(lines)-height, 0)
-	if p.scroll > maxScroll {
-		p.scroll = maxScroll
-	}
-	end := min(p.scroll+height, len(lines))
-	visible := lines[p.scroll:end]
+	p.ReconcileScroll(len(lines), height)
+	end := min(p.Scroll+height, len(lines))
+	visible := lines[p.Scroll:end]
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
 }
 

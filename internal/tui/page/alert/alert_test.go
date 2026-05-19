@@ -993,13 +993,13 @@ func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
 	// G pins past the end; the next View clamps it to a positive offset.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
 	_ = p.View(80, 15)
-	require.Positive(t, p.scroll, "G must scroll the structured body")
+	require.Positive(t, p.Scroll, "G must scroll the structured body")
 
 	// Toggling y must reset scroll so the user lands at the top of
 	// the new mode rather than mid-document at an offset that came
 	// from a body of a different length.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
-	require.Equal(t, 0, p.scroll, "raw toggle resets scroll")
+	require.Equal(t, 0, p.Scroll, "raw toggle resets scroll")
 }
 
 func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {

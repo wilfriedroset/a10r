@@ -309,15 +309,15 @@ func TestPage_NoFetcherRendersStaticMessage(t *testing.T) {
 }
 
 // TestPage_VimMotionsScroll is the wiring smoke for the page's
-// 1D scroll: pressing `j` in Update must advance p.scroll via the
-// cursor.HalfPageStep / cursor.FullPageStep helpers and the page's
-// own j/k walk. This test only proves the page is wired up.
+// 1D scroll: pressing `j` in Update must advance p.Scroll via the
+// detailpage.Base.HandleScrollKey helper and the page's own j/k walk.
+// This test only proves the page is wired up.
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
-	require.Equal(t, 0, p.scroll)
+	require.Equal(t, 0, p.Scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll, "Update must advance p.scroll on `j`")
+	require.Equal(t, 1, p.Scroll, "Update must advance p.Scroll on `j`")
 }
 
 // TestPage_CloseCancelsInflightFetch pins that closing the page

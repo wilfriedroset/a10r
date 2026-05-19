@@ -23,7 +23,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
@@ -64,6 +64,8 @@ type Options struct {
 
 // Page is the tenant inspector.
 type Page struct {
+	*detailpage.Base
+
 	tenant       string
 	styles       *theme.Styles
 	backendYAML  string
@@ -86,14 +88,6 @@ type Page struct {
 	// to context.Background() so single-shot tests that don't
 	// care about app-level propagation stay green.
 	fetchCtx context.Context //nolint:containedctx // fetch ctx, plumbed once at construction.
-
-	scroll int
-
-	// bodyHeight is the viewport size snapshotted on the most
-	// recent View call. Ctrl+D/U step half it; Ctrl+F/B step
-	// body-2. Zero before the first render — handlers fall back to
-	// 10 / 20.
-	bodyHeight int
 }
 
 // statusFetchedMsg carries the result of the lazy /api/v2/status
@@ -116,7 +110,8 @@ func New(opts Options) *Page {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	return &Page{
+	p := &Page{
+		Base:         &detailpage.Base{},
 		tenant:       opts.Tenant,
 		styles:       opts.Styles,
 		backendYAML:  body,
@@ -125,12 +120,19 @@ func New(opts Options) *Page {
 		fetchCtx:     opts.FetchCtx,
 		loading:      opts.Fetcher != nil,
 	}
+	p.InitCmd = p.statusFetchCmd
+	return p
 }
 
-// Init implements app.Page. Kicks the AM /status fetch when a
-// fetcher is wired; without one, the AM section renders a static
-// "(no client available)" message.
-func (p *Page) Init() tea.Cmd {
+// Init implements app.Page. Delegates to Base which surfaces the
+// optional InitCmd hook — kicks the AM /status fetch when a fetcher
+// is wired; without one, the AM section renders a static "(no
+// client available)" message.
+func (p *Page) Init() tea.Cmd { return p.Base.Init() }
+
+// statusFetchCmd is the lazy /api/v2/status fetch. Returns nil when
+// no fetcher is wired so Base.Init surfaces a nil Cmd in turn.
+func (p *Page) statusFetchCmd() tea.Cmd {
 	if p.fetcher == nil {
 		return nil
 	}
@@ -200,9 +202,6 @@ func (p *Page) HeaderContent() string {
 	return ""
 }
 
-// Footer implements app.Page.
-func (*Page) Footer() string { return "" }
-
 // Bindings implements app.Page. The page is read-only; only
 // scroll motions are surfaced to keep the hint strip sparse.
 func (*Page) Bindings() []action.Action {
@@ -213,8 +212,7 @@ func (*Page) Bindings() []action.Action {
 
 // Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
-	switch m := msg.(type) {
-	case statusFetchedMsg:
+	if m, ok := msg.(statusFetchedMsg); ok {
 		p.loading = false
 		if m.err != nil {
 			if errors.Is(m.err, context.Canceled) {
@@ -228,53 +226,30 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		}
 		p.amConfig = m.cfg
 		return p, nil
-	case app.GoToFirstRowMsg:
-		p.scroll = 0
-		return p, nil
+	}
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
+		return p, cmd
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
-	switch keyMsg.String() {
-	case "j", "down":
-		p.scroll++
-	case "k", "up":
-		if p.scroll > 0 {
-			p.scroll--
-		}
-	case "ctrl+d":
-		p.scroll += cursor.HalfPageStep(p.bodyHeight)
-	case "ctrl+u":
-		p.scroll = max(p.scroll-cursor.HalfPageStep(p.bodyHeight), 0)
-	case "ctrl+f":
-		p.scroll += cursor.FullPageStep(p.bodyHeight)
-	case "ctrl+b":
-		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
-	case "G":
-		p.scroll = 1 << 30 // renderer clamps against body length
-	}
+	p.HandleScrollKey(keyMsg.String())
 	return p, nil
 }
 
 // View implements app.Page. Builds two YAML-styled sections,
-// scrolled by p.scroll. Long files are rendered in full so the
+// scrolled by p.Scroll. Long files are rendered in full so the
 // user can :%search-style scan; clamping happens at the bottom.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height
+	p.BodyHeight = height
 	lines := p.bodyLines()
-	if p.scroll < 0 {
-		p.scroll = 0
-	}
-	maxScroll := max(len(lines)-height, 0)
-	if p.scroll > maxScroll {
-		p.scroll = maxScroll
-	}
-	end := min(p.scroll+height, len(lines))
-	visible := lines[p.scroll:end]
+	p.ReconcileScroll(len(lines), height)
+	end := min(p.Scroll+height, len(lines))
+	visible := lines[p.Scroll:end]
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
 }
 

@@ -131,15 +131,15 @@ func TestPage_BodyAppliesYAMLKeyAndValueStyles(t *testing.T) {
 }
 
 // TestPage_VimMotionsScroll is the wiring smoke for the page's
-// 1D scroll: pressing `j` in Update must advance p.scroll via the
-// cursor.HalfPageStep / cursor.FullPageStep helpers and the page's
-// own j/k walk. This test only proves the page is wired up.
+// 1D scroll: pressing `j` in Update must advance p.Scroll via the
+// detailpage.Base.HandleScrollKey helper and the page's own j/k walk.
+// This test only proves the page is wired up.
 func TestPage_VimMotionsScroll(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
-	require.Equal(t, 0, p.scroll)
+	require.Equal(t, 0, p.Scroll)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 1, p.scroll, "Update must advance p.scroll on `j`")
+	require.Equal(t, 1, p.Scroll, "Update must advance p.Scroll on `j`")
 }
 
 func TestPage_ScrollClampsToBodyOnRender(t *testing.T) {
@@ -147,12 +147,12 @@ func TestPage_ScrollClampsToBodyOnRender(t *testing.T) {
 	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	// Pin scroll way past the end with G; the next View must clamp.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
-	require.Positive(t, p.scroll)
+	require.Positive(t, p.Scroll)
 	_ = p.View(120, 40)
-	// View clamps p.scroll to max(len(lines)-height, 0) — for our
+	// View clamps p.Scroll to max(len(lines)-height, 0) — for our
 	// small body that is 0; we don't depend on the exact line count
 	// here, only that the renderer brought scroll back into range.
-	require.LessOrEqual(t, p.scroll, len(p.bodyLines()))
+	require.LessOrEqual(t, p.Scroll, len(p.bodyLines()))
 }
 
 func TestPage_GoToFirstRowResetsScroll(t *testing.T) {
@@ -160,9 +160,9 @@ func TestPage_GoToFirstRowResetsScroll(t *testing.T) {
 	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, 2, p.scroll)
+	require.Equal(t, 2, p.Scroll)
 	_, _ = p.Update(app.GoToFirstRowMsg{})
-	require.Equal(t, 0, p.scroll)
+	require.Equal(t, 0, p.Scroll)
 }
 
 func TestPage_NoOpKeysAreSilent(t *testing.T) {
@@ -219,10 +219,10 @@ func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
 	for range 3 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
-	require.Equal(t, 3, p.scroll)
+	require.Equal(t, 3, p.Scroll)
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
-	require.Equal(t, 0, p.scroll,
+	require.Equal(t, 0, p.Scroll,
 		"toggling raw must reset scroll so the user lands at the top "+
 			"of the new mode rather than mid-document")
 }

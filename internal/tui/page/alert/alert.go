@@ -26,7 +26,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
-	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -87,6 +87,8 @@ type Options struct {
 
 // Page is the alert-detail view. Implements app.Page.
 type Page struct {
+	*detailpage.Base
+
 	a backend.Alert
 	// silencedBy is the de-duplicated, order-preserving SilencedBy
 	// list. Stored separately from a.SilencedBy so a non-conforming
@@ -111,17 +113,6 @@ type Page struct {
 	// app.TimeFormatChangedMsg so the summary's "age:" line reads
 	// the same shape as the alerts list it was pushed from.
 	timeFormat timerender.Format
-
-	// scroll is the index of the first visible body line. j/k/G/gg
-	// walk it; the renderer reconciles against the body height
-	// every frame so the user can never scroll past the bottom.
-	scroll int
-
-	// bodyHeight is the viewport size snapshotted on the most
-	// recent View call. Ctrl+D/U step half it; Ctrl+F/B step
-	// body-2. Zero before the first render — handlers fall back to
-	// 10 / 20.
-	bodyHeight int
 
 	// silences caches the polled snapshot for p.tenant only, keyed
 	// by silence ID. Populated from poll.DataMsg{ResourceLabel:
@@ -151,7 +142,8 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	return &Page{
+	p := &Page{
+		Base:       &detailpage.Base{},
 		a:          opts.Alert,
 		silencedBy: dedupStrings(opts.Alert.SilencedBy),
 		tenant:     opts.Tenant,
@@ -165,6 +157,9 @@ func New(opts Options) *Page {
 		silences:   map[string]backend.Silence{},
 		readOnly:   opts.ReadOnly,
 	}
+	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
+	p.OnModalResult = p.handleModalResult
+	return p
 }
 
 // PollResources implements app.PollAwarePage. The detail page only
@@ -174,12 +169,6 @@ func New(opts Options) *Page {
 // page on push so a freshly-drilled detail view shows enriched
 // rows immediately, without waiting for the next poll tick.
 func (*Page) PollResources() []string { return []string{"silences"} }
-
-// Init implements app.Page.
-func (*Page) Init() tea.Cmd { return nil }
-
-// Close implements app.Page.
-func (*Page) Close() tea.Cmd { return nil }
 
 // Crumb implements app.Page.
 func (*Page) Crumb() string { return "detail" }
@@ -201,16 +190,6 @@ func (p *Page) Title() string {
 	}
 	return base
 }
-
-// HeaderContent implements app.Page. The title already shows
-// `<tenant>/<alertname>` and the summary block surfaces state and
-// tenant on their own lines — anything else here would duplicate
-// what's a glance away.
-func (*Page) HeaderContent() string { return "" }
-
-// Footer implements app.Page. Alert detail doesn't surface
-// ambient state in the bottom border.
-func (*Page) Footer() string { return "" }
 
 // Bindings implements app.Page. When the page is in read-only
 // mode the Dangerous entries (`s`) are stripped before the slice
@@ -238,13 +217,10 @@ func (p *Page) Bindings() []action.Action {
 // here — the App's global LayerGlobal Esc binding pops the stack
 // (#23), which is exactly the right behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	if handled, cmd := p.HandleSidebandMsg(msg); handled {
+		return p, cmd
+	}
 	switch m := msg.(type) {
-	case app.GoToFirstRowMsg:
-		p.scroll = 0
-		return p, nil
-	case app.TimeFormatChangedMsg:
-		p.timeFormat = m.Format
-		return p, nil
 	case poll.DataMsg:
 		p.ingestSilences(m)
 		return p, nil
@@ -260,28 +236,20 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.
 		return p, nil
-	case SilenceSelectedMsg:
-		// User picked one row from the disambiguation modal. Drill
-		// in via the cache; an unresolved ID flashes the same hint
-		// the rendered degraded row already advertises.
-		cmd := p.openSilenceDetail(m.ID)
-		return p, cmd
-	case SilenceCancelledMsg:
-		// Modal Esc'd. No flash — nothing happened.
-		return p, nil
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
-	switch keyMsg.String() {
+	key := keyMsg.String()
+	switch key {
 	case "y":
 		// Toggle the raw-YAML body. Resetting scroll keeps the
 		// switch unsurprising — a long structured view scrolled
 		// halfway down would otherwise land the user mid-document
 		// in a YAML payload of a different length.
 		p.rawYAML = !p.rawYAML
-		p.scroll = 0
+		p.Scroll = 0
 		return p, nil
 	case "c":
 		cmd := p.copyFingerprint()
@@ -289,24 +257,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case "o":
 		cmd := p.openGeneratorURL()
 		return p, cmd
-	case "j", "down":
-		p.scroll++
-	case "k", "up":
-		if p.scroll > 0 {
-			p.scroll--
-		}
-	case "ctrl+d":
-		p.scroll += cursor.HalfPageStep(p.bodyHeight)
-	case "ctrl+u":
-		p.scroll = max(p.scroll-cursor.HalfPageStep(p.bodyHeight), 0)
-	case "ctrl+f":
-		p.scroll += cursor.FullPageStep(p.bodyHeight)
-	case "ctrl+b":
-		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
-	case "G":
-		// Pin the last line; the renderer clamps against the
-		// actual body length on the next frame.
-		p.scroll = 1 << 30
 	case "s":
 		if p.readOnly {
 			return p, flashFn(footer.FlashWarn, hintReadOnly)
@@ -317,7 +267,24 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		cmd := p.openSilencedByDetail()
 		return p, cmd
 	}
+	p.HandleScrollKey(key)
 	return p, nil
+}
+
+// handleModalResult is the OnModalResult callback wired into
+// Base.OnModalResult at construction. The silence-picker modal
+// returns SilenceSelectedMsg / SilenceCancelledMsg via the typed
+// wrapper in silencepicker.go; everything else falls through to
+// the page's main switch (handled=false) so a sibling page's modal
+// result that incidentally reached us cannot be silently swallowed.
+func (p *Page) handleModalResult(m modal.ResultMsg) (bool, tea.Cmd) {
+	switch v := m.(type) {
+	case SilenceSelectedMsg:
+		return true, p.openSilenceDetail(v.ID)
+	case SilenceCancelledMsg:
+		return true, nil
+	}
+	return false, nil
 }
 
 // ingestSilences caches the silences poll snapshot for p.tenant.
@@ -444,7 +411,7 @@ func isSafeBrowserURL(raw string) bool {
 
 // View implements app.Page. Builds a flat line list, hanging-
 // indent-wraps any line that overflows width, then slices the
-// visible window starting at p.scroll.
+// visible window starting at p.Scroll.
 //
 // The rawYAML toggle swaps the line list for a raw-payload dump
 // produced by output.WriteYAML; the scroll / styling / clamping
@@ -453,19 +420,19 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.bodyHeight = height
+	p.BodyHeight = height
 	var lines []string
 	if p.rawYAML {
 		lines = p.rawYAMLLines()
 	} else {
 		lines = p.bodyLines(width)
 	}
-	p.reconcileScroll(len(lines), height)
-	end := min(p.scroll+height, len(lines))
-	if p.scroll > end {
-		p.scroll = end
+	p.ReconcileScroll(len(lines), height)
+	end := min(p.Scroll+height, len(lines))
+	if p.Scroll > end {
+		p.Scroll = end
 	}
-	visible := lines[p.scroll:end]
+	visible := lines[p.Scroll:end]
 	// Apply skin's YAML.Key / .Value / .Punct foreground roles per
 	// line. yamlstyle short-circuits anything that doesn't look
 	// like a real `key: value` row — comment-only lines, blank
@@ -789,21 +756,6 @@ func (p *Page) openSilenceDetail(id string) tea.Cmd {
 			Styles:  styles,
 		})
 	})
-}
-
-// reconcileScroll clamps p.scroll so the visible window stays
-// within [0, totalLines). Mirrors the list pages' viewport
-// reconciliation but operates on flat-line indices instead of
-// row indices.
-func (p *Page) reconcileScroll(totalLines, height int) {
-	if p.scroll < 0 {
-		p.scroll = 0
-		return
-	}
-	maxScroll := max(totalLines-height, 0)
-	if p.scroll > maxScroll {
-		p.scroll = maxScroll
-	}
 }
 
 // splitLines splits s on \n. Used so renderSummary's multi-line
