@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cmd
+package boot
 
 import (
 	"fmt"
@@ -52,9 +52,6 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 		tok := args[i]
 		key, val, hasEq := parseFlagToken(tok)
 		if key == "" {
-			// Positional tokens (`list`, free text) are accepted and
-			// dropped. The alias schema is "looks like a CLI"; we
-			// don't want to fail closed on cosmetic words.
 			continue
 		}
 		if !hasEq {
@@ -84,10 +81,6 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 // parseFlagToken splits a CLI-style token into its flag key, the
 // embedded value (when present), and a flag indicating whether the
 // `=value` shape was used.
-//
-// `--state` returns ("state", "", false); `--state=foo` returns
-// ("state", "foo", true); anything else returns ("", "", false) so
-// the caller treats the token as a positional drop.
 func parseFlagToken(tok string) (key, value string, hasEquals bool) {
 	if !strings.HasPrefix(tok, "--") {
 		return "", "", false
@@ -98,9 +91,6 @@ func parseFlagToken(tok string) (key, value string, hasEquals bool) {
 	}
 	if before, after, ok := strings.Cut(body, "="); ok {
 		if before == "" {
-			// `--=value` — malformed; treat as positional drop so the
-			// caller doesn't surface a confusing "unknown flag --"
-			// error chain.
 			return "", "", false
 		}
 		return before, after, true

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package cmd
+package boot
 
 import (
 	"context"
@@ -24,32 +24,29 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
-// PageEnv bundles the shared dependencies every TUI page needs at
-// construction time. It is built once in runTUI and read by every
-// newXxxPage factory; passing one PageEnv keeps newResolver's
+// pageEnv bundles the shared dependencies every TUI page needs at
+// construction time. Built once in Build and read by every
+// newXxxPage factory; passing one pageEnv keeps the resolver's
 // parameter list bounded and makes adding a future shared dep a
 // struct-field change instead of an N-arg propagation across two
-// call sites (newResolver and the startup home factory).
-//
-// Package-internal construction concern. Consumers outside cmd/
-// should not depend on it.
-type PageEnv struct {
-	EditorCtx           context.Context //nolint:containedctx // construction-time plumbing for page BulkCtx / SubmitCtx fields, not session state.
-	Styles              *theme.Styles
-	Scope               string
-	SilenceClients      map[string]silenceform.Client
-	Creator             string
-	TenantRows          []tenant.Row
-	Config              *config.Config
-	Clients             map[string]backend.Client
-	TimeFormat          func() timerender.Format
-	ReadOnly            bool
-	TenantNames         []string
-	TenantConfigByName  map[string]config.Backend
-	EditorResolver      edit.Resolver
+// call sites (the resolver and the startup home factory).
+type pageEnv struct {
+	EditorCtx          context.Context //nolint:containedctx // construction-time plumbing for page BulkCtx / SubmitCtx fields, not session state.
+	Styles             *theme.Styles
+	Scope              string
+	SilenceClients     map[string]silenceform.Client
+	Creator            string
+	TenantRows         []tenant.Row
+	Config             *config.Config
+	Clients            map[string]backend.Client
+	TimeFormat         func() timerender.Format
+	ReadOnly           bool
+	TenantNames        []string
+	TenantConfigByName map[string]config.Backend
+	EditorResolver     edit.Resolver
 }
 
-func newAlertsPage(env *PageEnv, stateFilter, filter string) app.Page {
+func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 	return alerts.New(alerts.Options{
 		Styles:             env.Styles,
 		Now:                time.Now,
@@ -68,7 +65,7 @@ func newAlertsPage(env *PageEnv, stateFilter, filter string) app.Page {
 	})
 }
 
-func newSilencesPage(env *PageEnv) app.Page {
+func newSilencesPage(env *pageEnv) app.Page {
 	return silences.New(silences.Options{
 		Styles:          env.Styles,
 		Now:             time.Now,
@@ -86,7 +83,7 @@ func newSilencesPage(env *PageEnv) app.Page {
 	})
 }
 
-func newGroupsPage(env *PageEnv) app.Page {
+func newGroupsPage(env *pageEnv) app.Page {
 	return groups.New(groups.Options{
 		Styles:    env.Styles,
 		Now:       time.Now,
@@ -98,18 +95,18 @@ func newGroupsPage(env *PageEnv) app.Page {
 	})
 }
 
-func newReceiversPage(env *PageEnv) app.Page {
+func newReceiversPage(env *pageEnv) app.Page {
 	return receivers.New(receivers.Options{
 		Styles:  env.Styles,
 		Tenants: env.TenantNames,
 	})
 }
 
-func newStatusPage(env *PageEnv) app.Page {
+func newStatusPage(env *pageEnv) app.Page {
 	return status.New(env.Styles, env.Scope)
 }
 
-func newTenantPage(env *PageEnv, drill func(string) (app.Page, error)) app.Page {
+func newTenantPage(env *pageEnv, drill func(string) (app.Page, error)) app.Page {
 	p := tenant.New(tenant.Options{
 		Styles:       env.Styles,
 		DrillFactory: drill,
@@ -118,7 +115,7 @@ func newTenantPage(env *PageEnv, drill func(string) (app.Page, error)) app.Page 
 	return p
 }
 
-func newTenantConfigPage(env *PageEnv, name string) (app.Page, error) {
+func newTenantConfigPage(env *pageEnv, name string) (app.Page, error) {
 	be, ok := env.TenantConfigByName[name]
 	if !ok {
 		return nil, fmt.Errorf("backend %q not in config", name)
