@@ -169,11 +169,9 @@ func (d *Dispatcher) Set(layer Layer, key string, h Handler) {
 // handler captured here are the destination ApplyOverrides wires
 // those extra keys into.
 //
-// Re-registering the same action overwrites the recorded entry
-// (last write wins, matching Set's semantics) so deferred wiring
-// can re-bind without a discrete clear step. The order slot is
-// preserved on overwrite — repeated registrations do not move an
-// entry to the end of Bindings()'s output.
+// Re-registering the same name keeps the original slot in
+// actionOrder so Bindings() output stays stable; the entry's key,
+// description, layer, and handler are last-write-wins.
 func (d *Dispatcher) SetAction(layer Layer, name, description, key string, h Handler) {
 	if _, exists := d.actions[name]; !exists {
 		d.actionOrder = append(d.actionOrder, name)

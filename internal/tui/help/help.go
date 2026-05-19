@@ -46,10 +46,11 @@ type Options struct {
 	// Both halves go through the ReadOnly filter.
 	PageBindings []action.Action
 
-	// Globals is the curated `keybindings.md §Global` list. The
-	// App owns this list because the help overlay shouldn't re-
-	// derive globals from the dispatcher (the dispatcher stores
-	// handlers, not descriptions).
+	// Globals is the `keybindings.md §Global` list rendered in the
+	// GENERAL column. The App derives this from the dispatcher via
+	// `Dispatcher.Bindings(LayerGlobal)` per ADR 0019, with the
+	// `r` (refresh) row appended manually because refresh is
+	// documented-as-global but implemented-per-page.
 	Globals []action.Action
 
 	// TableMotions is the curated table-context vim-motion list.

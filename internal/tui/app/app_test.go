@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -742,4 +743,30 @@ func TestNormalizeKey(t *testing.T) {
 			require.Equal(t, tc.want, normalizeKey(tc.key))
 		})
 	}
+}
+
+// TestApp_GlobalsCatalogOrderingMatchesKeybindingsMd pins the exact
+// sequence the help overlay's GENERAL column renders. ADR 0019
+// records that this order is the muscle-memory contract from
+// keybindings.md (`:` and `/` first, `Ctrl+C` as escape-hatch last
+// before the tenant picker, refresh appended because it's
+// documented-as-global but implemented-per-page). A future
+// contributor reordering registerGlobalBindings or moving the `r`
+// append would otherwise rearrange the help column silently — this
+// test makes any such drift loud.
+func TestApp_GlobalsCatalogOrderingMatchesKeybindingsMd(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+
+	require.Equal(t, []action.Action{
+		{Key: ":", Description: "command"},
+		{Key: "/", Description: "filter"},
+		{Key: "?", Description: "help"},
+		{Key: "t", Description: "time format"},
+		{Key: "Esc", Description: "back"},
+		{Key: "q", Description: "quit"},
+		{Key: "Ctrl+C", Description: "force quit"},
+		{Key: "Ctrl+T", Description: "tenant picker"},
+		{Key: "r", Description: "refresh"},
+	}, a.globalsCatalog())
 }
