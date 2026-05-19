@@ -18,6 +18,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -168,13 +169,13 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 	if err != nil {
 		return err
 	}
-	var matcher *promMatcher
+	var matcherFilter *backend.Matcher
 	if opts.Matcher != "" {
-		m, perr := parsePromMatcher(opts.Matcher)
+		m, perr := matcher.ParseOne(opts.Matcher)
 		if perr != nil {
 			return fmt.Errorf("--matcher: %w", perr)
 		}
-		matcher = &m
+		matcherFilter = &m
 	}
 
 	cfg, err := config.Load(loadOptsFromFlags(flags))
@@ -193,7 +194,7 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		fmt.Fprintln(os.Stderr, e)
 	}
 
-	rows = filterSilenceRows(rows, state, matcher)
+	rows = filterSilenceRows(rows, state, matcherFilter)
 	sortSilenceRows(rows)
 
 	tty := isStdoutTerminal(out)
@@ -289,8 +290,8 @@ func toSilenceRow(tenant string, s backend.Silence) silenceRow {
 // behaviour across the wire-format edge cases ("severity=~critical"
 // is NOT the same matcher as "severity=critical" even though both
 // happen to match the value `critical`).
-func filterSilenceRows(rows []silenceRow, state string, matcher *promMatcher) []silenceRow {
-	if state == "" && matcher == nil {
+func filterSilenceRows(rows []silenceRow, state string, m *backend.Matcher) []silenceRow {
+	if state == "" && m == nil {
 		return rows
 	}
 	out := rows[:0]
@@ -298,7 +299,7 @@ func filterSilenceRows(rows []silenceRow, state string, matcher *promMatcher) []
 		if state != "" && !strings.EqualFold(string(r.State), state) {
 			continue
 		}
-		if matcher != nil && !matcherSliceContains(r.Matchers, *matcher) {
+		if m != nil && !matcherSliceContains(r.Matchers, *m) {
 			continue
 		}
 		out = append(out, r)
@@ -311,7 +312,7 @@ func filterSilenceRows(rows []silenceRow, state string, matcher *promMatcher) []
 // four matcher fields. Pure predicate over the slice (no silenceRow
 // wrapper) so callers that only have a []matcherRow can reuse it
 // without round-tripping the rendering shape.
-func matcherSliceContains(ms []matcherRow, m promMatcher) bool {
+func matcherSliceContains(ms []matcherRow, m backend.Matcher) bool {
 	for _, candidate := range ms {
 		if candidate.Name == m.Name &&
 			candidate.Value == m.Value &&
@@ -387,100 +388,8 @@ func summariseMatchers(ms []matcherRow) string {
 	}
 	parts := make([]string, 0, len(ms))
 	for _, m := range ms {
-		parts = append(parts, m.Name+matcherOpSymbol(m)+`"`+m.Value+`"`)
+		op := matcher.Op(backend.Matcher{IsRegex: m.IsRegex, IsEqual: m.IsEqual})
+		parts = append(parts, m.Name+op+`"`+m.Value+`"`)
 	}
 	return strings.Join(parts, ",")
-}
-
-// matcherOpSymbol picks the operator symbol for a matcher's IsRegex
-// / IsEqual flags. Mirrors the form/silence package's matcherOp
-// helper; duplicated here so cmd/silences does not pull a UI
-// package into the headless code path.
-func matcherOpSymbol(m matcherRow) string {
-	switch {
-	case m.IsRegex && m.IsEqual:
-		return "=~"
-	case m.IsRegex && !m.IsEqual:
-		return "!~"
-	case !m.IsRegex && m.IsEqual:
-		return "="
-	default:
-		return "!="
-	}
-}
-
-// promMatcher is the headless mirror of backend.Matcher used as a
-// filter predicate. Identical field shape; declared separately so
-// the parser can return a value (no pointer-vs-zero ambiguity) and
-// the cmd package owns its own validation surface without leaking
-// the Prom-string parser into internal/backend.
-//
-// The TUI's silence form has its own parser
-// (internal/tui/form/silence.parseOneMatcher) that is currently
-// package-private. Extracting the two parsers into a shared helper
-// is a follow-up; for v0.0.1 the duplication is bounded
-// (single-matcher, four operators) and the deferred extraction
-// keeps this commit focused on the read-list scope.
-type promMatcher struct {
-	Name    string
-	Value   string
-	IsRegex bool
-	IsEqual bool
-}
-
-// parsePromMatcher parses one Prom-style matcher (e.g.
-// `severity="critical"`, `team!~"infra-.*"`). Operator precedence
-// matches the form-side parser: two-char operators (`!~`, `=~`,
-// `!=`) win against `=` on a tie; the leftmost match splits the
-// string so a value containing an operator round-trips. Quotes
-// around the value are optional and stripped when present.
-func parsePromMatcher(in string) (promMatcher, error) {
-	type opDef struct {
-		s       string
-		isRegex bool
-		isEqual bool
-	}
-	// Two-char ops first so a tie at the same index resolves in
-	// their favour (the loop below only updates bestIdx on a
-	// strictly-smaller index, never a tie).
-	ops := []opDef{
-		{s: "!~", isRegex: true, isEqual: false},
-		{s: "=~", isRegex: true, isEqual: true},
-		{s: "!=", isRegex: false, isEqual: false},
-		{s: "=", isRegex: false, isEqual: true},
-	}
-	bestIdx := -1
-	var bestOp opDef
-	for _, o := range ops {
-		idx := strings.Index(in, o.s)
-		if idx <= 0 {
-			continue
-		}
-		if bestIdx == -1 || idx < bestIdx {
-			bestIdx = idx
-			bestOp = o
-		}
-	}
-	if bestIdx == -1 {
-		return promMatcher{}, errors.New("missing operator (=, !=, =~, !~)")
-	}
-	name := strings.TrimSpace(in[:bestIdx])
-	value := strings.TrimSpace(in[bestIdx+len(bestOp.s):])
-	if name == "" || value == "" {
-		return promMatcher{}, errors.New("matcher must be name<op>value")
-	}
-	// Strip a single layer of double quotes if present and balanced
-	// — Prom's text form uses them; the parser stays liberal so a
-	// shell-quoted invocation (`--matcher='severity="critical"'`)
-	// and a bare invocation (`--matcher=severity=critical`) both
-	// reach the same predicate.
-	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
-		value = value[1 : len(value)-1]
-	}
-	return promMatcher{
-		Name:    name,
-		Value:   value,
-		IsRegex: bestOp.isRegex,
-		IsEqual: bestOp.isEqual,
-	}, nil
 }

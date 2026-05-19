@@ -40,6 +40,22 @@ the future → rendered as `in X`.
 A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 → rendered as `X ago`.
 
+### Label matcher
+
+**Label matcher**:
+A `name<op>value` predicate over a single label, in Prometheus syntax.
+The four operators are `=` (literal equal), `!=` (literal not-equal),
+`=~` (regex equal), `!~` (regex not-equal). Surfaces: the `--matcher`
+flag, the silence form textarea (one per line), and the matcher
+slice carried on every `backend.Silence`. Parsed and rendered by
+`internal/matcher`. The leftmost-operator-wins rule with two-char
+operators winning a position tie is load-bearing for round-tripping:
+`foo=a!=b` splits on the first `=` (value `a!=b`), and `foo=~bar`
+parses as regex match rather than literal-equal of `~bar`.
+_Avoid_: filter (the user-facing `--matcher` flag is a filter, but
+the underlying value is a matcher), selector (PromQL term), label
+predicate.
+
 ### Overlays
 
 **Overlay**:

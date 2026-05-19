@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -672,34 +673,6 @@ func TestForm_EndsAtAcceptsRFC3339(t *testing.T) {
 	)
 }
 
-func TestForm_MatcherOperators(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		line    string
-		want    backend.Matcher
-		wantErr bool
-	}{
-		{line: "a=b", want: backend.Matcher{Name: "a", Value: "b", IsEqual: true}},
-		{line: "a!=b", want: backend.Matcher{Name: "a", Value: "b"}},
-		{line: "a=~.*", want: backend.Matcher{Name: "a", Value: ".*", IsRegex: true, IsEqual: true}},
-		{line: "a!~.*", want: backend.Matcher{Name: "a", Value: ".*", IsRegex: true}},
-		{line: "noop", wantErr: true},
-		{line: "=oops", wantErr: true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.line, func(t *testing.T) {
-			t.Parallel()
-			got, err := parseOneMatcher(tc.line)
-			if tc.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestForm_EndsBeforeStartsRejects(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{}
@@ -824,41 +797,9 @@ func TestForm_FormatMatchersRoundTrip(t *testing.T) {
 		{Name: "expr3", Value: "x=~y", IsEqual: false},
 	}
 	rendered := formatMatchers(in)
-	parsed, err := parseMatchers(rendered)
+	parsed, err := matcher.Parse(rendered)
 	require.NoError(t, err)
 	require.Equal(t, in, parsed)
-}
-
-func TestForm_ParseOneMatcherLeftmostWins(t *testing.T) {
-	t.Parallel()
-	// Direct exercise of the leftmost-position rule. `foo=a!=b`
-	// must split on the first `=`, not the later `!=`. Tie at
-	// the same index between `=~` and `=` resolves to `=~`.
-	cases := []struct {
-		line string
-		want backend.Matcher
-	}{
-		{
-			line: "foo=a!=b",
-			want: backend.Matcher{Name: "foo", Value: "a!=b", IsEqual: true},
-		},
-		{
-			line: "foo=~bar",
-			want: backend.Matcher{Name: "foo", Value: "bar", IsRegex: true, IsEqual: true},
-		},
-		{
-			line: "foo!~bar=baz",
-			want: backend.Matcher{Name: "foo", Value: "bar=baz", IsRegex: true},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.line, func(t *testing.T) {
-			t.Parallel()
-			got, err := parseOneMatcher(tc.line)
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
 }
 
 func TestMatchersFromLabels_DropsNameAndSorts(t *testing.T) {

@@ -51,70 +51,6 @@ func TestValidateSilenceState(t *testing.T) {
 	}
 }
 
-func TestParsePromMatcher(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name    string
-		in      string
-		want    promMatcher
-		wantErr bool
-	}{
-		{
-			name: "equality with quotes",
-			in:   `severity="critical"`,
-			want: promMatcher{Name: "severity", Value: "critical", IsEqual: true},
-		},
-		{
-			name: "equality without quotes",
-			in:   "severity=critical",
-			want: promMatcher{Name: "severity", Value: "critical", IsEqual: true},
-		},
-		{
-			name: "negative equality",
-			in:   `team!="infra"`,
-			want: promMatcher{Name: "team", Value: "infra"},
-		},
-		{
-			name: "regex equality (=~)",
-			in:   `team=~"infra-.*"`,
-			want: promMatcher{Name: "team", Value: "infra-.*", IsRegex: true, IsEqual: true},
-		},
-		{
-			name: "negative regex (!~)",
-			in:   `team!~"infra-.*"`,
-			want: promMatcher{Name: "team", Value: "infra-.*", IsRegex: true},
-		},
-		{
-			name: "two-char operator wins on tie at same index",
-			in:   "foo=~bar",
-			want: promMatcher{Name: "foo", Value: "bar", IsRegex: true, IsEqual: true},
-		},
-		{
-			name: "leftmost operator wins for value with embedded operator",
-			in:   "foo=a!=b",
-			want: promMatcher{Name: "foo", Value: "a!=b", IsEqual: true},
-		},
-		{name: "missing operator", in: "severitycritical", wantErr: true},
-		{name: "missing name", in: `="critical"`, wantErr: true},
-		{name: "missing value", in: "severity=", wantErr: true},
-		{name: "empty string", in: "", wantErr: true},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := parsePromMatcher(tc.in)
-			if tc.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestToSilenceRow_PreservesShape(t *testing.T) {
 	t.Parallel()
 
@@ -169,7 +105,7 @@ func TestFilterSilenceRows_ByMatcherStrictTuple(t *testing.T) {
 			},
 		},
 	}
-	wanted := promMatcher{Name: "severity", Value: "critical", IsEqual: true}
+	wanted := backend.Matcher{Name: "severity", Value: "critical", IsEqual: true}
 	got := filterSilenceRows(rows, "", &wanted)
 	require.Len(t, got, 1, "regex variant must NOT match a literal predicate even when value strings collide")
 	require.Equal(t, "literal", got[0].ID)

@@ -26,6 +26,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -220,7 +221,7 @@ type Options struct {
 	// Matchers, when non-empty, prefill the matchers buffer
 	// formatted one per line in the same syntax the user types
 	// manually (`name=value`, `name=~regex`, …). Round-trips
-	// through parseMatchers so editing via Tab + backspace works
+	// through matcher.Parse so editing via Tab + backspace works
 	// without a special path.
 	Matchers []backend.Matcher
 	// Comment, when non-empty, prefills the comment field.
@@ -855,7 +856,7 @@ func (f *Form) fail(text string) tea.Cmd {
 // matchers buffer is hidden and the resulting spec leaves Matchers
 // empty; the parent page substitutes per-target matchers at fan-out.
 func (f *Form) parseSpec() (backend.SilenceSpec, error) {
-	matchers, err := parseMatchers(f.matchers.Value())
+	matchers, err := matcher.Parse(f.matchers.Value())
 	if err != nil {
 		return backend.SilenceSpec{}, err
 	}
@@ -918,7 +919,7 @@ func MatchersFromLabels(labels map[string]string) []backend.Matcher {
 
 // formatMatchers renders matchers in the same one-per-line syntax
 // the user types manually so a prefilled form can be edited
-// without a special path. Inverse of parseMatchers — the symmetry
+// without a special path. Inverse of matcher.Parse — the symmetry
 // is asserted by TestForm_FormatMatchersRoundTrip.
 func formatMatchers(in []backend.Matcher) string {
 	if len(in) == 0 {
@@ -926,114 +927,9 @@ func formatMatchers(in []backend.Matcher) string {
 	}
 	parts := make([]string, len(in))
 	for i, m := range in {
-		parts[i] = m.Name + matcherOp(m) + m.Value
+		parts[i] = m.Name + matcher.Op(m) + m.Value
 	}
 	return strings.Join(parts, "\n")
-}
-
-// matcherOp picks the operator symbol for a matcher's IsRegex /
-// IsEqual flags. Mirrors parseOneMatcher's table.
-func matcherOp(m backend.Matcher) string {
-	switch {
-	case m.IsRegex && m.IsEqual:
-		return "=~"
-	case m.IsRegex && !m.IsEqual:
-		return "!~"
-	case !m.IsRegex && m.IsEqual:
-		return "="
-	default:
-		return "!="
-	}
-}
-
-// parseMatchers walks one-matcher-per-line input. Operators per
-// Prometheus convention: `=`, `!=`, `=~`, `!~`. Leading / trailing
-// whitespace is trimmed; blank lines are skipped.
-func parseMatchers(in string) ([]backend.Matcher, error) {
-	out := make([]backend.Matcher, 0)
-	for i, raw := range strings.Split(in, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		m, err := parseOneMatcher(line)
-		if err != nil {
-			return nil, errLineWrap(i+1, err)
-		}
-		out = append(out, m)
-	}
-	return out, nil
-}
-
-// parseOneMatcher splits a single matcher line on its leftmost
-// operator with two-char operators (`!~`, `=~`, `!=`) winning a
-// tie against the single-char `=`. Leftmost-position semantics
-// matter for round-trips: a value that itself contains an
-// operator (e.g. `foo=a!=b` from `{Name:"foo", Value:"a!=b"}`)
-// must split on the first `=`, not on the `!=` later in the
-// line. Two-char operators win ties so `foo=~bar` parses as a
-// regex match (`=~` at index 3) rather than a literal-equal of
-// `~bar` (`=` at the same index). Leading match (`idx == 0`) is
-// rejected so a stray `=oops` line still flags as missing-name.
-func parseOneMatcher(line string) (backend.Matcher, error) {
-	type opDef struct {
-		s       string
-		isRegex bool
-		isEqual bool
-	}
-	// Two-char ops first so a tie at the same index resolves in
-	// their favour (the loop below only updates bestIdx on a
-	// strictly-smaller index, never a tie).
-	ops := []opDef{
-		{s: "!~", isRegex: true, isEqual: false},
-		{s: "=~", isRegex: true, isEqual: true},
-		{s: "!=", isRegex: false, isEqual: false},
-		{s: "=", isRegex: false, isEqual: true},
-	}
-	bestIdx := -1
-	var bestOp opDef
-	for _, o := range ops {
-		idx := strings.Index(line, o.s)
-		if idx <= 0 {
-			continue
-		}
-		if bestIdx == -1 || idx < bestIdx {
-			bestIdx = idx
-			bestOp = o
-		}
-	}
-	if bestIdx == -1 {
-		return backend.Matcher{}, errors.New("missing operator (=, !=, =~, !~)")
-	}
-	name := strings.TrimSpace(line[:bestIdx])
-	value := strings.TrimSpace(line[bestIdx+len(bestOp.s):])
-	if name == "" || value == "" {
-		return backend.Matcher{}, errors.New("matcher must be name<op>value")
-	}
-	return backend.Matcher{
-		Name: name, Value: value,
-		IsRegex: bestOp.isRegex, IsEqual: bestOp.isEqual,
-	}, nil
-}
-
-// errLineWrap wraps err with a 1-based line number for matcher
-// validation messages.
-func errLineWrap(line int, err error) error {
-	return errors.New("line " + itoa(line) + ": " + err.Error())
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
 
 // parseTimeOrNow returns now when in is empty / "now"; otherwise
