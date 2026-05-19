@@ -373,8 +373,8 @@ func (p *Poller) run(ctx context.Context) {
 // returns the delay before the next scheduled tick. The same delay
 // value is published as DataMsg.NextAt so the on-screen countdown
 // stays in lockstep with the loop's actual sleep — computing
-// nextDelay twice would produce two different jitter draws and
-// drift the displayed "next refresh in N" off the real wait.
+// Backoff.Delay twice would produce two different jitter draws
+// and drift the displayed "next refresh in N" off the real wait.
 //
 // Returns (_, false) when ctx is done so the loop can exit
 // promptly. A refresh nudge that landed during the fetch is
@@ -397,7 +397,7 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	if err != nil {
 		p.failures++
 		now := p.clock.Now()
-		delay := p.nextDelay()
+		delay := p.backoff.Delay(p.failures, p.interval)
 		next := stateFromErr(err)
 		p.state = next
 		p.send(BackendStatusMsg{
@@ -412,7 +412,7 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	p.failures = 0
 	p.transitionToConnected()
 	now := p.clock.Now()
-	delay := p.nextDelay()
+	delay := p.backoff.Delay(p.failures, p.interval)
 	p.send(DataMsg{
 		Resource:      res,
 		Tenant:        p.tenant,
@@ -438,29 +438,33 @@ func (p *Poller) transitionToConnected() {
 	p.send(BackendStatusMsg{Tenant: p.tenant, State: header.ConnConnected})
 }
 
-// nextDelay returns the wait before the next tick. Success → full
-// interval. Failure → exponential backoff capped at
-// CapMultiplier × interval, with ±JitterFraction noise.
-func (p *Poller) nextDelay() time.Duration {
-	if p.failures == 0 {
-		return p.applyJitter(p.interval)
+// Delay returns the wait before the next scheduled tick.
+// failures==0 (success path) yields the supplied interval ±jitter.
+// failures>0 produces exponential growth (base, base×2, base×4, …)
+// capped at CapMultiplier × interval, also ±jitter. Goroutine-safe
+// only insofar as math/rand/v2 is — Backoff itself carries no
+// mutable state.
+func (b Backoff) Delay(failures int, interval time.Duration) time.Duration {
+	if failures == 0 {
+		return b.applyJitter(interval)
 	}
-	// Exponential growth: base, base×2, base×4, …
-	d := p.backoff.Base << min(p.failures-1, 30)
-	maxDelay := time.Duration(p.backoff.CapMultiplier) * p.interval
+	d := b.Base << min(failures-1, 30)
+	maxDelay := time.Duration(b.CapMultiplier) * interval
 	if d > maxDelay {
 		d = maxDelay
 	}
-	return p.applyJitter(d)
+	return b.applyJitter(d)
 }
 
 // applyJitter perturbs d by ±JitterFraction. Zero JitterFraction
-// returns d unchanged.
-func (p *Poller) applyJitter(d time.Duration) time.Duration {
-	if p.backoff.JitterFraction <= 0 {
+// returns d unchanged. Random source is package-level rand/v2 —
+// no caller varies on randomness today, and the production jitter
+// envelope is verified end-to-end by TestPoller_JitterEnvelope.
+func (b Backoff) applyJitter(d time.Duration) time.Duration {
+	if b.JitterFraction <= 0 {
 		return d
 	}
-	span := float64(d) * p.backoff.JitterFraction
+	span := float64(d) * b.JitterFraction
 	// rand/v2 is goroutine-safe per docs; one source per Go runtime.
 	delta := (rand.Float64()*2 - 1) * span //nolint:gosec // jitter only
 	out := time.Duration(float64(d) + delta)
