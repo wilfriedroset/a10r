@@ -26,7 +26,7 @@ lives in the auth `RoundTripper`s.
 | F2 | HIGH | `cmd/tui.go:runTUI` | `--read-only` (and `defaults.read_only`, `backend.read_only`, `A10R_READ_ONLY`) is bound but never applied — dangerous bindings stay live in TUI mode. |
 | F3 | HIGH | `cmd/tui.go:runTUI` | `config.Resolve` is never called — `--theme`, `--poll-interval`, `--log`, `--log-format`, `--debug`, `--quiet`, `--tenant`, `A10R_LOG`, `A10R_LOG_FORMAT` silently ignored. |
 | F4 | HIGH | `cmd/tui.go:runTUI` | TUI uses `slog.Default()` (stderr); `internal/log.New` is never called. No persisted audit trail for silence write ops; `--log` is dead. |
-| F5 | MED | `internal/tui/wizard/wizard.go` | First-run wizard writes plaintext credentials into `a10r.yaml` instead of nudging toward `${VAR}` interpolation. |
+| F5 | MED | `cmd/init.go` | First-run wizard writes plaintext credentials into `a10r.yaml` instead of nudging toward `${VAR}` interpolation. |
 | F6 | MED | `internal/backend/transport/transport.go:buildTLSConfig` | Inline `tls_config.ca` replaces system roots silently (empty `x509.NewCertPool` + AppendCertsFromPEM). |
 | F7 | MED | `internal/config/types.go:validTLSVersions` | Schema still accepts `TLS10` / `TLS11`. |
 | F8 | MED | `internal/tui/page/silences/handlers.go:handleEditorFinished` | Post-edit YAML's `id:` is taken verbatim; no equality check against `pendingEdit.id`. A typo redirects the update to a different silence. |

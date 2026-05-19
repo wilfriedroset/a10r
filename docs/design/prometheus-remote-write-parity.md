@@ -181,7 +181,7 @@ rather than a deprecation window:
   `basic_auth:`.
 - `examples/local-am.yaml`, `examples/alertmanager.yml` — review and
   flatten as needed.
-- The wizard (`internal/tui/wizard/`) writes the new shape from day one.
+- The `a10r init` wizard (`cmd/init.go` + `internal/wizard/`) writes the new shape from day one via `config.Config` directly — no translation layer.
 - `internal/tui/page/tenantconfig/` redacts the new field set.
 - `cmd/info` reports the new fields.
 
