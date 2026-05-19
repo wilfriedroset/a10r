@@ -21,6 +21,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/wilfriedroset/a10r/internal/tui/action"
 )
 
 // ChordTimeout is the window within which a chord's keys must
@@ -85,6 +87,16 @@ type Dispatcher struct {
 	// users bind to named actions registered through SetAction.
 	actions map[string]actionEntry
 
+	// actionOrder records action names in registration order. Go map
+	// iteration is non-deterministic; the slice is what makes
+	// Bindings(layer) return a stable list — load-bearing for the
+	// help overlay's GENERAL column, where muscle memory pins
+	// `:` and `/` before the escape-hatch `Ctrl+C`. Anonymous Set()
+	// bindings (chords, dispatcher hooks) carry no name so they are
+	// intentionally absent from this slice and therefore from
+	// Bindings().
+	actionOrder []string
+
 	// Chord state. chordPending is the prefix key the user has
 	// already pressed (e.g. "g") and chordExpiry is when the
 	// timeout fires. Zero value of chordPending means no chord is
@@ -95,12 +107,15 @@ type Dispatcher struct {
 	clock Clock
 }
 
-// actionEntry is the (layer, handler) pair the action registry
-// records per stable action name. ApplyOverrides walks this map to
-// find each user-extra key's destination.
+// actionEntry is the (layer, key, description, handler) tuple the
+// dispatcher records per stable action name. ApplyOverrides reads
+// (layer, handler) to wire user extras; Bindings reads (key,
+// description) to surface a layer's bindings to the help overlay.
 type actionEntry struct {
-	layer   Layer
-	handler Handler
+	layer       Layer
+	key         string
+	description string
+	handler     Handler
 }
 
 // ChordExpiredMsg is the message tea.Tick fires when the chord
@@ -149,15 +164,40 @@ func (d *Dispatcher) Set(layer Layer, key string, h Handler) {
 // SetAction registers a binding under a stable action name AND
 // installs it at the given (layer, key). The action name is the
 // identifier users reference in `<config-dir>/keys/<profile>.yaml`
-// to add extra bindings; the layer + handler captured here are the
-// destination ApplyOverrides wires those extra keys into.
+// to add extra bindings; description is the human-readable label
+// surfaced by Bindings(layer) to the help overlay. The layer +
+// handler captured here are the destination ApplyOverrides wires
+// those extra keys into.
 //
 // Re-registering the same action overwrites the recorded entry
 // (last write wins, matching Set's semantics) so deferred wiring
-// can re-bind without a discrete clear step.
-func (d *Dispatcher) SetAction(layer Layer, action, key string, h Handler) {
-	d.actions[action] = actionEntry{layer: layer, handler: h}
+// can re-bind without a discrete clear step. The order slot is
+// preserved on overwrite — repeated registrations do not move an
+// entry to the end of Bindings()'s output.
+func (d *Dispatcher) SetAction(layer Layer, name, description, key string, h Handler) {
+	if _, exists := d.actions[name]; !exists {
+		d.actionOrder = append(d.actionOrder, name)
+	}
+	d.actions[name] = actionEntry{layer: layer, key: key, description: description, handler: h}
 	d.Set(layer, key, h)
+}
+
+// Bindings returns the named actions registered at layer, in
+// registration order, as the [Key, Description] pairs the help
+// overlay renders. Anonymous bindings registered via Set are not
+// included — they carry no description and are reserved for chord
+// prefixes and dispatcher-internal hooks that are not user-visible
+// surface.
+func (d *Dispatcher) Bindings(layer Layer) []action.Action {
+	out := make([]action.Action, 0, len(d.actionOrder))
+	for _, name := range d.actionOrder {
+		entry, ok := d.actions[name]
+		if !ok || entry.layer != layer {
+			continue
+		}
+		out = append(out, action.Action{Key: entry.key, Description: entry.description})
+	}
+	return out
 }
 
 // Clear wipes every binding in the named layer and drops the
@@ -175,11 +215,19 @@ func (d *Dispatcher) SetAction(layer Layer, action, key string, h Handler) {
 // action whose handler points into a wiped layer.
 func (d *Dispatcher) Clear(layer Layer) {
 	d.layers[layer] = KeyMap{}
-	for name, entry := range d.actions {
+	kept := d.actionOrder[:0]
+	for _, name := range d.actionOrder {
+		entry, ok := d.actions[name]
+		if !ok {
+			continue
+		}
 		if entry.layer == layer {
 			delete(d.actions, name)
+			continue
 		}
+		kept = append(kept, name)
 	}
+	d.actionOrder = kept
 }
 
 // ApplyOverrides binds every user-supplied extra key onto the

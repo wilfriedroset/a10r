@@ -10,6 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wilfriedroset/a10r/internal/tui/action"
 )
 
 // fakeClock is a deterministic Clock for chord-timing tests.
@@ -243,7 +245,7 @@ func TestSetAction_RegistersKeyAndExposesActionName(t *testing.T) {
 
 	r := &recorder{}
 	d := New(newFakeClock())
-	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
+	d.SetAction(LayerGlobal, "quit", "quit", "q", r.handler("quit"))
 
 	require.True(t, d.HasAction("quit"), "SetAction must record the action under its name")
 
@@ -257,7 +259,7 @@ func TestApplyOverrides_MultipleKeysPerAction(t *testing.T) {
 
 	r := &recorder{}
 	d := New(newFakeClock())
-	d.SetAction(LayerGlobal, "refresh", "r", r.handler("refresh"))
+	d.SetAction(LayerGlobal, "refresh", "refresh", "r", r.handler("refresh"))
 
 	require.NoError(t, d.ApplyOverrides(map[string][]string{
 		"refresh": {"R", "F5"},
@@ -277,7 +279,7 @@ func TestApplyOverrides_UnknownActionFailsClosed(t *testing.T) {
 	// silently drop the binding and leave the user wondering why
 	// their keybinding does nothing.
 	d := New(newFakeClock())
-	d.SetAction(LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
 
 	err := d.ApplyOverrides(map[string][]string{
 		"quitt": {"Q"},
@@ -297,7 +299,7 @@ func TestApplyOverrides_PreservesOriginalLayerAcrossUserKey(t *testing.T) {
 	// ways.
 	r := &recorder{}
 	d := New(newFakeClock())
-	d.SetAction(LayerView, "yank-id", "y", r.handler("yank"))
+	d.SetAction(LayerView, "yank-id", "yank id", "y", r.handler("yank"))
 
 	require.NoError(t, d.ApplyOverrides(map[string][]string{
 		"yank-id": {"Y"},
@@ -379,8 +381,8 @@ func TestDispatcher_ClearDropsActionEntriesInLayer(t *testing.T) {
 	// stale handler.
 	r := &recorder{}
 	d := New(newFakeClock())
-	d.SetAction(LayerModal, "modal-confirm", "y", r.handler("yes"))
-	d.SetAction(LayerGlobal, "quit", "q", r.handler("quit"))
+	d.SetAction(LayerModal, "modal-confirm", "confirm", "y", r.handler("yes"))
+	d.SetAction(LayerGlobal, "quit", "quit", "q", r.handler("quit"))
 
 	d.Clear(LayerModal)
 
@@ -393,8 +395,8 @@ func TestDispatcher_ClearDropsActionEntriesInLayer(t *testing.T) {
 func TestSet_OverwritesSilently(t *testing.T) {
 	t.Parallel()
 
-	// The action.Registry handles duplicate detection; the
-	// dispatcher trusts callers to validate. Last write wins.
+	// Last write wins for anonymous bindings; the dispatcher does
+	// not enforce duplicate detection — callers validate.
 	r := &recorder{}
 	d := New(newFakeClock())
 	d.Set(LayerGlobal, "x", r.handler("first"))
@@ -402,4 +404,87 @@ func TestSet_OverwritesSilently(t *testing.T) {
 
 	_, _ = d.Dispatch("x")
 	require.Equal(t, "second", r.lastLabel())
+}
+
+func TestBindings_ReturnsRegistrationOrder(t *testing.T) {
+	t.Parallel()
+
+	d := New(newFakeClock())
+	noop := func() tea.Cmd { return nil }
+	d.SetAction(LayerGlobal, "command", "command", ":", noop)
+	d.SetAction(LayerGlobal, "filter", "filter", "/", noop)
+	d.SetAction(LayerGlobal, "help", "help", "?", noop)
+
+	got := d.Bindings(LayerGlobal)
+	require.Equal(t, []action.Action{
+		{Key: ":", Description: "command"},
+		{Key: "/", Description: "filter"},
+		{Key: "?", Description: "help"},
+	}, got, "Bindings must follow registration order so the help "+
+		"overlay's GENERAL column stays muscle-memory-stable")
+}
+
+func TestBindings_FiltersByLayer(t *testing.T) {
+	t.Parallel()
+
+	d := New(newFakeClock())
+	noop := func() tea.Cmd { return nil }
+	d.SetAction(LayerGlobal, "quit", "quit", "q", noop)
+	d.SetAction(LayerView, "silence", "silence alert", "s", noop)
+	d.SetAction(LayerGlobal, "help", "help", "?", noop)
+
+	globals := d.Bindings(LayerGlobal)
+	require.Equal(t, []action.Action{
+		{Key: "q", Description: "quit"},
+		{Key: "?", Description: "help"},
+	}, globals)
+
+	view := d.Bindings(LayerView)
+	require.Equal(t, []action.Action{
+		{Key: "s", Description: "silence alert"},
+	}, view)
+}
+
+func TestBindings_EmptyLayerReturnsEmptySlice(t *testing.T) {
+	t.Parallel()
+
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
+
+	require.Empty(t, d.Bindings(LayerView),
+		"layer with no named registrations must yield an empty slice")
+	require.Empty(t, d.Bindings(LayerTable))
+}
+
+func TestBindings_ExcludesAnonymousSetBindings(t *testing.T) {
+	t.Parallel()
+
+	// `gg` (chord) and `Ctrl+\` (clear marks) are registered via the
+	// raw Set seam — no name, no description. The help overlay must
+	// not see them; they live in keybindings.md under their own
+	// sections, not the GENERAL column.
+	d := New(newFakeClock())
+	noop := func() tea.Cmd { return nil }
+	d.Set(LayerTable, "gg", noop)
+	d.Set(LayerGlobal, "Ctrl+\\", noop)
+	d.SetAction(LayerGlobal, "quit", "quit", "q", noop)
+
+	require.Equal(t, []action.Action{
+		{Key: "q", Description: "quit"},
+	}, d.Bindings(LayerGlobal), "anonymous Set bindings must not surface in Bindings")
+	require.Empty(t, d.Bindings(LayerTable))
+}
+
+func TestBindings_DescriptionTravelsVerbatim(t *testing.T) {
+	t.Parallel()
+
+	// Descriptions are pass-through — the dispatcher does not derive
+	// them from the name (no kebab-to-space transform, no munging).
+	// Whatever the caller hands SetAction lands in Bindings() exactly.
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "tenant-picker", "tenant picker", "Ctrl+T", func() tea.Cmd { return nil })
+
+	got := d.Bindings(LayerGlobal)
+	require.Len(t, got, 1)
+	require.Equal(t, "tenant picker", got[0].Description)
 }

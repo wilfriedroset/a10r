@@ -19,7 +19,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -438,7 +437,7 @@ func TestApplyUserKeyOverrides_EndToEnd(t *testing.T) {
 
 	d := keys.New(nil)
 	var fired atomic.Int32
-	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd {
+	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd {
 		fired.Add(1)
 		return nil
 	})
@@ -466,7 +465,7 @@ func TestApplyUserKeyOverrides_MissingFileIsNoError(t *testing.T) {
 	t.Parallel()
 
 	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
 
 	require.NoError(t, applyUserKeyOverrides(d, t.TempDir()))
 }
@@ -479,7 +478,7 @@ func TestApplyUserKeyOverrides_ReservedKeyFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
 
 	dir := writeDefaultKeys(t, "quit: ['3']\n")
 	err := applyUserKeyOverrides(d, dir)
@@ -495,7 +494,7 @@ func TestApplyUserKeyOverrides_UnknownActionFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
 
 	dir := writeDefaultKeys(t, "quitt: ['Q']\n")
 	err := applyUserKeyOverrides(d, dir)
@@ -510,8 +509,8 @@ func TestApplyUserKeyOverrides_SameFileConflictFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "q", func() tea.Cmd { return nil })
-	d.SetAction(keys.LayerGlobal, "refresh", "r", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
+	d.SetAction(keys.LayerGlobal, "refresh", "refresh", "r", func() tea.Cmd { return nil })
 
 	dir := writeDefaultKeys(t, "quit: ['Q']\nrefresh: ['Q']\n")
 	err := applyUserKeyOverrides(d, dir)
@@ -529,7 +528,6 @@ func newTestAppForFilter(t *testing.T) *app.App {
 	require.NoError(t, err)
 	return app.NewApp(app.Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 	})
 }

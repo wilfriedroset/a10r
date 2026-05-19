@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -64,7 +63,6 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})

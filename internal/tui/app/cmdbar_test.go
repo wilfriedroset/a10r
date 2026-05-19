@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
@@ -34,7 +33,6 @@ func newAppWithCmdbar(t *testing.T) (*App, *fakePage) {
 	resolver.Register("q", func(_ []string) tea.Cmd { return tea.Quit })
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
 	})
@@ -130,7 +128,6 @@ func TestCmdBar_AmbiguousAliasFlashesWarn(t *testing.T) {
 	resolver.Register("silences", func(_ []string) tea.Cmd { return nil })
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
 	})

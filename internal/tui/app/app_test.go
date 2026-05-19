@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -28,7 +27,6 @@ func newTestApp(t *testing.T) *App {
 	require.NoError(t, err)
 	return NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 	})
 }
@@ -53,7 +51,6 @@ func TestApp_InitSchedulesHintBarTickWhenEnabled(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  true,
@@ -106,7 +103,6 @@ func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Refresh: func(resource, scope string) {
 			got = append(got, call{resource, scope})
@@ -211,7 +207,6 @@ func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging", "dev"},
 	})
@@ -254,7 +249,6 @@ func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})
@@ -290,7 +284,6 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})
@@ -341,7 +334,6 @@ func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod"},
 	})

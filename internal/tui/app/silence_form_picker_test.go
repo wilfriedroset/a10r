@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -37,7 +36,6 @@ func TestModal_NonScopePickerForwardsToTopPage(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})
@@ -101,7 +99,6 @@ func TestModal_NonScopePickerCancelForwardsToTopPage(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})
@@ -142,7 +139,6 @@ func TestModal_ScopePickerStillTranslates(t *testing.T) {
 	require.NoError(t, err)
 	a := NewApp(Options{
 		Styles:     styles,
-		Registry:   action.New(),
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
 	})

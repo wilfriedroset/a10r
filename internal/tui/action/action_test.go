@@ -8,115 +8,57 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegistry_Empty(t *testing.T) {
+func TestFilterDangerous_DropsDangerous(t *testing.T) {
 	t.Parallel()
 
-	r := New()
-	require.Equal(t, 0, r.Len())
-	require.Empty(t, r.All())
-	require.Empty(t, r.Hints("alerts"))
-	require.Empty(t, r.Filter(true))
-	require.Empty(t, r.Filter(false))
+	// Read-only mode (C4) hides Dangerous bindings. The filter is
+	// the single seam every consumer composes — pages apply it to
+	// their Bindings() output before handing the slice to the hint
+	// strip and the help overlay.
+	in := []Action{
+		{Key: "?", Description: "help"},
+		{Key: "s", Description: "silence alert", Dangerous: true},
+		{Key: "Shift+T", Description: "sort time"},
+		{Key: "x", Description: "expire silence", Dangerous: true},
+	}
+
+	out := FilterDangerous(in)
+	require.Len(t, out, 2)
+	require.Equal(t, "?", out[0].Key)
+	require.Equal(t, "Shift+T", out[1].Key)
 }
 
-func TestRegistry_RegisterAndAll(t *testing.T) {
+func TestFilterDangerous_KeepsAllWhenNoneDangerous(t *testing.T) {
 	t.Parallel()
 
-	r := New()
-	r.Register(Action{Key: "s", Description: "silence alert", View: "alerts", Dangerous: true})
-	r.Register(Action{Key: "?", Description: "help", View: ""})
+	in := []Action{
+		{Key: "?", Description: "help"},
+		{Key: "j", Description: "down"},
+	}
 
-	all := r.All()
-	require.Len(t, all, 2)
-	require.Equal(t, "s", all[0].Key)
-	require.Equal(t, "?", all[1].Key)
+	out := FilterDangerous(in)
+	require.Len(t, out, 2)
+	require.Equal(t, in, out)
 }
 
-func TestRegistry_AllReturnsCopy(t *testing.T) {
+func TestFilterDangerous_EmptyInputReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 
-	// Mutating the slice the caller receives must NOT affect the
-	// registry. Pinning so a future return-by-shared-slice
-	// optimisation is loud.
-	r := New()
-	r.Register(Action{Key: "a", View: "alerts"})
+	require.Empty(t, FilterDangerous(nil))
+	require.Empty(t, FilterDangerous([]Action{}))
+}
 
-	out := r.All()
+func TestFilterDangerous_ReturnsFreshSlice(t *testing.T) {
+	t.Parallel()
+
+	// Mutating the result must not bleed back into the input — the
+	// callers (pages, help overlay) treat the output as read-only
+	// but a future change that holds onto both slices would notice.
+	in := []Action{{Key: "?", Description: "help"}}
+
+	out := FilterDangerous(in)
 	out[0].Key = "mutated"
 
-	require.Equal(t, "a", r.All()[0].Key,
-		"mutating the All() return must not bleed back into the registry")
-}
-
-func TestRegistry_Hints_ScopesByView(t *testing.T) {
-	t.Parallel()
-
-	r := New()
-	r.Register(Action{Key: "?", View: ""})             // global
-	r.Register(Action{Key: "s", View: "alerts"})       // alerts only
-	r.Register(Action{Key: "n", View: "silences"})     // silences only
-	r.Register(Action{Key: "Shift+T", View: "alerts"}) // alerts only
-
-	alertsHints := r.Hints("alerts")
-	require.Len(t, alertsHints, 3, "alerts view sees its 2 + 1 global")
-	keys := []string{alertsHints[0].Key, alertsHints[1].Key, alertsHints[2].Key}
-	require.Equal(t, []string{"?", "s", "Shift+T"}, keys,
-		"Hints preserves registration order")
-
-	silencesHints := r.Hints("silences")
-	require.Len(t, silencesHints, 2, "silences view sees its 1 + 1 global")
-	require.Equal(t, "?", silencesHints[0].Key)
-	require.Equal(t, "n", silencesHints[1].Key)
-}
-
-func TestRegistry_Filter_ReadOnlyDropsDangerous(t *testing.T) {
-	t.Parallel()
-
-	r := New()
-	r.Register(Action{Key: "?", View: ""})
-	r.Register(Action{Key: "s", View: "alerts", Dangerous: true})
-	r.Register(Action{Key: "Shift+T", View: "alerts"})
-	r.Register(Action{Key: "x", View: "silences", Dangerous: true})
-
-	readOnly := r.Filter(true)
-	require.Len(t, readOnly, 2, "two non-Dangerous actions")
-	require.Equal(t, "?", readOnly[0].Key)
-	require.Equal(t, "Shift+T", readOnly[1].Key)
-
-	full := r.Filter(false)
-	require.Len(t, full, 4, "Filter(false) returns everything")
-}
-
-func TestRegistry_DuplicatePanics(t *testing.T) {
-	t.Parallel()
-
-	r := New()
-	r.Register(Action{Key: "s", View: "alerts"})
-
-	defer func() {
-		recovered := recover()
-		require.NotNil(t, recovered, "duplicate (view, key) must panic at startup")
-		err, ok := recovered.(error)
-		require.True(t, ok, "panic value must be an error wrapping ErrDuplicate, got %T", recovered)
-		require.ErrorIs(t, err, ErrDuplicate)
-		require.Contains(t, err.Error(), `view="alerts"`,
-			"error must name the offending view so the dev knows where the duplicate is")
-		require.Contains(t, err.Error(), `key="s"`,
-			"error must name the offending key")
-	}()
-	r.Register(Action{Key: "s", View: "alerts"})
-}
-
-func TestRegistry_SameKeyDifferentViewIsAllowed(t *testing.T) {
-	t.Parallel()
-
-	// `s` is silence-from-alert on the alerts list AND on the alert
-	// detail page. Both must register without conflict — the
-	// (view, key) pair is what's unique, not key alone.
-	r := New()
-	r.Register(Action{Key: "s", View: "alerts"})
-	require.NotPanics(t, func() {
-		r.Register(Action{Key: "s", View: "alert"})
-	})
-	require.Equal(t, 2, r.Len())
+	require.Equal(t, "?", in[0].Key,
+		"FilterDangerous must not share storage with its input")
 }

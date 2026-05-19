@@ -67,30 +67,52 @@ func (a *App) registerTenantBindings() {
 // action names documented in `<config-dir>/keys/<profile>.yaml`
 // (per ADR 0010); chord prefixes and dispatcher hooks stay on Set
 // because the v0.0.1 schema only lets users target named globals.
+//
+// Call order is the help-overlay GENERAL-column display order:
+// `globalsCatalog` derives that column from Dispatcher.Bindings
+// (per ADR 0019) which preserves registration order, so a future
+// contributor adding a global must insert at the right slot rather
+// than appending blindly.
 func (a *App) registerGlobalBindings() {
-	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "Ctrl+C", quitRequestedCmd)
-	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "q", quitRequestedCmd)
+	// `:` opens the command bar; `/` opens the filter prompt. The
+	// dispatcher only fires the open; the resulting PromptSubmitted
+	// / PromptCancelled messages are handled by handleInput later.
+	a.dispatcher.SetAction(keys.LayerGlobal, "command", "command", ":", a.openPromptCmd(footer.PromptCommand))
+	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "filter", "/", a.openPromptCmd(footer.PromptFilter))
+	// `?` opens the k9s-style help overlay. The bindings are
+	// composed at open-time so the RESOURCE column always reflects
+	// whichever page is on top of the stack.
+	a.dispatcher.SetAction(keys.LayerGlobal, "help", "help", "?", func() tea.Cmd {
+		return OpenModal(func() modal.Modal {
+			return help.New(help.Options{
+				PageName:     a.activeViewLabel(),
+				PageBindings: a.activePageBindings(),
+				Globals:      a.globalsCatalog(),
+				TableMotions: tableMotionsCatalog(),
+				Tenants:      a.tenants,
+				ReadOnly:     a.readOnly,
+				Styles:       a.styles,
+			})
+		})
+	})
 	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
 	// state-filter cycle moved to Shift+F to free this slot).
 	// Emits TimeFormatChangedMsg so every page that renders
 	// durations re-renders, and a flash so the user sees the
 	// switch took effect (Q7.5).
-	a.dispatcher.SetAction(keys.LayerGlobal, "time-format", "t", a.toggleTimeFormatCmd)
+	a.dispatcher.SetAction(keys.LayerGlobal, "time-format", "time format", "t", a.toggleTimeFormatCmd)
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
-	a.dispatcher.SetAction(keys.LayerGlobal, "back", "Esc", PopPage)
-	// `:` opens the command bar; `/` opens the filter prompt. The
-	// dispatcher only fires the open; the resulting PromptSubmitted
-	// / PromptCancelled messages are handled by handleInput later.
-	a.dispatcher.SetAction(keys.LayerGlobal, "command", ":", a.openPromptCmd(footer.PromptCommand))
-	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "/", a.openPromptCmd(footer.PromptFilter))
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", "Esc", PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
+	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
 	// `Ctrl+T` opens the tenant picker per C3 — fuzzy search over
 	// the configured backends with multi-select. Resulting
 	// PickerSubmittedMsg is translated into a ScopeChangedMsg in
 	// handleLifecycle so every list page reacts the same way as
 	// for the numeric quick-switch.
-	a.dispatcher.SetAction(keys.LayerGlobal, "tenant-picker", "Ctrl+T", func() tea.Cmd {
+	a.dispatcher.SetAction(keys.LayerGlobal, "tenant-picker", "tenant picker", "Ctrl+T", func() tea.Cmd {
 		return OpenModal(func() modal.Modal {
 			// Tagged "scope" so the lifecycle router knows this
 			// submission feeds the global scope; pickers opened by
@@ -98,24 +120,6 @@ func (a *App) registerGlobalBindings() {
 			// different Origin and are forwarded to the page instead.
 			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti).
 				WithOrigin(PickerOriginScope)
-		})
-	})
-	// `?` opens the k9s-style help overlay. The bindings are
-	// composed at open-time so the RESOURCE column always reflects
-	// whichever page is on top of the stack. Globals and table
-	// motions are curated lists kept here (rather than re-derived
-	// from the dispatcher, which stores handlers, not descriptions).
-	a.dispatcher.SetAction(keys.LayerGlobal, "help", "?", func() tea.Cmd {
-		return OpenModal(func() modal.Modal {
-			return help.New(help.Options{
-				PageName:     a.activeViewLabel(),
-				PageBindings: a.activePageBindings(),
-				Globals:      globalsCatalog(),
-				TableMotions: tableMotionsCatalog(),
-				Tenants:      a.tenants,
-				ReadOnly:     a.readOnly,
-				Styles:       a.styles,
-			})
 		})
 	})
 }
@@ -146,21 +150,16 @@ func pickerSelectionsToScope(selections, tenants []string) string {
 }
 
 // globalsCatalog is the GENERAL-column list rendered in the help
-// overlay. Source-of-truth pairs with `keybindings.md §Global` so
-// any binding the dispatcher gains a registration for above shows
-// up here too.
-func globalsCatalog() []action.Action {
-	return []action.Action{
-		{Key: ":", Description: "command"},
-		{Key: "/", Description: "filter"},
-		{Key: "?", Description: "help"},
-		{Key: "r", Description: "refresh"},
-		{Key: "t", Description: "time format"},
-		{Key: "Esc", Description: "back"},
-		{Key: "q", Description: "quit"},
-		{Key: "Ctrl+C", Description: "force quit"},
-		{Key: "Ctrl+T", Description: "tenant picker"},
-	}
+// overlay, derived from the dispatcher's LayerGlobal registrations
+// (per ADR 0019). The lone curated row is `r` (refresh): documented
+// as global in keybindings.md but implemented per-page (each page
+// handles `r` in its own Update and surfaces it via Bindings()).
+// Keeping it explicit here, rather than burying the special case,
+// leaves a visible marker for the next deepening — folding refresh
+// into the dispatcher as a real LayerGlobal entry that emits
+// RefreshRequestedMsg.
+func (a *App) globalsCatalog() []action.Action {
+	return append(a.dispatcher.Bindings(keys.LayerGlobal), action.Action{Key: "r", Description: "refresh"})
 }
 
 // tableMotionsCatalog is the NAVIGATION-column list. Mirrors the

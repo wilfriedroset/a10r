@@ -22,7 +22,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -100,7 +99,6 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		return err
 	}
 
-	registry := action.New()
 	dispatcher := keys.New(nil)
 	scope := scopeFor(&effCfg)
 	var debugLog *slog.Logger
@@ -184,7 +182,6 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	historyDir, _ := footer.DefaultHistoryDir()
 	a = app.NewApp(app.Options{
 		Styles:     styles,
-		Registry:   registry,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
 		Tenants:    backendNames(&effCfg),
@@ -198,9 +195,10 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	})
 
 	// User-supplied keybinding overrides (P2.W1.5 / ADR 0010). Loaded
-	// after NewApp so the action registry has its built-in entries
-	// before ApplyOverrides looks them up; failures fail-closed at
-	// startup so the operator can't run with a half-applied profile.
+	// after NewApp so the dispatcher has every built-in action
+	// registered before ApplyOverrides looks them up; failures
+	// fail-closed at startup so the operator can't run with a
+	// half-applied profile.
 	if err := applyUserKeyOverrides(dispatcher, configDir); err != nil {
 		return fmt.Errorf("user keybindings: %w", err)
 	}

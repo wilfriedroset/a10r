@@ -24,7 +24,6 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
@@ -42,9 +41,6 @@ type Options struct {
 	// Styles is the compiled theme. Re-rendered on every View call so
 	// a future :theme command can hot-swap by replacing this field.
 	Styles *theme.Styles
-	// Registry is the action registry. The app shell owns the global
-	// layer's bindings; pages register their own when pushed (#23).
-	Registry *action.Registry
 	// Dispatcher routes key events through the precedence stack. The
 	// app shell pre-populates the global layer in NewApp.
 	Dispatcher *keys.Dispatcher
@@ -92,10 +88,9 @@ type Options struct {
 // owns mutable subcomponent state (prompt, flash, page stack) that
 // mutates across Update calls; bubbletea v2 accepts either value-
 // or pointer-rooted Models, and pointer reads cleaner when the
-// Dispatcher and Registry are themselves pointer-typed.
+// Dispatcher is itself pointer-typed.
 type App struct {
 	styles     *theme.Styles
-	registry   *action.Registry
 	dispatcher *keys.Dispatcher
 	cmdbar     *cmdbar.Resolver
 	tenants    []string
@@ -235,7 +230,6 @@ func NewApp(opts Options) *App {
 	}
 	a := &App{
 		styles:     opts.Styles,
-		registry:   opts.Registry,
 		dispatcher: opts.Dispatcher,
 		cmdbar:     resolver,
 		tenants:    opts.Tenants,
