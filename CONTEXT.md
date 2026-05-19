@@ -40,6 +40,30 @@ the future → rendered as `in X`.
 A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 → rendered as `X ago`.
 
+### Overlays
+
+**Overlay**:
+A UI surface that takes precedence over the page stack and captures
+keyboard input while visible. Two kinds: **modal overlay** and
+**help overlay**. Only one is open at any moment.
+_Avoid_: popup, dialog (Western GUI vocabulary), panel (page-level).
+
+**Modal overlay**:
+An async-result overlay — the user makes a decision and the result
+returns as a typed message (`ConfirmResultMsg`,
+`PickerResultMsg`, ...). Concrete kinds today: tenant picker,
+yes/no confirm, alert-page silence picker. All satisfy
+`modal.Modal`.
+_Avoid_: modal dialog, prompt (prompts live in the footer command bar).
+
+**Help overlay**:
+A viewer overlay — renders the `?` keybindings catalogue for as
+long as the user looks at it. No decision pending; any non-scroll
+key dismisses. Sole kind: `help.Help`, which does not satisfy
+`modal.Modal` and lives in its own routing slot.
+_Avoid_: help modal (the rejection is the point of ADR 0020),
+keybindings panel.
+
 ### Backend health
 
 **Backend health**:
@@ -77,6 +101,9 @@ _Avoid_: status line, error banner.
   **connected**; the **error band** renders only in-scope entries.
 - **Next attempt** reuses the single-unit **relative time** vocabulary
   with `retrying in` as the prefix instead of bare `in`.
+- A **modal overlay** takes input precedence over a **help overlay**;
+  the two never render simultaneously. `?` is shadowed while a modal
+  is open so a pending decision is not dismissed off-screen.
 
 ## Example dialogue
 
