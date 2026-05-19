@@ -111,14 +111,15 @@ func tenantBindings(tenants []string) []panel.TenantBinding {
 }
 
 // renderBody fills the bordered-body slot. Modal wins when one
-// is open; the top page draws its View otherwise; an empty stack
-// renders a styled blank pane. When the active page has a non-
-// empty HeaderContent (filter / sort / mark indicators), it
-// renders as a subtitle line directly below the title border so
-// the user can spot the active shaping at a glance. Page Footer
-// (e.g. silences's "next refresh 26s") rides the bottom border —
-// modals don't get one, the bottom edge stays a plain rule for
-// them.
+// is open, then the help overlay (the two are mutually exclusive
+// at runtime — see ADR 0020); the top page draws its View
+// otherwise; an empty stack renders a styled blank pane. When
+// the active page has a non-empty HeaderContent (filter / sort /
+// mark indicators), it renders as a subtitle line directly below
+// the title border so the user can spot the active shaping at a
+// glance. Page Footer (e.g. silences's "next refresh 26s") rides
+// the bottom border — overlays don't get one, the bottom edge
+// stays a plain rule for them.
 func (a *App) renderBody(height int) string {
 	innerHeight := max(height-2, 0) // -2 for top + bottom borders
 	innerWidth := max(a.width-2, 0)
@@ -131,6 +132,9 @@ func (a *App) renderBody(height int) string {
 			title = "modal"
 		}
 		inner = a.modal.View(innerWidth, innerHeight)
+	case a.help != nil:
+		title = "Help"
+		inner = a.help.View(innerWidth, innerHeight)
 	case a.topPage() != nil:
 		p := a.topPage()
 		title = p.Title()

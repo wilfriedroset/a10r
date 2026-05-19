@@ -18,7 +18,8 @@
 //
 // Page interface, page-stack messages and TimeFormatChangedMsg live
 // in page.go (the time-format vocabulary itself lives in timerender);
-// modal slot messages in modal.go; key-name normalisation in keys.go.
+// modal slot messages in modal.go; help slot messages in help.go;
+// key-name normalisation in keys.go.
 package app
 
 import (
@@ -26,6 +27,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -114,10 +116,20 @@ type App struct {
 	// wiring (cmd/tui.go) pushes the first page.
 	stack []Page
 
-	// modal is the open overlay (tenant picker, confirm dialog).
-	// When non-nil it captures every key event before the
-	// dispatcher and renders in the body slot. nil = no modal.
+	// modal is the open async-result overlay (tenant picker, confirm
+	// dialog, alert-page silence picker). When non-nil it captures
+	// every key event before the dispatcher and renders in the body
+	// slot. nil = no modal.
 	modal modal.Modal
+
+	// help is the open viewer overlay (the `?` keybindings catalogue).
+	// When non-nil it captures every key event before the dispatcher
+	// and renders in the body slot, exactly like modal does, but
+	// without the async-result machinery — see ADR 0020. modal takes
+	// precedence over help: `?` is dispatcher-gated and the dispatcher
+	// is bypassed while a modal is open, so a pending decision is
+	// never dismissed off-screen by a stray `?`.
+	help *help.Help
 
 	width  int
 	height int

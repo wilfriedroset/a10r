@@ -81,18 +81,18 @@ func (a *App) registerGlobalBindings() {
 	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "filter", "/", a.openPromptCmd(footer.PromptFilter))
 	// `?` opens the k9s-style help overlay. The bindings are
 	// composed at open-time so the RESOURCE column always reflects
-	// whichever page is on top of the stack.
+	// whichever page is on top of the stack. The help overlay owns
+	// its own routing slot on the app (per ADR 0020) — viewer
+	// surfaces are not async-result modals.
 	a.dispatcher.SetAction(keys.LayerGlobal, "help", "help", "?", func() tea.Cmd {
-		return OpenModal(func() modal.Modal {
-			return help.New(help.Options{
-				PageName:     a.activeViewLabel(),
-				PageBindings: a.activePageBindings(),
-				Globals:      a.globalsCatalog(),
-				TableMotions: tableMotionsCatalog(),
-				Tenants:      a.tenants,
-				ReadOnly:     a.readOnly,
-				Styles:       a.styles,
-			})
+		return OpenHelp(help.Options{
+			PageName:     a.activeViewLabel(),
+			PageBindings: a.activePageBindings(),
+			Globals:      a.globalsCatalog(),
+			TableMotions: tableMotionsCatalog(),
+			Tenants:      a.tenants,
+			ReadOnly:     a.readOnly,
+			Styles:       a.styles,
 		})
 	})
 	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
@@ -261,19 +261,25 @@ func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 }
 
 // handleMouseWheel routes a wheel event. Precedence mirrors
-// handleKey: an open modal (the help overlay scrolls; other modals
-// ignore the event), then prompt / input-capture (suppress so the
-// wheel doesn't grow a phantom motion behind a typing user), then
-// the top page (translate up/down ticks into a synthetic 'k'/'j'
-// key press so the page's existing vim-motion path runs without
-// per-page wheel plumbing). Left/right wheel ticks are ignored —
-// pages don't bind h/l to a wheel motion and the horizontal-wheel
-// hardware is rare enough that surprising the user with column
-// walks is worse than dropping the event.
+// handleKey: an open modal (modals ignore the event today), then
+// an open help overlay (scrolls its content), then prompt /
+// input-capture (suppress so the wheel doesn't grow a phantom
+// motion behind a typing user), then the top page (translate
+// up/down ticks into a synthetic 'k'/'j' key press so the page's
+// existing vim-motion path runs without per-page wheel plumbing).
+// Left/right wheel ticks are ignored — pages don't bind h/l to a
+// wheel motion and the horizontal-wheel hardware is rare enough
+// that surprising the user with column walks is worse than
+// dropping the event.
 func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
 	if a.modal != nil {
 		next, cmd := a.modal.Update(m)
 		a.modal = next
+		return cmd
+	}
+	if a.help != nil {
+		next, cmd := a.help.Update(m)
+		a.help = next
 		return cmd
 	}
 	if a.prompt.IsOpen() || a.topPageCapturesInput() {
@@ -344,11 +350,17 @@ func quitRequestedCmd() tea.Cmd {
 // handleKey routes a single key event. Precedence:
 //
 //  1. Open modal — captures every key including Esc.
-//  2. Open prompt — same rule for the bottom-strip prompt.
-//  3. Top page in input-capture mode (forms) — raw keys so the
+//  2. Open help overlay — same rule for the `?` viewer; lives in
+//     its own slot per ADR 0020. modal wins when both are
+//     non-nil (structurally impossible at runtime because the
+//     keys that open modals are dispatcher-gated and the
+//     dispatcher is bypassed while help is open, but the
+//     precedence stays explicit).
+//  3. Open prompt — same rule for the bottom-strip prompt.
+//  4. Top page in input-capture mode (forms) — raw keys so the
 //     user can type globally-bound chars into fields.
-//  4. Dispatcher (modal > prompt > view > table > global).
-//  5. Top page — final catch-all for vim motions and per-page
+//  5. Dispatcher (modal > prompt > view > table > global).
+//  6. Top page — final catch-all for vim motions and per-page
 //     shortcuts that don't need pre-registration.
 //
 // Unconsumed keys drop silently.
@@ -356,6 +368,11 @@ func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if a.modal != nil {
 		next, cmd := a.modal.Update(m)
 		a.modal = next
+		return a, cmd
+	}
+	if a.help != nil {
+		next, cmd := a.help.Update(m)
+		a.help = next
 		return a, cmd
 	}
 	if a.prompt.IsOpen() {

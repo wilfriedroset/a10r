@@ -26,11 +26,17 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
-	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
+
+// ClosedMsg is emitted when the help overlay is dismissed. The app
+// shell clears its help slot on receipt. Lives in this package
+// (per ADR 0020) because the help overlay owns its own routing
+// slot — viewer overlays no longer rent modal/'s ResultMsg surface
+// to ship a no-payload marker.
+type ClosedMsg struct{}
 
 // Options bundles every input the overlay needs. The wiring layer
 // in app.go assembles this on `?` press.
@@ -71,14 +77,16 @@ type Options struct {
 	Styles *theme.Styles
 }
 
-// Help is the modal overlay.
+// Help is the viewer overlay rendered by `?`. The app shell holds
+// it in a dedicated routing slot (`a.help`) separate from the modal
+// slot; the two never render simultaneously.
 type Help struct {
 	opts Options
 
 	// scroll is the row index the help body starts rendering from.
 	// Mouse-wheel ticks and the vim-style scroll keys (j/k/g/G plus
 	// PgDn/PgUp/Home/End/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) adjust this
-	// so a help payload that overflows the modal's height is
+	// so a help payload that overflows the overlay's height is
 	// reachable from the keyboard or the wheel. Clamped inside View
 	// to whatever the rendered content can show; the scroll-key
 	// handler also clamps to lastMaxScroll so a held-down key
@@ -95,18 +103,11 @@ type Help struct {
 	lastMaxScroll  int
 }
 
-// New constructs a Help modal.
+// New constructs a Help overlay.
 func New(opts Options) *Help { return &Help{opts: opts} }
 
-// Init implements modal.Modal.
-func (*Help) Init() tea.Cmd { return nil }
-
-// Title implements modal.Modal — the App's outer panel renders
-// this in its border so the help overlay reads as `┌── Help ──┐`
-// without needing to draw its own frame.
-func (*Help) Title() string { return "Help" }
-
-// Update implements modal.Modal. Most keys dismiss the overlay
+// Update handles the keystrokes and wheel ticks the app shell
+// routes here while the overlay is open. Most keys dismiss
 // (it's read-only — `?` toggles off, `Esc` and `q` close it),
 // but the standard vim-style scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/
 // Ctrl+F/Ctrl+B plus the arrow / page-nav keys and Space) walk
@@ -115,9 +116,9 @@ func (*Help) Title() string { return "Help" }
 // would otherwise close the overlay on the first keystroke (help
 // brainstorm finding `help.go:104-113`). Mouse-wheel ticks also
 // adjust the scroll offset; click / motion events arrive only while
-// the App's mouse cell-motion mode is on but the help modal has no
+// the App's mouse cell-motion mode is on but the help overlay has no
 // use for them — they're ignored alongside other non-key messages.
-func (h *Help) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
+func (h *Help) Update(msg tea.Msg) (*Help, tea.Cmd) {
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		h.scrollBy(wheel)
 		return h, nil
@@ -126,7 +127,7 @@ func (h *Help) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
 		if h.scrollByKey(key.String()) {
 			return h, nil
 		}
-		return h, func() tea.Msg { return modal.HelpClosedMsg{} }
+		return h, func() tea.Msg { return ClosedMsg{} }
 	}
 	return h, nil
 }
@@ -135,7 +136,7 @@ func (h *Help) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
 // the offset; down increases it. The lower bound is zero; the
 // upper bound is enforced inside View so a window resize doesn't
 // strand the offset past the new maximum (the scroll field is the
-// only mutable state on the help modal — re-clamping there keeps
+// only mutable state on the help overlay — re-clamping there keeps
 // the math centralised).
 func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 	switch m.Button {
@@ -208,9 +209,8 @@ func (h *Help) clampScroll() {
 	}
 }
 
-// View implements modal.Modal. Renders the four columns into the
-// rectangle the App panel hands over. The outer panel border (with
-// the "Help" title) is drawn by the App, not by this view.
+// View renders the four columns into the rectangle the app shell
+// hands over. The outer frame is drawn by the app, not by this view.
 func (h *Help) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -324,7 +324,7 @@ func (h *Help) staticColumn(name string, entries []action.Action) []string {
 // padded so the cell alignment stays clean across the visible
 // rectangle. Each row is exactly colWidth*len(cols) columns wide;
 // the App panel takes care of side borders. scroll shifts the
-// starting row so a help payload that overflows the modal's
+// starting row so a help payload that overflows the overlay's
 // height can be walked downward by mouse-wheel ticks.
 func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []string {
 	maxLen := 0

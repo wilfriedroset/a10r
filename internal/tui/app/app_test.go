@@ -173,19 +173,6 @@ func TestApp_CtrlCQuits(t *testing.T) {
 		"Ctrl+C's Cmd must emit QuitRequestedMsg so the App can Close() pages before quitting")
 }
 
-func TestApp_HelpKeyOpensModal(t *testing.T) {
-	t.Parallel()
-	a := newTestApp(t)
-	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	a = updated.(*App)
-
-	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
-	a = updated.(*App)
-	require.NotNil(t, cmd, "? must produce a Cmd that opens the help overlay")
-	drive(t, a, cmd)
-	require.NotNil(t, a.modal, "? must open the help modal")
-}
-
 func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -314,14 +301,16 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 	require.Len(t, *form.updateLog, 4, "every digit must reach the form")
 
 	// And `:` / `/` / `?` (prompt and help). None should open a
-	// prompt or modal; all must reach the form.
+	// prompt, modal, or help overlay; all must reach the form.
 	for _, key := range []rune{':', '/', '?'} {
 		_, _ = a.Update(tea.KeyPressMsg{Code: key, Text: string(key)})
 	}
 	require.False(t, a.prompt.IsOpen(),
 		"capturing page must shadow `:` / `/` so they don't open the prompt")
 	require.Nil(t, a.modal,
-		"capturing page must shadow `?` so it doesn't open the help modal")
+		"capturing page must shadow `?` so it doesn't open a modal")
+	require.Nil(t, a.help,
+		"capturing page must shadow `?` so it doesn't open the help overlay")
 	require.Len(t, *form.updateLog, 7, "every globally-bound key must reach the form")
 }
 
@@ -618,11 +607,11 @@ func TestApp_MouseClickAndMotionIgnored(t *testing.T) {
 		"click / release / motion must NOT reach the top page — keyboard-first")
 }
 
-// TestApp_MouseWheelRoutedToHelpModal pins the modal precedence:
-// when the help overlay is open a wheel tick goes to the modal
+// TestApp_MouseWheelRoutedToHelpOverlay pins the overlay precedence:
+// when the help overlay is open a wheel tick goes to the overlay
 // (so it can scroll its content) and does NOT synthesize a 'j'/'k'
 // for the page underneath.
-func TestApp_MouseWheelRoutedToHelpModal(t *testing.T) {
+func TestApp_MouseWheelRoutedToHelpOverlay(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -631,18 +620,18 @@ func TestApp_MouseWheelRoutedToHelpModal(t *testing.T) {
 	page := newFakePage("alerts")
 	drive(t, a, PushPage(func() Page { return page }))
 
-	// Open the help modal.
+	// Open the help overlay.
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	a = updated.(*App)
 	drive(t, a, cmd)
-	require.NotNil(t, a.modal, "help modal must be open before the wheel tick")
+	require.NotNil(t, a.help, "help overlay must be open before the wheel tick")
 	before := len(*page.updateLog)
 
 	_, cmd = a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
-	require.Nil(t, cmd, "help modal returns nil on wheel — no Cmd")
-	require.NotNil(t, a.modal, "wheel must NOT close the help modal")
+	require.Nil(t, cmd, "help overlay returns nil on wheel — no Cmd")
+	require.NotNil(t, a.help, "wheel must NOT close the help overlay")
 	require.Len(t, *page.updateLog, before,
-		"wheel on an open modal must NOT reach the page beneath it")
+		"wheel on an open overlay must NOT reach the page beneath it")
 }
 
 // TestApp_MouseWheelSuppressedWhenPromptOpen pins the prompt-mode

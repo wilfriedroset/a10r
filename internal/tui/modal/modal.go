@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package modal hosts the overlay surfaces that take precedence
-// over the page stack: the tenant picker (Ctrl+T per C3) and the
-// generic yes/no confirm dialog used by destructive flows like
-// silence expire.
+// Package modal hosts the async-result overlay surfaces that take
+// precedence over the page stack: the tenant picker (Ctrl+T per C3),
+// the generic yes/no confirm dialog used by destructive flows like
+// silence expire, and the alert-page silence picker. Each carries
+// a typed result (`PickerSubmittedMsg`, `ConfirmResultMsg`,
+// `SilenceSelectedMsg`, ...) the caller acts on.
+//
+// Viewer overlays (a surface that only renders information for as
+// long as the user looks at it) live in their own packages with
+// their own routing slot on the app shell; see internal/tui/help and
+// ADR 0020 for the split.
 //
 // Modals are value-typed and self-contained: they own their key
 // handling rather than registering at the dispatcher's LayerModal.
@@ -49,20 +56,12 @@ type Modal interface {
 // auto-close path switches on this interface so any future modal
 // type whose result implements ResultMsg gets correct routing for
 // free — the App does NOT enumerate the concrete result types
-// directly. Picker, Confirm, and Help result types implement it.
+// directly. Picker, Confirm, and the alert-page silence-picker
+// result types implement it.
 type ResultMsg interface {
 	// IsModalResult is the marker method. The empty body makes
 	// satisfaction explicit (an unrelated tea.Msg can't accidentally
 	// match) while still letting modals declared in other packages
-	// — like the help overlay — implement the interface.
+	// — like the alert-page silence picker — implement the interface.
 	IsModalResult()
 }
-
-// HelpClosedMsg is emitted when the help overlay is dismissed.
-// Lives in this package (rather than internal/tui/help) so that
-// other modals don't need to reach across packages to satisfy
-// ResultMsg.
-type HelpClosedMsg struct{}
-
-// IsModalResult satisfies ResultMsg.
-func (HelpClosedMsg) IsModalResult() {}

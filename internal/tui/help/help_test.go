@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
-	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -42,13 +41,6 @@ func sampleOpts(t *testing.T) Options {
 		Tenants: []string{"primary", "secondary"},
 		Styles:  testutil.LoadStyles(t),
 	}
-}
-
-func TestHelp_TitleIsHelp(t *testing.T) {
-	t.Parallel()
-	h := New(sampleOpts(t))
-	require.Equal(t, "Help", h.Title(),
-		"the App's outer panel reads Title() to label the border")
 }
 
 func TestHelp_ColumnsRender(t *testing.T) {
@@ -131,8 +123,8 @@ func TestHelp_DismissKeysEmitClosed(t *testing.T) {
 			_, cmd := h.Update(tc.key)
 			require.NotNil(t, cmd, "dismiss key %q must emit a command", tc.name)
 			msg := cmd()
-			_, ok := msg.(modal.HelpClosedMsg)
-			require.Truef(t, ok, "dismiss key %q must emit HelpClosedMsg", tc.name)
+			_, ok := msg.(ClosedMsg)
+			require.Truef(t, ok, "dismiss key %q must emit help.ClosedMsg", tc.name)
 		})
 	}
 }
@@ -170,9 +162,9 @@ func TestHelp_ScrollKeysDoNotDismiss(t *testing.T) {
 			t.Parallel()
 			h := New(sampleOpts(t))
 			next, cmd := h.Update(tc.key)
-			require.Nilf(t, cmd, "scroll key %q must NOT emit a HelpClosedMsg", tc.name)
+			require.Nilf(t, cmd, "scroll key %q must NOT emit a help.ClosedMsg", tc.name)
 			require.Samef(t, h, next,
-				"scroll key %q returns the same modal — no transition", tc.name)
+				"scroll key %q returns the same overlay — no transition", tc.name)
 		})
 	}
 }
@@ -246,11 +238,6 @@ func TestHelp_NonKeyMessageIsIgnored(t *testing.T) {
 	require.Nil(t, cmd)
 }
 
-func TestHelp_HelpClosedMsgImplementsResultMsg(t *testing.T) {
-	t.Parallel()
-	var _ modal.ResultMsg = modal.HelpClosedMsg{}
-}
-
 func TestHelp_NumericListClampsAtNine(t *testing.T) {
 	t.Parallel()
 	opts := sampleOpts(t)
@@ -284,8 +271,8 @@ func TestHelp_WheelDownScrollsContent(t *testing.T) {
 	first := testutil.StripStyle(h.View(w, hgt))
 
 	next, cmd := h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
-	require.Nil(t, cmd, "wheel must not emit a HelpClosedMsg")
-	require.Same(t, h, next, "wheel returns the same modal — no transition")
+	require.Nil(t, cmd, "wheel must not emit a help.ClosedMsg")
+	require.Same(t, h, next, "wheel returns the same overlay — no transition")
 
 	scrolled := testutil.StripStyle(h.View(w, hgt))
 	require.NotEqual(t, first, scrolled,
@@ -336,7 +323,7 @@ func TestHelp_WheelDownClampsAtBottom(t *testing.T) {
 		"after clamp, wheel-up still produces a visible change")
 }
 
-// TestHelp_WheelDoesNotEmitHelpClosed pins the modal-close contract:
+// TestHelp_WheelDoesNotEmitHelpClosed pins the overlay-close contract:
 // every keystroke dismisses the help, but wheel ticks must NOT —
 // otherwise the user can never scroll, the first wheel event would
 // close the overlay.
@@ -345,7 +332,7 @@ func TestHelp_WheelDoesNotEmitHelpClosed(t *testing.T) {
 	h := New(sampleOpts(t))
 	for _, button := range []tea.MouseButton{tea.MouseWheelUp, tea.MouseWheelDown} {
 		_, cmd := h.Update(tea.MouseWheelMsg{Button: button})
-		require.Nil(t, cmd, "wheel must NEVER emit HelpClosedMsg (button=%v)", button)
+		require.Nil(t, cmd, "wheel must NEVER emit help.ClosedMsg (button=%v)", button)
 	}
 }
 

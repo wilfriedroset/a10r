@@ -5,6 +5,7 @@ package app
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -19,6 +20,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if cmd, handled := a.handleInput(msg); handled {
 		return a, cmd
+	}
+	if _, ok := msg.(help.ClosedMsg); ok {
+		// Help close runs through its own branch rather than the
+		// modal.ResultMsg fan-out: viewer overlays don't satisfy
+		// ResultMsg (per ADR 0020), and no page needs to observe
+		// the dismissal — the overlay only renders information.
+		a.help = nil
+		return a, nil
 	}
 	if isModalResult(msg) {
 		a.closeModal()
@@ -119,6 +128,9 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 		return a.openModal(m.Factory), true
 	case closeModalMsg:
 		a.closeModal()
+		return nil, true
+	case openHelpMsg:
+		a.openHelp(m.Options)
 		return nil, true
 	case RefreshRequestedMsg:
 		// Translate page-level refresh requests into poller nudges
