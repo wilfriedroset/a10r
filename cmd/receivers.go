@@ -4,18 +4,14 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/backend/factory"
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -79,89 +75,52 @@ type receiverRow struct {
 	Name   string `json:"name" yaml:"name"`
 }
 
-// runReceiversList loads config, fans out ListReceivers across
-// every configured backend, and renders. Same lenient
-// partial-failure rule as runAlertsList (ADR 0009).
+// runReceiversList is the per-command thin wrapper around
+// listcmd.Run: parse flags, build a Spec whose Fetcher closure
+// fans out the per-tenant ListReceivers call. Exit-code mapping
+// lives here.
 func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts receiversListOptions) error {
 	format, err := output.ParseFormat(opts.Output)
 	if err != nil {
 		return err
 	}
-
-	cfg, err := config.Load(loadOptsFromFlags(flags))
+	cfg, err := loadCmdConfig(flags)
 	if err != nil {
-		return NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+		return err
 	}
-
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	build, closer, err := buildClientFactory(flags)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = closer.Close() }()
 
-	rows, allFailed, fetchErrs := fetchReceiverRows(ctx, cfg, debugLog)
-	for _, e := range fetchErrs {
-		fmt.Fprintln(os.Stderr, e)
+	spec := listcmd.Spec[receiverRow]{
+		Config: cfg,
+		Format: format,
+		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]receiverRow, error) {
+			recvs, err := c.ListReceivers(ctx)
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]receiverRow, 0, len(recvs))
+			for _, r := range recvs {
+				rows = append(rows, toReceiverRow(name, r))
+			}
+			return rows, nil
+		},
+		Renderers: map[output.Format]listcmd.Renderer[receiverRow]{
+			output.FormatTable: renderReceiverTable,
+			output.FormatJSON:  renderReceiverJSON,
+			output.FormatYAML:  renderReceiverYAML,
+		},
+		Sort:          sortReceiverRows,
+		ResourceLabel: "receiver",
+		FailOnAny:     opts.FailOnAny,
+		NoPager:       flags.NoPager,
+		Out:           out,
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
 	}
-
-	sortReceiverRows(rows)
-
-	tty := isStdoutTerminal(out)
-	resolved := output.Resolve(format, tty)
-	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
-	if err != nil {
-		return err
-	}
-	if err := renderReceiverRows(pager, rows, resolved); err != nil {
-		_ = pager.Close()
-		return err
-	}
-	if err := pager.Close(); err != nil {
-		return err
-	}
-
-	if opts.FailOnAny && len(rows) > 0 {
-		return NewExitError(ExitFailMatched,
-			fmt.Errorf("--fail: %d receiver(s) returned", len(rows)))
-	}
-	if allFailed {
-		return NewExitError(ExitUnreachable, errors.New("every configured backend failed to list receivers"))
-	}
-	return nil
-}
-
-// fetchReceiverRows fans out ListReceivers across every configured
-// backend, flattening each Receiver into a receiverRow tagged with
-// the backend's name. Same partial-failure semantics as
-// fetchAlertRows.
-func fetchReceiverRows(ctx context.Context, cfg *config.Config, debugLog *slog.Logger) (rows []receiverRow, allFailed bool, errs []error) {
-	if len(cfg.Backends) == 0 {
-		return nil, false, nil
-	}
-	failed := 0
-	ua := userAgent(version, commit)
-	var opts []factory.Option
-	if debugLog != nil {
-		opts = append(opts, factory.WithDebugLog(debugLog))
-	}
-	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua, opts...)
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: build: %w", be.Name, err))
-			continue
-		}
-		recvs, err := c.ListReceivers(ctx)
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: list: %w", be.Name, err))
-			continue
-		}
-		for _, r := range recvs {
-			rows = append(rows, toReceiverRow(be.Name, r))
-		}
-	}
-	return rows, failed == len(cfg.Backends), errs
+	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 
 // toReceiverRow flattens one backend.Receiver into the headless row
@@ -182,18 +141,25 @@ func sortReceiverRows(rows []receiverRow) {
 	})
 }
 
-// renderReceiverRows dispatches to the chosen format. Table
-// flattens to TENANT / NAME columns; JSON / YAML emit the full
-// receiverRow shape.
+// renderReceiverRows dispatches to the chosen format. Kept as a
+// thin shim for the existing unit tests; production wiring goes
+// through the per-format Renderer map in runReceiversList.
 func renderReceiverRows(out io.Writer, rows []receiverRow, format output.Format) error {
 	switch format {
 	case output.FormatJSON:
-		return output.WriteJSON(out, rows)
+		return renderReceiverJSON(out, rows)
 	case output.FormatYAML:
-		return output.WriteYAML(out, rows)
+		return renderReceiverYAML(out, rows)
 	case output.FormatTable:
-		// Fall through to table.
+		return renderReceiverTable(out, rows)
 	}
+	return fmt.Errorf("unknown format %q", format)
+}
+
+func renderReceiverJSON(out io.Writer, rows []receiverRow) error { return output.WriteJSON(out, rows) }
+func renderReceiverYAML(out io.Writer, rows []receiverRow) error { return output.WriteYAML(out, rows) }
+
+func renderReceiverTable(out io.Writer, rows []receiverRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "name"},
 		Rows: receiverTableRows(rows),
@@ -202,7 +168,7 @@ func renderReceiverRows(out io.Writer, rows []receiverRow, format output.Format)
 }
 
 // receiverTableRows flattens to the column shape the Table helper
-// consumes. Order matches Cols in renderReceiverRows.
+// consumes. Order matches Cols in renderReceiverTable.
 func receiverTableRows(rows []receiverRow) [][]string {
 	out := make([][]string, 0, len(rows))
 	for _, r := range rows {

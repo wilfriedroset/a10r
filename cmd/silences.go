@@ -4,11 +4,8 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -16,8 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/backend/factory"
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -156,10 +152,10 @@ func validateSilenceState(in string) (string, error) {
 		in, strings.Join(allowed, ", "))
 }
 
-// runSilencesList loads config, fans out ListSilences across every
-// configured backend, applies the user's filters, and renders. Same
-// lenient partial-failure rule as runAlertsList (ADR 0009) — a
-// single tenant blip does not abort a multi-backend run.
+// runSilencesList is the per-command thin wrapper around
+// listcmd.Run: parse flags, validate per-command options, build a
+// Spec whose Fetcher closure pushes the filter logic inside the
+// per-backend goroutine. Exit-code mapping lives here.
 func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts silencesListOptions) error {
 	format, err := output.ParseFormat(opts.Output)
 	if err != nil {
@@ -177,82 +173,43 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		}
 		matcherFilter = &m
 	}
-
-	cfg, err := config.Load(loadOptsFromFlags(flags))
+	cfg, err := loadCmdConfig(flags)
 	if err != nil {
-		return NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+		return err
 	}
-
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	build, closer, err := buildClientFactory(flags)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = closer.Close() }()
 
-	rows, allFailed, fetchErrs := fetchSilenceRows(ctx, cfg, debugLog)
-	for _, e := range fetchErrs {
-		fmt.Fprintln(os.Stderr, e)
+	spec := listcmd.Spec[silenceRow]{
+		Config: cfg,
+		Format: format,
+		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]silenceRow, error) {
+			silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]silenceRow, 0, len(silences))
+			for _, s := range silences {
+				rows = append(rows, toSilenceRow(name, s))
+			}
+			return filterSilenceRows(rows, state, matcherFilter), nil
+		},
+		Renderers: map[output.Format]listcmd.Renderer[silenceRow]{
+			output.FormatTable: renderSilenceTable,
+			output.FormatJSON:  renderSilenceJSON,
+			output.FormatYAML:  renderSilenceYAML,
+		},
+		Sort:          sortSilenceRows,
+		ResourceLabel: "silence",
+		FailOnAny:     opts.FailOnAny,
+		NoPager:       flags.NoPager,
+		Out:           out,
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
 	}
-
-	rows = filterSilenceRows(rows, state, matcherFilter)
-	sortSilenceRows(rows)
-
-	tty := isStdoutTerminal(out)
-	resolved := output.Resolve(format, tty)
-	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
-	if err != nil {
-		return err
-	}
-	if err := renderSilenceRows(pager, rows, resolved); err != nil {
-		_ = pager.Close()
-		return err
-	}
-	if err := pager.Close(); err != nil {
-		return err
-	}
-
-	if opts.FailOnAny && len(rows) > 0 {
-		return NewExitError(ExitFailMatched,
-			fmt.Errorf("--fail: %d silence(s) matched the filter", len(rows)))
-	}
-	if allFailed {
-		return NewExitError(ExitUnreachable, errors.New("every configured backend failed to list silences"))
-	}
-	return nil
-}
-
-// fetchSilenceRows fans out ListSilences across every configured
-// backend. Same partial-failure semantics as fetchAlertRows: the
-// "every backend failed" boolean drives the ExitUnreachable branch,
-// per-backend errors route to stderr.
-func fetchSilenceRows(ctx context.Context, cfg *config.Config, debugLog *slog.Logger) (rows []silenceRow, allFailed bool, errs []error) {
-	if len(cfg.Backends) == 0 {
-		return nil, false, nil
-	}
-	failed := 0
-	ua := userAgent(version, commit)
-	var opts []factory.Option
-	if debugLog != nil {
-		opts = append(opts, factory.WithDebugLog(debugLog))
-	}
-	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua, opts...)
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: build: %w", be.Name, err))
-			continue
-		}
-		silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: list: %w", be.Name, err))
-			continue
-		}
-		for _, s := range silences {
-			rows = append(rows, toSilenceRow(be.Name, s))
-		}
-	}
-	return rows, failed == len(cfg.Backends), errs
+	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 
 // toSilenceRow flattens one backend.Silence into the headless row
@@ -340,20 +297,25 @@ func sortSilenceRows(rows []silenceRow) {
 	})
 }
 
-// renderSilenceRows dispatches to the chosen format. Table flattens
-// to TENANT / ID / STATE / MATCHERS / ENDS-AT columns; the matcher
-// column collapses the matcher slice into a single Prom-style
-// summary so a multi-matcher silence still fits one row. JSON / YAML
-// emit the full silenceRow shape including the matcher array.
+// renderSilenceRows dispatches to the chosen format. Kept as a
+// thin shim for the existing unit tests; production wiring goes
+// through the per-format Renderer map in runSilencesList.
 func renderSilenceRows(out io.Writer, rows []silenceRow, format output.Format) error {
 	switch format {
 	case output.FormatJSON:
-		return output.WriteJSON(out, rows)
+		return renderSilenceJSON(out, rows)
 	case output.FormatYAML:
-		return output.WriteYAML(out, rows)
+		return renderSilenceYAML(out, rows)
 	case output.FormatTable:
-		// Fall through to table.
+		return renderSilenceTable(out, rows)
 	}
+	return fmt.Errorf("unknown format %q", format)
+}
+
+func renderSilenceJSON(out io.Writer, rows []silenceRow) error { return output.WriteJSON(out, rows) }
+func renderSilenceYAML(out io.Writer, rows []silenceRow) error { return output.WriteYAML(out, rows) }
+
+func renderSilenceTable(out io.Writer, rows []silenceRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "id", "state", "matchers", "ends-at"},
 		Rows: silenceTableRows(rows),

@@ -4,19 +4,15 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/backend/factory"
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -96,96 +92,54 @@ type alertRow struct {
 	Labels      map[string]string  `json:"labels" yaml:"labels"`
 }
 
-// runAlertsList loads config, fans out ListAlerts across every
-// configured backend, applies the user's filters, and renders.
-// Per-backend errors are surfaced to stderr but do not abort the
-// run — the lenient partial-failure rule (ADR 0009) lives here
-// so a single tenant blip doesn't break a multi-backend pipeline.
+// runAlertsList is the per-command thin wrapper around
+// listcmd.Run: parse the user's --output value, load config,
+// build the HTTP debug logger, and assemble a Spec whose Fetcher
+// closure pushes the per-tenant filter logic *inside* the
+// per-backend goroutine. Exit-code mapping lives here, not in
+// the pipeline.
 func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts alertsListOptions) error {
 	format, err := output.ParseFormat(opts.Output)
 	if err != nil {
 		return err
 	}
-
-	cfg, err := config.Load(loadOptsFromFlags(flags))
+	cfg, err := loadCmdConfig(flags)
 	if err != nil {
-		return NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+		return err
 	}
-
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	build, closer, err := buildClientFactory(flags)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = closer.Close() }()
 
-	rows, allFailed, fetchErrs := fetchAlertRows(ctx, cfg, debugLog)
-	for _, e := range fetchErrs {
-		fmt.Fprintln(os.Stderr, e)
+	spec := listcmd.Spec[alertRow]{
+		Config: cfg,
+		Format: format,
+		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]alertRow, error) {
+			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]alertRow, 0, len(alerts))
+			for _, a := range alerts {
+				rows = append(rows, toAlertRow(name, a))
+			}
+			return filterAlertRows(rows, opts.Severity, opts.State), nil
+		},
+		Renderers: map[output.Format]listcmd.Renderer[alertRow]{
+			output.FormatTable: renderAlertTable,
+			output.FormatJSON:  renderAlertJSON,
+			output.FormatYAML:  renderAlertYAML,
+		},
+		Sort:          sortAlertRows,
+		ResourceLabel: "alert",
+		FailOnAny:     opts.FailOnAny,
+		NoPager:       flags.NoPager,
+		Out:           out,
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
 	}
-
-	rows = filterAlertRows(rows, opts.Severity, opts.State)
-	sortAlertRows(rows)
-
-	tty := isStdoutTerminal(out)
-	resolved := output.Resolve(format, tty)
-	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
-	if err != nil {
-		return err
-	}
-	if err := renderAlertRows(pager, rows, resolved); err != nil {
-		_ = pager.Close()
-		return err
-	}
-	if err := pager.Close(); err != nil {
-		return err
-	}
-
-	if opts.FailOnAny && len(rows) > 0 {
-		return NewExitError(ExitFailMatched,
-			fmt.Errorf("--fail: %d alert(s) matched the filter", len(rows)))
-	}
-	if allFailed {
-		return NewExitError(ExitUnreachable, errors.New("every configured backend failed to list alerts"))
-	}
-	return nil
-}
-
-// fetchAlertRows fans out ListAlerts across every configured
-// backend, flattening each Alert into an alertRow tagged with
-// the backend's name. When debugLog is non-nil, factory.Build
-// wraps each client with transport.WithDebugLog so --debug-http
-// captures the per-tenant HTTP records. Returns the rows, an
-// "every backend failed" boolean for the lenient partial-failure
-// rule, and the per-backend errors so the caller can route them
-// to stderr.
-func fetchAlertRows(ctx context.Context, cfg *config.Config, debugLog *slog.Logger) (rows []alertRow, allFailed bool, errs []error) {
-	if len(cfg.Backends) == 0 {
-		return nil, false, nil
-	}
-	failed := 0
-	ua := userAgent(version, commit)
-	var opts []factory.Option
-	if debugLog != nil {
-		opts = append(opts, factory.WithDebugLog(debugLog))
-	}
-	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua, opts...)
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: build: %w", be.Name, err))
-			continue
-		}
-		alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: list: %w", be.Name, err))
-			continue
-		}
-		for _, a := range alerts {
-			rows = append(rows, toAlertRow(be.Name, a))
-		}
-	}
-	return rows, failed == len(cfg.Backends), errs
+	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 
 // toAlertRow flattens one backend.Alert into the headless row
@@ -238,18 +192,25 @@ func sortAlertRows(rows []alertRow) {
 	})
 }
 
-// renderAlertRows dispatches to the chosen format. Table flattens
-// to TENANT / NAME / SEVERITY / STATE columns; JSON / YAML emit
-// the full alertRow shape including the labels map.
+// renderAlertRows dispatches to the chosen format. Kept as a thin
+// shim for the existing unit tests; production wiring goes through
+// the per-format Renderer map in runAlertsList.
 func renderAlertRows(out io.Writer, rows []alertRow, format output.Format) error {
 	switch format {
 	case output.FormatJSON:
-		return output.WriteJSON(out, rows)
+		return renderAlertJSON(out, rows)
 	case output.FormatYAML:
-		return output.WriteYAML(out, rows)
+		return renderAlertYAML(out, rows)
 	case output.FormatTable:
-		// Fall through to table.
+		return renderAlertTable(out, rows)
 	}
+	return fmt.Errorf("unknown format %q", format)
+}
+
+func renderAlertJSON(out io.Writer, rows []alertRow) error { return output.WriteJSON(out, rows) }
+func renderAlertYAML(out io.Writer, rows []alertRow) error { return output.WriteYAML(out, rows) }
+
+func renderAlertTable(out io.Writer, rows []alertRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "name", "severity", "state"},
 		Rows: alertTableRows(rows),
@@ -258,7 +219,7 @@ func renderAlertRows(out io.Writer, rows []alertRow, format output.Format) error
 }
 
 // alertTableRows flattens to the column shape the Table helper
-// consumes. Order matches Cols in renderAlertRows.
+// consumes. Order matches Cols in renderAlertTable.
 func alertTableRows(rows []alertRow) [][]string {
 	out := make([][]string, 0, len(rows))
 	for _, r := range rows {

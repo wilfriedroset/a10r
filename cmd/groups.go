@@ -4,11 +4,8 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,8 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/backend/factory"
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -99,90 +95,52 @@ type groupRow struct {
 	Receivers []string          `json:"receivers" yaml:"receivers"`
 }
 
-// runGroupsList loads config, fans out ListAlertGroups across every
-// configured backend, applies the user's filters, and renders. Same
-// lenient partial-failure rule as runAlertsList (ADR 0009).
+// runGroupsList is the per-command thin wrapper around
+// listcmd.Run: parse flags, build a Spec whose Fetcher closure
+// pushes the per-tenant filter logic inside the per-backend
+// goroutine. Exit-code mapping lives here.
 func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts groupsListOptions) error {
 	format, err := output.ParseFormat(opts.Output)
 	if err != nil {
 		return err
 	}
-
-	cfg, err := config.Load(loadOptsFromFlags(flags))
+	cfg, err := loadCmdConfig(flags)
 	if err != nil {
-		return NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+		return err
 	}
-
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	build, closer, err := buildClientFactory(flags)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = closer.Close() }()
 
-	rows, allFailed, fetchErrs := fetchGroupRows(ctx, cfg, debugLog)
-	for _, e := range fetchErrs {
-		fmt.Fprintln(os.Stderr, e)
+	spec := listcmd.Spec[groupRow]{
+		Config: cfg,
+		Format: format,
+		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]groupRow, error) {
+			groups, err := c.ListAlertGroups(ctx, backend.AlertFilter{})
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]groupRow, 0, len(groups))
+			for _, g := range groups {
+				rows = append(rows, toGroupRow(name, g))
+			}
+			return filterGroupRows(rows, opts.Receiver), nil
+		},
+		Renderers: map[output.Format]listcmd.Renderer[groupRow]{
+			output.FormatTable: renderGroupTable,
+			output.FormatJSON:  renderGroupJSON,
+			output.FormatYAML:  renderGroupYAML,
+		},
+		Sort:          sortGroupRows,
+		ResourceLabel: "group",
+		FailOnAny:     opts.FailOnAny,
+		NoPager:       flags.NoPager,
+		Out:           out,
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
 	}
-
-	rows = filterGroupRows(rows, opts.Receiver)
-	sortGroupRows(rows)
-
-	tty := isStdoutTerminal(out)
-	resolved := output.Resolve(format, tty)
-	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
-	if err != nil {
-		return err
-	}
-	if err := renderGroupRows(pager, rows, resolved); err != nil {
-		_ = pager.Close()
-		return err
-	}
-	if err := pager.Close(); err != nil {
-		return err
-	}
-
-	if opts.FailOnAny && len(rows) > 0 {
-		return NewExitError(ExitFailMatched,
-			fmt.Errorf("--fail: %d group(s) matched the filter", len(rows)))
-	}
-	if allFailed {
-		return NewExitError(ExitUnreachable, errors.New("every configured backend failed to list alert groups"))
-	}
-	return nil
-}
-
-// fetchGroupRows fans out ListAlertGroups across every configured
-// backend, flattening each AlertGroup into a groupRow tagged with
-// the backend's name. Same partial-failure semantics as
-// fetchAlertRows.
-func fetchGroupRows(ctx context.Context, cfg *config.Config, debugLog *slog.Logger) (rows []groupRow, allFailed bool, errs []error) {
-	if len(cfg.Backends) == 0 {
-		return nil, false, nil
-	}
-	failed := 0
-	ua := userAgent(version, commit)
-	var opts []factory.Option
-	if debugLog != nil {
-		opts = append(opts, factory.WithDebugLog(debugLog))
-	}
-	for _, be := range cfg.Backends {
-		c, err := factory.Build(be, ua, opts...)
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: build: %w", be.Name, err))
-			continue
-		}
-		groups, err := c.ListAlertGroups(ctx, backend.AlertFilter{})
-		if err != nil {
-			failed++
-			errs = append(errs, fmt.Errorf("backend %q: list: %w", be.Name, err))
-			continue
-		}
-		for _, g := range groups {
-			rows = append(rows, toGroupRow(be.Name, g))
-		}
-	}
-	return rows, failed == len(cfg.Backends), errs
+	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 
 // toGroupRow flattens one backend.AlertGroup into the headless row
@@ -260,19 +218,25 @@ func sortGroupRows(rows []groupRow) {
 	})
 }
 
-// renderGroupRows dispatches to the chosen format. Table flattens
-// to TENANT / LABELS / COUNT / RECEIVERS columns; JSON / YAML emit
-// the full groupRow shape including the labels map and receiver
-// union.
+// renderGroupRows dispatches to the chosen format. Kept as a thin
+// shim for the existing unit tests; production wiring goes through
+// the per-format Renderer map in runGroupsList.
 func renderGroupRows(out io.Writer, rows []groupRow, format output.Format) error {
 	switch format {
 	case output.FormatJSON:
-		return output.WriteJSON(out, rows)
+		return renderGroupJSON(out, rows)
 	case output.FormatYAML:
-		return output.WriteYAML(out, rows)
+		return renderGroupYAML(out, rows)
 	case output.FormatTable:
-		// Fall through to table.
+		return renderGroupTable(out, rows)
 	}
+	return fmt.Errorf("unknown format %q", format)
+}
+
+func renderGroupJSON(out io.Writer, rows []groupRow) error { return output.WriteJSON(out, rows) }
+func renderGroupYAML(out io.Writer, rows []groupRow) error { return output.WriteYAML(out, rows) }
+
+func renderGroupTable(out io.Writer, rows []groupRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "labels", "count", "receivers"},
 		Rows: groupTableRows(rows),
