@@ -834,7 +834,8 @@ func TestRunInit_NudgesOnPlaintextBearerToken(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Contains(t, errBuf.String(), "${A10R_BACKEND_PROD_PASSWORD}")
+	require.Contains(t, errBuf.String(), "${A10R_BACKEND_PROD_TOKEN}",
+		"bearer flow must suggest a _TOKEN suffix — _PASSWORD would mislead a copy-pasting operator")
 	require.Contains(t, errBuf.String(), "plaintext")
 }
 

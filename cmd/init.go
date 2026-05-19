@@ -220,11 +220,11 @@ func runInit(env initIO) error {
 func plaintextCredentialHint(cfg config.Config) string {
 	for _, be := range cfg.Backends {
 		if be.BearerToken != "" && !isEnvInterpolation(be.BearerToken) {
-			return exportHintLine(be.Name)
+			return exportHintLine(be.Name, "TOKEN")
 		}
 		if be.BasicAuth != nil && be.BasicAuth.Password != "" &&
 			!isEnvInterpolation(be.BasicAuth.Password) {
-			return exportHintLine(be.Name)
+			return exportHintLine(be.Name, "PASSWORD")
 		}
 	}
 	return ""
@@ -232,11 +232,14 @@ func plaintextCredentialHint(cfg config.Config) string {
 
 // exportHintLine builds the operator-facing nudge string. Pure
 // helper so tests can assert on the literal substring without
-// reaching for the writer plumbing.
-func exportHintLine(backendName string) string {
+// reaching for the writer plumbing. The suffix lets the suggested
+// env-var name match the credential kind — copy-pasting
+// `_PASSWORD` for a bearer token would mislead operators following
+// the hint.
+func exportHintLine(backendName, suffix string) string {
 	name := strings.ToUpper(backendName)
 	return "NOTE: credentials stored in plaintext. To use env-var interpolation instead, " +
-		"replace the value with ${A10R_BACKEND_" + name + "_PASSWORD} (or any other name) " +
+		"replace the value with ${A10R_BACKEND_" + name + "_" + suffix + "} (or any other name) " +
 		"and export that variable. See docs."
 }
 
