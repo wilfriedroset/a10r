@@ -497,6 +497,8 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
+func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
+
 func (f *fakeSilenceClient) callCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()

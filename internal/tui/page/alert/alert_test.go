@@ -353,6 +353,8 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
+func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
+
 func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	t.Parallel()
 

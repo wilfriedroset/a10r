@@ -28,7 +28,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
-	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -102,7 +101,6 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	}
 	clients := buildClients(&effCfg, debugLog)
 	silenceClients := silenceClientsFrom(clients)
-	silenceWriteClients := silenceWriteClientsFrom(clients)
 	creator := os.Getenv("USER")
 	readOnly := effCfg.Defaults.ReadOnly
 
@@ -132,7 +130,6 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		Styles:              styles,
 		Scope:               scope,
 		SilenceClients:      silenceClients,
-		SilenceWriteClients: silenceWriteClients,
 		Creator:             creator,
 		TenantRows:          tenantRows,
 		Config:              &effCfg,
@@ -391,20 +388,6 @@ func logResolvedProxy(logger *slog.Logger, be config.Backend) {
 // the wider Client surface and makes tests trivial to fake.
 func silenceClientsFrom(in map[string]backend.Client) map[string]silenceform.Client {
 	out := make(map[string]silenceform.Client, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
-// silenceWriteClientsFrom narrows the backend.Client map to the
-// silences page's Client interface — that's silenceform.Client
-// plus ExpireSilence, which the silences page needs for `x` /
-// `Ctrl+X`. Separate from silenceClientsFrom because the alerts /
-// alert / groups pages don't expire silences and shouldn't pull
-// the wider surface in.
-func silenceWriteClientsFrom(in map[string]backend.Client) map[string]silences.Client {
-	out := make(map[string]silences.Client, len(in))
 	for k, v := range in {
 		out[k] = v
 	}

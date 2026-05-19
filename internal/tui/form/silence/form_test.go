@@ -49,6 +49,13 @@ func (f *fakeClient) UpdateSilence(_ context.Context, id string, spec backend.Si
 	return f.wantUpdateErr
 }
 
+// ExpireSilence is part of silenceform.Client's contract since
+// the silences list page uses the same write surface, but the
+// form itself never calls it. Accepts every id without error so
+// tests that route through silenceform.Client don't have to
+// special-case this fake.
+func (*fakeClient) ExpireSilence(context.Context, string) error { return nil }
+
 // calls is the legacy "either verb" accessor used by tests written
 // before the form learned edit mode.
 func (f *fakeClient) calls() int { return f.createCalls + f.updateCalls }
@@ -337,6 +344,8 @@ func (b *blockingClient) UpdateSilence(_ context.Context, _ string, _ backend.Si
 	return nil
 }
 
+func (*blockingClient) ExpireSilence(context.Context, string) error { return nil }
+
 func TestForm_SubmitDoesNotBlockUpdateGoroutine(t *testing.T) {
 	t.Parallel()
 	client := &blockingClient{
@@ -393,6 +402,8 @@ func (c *ctxBlockingClient) UpdateSilence(ctx context.Context, _ string, _ backe
 	<-ctx.Done()
 	return ctx.Err()
 }
+
+func (*ctxBlockingClient) ExpireSilence(context.Context, string) error { return nil }
 
 // TestForm_CloseCancelsInflightSubmit pins that closing the form
 // cancels the in-flight Create/UpdateSilence call instead of letting
@@ -897,6 +908,10 @@ func (panickingClient) CreateSilence(context.Context, backend.SilenceSpec) (stri
 
 func (panickingClient) UpdateSilence(context.Context, string, backend.SilenceSpec) error {
 	panic("UpdateSilence must not be called in bulk mode")
+}
+
+func (panickingClient) ExpireSilence(context.Context, string) error {
+	panic("ExpireSilence must not be called in bulk mode")
 }
 
 func newBulkForm(t *testing.T, client Client, banner string) *Form {

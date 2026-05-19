@@ -303,6 +303,8 @@ func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.S
 	return nil
 }
 
+func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
+
 // TestPage_VimMotions is the wiring smoke for the cursor module:
 // pressing `j` in Update must route into Window.MoveCursor with
 // len(p.rows()) as the row count. The full motion contract

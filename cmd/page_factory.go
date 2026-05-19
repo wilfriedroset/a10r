@@ -38,7 +38,6 @@ type PageEnv struct {
 	Styles              *theme.Styles
 	Scope               string
 	SilenceClients      map[string]silenceform.Client
-	SilenceWriteClients map[string]silences.Client
 	Creator             string
 	TenantRows          []tenant.Row
 	Config              *config.Config
@@ -73,7 +72,7 @@ func newSilencesPage(env *PageEnv) app.Page {
 	return silences.New(silences.Options{
 		Styles:          env.Styles,
 		Now:             time.Now,
-		Clients:         env.SilenceWriteClients,
+		Clients:         env.SilenceClients,
 		Creator:         env.Creator,
 		EditorResolver:  env.EditorResolver,
 		TimeFormat:      env.TimeFormat(),

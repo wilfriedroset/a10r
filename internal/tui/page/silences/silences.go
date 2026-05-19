@@ -79,18 +79,6 @@ func silenceSortColumns() []tablesort.Column[silenceEntry] {
 	}
 }
 
-// Client is the write surface the silences page needs: it pushes
-// the silence form (silenceform.Client) on `n` / `e` and calls
-// ExpireSilence on `x` (cursor or bulk, depending on marks).
-// Bundled at the page level rather than added to silenceform.Client
-// because expire isn't part of the form's contract — the form
-// never expires anything. backend.Client satisfies this interface
-// for free; tests inject a small fake.
-type Client interface {
-	silenceform.Client
-	ExpireSilence(ctx context.Context, id string) error
-}
-
 // silenceEntry pairs a silence with the tenant tag the poller
 // emitted it under so the renderer can surface a TENANT column
 // when more than one backend's data is in scope.
@@ -127,9 +115,11 @@ type Page struct {
 	focusID string
 
 	// clients are the per-tenant write surfaces the page hands to
-	// the silence form when the user presses `n`. Empty in tests
-	// or read-only runs — write actions flash a hint instead.
-	clients map[string]Client
+	// the silence form when the user presses `n` and calls
+	// ExpireSilence on directly when the user presses `x` / `Ctrl+X`.
+	// Empty in tests or read-only runs — write actions flash a
+	// hint instead.
+	clients map[string]silenceform.Client
 	// creator seeds the form's CreatedBy field; usually $USER.
 	creator string
 
@@ -220,7 +210,7 @@ type Page struct {
 type Options struct {
 	Styles  *theme.Styles
 	Now     func() time.Time
-	Clients map[string]Client
+	Clients map[string]silenceform.Client
 	// Creator is the default value the silence form opens with —
 	// usually $USER. Empty falls back to "a10r".
 	Creator string

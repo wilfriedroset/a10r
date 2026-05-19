@@ -211,7 +211,7 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 				Styles:   testutil.LoadStyles(t),
 				Now:      func() time.Time { return fixedNow },
 				ReadOnly: true,
-				Clients:  map[string]Client{"prod": &fakeSilenceClient{}},
+				Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 			})
 			// Land at least one row so the cursor isn't on an empty view.
 			_, _ = p.Update(poll.DataMsg{
@@ -257,7 +257,7 @@ func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": fake},
+		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true", // satisfies "editor configured" guard
@@ -402,7 +402,7 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": fake},
+		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true",
@@ -505,7 +505,7 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": fake},
+		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true",
@@ -606,7 +606,7 @@ func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": client},
+		Clients: map[string]silenceform.Client{"prod": client},
 		Creator: "wilfried",
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true",
@@ -1359,7 +1359,7 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
@@ -1380,7 +1380,7 @@ func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": fake},
+		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
 	})
 	silences := make([]backend.Silence, 0, count)
@@ -1406,7 +1406,7 @@ func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -1437,7 +1437,7 @@ func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	require.NotNil(t, cmd)
@@ -1477,7 +1477,7 @@ func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	_, _ = p.Update(poll.DataMsg{
@@ -1514,7 +1514,7 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": fake},
+		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{source}, Tenant: "prod"})
@@ -1551,7 +1551,7 @@ func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
 	p := New(Options{
 		Styles:  testutil.LoadStyles(t),
 		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -1743,7 +1743,7 @@ func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
 	p := New(Options{
 		Styles:          testutil.LoadStyles(t),
 		Now:             func() time.Time { return fixedNow },
-		Clients:         map[string]Client{"prod": fake},
+		Clients:         map[string]silenceform.Client{"prod": fake},
 		Creator:         "wilfried",
 		BulkConcurrency: 2,
 	})
@@ -1798,7 +1798,7 @@ func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
 	p := New(Options{
 		Styles:          testutil.LoadStyles(t),
 		Now:             func() time.Time { return fixedNow },
-		Clients:         map[string]Client{"prod": fake},
+		Clients:         map[string]silenceform.Client{"prod": fake},
 		Creator:         "wilfried",
 		BulkConcurrency: 1,
 	})

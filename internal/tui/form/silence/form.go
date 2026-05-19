@@ -34,14 +34,21 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// Client is the small write surface the form needs. Allows tests
-// to inject a fake without booting the real backend wiring. Both
-// CreateSilence and UpdateSilence are listed because the form can
-// land in either mode (Options.EditID empty / non-empty); a single
-// interface keeps the wiring layer free of two parallel adapters.
+// Client is the writeable-silences surface the form and the
+// silences list page share. The form calls Create / Update (it
+// can land in either mode per Options.EditID); the silences page
+// also calls ExpireSilence on `x` / `Ctrl+X`. The form never
+// expires anything, so ExpireSilence is a cosmetic member of the
+// form's contract — that cost is preferred over carrying a
+// parallel narrower interface plus the map-narrowing projection
+// helpers Go's lack of map-value covariance would otherwise
+// require. Allows tests to inject a fake without booting the
+// real backend wiring; testutil.FakeSilenceClient already
+// satisfies the three-method surface.
 type Client interface {
 	CreateSilence(ctx context.Context, spec backend.SilenceSpec) (string, error)
 	UpdateSilence(ctx context.Context, id string, spec backend.SilenceSpec) error
+	ExpireSilence(ctx context.Context, id string) error
 }
 
 // SubmittedMsg is emitted on a successful submit. ID carries the

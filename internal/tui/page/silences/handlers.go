@@ -298,7 +298,7 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	}
 	styles := p.styles
 	now := p.now
-	clients := silenceformClients(p.clients)
+	clients := p.clients
 	tenant := entry.tenant
 	s := entry.s
 	submitCtx := p.submitCtx
@@ -348,7 +348,7 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
 	}
 	return silenceform.Options{
-		Clients:   silenceformClients(p.clients),
+		Clients:   p.clients,
 		Tenant:    entry.tenant,
 		Styles:    p.styles,
 		Now:       p.now,
@@ -576,7 +576,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	creator := p.defaultCreator()
 	now := p.now
 	styles := p.styles
-	clients := silenceformClients(p.clients)
+	clients := p.clients
 	submitCtx := p.submitCtx
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
@@ -602,27 +602,11 @@ func (p *Page) defaultCreator() string {
 	return "a10r"
 }
 
-// silenceformClients projects the page's Client map (which embeds
-// silenceform.Client plus ExpireSilence) onto the narrower
-// silenceform.Client map the form takes. Per ADR-0011 the form
-// receives the full writeable set so the user can pick across
-// tenants from inside the form without the caller pre-resolving.
-// The projection is by-key, sharing the underlying value
-// references — the map is short-lived and read-only on the form
-// side, so no copying / locking concern.
-func silenceformClients(in map[string]Client) map[string]silenceform.Client {
-	out := make(map[string]silenceform.Client, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}
-
 // pickWriteTarget returns the tenant + client to send a write to.
 // Cursor row's tenant wins when a row is focused; otherwise falls
 // back to the first in-scope tenant (alphabetical for stability).
 // Returns (_, _, false) when nothing usable is configured.
-func (p *Page) pickWriteTarget() (string, Client, bool) {
+func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 	if len(p.clients) == 0 {
 		return "", nil, false
 	}
