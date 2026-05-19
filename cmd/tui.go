@@ -28,13 +28,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
-	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
-	"github.com/wilfriedroset/a10r/internal/tui/page/groups"
-	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
 	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
-	"github.com/wilfriedroset/a10r/internal/tui/page/status"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
-	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -132,8 +127,23 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		}
 		return a.TimeFormat()
 	}
-	resolver := newResolver(cmd.Context(), styles, scope, silenceClients, silenceWriteClients, creator,
-		tenantRows, &effCfg, clients, timeFormat, readOnly)
+	env := &PageEnv{
+		EditorCtx:           cmd.Context(),
+		Styles:              styles,
+		Scope:               scope,
+		SilenceClients:      silenceClients,
+		SilenceWriteClients: silenceWriteClients,
+		Creator:             creator,
+		TenantRows:          tenantRows,
+		Config:              &effCfg,
+		Clients:             clients,
+		TimeFormat:          timeFormat,
+		ReadOnly:            readOnly,
+		TenantNames:         backendNames(&effCfg),
+		TenantConfigByName:  tenantConfigIndex(&effCfg),
+		EditorResolver:      edit.SystemResolver(),
+	}
+	resolver := newResolver(env)
 
 	// Overlay user aliases (G3): <config-dir>/aliases.yaml is an
 	// optional user-supplied {short -> expanded} map. Conflicts and
@@ -228,22 +238,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	// the first Send doesn't leak the goroutine for the rest of
 	// the session — defence-in-depth for multi-day usage.
 	go func() {
-		homeFactory := func() app.Page {
-			return alerts.New(alerts.Options{
-				Styles:          styles,
-				Now:             time.Now,
-				Scope:           scope,
-				Clients:         silenceClients,
-				Creator:         creator,
-				TimeFormat:      timeFormat(),
-				BulkConcurrency: effCfg.Defaults.BulkConcurrencyOrDefault(),
-				Logger:          slog.Default(),
-				ReadOnly:        readOnly,
-				BulkCtx:         cmd.Context(),
-				SubmitCtx:       cmd.Context(),
-				Tenants:         backendNames(&effCfg),
-			})
-		}
+		homeFactory := func() app.Page { return newAlertsPage(env, "", "") }
 		msg := app.PushPage(homeFactory)()
 		if cmd.Context().Err() != nil {
 			return
@@ -596,131 +591,39 @@ func loadStylesFor(name, configDir string) (*theme.Styles, error) {
 }
 
 // newResolver builds the cmdbar resolver with the v0.1 alias
-// catalogue. Page factories close over the styles + scope + the
-// per-tenant client map so each `:alerts` / `:silences` push
-// lands a page wired to the active tenant label and (for write-
-// surface pages) the right backend.Client when the user invokes
-// a write action.
-func newResolver(
-	editorCtx context.Context,
-	styles *theme.Styles,
-	scope string,
-	silenceClients map[string]silenceform.Client,
-	silenceWriteClients map[string]silences.Client,
-	creator string,
-	tenantRows []tenant.Row,
-	cfg *config.Config,
-	clients map[string]backend.Client,
-	timeFormat func() timerender.Format,
-	readOnly bool,
-) *cmdbar.Resolver {
+// catalogue. Each `:command` handler hands an env-bound page
+// factory to app.PushPage; PageEnv carries the shared deps so the
+// resolver itself is just dispatch glue.
+func newResolver(env *PageEnv) *cmdbar.Resolver {
 	r := cmdbar.New()
-	// Snapshot the configured tenant list once — the resolver's
-	// factories close over it so every :alerts / :silences / :groups
-	// push hydrates the TENANT-column decision from the same source
-	// of truth that drives the panel's numeric shortcuts.
-	tenantNames := backendNames(cfg)
 	r.Register("alerts", func(args []string) tea.Cmd {
 		ax, err := parseAlertsArgs(args)
 		if err != nil {
 			return flashWarnCmd(":alerts: " + err.Error())
 		}
-		return app.PushPage(func() app.Page {
-			return alerts.New(alerts.Options{
-				Styles:             styles,
-				Now:                time.Now,
-				Scope:              scope,
-				Clients:            silenceClients,
-				Creator:            creator,
-				TimeFormat:         timeFormat(),
-				BulkConcurrency:    cfg.Defaults.BulkConcurrencyOrDefault(),
-				Logger:             slog.Default(),
-				ReadOnly:           readOnly,
-				BulkCtx:            editorCtx,
-				SubmitCtx:          editorCtx,
-				InitialStateFilter: ax.state,
-				InitialFilter:      ax.filter,
-				Tenants:            tenantNames,
-			})
-		})
+		return app.PushPage(func() app.Page { return newAlertsPage(env, ax.state, ax.filter) })
 	})
-	editorResolver := edit.SystemResolver()
 	silencesFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page {
-			return silences.New(silences.Options{
-				Styles:          styles,
-				Now:             time.Now,
-				Clients:         silenceWriteClients,
-				Creator:         creator,
-				EditorResolver:  editorResolver,
-				TimeFormat:      timeFormat(),
-				BulkConcurrency: cfg.Defaults.BulkConcurrencyOrDefault(),
-				Logger:          slog.Default(),
-				ReadOnly:        readOnly,
-				EditorCtx:       editorCtx,
-				BulkCtx:         editorCtx,
-				SubmitCtx:       editorCtx,
-				Tenants:         tenantNames,
-			})
-		})
+		return app.PushPage(func() app.Page { return newSilencesPage(env) })
 	}
 	r.Register("silences", silencesFactory)
 	r.Register("sil", silencesFactory)
 	r.Register("status", func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return status.New(styles, scope) })
+		return app.PushPage(func() app.Page { return newStatusPage(env) })
 	})
 	receiversFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page {
-			return receivers.New(receivers.Options{
-				Styles:  styles,
-				Tenants: tenantNames,
-			})
-		})
+		return app.PushPage(func() app.Page { return newReceiversPage(env) })
 	}
 	r.Register("receivers", receiversFactory)
 	r.Register("rec", receiversFactory)
 	groupsFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page {
-			return groups.New(groups.Options{
-				Styles:    styles,
-				Now:       time.Now,
-				Clients:   silenceClients,
-				Creator:   creator,
-				ReadOnly:  readOnly,
-				Tenants:   tenantNames,
-				SubmitCtx: editorCtx,
-			})
-		})
+		return app.PushPage(func() app.Page { return newGroupsPage(env) })
 	}
 	r.Register("groups", groupsFactory)
 	r.Register("gr", groupsFactory)
-	tenantConfigByName := tenantConfigIndex(cfg)
-	drillFactory := func(name string) (app.Page, error) {
-		be, ok := tenantConfigByName[name]
-		if !ok {
-			return nil, fmt.Errorf("backend %q not in config", name)
-		}
-		fetcher, ok := clients[name]
-		if !ok {
-			return nil, fmt.Errorf("backend %q failed to build at startup — fix a10r.yaml and restart", name)
-		}
-		return tenantconfig.New(tenantconfig.Options{
-			Tenant:   name,
-			Backend:  be,
-			Fetcher:  fetcher,
-			Styles:   styles,
-			FetchCtx: editorCtx,
-		}), nil
-	}
+	drill := func(name string) (app.Page, error) { return newTenantConfigPage(env, name) }
 	tenantFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page {
-			p := tenant.New(tenant.Options{
-				Styles:       styles,
-				DrillFactory: drillFactory,
-			})
-			p.SetRows(tenantRows)
-			return p
-		})
+		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
 	r.Register("tenant", tenantFactory)
 	r.Register("tenants", tenantFactory)
