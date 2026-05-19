@@ -777,3 +777,143 @@ func TestRunInit_DryRunInvalidKVStillFails(t *testing.T) {
 	require.ErrorAs(t, err, &ee)
 	require.Equal(t, ExitConfigInvalid, ee.Code)
 }
+
+// TestRunInit_NudgesOnPlaintextBasicPassword pins audit F5: when the
+// captured config carries a literal basic-auth password (not a
+// `${VAR}` interpolation), init prints a one-line nudge after the
+// "wrote" confirmation pointing the operator at env-var
+// interpolation. The hint goes to stderr so scripts piping stdout
+// (`a10r init | tee ...`) still see clean confirmation output.
+func TestRunInit_NudgesOnPlaintextBasicPassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var errBuf bytes.Buffer
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     &bytes.Buffer{},
+		Err:     &errBuf,
+		Flags:   &GlobalFlags{ConfigDir: dir},
+		OneShot: true,
+		KVs: []string{
+			"name=prod",
+			"url=https://am.example",
+			"kind=alertmanager",
+			"auth_mode=basic",
+			"basic_user=alice",
+			"basic_password=hunter2",
+		},
+	})
+	require.NoError(t, err)
+
+	hint := errBuf.String()
+	require.Contains(t, hint, "${A10R_BACKEND_PROD_PASSWORD}",
+		"hint must reference the backend name in upper-case so the export line is copy-paste ready")
+	require.Contains(t, hint, "plaintext")
+}
+
+// TestRunInit_NudgesOnPlaintextBearerToken extends F5 coverage to
+// the bearer flow — bearer tokens are credentials too.
+func TestRunInit_NudgesOnPlaintextBearerToken(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var errBuf bytes.Buffer
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     &bytes.Buffer{},
+		Err:     &errBuf,
+		Flags:   &GlobalFlags{ConfigDir: dir},
+		OneShot: true,
+		KVs: []string{
+			"name=prod",
+			"url=https://am.example",
+			"kind=alertmanager",
+			"auth_mode=bearer",
+			"bearer_token=supersecret",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, errBuf.String(), "${A10R_BACKEND_PROD_PASSWORD}")
+	require.Contains(t, errBuf.String(), "plaintext")
+}
+
+// TestRunInit_NoNudgeOnInterpolatedCredential covers the silent path:
+// if the operator already passed `${VAR}` for the credential value,
+// they've solved the problem the nudge is trying to point at. Adding
+// the hint anyway would be noise.
+func TestRunInit_NoNudgeOnInterpolatedCredential(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var errBuf bytes.Buffer
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     &bytes.Buffer{},
+		Err:     &errBuf,
+		Flags:   &GlobalFlags{ConfigDir: dir},
+		OneShot: true,
+		KVs: []string{
+			"name=prod",
+			"url=https://am.example",
+			"kind=alertmanager",
+			"auth_mode=basic",
+			"basic_user=alice",
+			"basic_password=${MY_PASSWORD}",
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, errBuf.String(),
+		"credential already an interpolation -> no plaintext nudge")
+}
+
+// TestRunInit_NoNudgeWhenNoAuth keeps the noise floor low: an
+// auth_mode=none run has no credential at all, so the hint would
+// be doubly off-topic.
+func TestRunInit_NoNudgeWhenNoAuth(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var errBuf bytes.Buffer
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     &bytes.Buffer{},
+		Err:     &errBuf,
+		Flags:   &GlobalFlags{ConfigDir: dir},
+		OneShot: true,
+		KVs:     minKVs(),
+	})
+	require.NoError(t, err)
+	require.Empty(t, errBuf.String(),
+		"no auth captured -> no plaintext nudge")
+}
+
+// TestRunInit_DryRunSuppressesNudge keeps the preview path quiet:
+// `--dry-run` does not actually persist credentials anywhere, so a
+// plaintext-nudge would be advice without a target. The hint fires
+// only after a successful write.
+func TestRunInit_DryRunSuppressesNudge(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var errBuf bytes.Buffer
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     &bytes.Buffer{},
+		Err:     &errBuf,
+		Flags:   &GlobalFlags{ConfigDir: dir},
+		OneShot: true,
+		DryRun:  true,
+		KVs: []string{
+			"name=prod",
+			"url=https://am.example",
+			"kind=alertmanager",
+			"auth_mode=basic",
+			"basic_user=alice",
+			"basic_password=hunter2",
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, errBuf.String(),
+		"--dry-run writes nothing -> no plaintext nudge")
+}

@@ -200,7 +200,62 @@ func runInit(env initIO) error {
 	}
 
 	fmt.Fprintf(env.Out, "wrote %s\n", path)
+	if hint := plaintextCredentialHint(cfg); hint != "" {
+		fmt.Fprintln(env.Err, hint)
+	}
 	return nil
+}
+
+// plaintextCredentialHint returns a one-line nudge when the rendered
+// config carries a literal credential (basic password or bearer
+// token) rather than a `${VAR}` interpolation. Empty string when the
+// config is interpolation-only or auth-less, so the caller can
+// fmt.Fprintln unconditionally without polluting the output stream.
+//
+// Audit reference: F5 (security-audit.md). Originally landed in the
+// orphaned `internal/tui/wizard` package; retargeted here once that
+// package was deleted as dead code. The CLI init flow is the only
+// surface that writes credentials to disk, so this is where the
+// nudge actually reaches a user.
+func plaintextCredentialHint(cfg config.Config) string {
+	for _, be := range cfg.Backends {
+		if be.BearerToken != "" && !isEnvInterpolation(be.BearerToken) {
+			return exportHintLine(be.Name)
+		}
+		if be.BasicAuth != nil && be.BasicAuth.Password != "" &&
+			!isEnvInterpolation(be.BasicAuth.Password) {
+			return exportHintLine(be.Name)
+		}
+	}
+	return ""
+}
+
+// exportHintLine builds the operator-facing nudge string. Pure
+// helper so tests can assert on the literal substring without
+// reaching for the writer plumbing.
+func exportHintLine(backendName string) string {
+	name := strings.ToUpper(backendName)
+	return "NOTE: credentials stored in plaintext. To use env-var interpolation instead, " +
+		"replace the value with ${A10R_BACKEND_" + name + "_PASSWORD} (or any other name) " +
+		"and export that variable. See docs."
+}
+
+// isEnvInterpolation reports whether s is a single `${VAR}` /
+// `${VAR:-default}` placeholder — the shape config.interpolateBytes
+// resolves at load time. Conservative: a value that *contains* a
+// placeholder but also a plaintext segment (e.g. `prefix-${TOKEN}`)
+// still counts as plaintext for the purposes of the nudge, because
+// the prefix leak is a leak.
+func isEnvInterpolation(s string) bool {
+	t := strings.TrimSpace(s)
+	if !strings.HasPrefix(t, "${") || !strings.HasSuffix(t, "}") {
+		return false
+	}
+	// Reject embedded `${` or `}` so `${A}${B}` (two placeholders
+	// concatenated) and `${A}foo${B}` both fall through to the
+	// plaintext branch.
+	inner := t[2 : len(t)-1]
+	return !strings.Contains(inner, "${") && !strings.Contains(inner, "}")
 }
 
 // collectConfig dispatches between the interactive wizard and the
