@@ -359,7 +359,6 @@ func (p *Page) toggleWatch() {
 	p.Paused = !p.Paused
 }
 
-
 // View implements app.Page.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {

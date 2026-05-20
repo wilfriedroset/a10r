@@ -276,7 +276,6 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	return p.sorter.HandleKey(m.String())
 }
 
-
 // drillToConfig pushes the tenantconfig page produced by the
 // drill factory, or flashes the factory's error if the named
 // backend is misconfigured. Reads from rowsSorted (the rendered

@@ -53,10 +53,10 @@ func TestBase_ErrorBand(t *testing.T) {
 	in2m := frozenNow.Add(2 * time.Minute)
 
 	cases := []struct {
-		name    string
-		scope   string
-		health  map[string]listpage.BackendHealth
-		want    string
+		name   string
+		scope  string
+		health map[string]listpage.BackendHealth
+		want   string
 	}{
 		{
 			name: "no errors returns empty",
