@@ -169,7 +169,6 @@ func New(opts Options) *Page {
 // rows immediately, without waiting for the next poll tick.
 func (*Page) PollResources() []string { return []string{"silences"} }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "detail" }
 
 // Title implements app.Page — "Describe(<scope>/<alertname>)"

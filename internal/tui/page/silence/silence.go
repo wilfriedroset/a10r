@@ -84,7 +84,6 @@ func New(opts Options) *Page {
 	}
 }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "silence" }
 
 // Title implements app.Page — "Describe(<scope>/<id>)" mirrors the

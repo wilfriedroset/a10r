@@ -44,7 +44,6 @@ func NewConfirm(question string, def ConfirmDefault) *Confirm {
 	return &Confirm{question: question, def: def}
 }
 
-// Init implements Modal.
 func (*Confirm) Init() tea.Cmd { return nil }
 
 // Title implements Modal — the App renders this in the outer panel
@@ -74,7 +73,6 @@ func (c *Confirm) Update(msg tea.Msg) (Modal, tea.Cmd) {
 	return c, nil
 }
 
-// View implements Modal.
 func (c *Confirm) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""

@@ -182,13 +182,10 @@ func (p *Page) SetRows(rows []Row) {
 	p.window.Clamp(len(rows))
 }
 
-// Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
 
-// Close implements app.Page.
 func (*Page) Close() tea.Cmd { return nil }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "tenant" }
 
 // Title implements app.Page. Mirrors the rest of the list pages:
@@ -222,7 +219,6 @@ func (p *Page) Bindings() []action.Action {
 	return out
 }
 
-// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case app.GoToFirstRowMsg:
@@ -301,7 +297,6 @@ func (p *Page) drillToConfig() tea.Cmd {
 	return app.PushPage(func() app.Page { return page })
 }
 
-// View implements app.Page.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""

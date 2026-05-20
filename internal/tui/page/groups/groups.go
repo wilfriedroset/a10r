@@ -233,10 +233,8 @@ func New(opts Options) *Page {
 // "loading" affordance animates while the first poll tick lands.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
-// Close implements app.Page.
 func (*Page) Close() tea.Cmd { return nil }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "groups" }
 
 // Title implements app.Page. Mirrors the alerts shape:

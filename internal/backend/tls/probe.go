@@ -97,7 +97,6 @@ func ProbeCert(ctx context.Context, rawURL string, dialer Dialer) (*x509.Certifi
 // with the supplied cfg rather than mutating shared state.
 type defaultDialer struct{}
 
-// DialContext implements Dialer.
 func (defaultDialer) DialContext(ctx context.Context, network, addr string, cfg *tls.Config) (*tls.Conn, error) {
 	d := tls.Dialer{Config: cfg}
 	conn, err := d.DialContext(ctx, network, addr)

@@ -43,13 +43,10 @@ func New(styles *theme.Styles, tenant string) *Page {
 	return &Page{styles: styles, tenant: tenant}
 }
 
-// Init implements app.Page.
 func (*Page) Init() tea.Cmd { return nil }
 
-// Close implements app.Page.
 func (*Page) Close() tea.Cmd { return nil }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "status" }
 
 // Title implements app.Page. Mirrors the rest of the list pages —
@@ -89,7 +86,6 @@ func (*Page) Footer() string { return "" }
 // cmd/tui.go backendFetchers for the matching poll fetcher.
 func (*Page) PollResources() []string { return []string{"status"} }
 
-// Bindings implements app.Page.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "c", Description: "cluster", View: "status"},
@@ -98,7 +94,6 @@ func (*Page) Bindings() []action.Action {
 	}
 }
 
-// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	switch m := msg.(type) {
 	case poll.DataMsg:

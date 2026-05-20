@@ -29,7 +29,6 @@ func (c *Client) UpdateSilence(ctx context.Context, id string, spec backend.Sile
 	return err
 }
 
-// ExpireSilence implements backend.Writer.
 func (c *Client) ExpireSilence(ctx context.Context, id string) error {
 	if id == "" {
 		return errors.New("expire silence: id is required")

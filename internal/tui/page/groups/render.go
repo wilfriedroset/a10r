@@ -69,7 +69,6 @@ func commonLabels(alerts []backend.Alert) map[string]string {
 	return out
 }
 
-// View implements app.Page.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""

@@ -294,7 +294,6 @@ func New(opts Options) *Form {
 	return f
 }
 
-// Init implements app.Page.
 func (*Form) Init() tea.Cmd { return nil }
 
 // Close implements app.Page. Cancels any in-flight write so a
@@ -312,7 +311,6 @@ func (f *Form) Close() tea.Cmd {
 // via the form's own handler.
 func (*Form) CapturesInput() bool { return true }
 
-// Crumb implements app.Page.
 func (*Form) Crumb() string { return "silence" }
 
 // Title implements app.Page. "new silence" / "edit silence <id>"
@@ -335,7 +333,6 @@ func (*Form) HeaderContent() string { return "" }
 // Footer implements app.Page. Form doesn't surface ambient state.
 func (*Form) Footer() string { return "" }
 
-// Bindings implements app.Page.
 func (*Form) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "Tab", Description: "next field", View: "silence-form"},

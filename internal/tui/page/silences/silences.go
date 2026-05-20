@@ -348,7 +348,6 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "silences" }
 
 // Title implements app.Page. Mirrors the alerts page's shape:

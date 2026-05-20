@@ -342,7 +342,6 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "alerts" }
 
 // Title implements app.Page — k9s-style

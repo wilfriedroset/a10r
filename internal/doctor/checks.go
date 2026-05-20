@@ -42,13 +42,11 @@ func DefaultCheckers() []Checker {
 // stub can opt out by not implementing the smaller interface.
 type ReachabilityChecker struct{}
 
-// Name implements Checker.
 func (ReachabilityChecker) Name() string { return "reachability" }
 
-// Run implements Checker. nil client (factory.Build failed at
-// startup) reports as a single Error so the operator sees the
-// configured backend even when its client could not be
-// constructed.
+// Run reports a single Error when the client is nil — factory.Build
+// failed at startup, but the operator must still see the configured
+// backend in the result table.
 func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
@@ -84,10 +82,8 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 // the same root cause.
 type AuthChecker struct{}
 
-// Name implements Checker.
 func (AuthChecker) Name() string { return "auth" }
 
-// Run implements Checker.
 func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
@@ -132,10 +128,8 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 // above-or-equal → OK with the version reported in the message.
 type VersionFloorChecker struct{}
 
-// Name implements Checker.
 func (VersionFloorChecker) Name() string { return "version-floor" }
 
-// Run implements Checker.
 func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
@@ -239,10 +233,8 @@ type TLSExpiryChecker struct {
 	now func() time.Time
 }
 
-// Name implements Checker.
 func (TLSExpiryChecker) Name() string { return "tls-expiry" }
 
-// Run implements Checker.
 func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.Client) Result {
 	probe := t.probe
 	if probe == nil {
@@ -374,10 +366,8 @@ type CapabilitiesChecker struct {
 	probes map[string]capabilityProbe
 }
 
-// Name implements Checker.
 func (CapabilitiesChecker) Name() string { return "capabilities" }
 
-// Run implements Checker.
 func (cc CapabilitiesChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
@@ -484,10 +474,8 @@ type ClockSkewChecker struct {
 	now func() time.Time
 }
 
-// Name implements Checker.
 func (ClockSkewChecker) Name() string { return "clock-skew" }
 
-// Run implements Checker.
 func (cs ClockSkewChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{

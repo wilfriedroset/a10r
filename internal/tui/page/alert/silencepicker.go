@@ -74,7 +74,6 @@ func newSilencePicker(rows []silencePickerRow) *silencePicker {
 	}
 }
 
-// Init implements modal.Modal.
 func (w *silencePicker) Init() tea.Cmd { return w.inner.Init() }
 
 // Title implements modal.Modal — distinct from "tenants" so a
@@ -101,7 +100,6 @@ func (w *silencePicker) Update(msg tea.Msg) (modal.Modal, tea.Cmd) {
 	return w, translated
 }
 
-// View implements modal.Modal.
 func (w *silencePicker) View(width, height int) string {
 	return w.inner.View(width, height)
 }

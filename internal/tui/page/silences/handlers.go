@@ -24,7 +24,6 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
-// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd

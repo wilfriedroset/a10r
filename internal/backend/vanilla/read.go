@@ -40,22 +40,18 @@ func fetchOne[W, D any](ctx context.Context, c *Client, u, errCtx string, conver
 	return convert(raw), nil
 }
 
-// ListAlerts implements backend.Reader.
 func (c *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) ([]backend.Alert, error) {
 	return fetchList(ctx, c, c.urlFor("/alerts", encodeAlertFilter(filter)), "list alerts", toAlert)
 }
 
-// ListAlertGroups implements backend.Reader.
 func (c *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) ([]backend.AlertGroup, error) {
 	return fetchList(ctx, c, c.urlFor("/alerts/groups", encodeAlertFilter(filter)), "list alert groups", toAlertGroup)
 }
 
-// ListSilences implements backend.Reader.
 func (c *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) ([]backend.Silence, error) {
 	return fetchList(ctx, c, c.urlFor("/silences", encodeSilenceFilter(filter)), "list silences", toSilence)
 }
 
-// GetSilence implements backend.Reader.
 func (c *Client) GetSilence(ctx context.Context, id string) (backend.Silence, error) {
 	if id == "" {
 		return backend.Silence{}, errors.New("get silence: id is required")
@@ -63,7 +59,6 @@ func (c *Client) GetSilence(ctx context.Context, id string) (backend.Silence, er
 	return fetchOne(ctx, c, c.urlFor("/silence/"+url.PathEscape(id), nil), fmt.Sprintf("get silence %q", id), toSilence)
 }
 
-// ListReceivers implements backend.Reader.
 func (c *Client) ListReceivers(ctx context.Context) ([]backend.Receiver, error) {
 	return fetchList(ctx, c, c.urlFor("/receivers", nil), "list receivers", toReceiver)
 }

@@ -182,10 +182,8 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-// Crumb implements app.Page.
 func (*Page) Crumb() string { return "tenant-config" }
 
-// Title implements app.Page.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -194,7 +192,6 @@ func (p *Page) Title() string {
 	return "tenant-config(" + scope + ")"
 }
 
-// HeaderContent implements app.Page.
 func (p *Page) HeaderContent() string {
 	if p.loading {
 		return "fetching alertmanager config…"
@@ -210,7 +207,6 @@ func (*Page) Bindings() []action.Action {
 	}
 }
 
-// Update implements app.Page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if m, ok := msg.(statusFetchedMsg); ok {
 		p.loading = false
