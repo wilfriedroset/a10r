@@ -9,6 +9,7 @@ package matcher
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -126,19 +127,5 @@ func Op(m backend.Matcher) string {
 }
 
 func errLineWrap(line int, err error) error {
-	return errors.New("line " + itoa(line) + ": " + err.Error())
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return errors.New("line " + strconv.Itoa(line) + ": " + err.Error())
 }
