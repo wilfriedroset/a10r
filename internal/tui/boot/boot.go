@@ -38,8 +38,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -106,10 +110,8 @@ func (r *Result) PushHome(ctx context.Context, send func(tea.Msg)) {
 
 // Build assembles every startup dependency the TUI needs and
 // returns a Result the wiring layer (cmd/tui.go) uses to finish
-// the boot sequence. Sequential body — one block comment per
-// stage stating the load-bearing precondition so a future
-// contributor can skim top-to-bottom without re-deriving the
-// implicit order from call sequence.
+// the boot sequence. Sequential body; each step is a named helper
+// that documents its own precondition. See ADR 0033.
 //
 // The flags pointer is read for precedence (CLI > env > config >
 // default) via config.Resolve; Build does not mutate it. The Deps
@@ -121,164 +123,48 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		errOut = os.Stderr
 	}
 
-	// Stage 1 — Config load. Required by every later stage:
-	// backend list, logger path, theme name, poll intervals all
-	// derive from the resolved config. Missing file is not an
-	// error (cold-start + wizard path), but a malformed file is
-	// fatal — startup must fail loudly rather than silently
-	// dropping backends.
 	cfg, err := loadConfigForTUI(flags, d.LoadConfig, errOut)
 	if err != nil {
 		return nil, err
 	}
-
-	// Stage 2 — Precedence resolution. Folds CLI > env > config >
-	// defaults into a single Effective so every downstream
-	// consumer (logger, theme loader, poll interval, page
-	// ReadOnly gate) reads the same value. Bypassing this step
-	// silently dropped --read-only / --theme / --poll-interval —
-	// the resolver is mandatory, not an optimisation.
-	effective, err := config.Resolve(*flags, os.Getenv, *cfg)
+	effective, err := resolveEffectiveConfig(flags, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("resolve config: %w", err)
+		return nil, err
 	}
 	effCfg := effective.Config
 
-	// Stage 3 — Logger. Initialised before any subsystem can
-	// emit so silence write ops produce an audit trail and --log
-	// actually reaches the file. The closer is returned in Result
-	// so the caller's `defer Close` flushes the lumberjack
-	// rotation buffer on shutdown.
-	logger, closer, err := d.NewLogger(a10rlog.Opts{
-		Path:   effCfg.Log.Path,
-		Format: a10rlog.Format(effCfg.Defaults.LogFormat),
-		Level:  LevelFor(effective.Debug, effective.Quiet),
-	})
+	logger, closer, err := initLogger(d, effCfg, effective)
 	if err != nil {
-		return nil, fmt.Errorf("init logger: %w", err)
+		return nil, err
 	}
 	slog.SetDefault(logger)
 
-	// Stage 4 — Transport surprises. Emitted once per startup so
-	// the operator sees deprecated TLS versions / inline CA
-	// override / resolved HTTPS_PROXY on every run instead of
-	// inheriting them silently. Must run after the logger is
-	// installed; harmless before any HTTP traffic.
 	logTransportSurprises(logger, effCfg.Backends)
 
-	// Stage 5 — Backend clients. Built once and shared between
-	// the poller fan-out (read paths) and the page factories
-	// (write paths) so the two stay in sync. Per-backend factory
-	// failures log a warning and are skipped — the rest still
-	// get clients. debugLog is non-nil only when --debug-http is
-	// set so factory.WithDebugLog wires the HTTP record sink.
-	var debugLog *slog.Logger
-	if flags.DebugHTTP {
-		debugLog = logger
-	}
-	ua := UserAgent(d.Version, d.Commit)
-	clients := buildClients(&effCfg, ua, debugLog, d.BuildClient, errOut)
-	silenceClients := silenceClientsFrom(clients)
+	clients, silenceClients := buildBackendClients(flags, logger, d, &effCfg, errOut)
+	tenantRows := buildTenantRows(&effCfg, fetchTenantVersions(ctx, clients))
 
-	// Stage 6 — Tenant versions. One /api/v2/status call per
-	// backend at startup so the tenant page can render a VERSION
-	// column without a separate per-(backend, status) poller.
-	// Concurrent fan-out so a slow backend doesn't block startup;
-	// per-backend timeout caps each call.
-	tenantVersions := fetchTenantVersions(ctx, clients)
-	tenantRows := buildTenantRows(&effCfg, tenantVersions)
-
-	// Stage 7 — Config-dir + theme. configDir is the resolved
-	// XDG/CLI root used by every later filesystem read (skins,
-	// keys, aliases). The theme loader runs after the logger is
-	// installed so its fallback-warning emits on the audited
-	// sink.
-	configDir, err := d.ResolveConfigDir(flags.ConfigDir)
+	configDir, styles, err := resolveConfigDirAndStyles(d, flags.ConfigDir, effCfg.Theme.Name)
 	if err != nil {
-		return nil, fmt.Errorf("resolve config dir: %w", err)
-	}
-	styles, err := d.LoadStyles(effCfg.Theme.Name, configDir)
-	if err != nil {
-		return nil, err //nolint:wrapcheck // LoadStyles already wraps with the skin path.
+		return nil, err
 	}
 
-	// Stage 8 — Dispatcher + global chords. Registered before
-	// App.NewApp so the App's pre-built layers see them on the
-	// first key event. Building the app first and registering
-	// chords after would race the user's first keystroke.
-	dispatcher := keys.New(nil)
-	registerGlobalChords(dispatcher)
+	dispatcher := buildDispatcher()
 
-	// Stage 9 — pageEnv + resolver + user aliases. pageEnv
-	// carries the construction-time deps every page needs; the
-	// resolver registers `:command` handlers that close over
-	// env. The `a` pointer is forward-declared and assigned by
-	// stage 10 — closures read it at invocation time, by which
-	// point app.NewApp has run, so the TimeFormat callback sees
-	// the live app-global value (issue raised in the post-batch
-	// review: pages pushed *after* the user toggled `t` were
-	// opening in relative).
-	creator := os.Getenv("USER")
-	readOnly := effCfg.Defaults.ReadOnly
+	// Stage 9→10 dance: pageEnv's TimeFormat closure needs the live
+	// *app.App, but app.NewApp itself consumes env-derived values.
+	// Forward-declare the pointer, build env around it, then assign
+	// in buildApp — closures resolve `a` at invocation time, which
+	// is after buildApp has returned.
 	var a *app.App
-	timeFormat := func() timerender.Format {
-		if a == nil {
-			return timerender.Relative
-		}
-		return a.TimeFormat()
-	}
-	env := &pageEnv{
-		EditorCtx:          ctx,
-		Styles:             styles,
-		Scope:              scopeFor(&effCfg),
-		SilenceClients:     silenceClients,
-		Creator:            creator,
-		TenantRows:         tenantRows,
-		Config:             &effCfg,
-		Clients:            clients,
-		TimeFormat:         timeFormat,
-		ReadOnly:           readOnly,
-		TenantNames:        backendNames(&effCfg),
-		TenantConfigByName: tenantConfigIndex(&effCfg),
-		EditorResolver:     d.EditorResolver(),
-	}
-	resolver := newResolver(env)
-	// Overlay user aliases (G3): aliases.yaml is an optional
-	// user-supplied {short -> expanded} map. Conflicts and
-	// unresolved expansions fail closed at startup so the
-	// operator sees the problem before they reach for the alias.
-	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
-		return nil, fmt.Errorf("user aliases: %w", err)
+	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir)
+	if err != nil {
+		return nil, err
 	}
 
-	// Stage 10 — App. NewApp assembles the bubbletea Model
-	// around the dispatcher, resolver, styles, and the registry's
-	// Refresh handler. The registry is constructed empty here and
-	// filled in by Result.StartPollers — captured by pointer so
-	// the App's Refresh callback finds the live pollers once
-	// they're added (the user can only press `r` after Run
-	// starts, which is after StartPollers has settled).
 	registry := &pollerRegistry{}
-	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
-	a = app.NewApp(app.Options{
-		Styles:     styles,
-		Dispatcher: dispatcher,
-		CmdBar:     resolver,
-		Tenants:    backendNames(&effCfg),
-		Refresh:    registry.Refresh,
-		ReadOnly:   readOnly,
-		HistoryDir: historyDir,
-		HintBar: footer.NewHintBar(footer.HintBarOptions{
-			Enabled:  effCfg.TUI.Tips,
-			Interval: effCfg.TUI.TipsInterval,
-		}),
-	})
+	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d)
 
-	// Stage 11 — User key overrides. Loaded AFTER NewApp so the
-	// dispatcher has every built-in action registered before
-	// ApplyOverrides looks them up; failures fail-closed at
-	// startup so the operator can't run with a half-applied
-	// profile (ADR 0010).
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
 		return nil, fmt.Errorf("user keybindings: %w", err)
 	}
@@ -292,6 +178,138 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		env:      env,
 		stderr:   errOut,
 	}, nil
+}
+
+// resolveEffectiveConfig folds CLI > env > config > defaults into a
+// single Effective. Bypassing the resolver silently dropped
+// --read-only / --theme / --poll-interval pre-extraction; it stays
+// mandatory, not an optimisation.
+func resolveEffectiveConfig(flags *config.CLIFlags, cfg *config.Config) (config.Effective, error) {
+	eff, err := config.Resolve(*flags, os.Getenv, *cfg)
+	if err != nil {
+		return config.Effective{}, fmt.Errorf("resolve config: %w", err)
+	}
+	return eff, nil
+}
+
+// initLogger initialises the project logger before any subsystem can
+// emit so silence write ops produce an audit trail and --log actually
+// reaches the file. The closer is returned so the caller's defer
+// Close flushes the lumberjack rotation buffer on shutdown.
+func initLogger(d Deps, effCfg config.Config, eff config.Effective) (*slog.Logger, io.Closer, error) {
+	logger, closer, err := d.NewLogger(a10rlog.Opts{
+		Path:   effCfg.Log.Path,
+		Format: a10rlog.Format(effCfg.Defaults.LogFormat),
+		Level:  LevelFor(eff.Debug, eff.Quiet),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("init logger: %w", err)
+	}
+	return logger, closer, nil
+}
+
+// buildBackendClients constructs the per-backend clients shared between
+// the poller fan-out (read paths) and the page factories (write
+// paths). Per-backend factory failures log a warning and are skipped —
+// the rest still get clients. debugLog is non-nil only when
+// --debug-http is set so factory.WithDebugLog wires the HTTP record
+// sink.
+func buildBackendClients(flags *config.CLIFlags, logger *slog.Logger, d Deps, effCfg *config.Config, errOut io.Writer) (clients map[string]backend.Client, silenceClients map[string]silenceform.Client) {
+	var debugLog *slog.Logger
+	if flags.DebugHTTP {
+		debugLog = logger
+	}
+	ua := UserAgent(d.Version, d.Commit)
+	clients = buildClients(effCfg, ua, debugLog, d.BuildClient, errOut)
+	silenceClients = silenceClientsFrom(clients)
+	return clients, silenceClients
+}
+
+// resolveConfigDirAndStyles resolves the XDG/CLI config root used by
+// every later filesystem read (skins, keys, aliases) and loads the
+// theme. The theme loader runs after the logger is installed so its
+// fallback warning emits on the audited sink.
+func resolveConfigDirAndStyles(d Deps, explicitDir, themeName string) (string, *theme.Styles, error) {
+	configDir, err := d.ResolveConfigDir(explicitDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve config dir: %w", err)
+	}
+	styles, err := d.LoadStyles(themeName, configDir)
+	if err != nil {
+		return "", nil, err //nolint:wrapcheck // LoadStyles already wraps with the skin path.
+	}
+	return configDir, styles, nil
+}
+
+// buildDispatcher constructs the keys.Dispatcher and registers global
+// chords. Chord registration must happen before app.NewApp so the
+// App's pre-built layers see them on the first key event; building
+// the app first and registering chords after would race the user's
+// first keystroke.
+func buildDispatcher() *keys.Dispatcher {
+	dispatcher := keys.New(nil)
+	registerGlobalChords(dispatcher)
+	return dispatcher
+}
+
+// buildPageEnv assembles the pageEnv every page needs at push time
+// plus the cmdbar resolver registering `:command` handlers that close
+// over env. The appPtr forward-reference lets the TimeFormat closure
+// see the live *app.App once buildApp assigns to it — pages pushed
+// after the user toggles `t` then read the current app-global value.
+// User aliases (G3) are overlaid here too; conflicts fail closed at
+// startup so the operator sees the problem before they reach for the
+// alias.
+func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir string) (*pageEnv, *cmdbar.Resolver, error) {
+	timeFormat := func() timerender.Format {
+		if *appPtr == nil {
+			return timerender.Relative
+		}
+		return (*appPtr).TimeFormat()
+	}
+	env := &pageEnv{
+		EditorCtx:          ctx,
+		Styles:             styles,
+		Scope:              scopeFor(effCfg),
+		SilenceClients:     silenceClients,
+		Creator:            os.Getenv("USER"),
+		TenantRows:         tenantRows,
+		Config:             effCfg,
+		Clients:            clients,
+		TimeFormat:         timeFormat,
+		ReadOnly:           effCfg.Defaults.ReadOnly,
+		TenantNames:        backendNames(effCfg),
+		TenantConfigByName: tenantConfigIndex(effCfg),
+		EditorResolver:     d.EditorResolver(),
+	}
+	resolver := newResolver(env)
+	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
+		return nil, nil, fmt.Errorf("user aliases: %w", err)
+	}
+	return env, resolver, nil
+}
+
+// buildApp constructs the bubbletea Model around the dispatcher,
+// resolver, styles, and the registry's Refresh handler. registry is
+// captured by pointer so the App's Refresh callback finds the live
+// pollers once Result.StartPollers fills the registry in (the user
+// can only press `r` after Run starts, which is after StartPollers
+// has settled).
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps) *app.App {
+	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
+	return app.NewApp(app.Options{
+		Styles:     styles,
+		Dispatcher: dispatcher,
+		CmdBar:     resolver,
+		Tenants:    backendNames(effCfg),
+		Refresh:    registry.Refresh,
+		ReadOnly:   effCfg.Defaults.ReadOnly,
+		HistoryDir: historyDir,
+		HintBar: footer.NewHintBar(footer.HintBarOptions{
+			Enabled:  effCfg.TUI.Tips,
+			Interval: effCfg.TUI.TipsInterval,
+		}),
+	})
 }
 
 // registerGlobalChords wires the dispatcher entries that must
