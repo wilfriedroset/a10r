@@ -31,16 +31,27 @@ func (p *Page) totalAlerts() int {
 // data / scope / filter / sort change; cheap relative to the
 // poll cadence (O(N log N) on hundreds of alerts).
 func (p *Page) recompute() {
-	total := 0
-	knownFP := false
+	total, knownFP := p.scanScope()
+	flat := p.flatten(total)
+	p.view = filterEntries(flat, p.Filter, p.stateFilter)
+	p.sorter.Apply(p.view)
+	p.resolveFocus(knownFP)
+	p.Clamp(len(p.view))
+	p.snapshotFocus()
+}
+
+// scanScope walks byTenant once and returns the in-scope alert
+// count plus whether ANY tenant (including out-of-scope ones)
+// still knows about the focused fingerprint. Scanning out-of-scope
+// tenants matters so a scope-narrowed-out alert still counts as
+// "source knows about this" — keeps the fingerprint anchored
+// across a scope switch back. Single pass over the same map we'd
+// already walk for `total`.
+func (p *Page) scanScope() (total int, knownFP bool) {
 	for tenant, alerts := range p.byTenant {
 		if p.ScopeIncludes(tenant) {
 			total += len(alerts)
 		}
-		// Scan every tenant (not just the in-scope ones) so a scope-
-		// narrowed-out alert still counts as "source knows about
-		// this" — keeps the fingerprint anchored across a scope
-		// switch back. Cheap: same map we iterate for `total`.
 		if p.focusFingerprint != "" && !knownFP {
 			for _, a := range alerts {
 				if a.Fingerprint == p.focusFingerprint {
@@ -50,6 +61,12 @@ func (p *Page) recompute() {
 			}
 		}
 	}
+	return total, knownFP
+}
+
+// flatten builds the alertEntry slice for in-scope tenants, sized
+// from the pre-scanned total so the append loop allocates once.
+func (p *Page) flatten(total int) []alertEntry {
 	flat := make([]alertEntry, 0, total)
 	for tenant, alerts := range p.byTenant {
 		if !p.ScopeIncludes(tenant) {
@@ -63,29 +80,27 @@ func (p *Page) recompute() {
 			})
 		}
 	}
-	p.view = filterEntries(flat, p.Filter, p.stateFilter)
-	p.sorter.Apply(p.view)
+	return flat
+}
 
-	// Resolve cursor by fingerprint when we have one to follow.
-	if p.focusFingerprint != "" {
-		for i, e := range p.view {
-			if e.a.Fingerprint == p.focusFingerprint {
-				p.SetIndex(i, len(p.view))
-				return
-			}
-		}
-		// Fell through: the focused alert is not in the view. Two
-		// shapes: (a) filter/scope narrowed it out — source still
-		// has it, keep focusFingerprint so a later widening re-
-		// anchors; (b) alert resolved upstream — every tenant's
-		// snapshot has dropped it, clear so a later widening does
-		// not chase a phantom.
-		if !knownFP {
-			p.focusFingerprint = ""
+// resolveFocus anchors the cursor on the focused fingerprint when
+// the alert is still in view. Two miss-shapes: (a) filter/scope
+// narrowed it out but knownFP is true — keep the fingerprint so a
+// later widening re-anchors; (b) every tenant's snapshot has
+// dropped it — clear so a later widening does not chase a phantom.
+func (p *Page) resolveFocus(knownFP bool) {
+	if p.focusFingerprint == "" {
+		return
+	}
+	for i, e := range p.view {
+		if e.a.Fingerprint == p.focusFingerprint {
+			p.SetIndex(i, len(p.view))
+			return
 		}
 	}
-	p.Clamp(len(p.view))
-	p.snapshotFocus()
+	if !knownFP {
+		p.focusFingerprint = ""
+	}
 }
 
 // snapshotFocus captures the fingerprint of the row currently
