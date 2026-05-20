@@ -65,18 +65,12 @@ func ParseFormat(s string) (Format, error) {
 	if slices.Contains(supportedFormats, f) {
 		return f, nil
 	}
-	return "", fmt.Errorf("%w: %q (want one of %s)",
-		ErrUnknownFormat, s, formatList(supportedFormats))
-}
-
-// formatList renders a slice of Format as a comma-separated
-// %q-quoted list ("table", "json", "yaml") for error messages.
-func formatList(fs []Format) string {
-	quoted := make([]string, len(fs))
-	for i, f := range fs {
-		quoted[i] = fmt.Sprintf("%q", string(f))
+	quoted := make([]string, len(supportedFormats))
+	for i, sf := range supportedFormats {
+		quoted[i] = fmt.Sprintf("%q", string(sf))
 	}
-	return strings.Join(quoted, ", ")
+	return "", fmt.Errorf("%w: %q (want one of %s)",
+		ErrUnknownFormat, s, strings.Join(quoted, ", "))
 }
 
 // Resolve picks a default when format is empty: FormatTable when
