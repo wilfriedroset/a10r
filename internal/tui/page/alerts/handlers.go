@@ -161,39 +161,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-// toggleWatch flips paused state. When un-pausing, also clear any
-// pending pausedRefresh — the next DataMsg should be treated
-// normally because the page is no longer paused. When pausing
-// without an in-flight `r` press, leave pausedRefresh false so
-// the next ordinary DataMsg is silently dropped.
-func (p *Page) toggleWatch() {
-	p.Paused = !p.Paused
-	if !p.Paused {
-		p.PausedRefresh = false
-	}
-}
-
-// requestRefresh emits a RefreshRequestedMsg so the wiring layer
-// pokes the alerts pollers, flips the page into refreshing
-// state, and (re)kicks the spinner Tick chain. Mirror of the
-// silences page's helper.
-//
-// When paused, sets pausedRefresh so the next incoming DataMsg
-// is honoured exactly once — the operator pulled it deliberately
-// and expects to see fresh data even though watch mode is off.
+func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 func (p *Page) requestRefresh() tea.Cmd {
-	p.Refreshing = true
-	if p.Paused {
-		p.PausedRefresh = true
-	}
-	scope := p.Scope
-	if scope == "" {
-		scope = scopeAll
-	}
-	emit := func() tea.Msg {
-		return app.RefreshRequestedMsg{Resource: "alerts", Scope: scope}
-	}
-	return tea.Batch(emit, p.Spinner.Tick)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "alerts")
 }
 
 // openSilenceForS is the entry point for the `s` key. k9s-style:

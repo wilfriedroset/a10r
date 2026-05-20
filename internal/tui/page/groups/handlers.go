@@ -100,18 +100,7 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-// toggleWatch flips paused state. When un-pausing, also clear any
-// pending pausedRefresh — the next DataMsg should be treated
-// normally because the page is no longer paused. When pausing
-// without an in-flight `r` press, leave pausedRefresh false so
-// the next ordinary DataMsg is silently dropped. Mirrors the
-// alerts page's helper.
-func (p *Page) toggleWatch() {
-	p.Paused = !p.Paused
-	if !p.Paused {
-		p.PausedRefresh = false
-	}
-}
+func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
 // handleSort processes sort-axis shortcuts (h/l walk plus
 // Shift+letter direct shortcuts). Returns true when the key was a
@@ -130,25 +119,8 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	)
 }
 
-// requestRefresh emits RefreshRequestedMsg and re-arms the
-// spinner. Same shape as alerts / silences.
-//
-// When paused, sets pausedRefresh so the next incoming DataMsg
-// is honoured exactly once — the operator pulled it deliberately
-// and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
-	p.Refreshing = true
-	if p.Paused {
-		p.PausedRefresh = true
-	}
-	scope := p.Scope
-	if scope == "" {
-		scope = scopeAll
-	}
-	emit := func() tea.Msg {
-		return app.RefreshRequestedMsg{Resource: "groups", Scope: scope}
-	}
-	return tea.Batch(emit, p.Spinner.Tick)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "groups")
 }
 
 // toggleExpandAll flips every group's expanded flag based on the

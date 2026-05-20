@@ -168,18 +168,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	return p, nil
 }
 
-// toggleWatch flips paused state. When un-pausing, also clear any
-// pending pausedRefresh — the next DataMsg should be treated
-// normally because the page is no longer paused. When pausing
-// without an in-flight `r` press, leave pausedRefresh false so
-// the next ordinary DataMsg is silently dropped. Mirrors the
-// alerts page's helper.
-func (p *Page) toggleWatch() {
-	p.Paused = !p.Paused
-	if !p.Paused {
-		p.PausedRefresh = false
-	}
-}
+func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
 // runWriteAction is the read-only gate applied to every Dangerous
 // keypress on the page. When the page is read-only it short-circuits
@@ -216,27 +205,8 @@ func (p *Page) drillToDetail() tea.Cmd {
 	})
 }
 
-// requestRefresh emits a RefreshRequestedMsg so the wiring layer
-// pokes the silences pollers, flips the page into refreshing
-// state, and (re)kicks the spinner Tick chain. Mirror of the
-// alerts page's helper.
-//
-// When paused, sets pausedRefresh so the next incoming DataMsg
-// is honoured exactly once — the operator pulled it deliberately
-// and expects to see fresh data even though watch mode is off.
 func (p *Page) requestRefresh() tea.Cmd {
-	p.Refreshing = true
-	if p.Paused {
-		p.PausedRefresh = true
-	}
-	scope := p.Scope
-	if scope == "" {
-		scope = scopeAll
-	}
-	emit := func() tea.Msg {
-		return app.RefreshRequestedMsg{Resource: "silences", Scope: scope}
-	}
-	return tea.Batch(emit, p.Spinner.Tick)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "silences")
 }
 
 // handleClearMarks drops every mark on the page in response to
