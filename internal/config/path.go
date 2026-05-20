@@ -3,20 +3,10 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
-)
 
-// xdgConfigHome and localAppData are the env vars consulted on Unix
-// and Windows respectively for the XDG-style config directory
-// resolution (the env-var slot in ADR 0027's precedence chain).
-// localAppData mirrors the constant in internal/log/path.go; once a
-// third package needs XDG resolution we'll factor both into
-// internal/xdg.
-const (
-	xdgConfigHome = "XDG_CONFIG_HOME"
-	localAppData  = "LOCALAPPDATA"
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
 // a10r-specific resolution constants for config-dir override and the
@@ -25,11 +15,6 @@ const (
 	envConfigDir      = "A10R_CONFIG_DIR"
 	defaultConfigFile = "a10r.yaml"
 )
-
-// errLocalAppDataMissing is returned by defaultConfigDirFor on
-// Windows when %LOCALAPPDATA% is unset — there is no sensible
-// fallback on Windows without it.
-var errLocalAppDataMissing = errors.New("LOCALAPPDATA not set")
 
 // DefaultDir returns the OS-conformant config directory (the
 // "built-in default" rung of ADR 0027's precedence chain):
@@ -58,14 +43,14 @@ func defaultConfigDirFor(
 		return filepath.Join(home, "Library", "Application Support", "a10r"), nil
 
 	case "windows":
-		local := env(localAppData)
+		local := env(xdg.LocalAppData)
 		if local == "" {
-			return "", errLocalAppDataMissing
+			return "", xdg.ErrLocalAppDataMissing
 		}
 		return filepath.Join(local, "a10r"), nil
 
 	default: // linux + other unix
-		if cfg := env(xdgConfigHome); cfg != "" {
+		if cfg := env(xdg.ConfigHome); cfg != "" {
 			return filepath.Join(cfg, "a10r"), nil
 		}
 		home, err := homeDir()

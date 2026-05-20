@@ -3,25 +3,13 @@
 package log
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-)
 
-// xdgStateHome and localAppData are the env vars consulted on Unix
-// and Windows respectively. Pulled out as constants so the test
-// helper can reference them without string drift.
-const (
-	xdgStateHome = "XDG_STATE_HOME"
-	localAppData = "LOCALAPPDATA"
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
-
-// errLocalAppDataMissing is returned by defaultPathFor on Windows
-// when %LOCALAPPDATA% is unset — there is no sensible fallback on
-// Windows without it.
-var errLocalAppDataMissing = errors.New("LOCALAPPDATA not set")
 
 // DefaultPath returns the OS-conformant log file path:
 //
@@ -50,14 +38,14 @@ func defaultPathFor(
 		return filepath.Join(home, "Library", "Logs", "a10r", "a10r.log"), nil
 
 	case "windows":
-		local := env(localAppData)
+		local := env(xdg.LocalAppData)
 		if local == "" {
-			return "", errLocalAppDataMissing
+			return "", xdg.ErrLocalAppDataMissing
 		}
 		return filepath.Join(local, "a10r", "Logs", "a10r.log"), nil
 
 	default: // linux + other unix
-		if state := env(xdgStateHome); state != "" {
+		if state := env(xdg.StateHome); state != "" {
 			return filepath.Join(state, "a10r", "a10r.log"), nil
 		}
 		home, err := homeDir()

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
 // Test fixture roots are promoted to consts so the gocritic
@@ -27,13 +29,13 @@ func TestDefaultPathFor(t *testing.T) {
 
 	envEmpty := func(string) string { return "" }
 	envXDGStateHome := func(k string) string {
-		if k == xdgStateHome {
+		if k == xdg.StateHome {
 			return fakeXDGState
 		}
 		return ""
 	}
 	envLocalAppData := func(k string) string {
-		if k == localAppData {
+		if k == xdg.LocalAppData {
 			return fakeLocalData
 		}
 		return ""
