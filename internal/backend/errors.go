@@ -5,9 +5,9 @@ package backend
 import "errors"
 
 // Sentinel errors define the three "interesting" failure modes the
-// rest of the codebase branches on, per open-question G1. Other
-// failure types flow through as plain errors and the caller treats
-// them as one-shot operational issues.
+// rest of the codebase branches on. Other failure types flow
+// through as plain errors and the caller treats them as one-shot
+// operational issues.
 var (
 	// ErrUnsupported signals that the requested operation is not
 	// available on this backend (capability flag off, or vanilla

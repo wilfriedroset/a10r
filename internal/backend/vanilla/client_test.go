@@ -172,9 +172,9 @@ func TestClient_ListSilences(t *testing.T) {
 	require.Equal(t, backend.SilenceStateExpired, got[1].State)
 }
 
-// TestClient_GetSilence_PathEscapesID is the audit F11 regression:
-// silence IDs (UUIDs in v0.1, but operator-controllable in
-// principle) must be URL-escaped before being concatenated into
+// TestClient_GetSilence_PathEscapesID pins the path-escape
+// invariant: silence IDs (UUIDs in v0.1, but operator-controllable
+// in principle) must be URL-escaped before being concatenated into
 // the request path, otherwise a slash-bearing id would silently
 // reroute the GET to a different endpoint.
 //
