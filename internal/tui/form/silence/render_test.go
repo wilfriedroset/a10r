@@ -15,6 +15,93 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
+// TestForm_BulkModeRendersBanner asserts the bulk View renders
+// the BulkBanner literal alongside the "Targets" label and omits
+// the matchers placeholder.
+func TestForm_BulkModeRendersBanner(t *testing.T) {
+	t.Parallel()
+
+	// Pick a banner short enough to fit one line inside the
+	// 120-col View — long banners wrap to the input width, which
+	// is correct behaviour but would break a literal substring
+	// match. Real-world banners (e.g. "applies to 5 alerts
+	// across 2 tenants — each silenced with its own labels") may
+	// well wrap; the wrap shape is incidental, the verbatim
+	// presence in the rendered view is what we care about.
+	banner := "applies to 5 alerts; per-target labels"
+	f := newBulkForm(t, nil, banner)
+
+	view := f.View(120, 24)
+	require.Contains(t, view, banner, "bulk View must render the banner string verbatim")
+	require.Contains(t, view, "Targets", "bulk View labels the slot 'Targets' so the user knows the matchers are per-target")
+	require.NotContains(t, view, "alertname=HighCPU",
+		"bulk View must NOT render the matchers placeholder — the buffer is hidden")
+}
+
+// TestForm_TenantRowHintAdvertisesEnter pins the discoverability
+// affordance: when the Tenant row is editable the rendered view
+// must include "[Enter to change]" so the user does not have to
+// guess that Enter opens the picker. Disabled variants (single-
+// tenant, edit-mode) must NOT show the hint because the affordance
+// is inert there.
+func TestForm_TenantRowHintAdvertisesEnter(t *testing.T) {
+	t.Parallel()
+
+	// Anchor on the stable token, not the literal punctuation —
+	// a future theming pass that wraps the brackets in a styled
+	// span shouldn't flake the contract that the affordance is
+	// surfaced.
+	const hintToken = "Enter to change"
+
+	multi := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	require.Contains(t, multi.View(120, 24), hintToken,
+		"editable Tenant row must advertise the Enter-to-change affordance")
+
+	single := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+	})
+	require.NotContains(t, single.View(120, 24), hintToken,
+		"disabled single-tenant Tenant row must not advertise an inert affordance")
+
+	edit := New(Options{
+		Clients: map[string]Client{"prod": &fakeClient{}, "staging": &fakeClient{}},
+		Tenant:  "prod",
+		Styles:  testutil.LoadStyles(t),
+		Now:     func() time.Time { return fixedNow },
+		Creator: "alice",
+		EditID:  "sil-7",
+	})
+	require.NotContains(t, edit.View(120, 24), hintToken,
+		"edit-mode Tenant row is read-only and must not advertise the picker")
+
+	// Narrow form: hint must elide rather than force a wrap that
+	// breaks fieldRow's continuation-padding grid. Width 30 leaves
+	// ~17 cols for the value column once label/prefix are subtracted,
+	// well below "prod" (4) + "  [Enter to change]" (21).
+	require.NotContains(t, multi.View(30, 24), hintToken,
+		"narrow-width Tenant row must elide the hint to keep the grid aligned")
+}
+
+// TestForm_BulkModeNoTenantRow asserts that bulk mode omits the
+// Tenant row entirely (the Targets banner is the source of truth
+// for the per-tenant breakdown in bulk). EditID + Bulk is mutually
+// exclusive per the existing comment, so this is the only path
+// that skips the row outright rather than rendering it disabled.
+func TestForm_BulkModeNoTenantRow(t *testing.T) {
+	t.Parallel()
+
+	f := newBulkForm(t, &fakeClient{}, "applies to 3 alerts across 2 tenants")
+	view := f.View(120, 24)
+	require.NotContains(t, view, "Tenant:",
+		"bulk View must NOT render the Tenant row — the Targets banner is the source of truth")
+	require.Contains(t, view, "Targets",
+		"bulk View must keep the existing Targets banner label")
+}
+
 // TestForm_BubblesStylesAreFlattened locks in the visual
 // contract for the typed-text and cursor-line slots by
 // inspecting the bubbles models' Styles directly. Asserting on

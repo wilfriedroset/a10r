@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -26,7 +25,8 @@ var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 
 // fakeClient records every CreateSilence / UpdateSilence call so
 // each test can assert which verb the form picked plus the spec
-// it sent.
+// it sent. Shared across the per-concern test files in this
+// package.
 type fakeClient struct {
 	last          backend.SilenceSpec
 	createCalls   int
@@ -79,9 +79,9 @@ func newForm(t *testing.T, client Client) *Form {
 	})
 }
 
-// fillValid types a minimum-valid form into f. The caller drives
-// Tab navigation between fields; this helper just types each
-// field as if the cursor is already on it.
+// type_ types a string into the focused field one rune at a
+// time, the same way bubbletea forwards KeyPressMsg events at
+// runtime.
 func type_(f *Form, s string) {
 	for _, r := range s {
 		_, _ = f.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -108,40 +108,6 @@ func drainSubmit(t *testing.T, f *Form) tea.Msg {
 	_, cmd2 := f.Update(done)
 	require.NotNil(t, cmd2, "submitDoneMsg handling must return a cmd")
 	return cmd2()
-}
-
-func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
-	t.Parallel()
-	// Recreate-expired entry point wants the user to type a fresh
-	// duration; the "2h" default would be a footgun (one tap of
-	// Ctrl+S and the silence comes back with the placeholder).
-	f := New(Options{
-		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:    defaultTenant,
-		Styles:    testutil.LoadStyles(t),
-		Now:       func() time.Time { return fixedNow },
-		Creator:   "alice",
-		BlankEnds: true,
-	})
-	require.Empty(t, f.ends.Value(), "BlankEnds skips the 2h default")
-}
-
-func TestForm_BlankEndsBeatsExplicitEndsAt(t *testing.T) {
-	t.Parallel()
-	// BlankEnds is a deliberate "force the user to type"; an
-	// EndsAt that happens to be set on the same Options must not
-	// override it (the recreate path passes the original silence
-	// untouched, but only the matchers/comment fields should land).
-	f := New(Options{
-		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:    defaultTenant,
-		Styles:    testutil.LoadStyles(t),
-		Now:       func() time.Time { return fixedNow },
-		Creator:   "alice",
-		EndsAt:    fixedNow.Add(time.Hour),
-		BlankEnds: true,
-	})
-	require.Empty(t, f.ends.Value(), "BlankEnds wins over EndsAt prefill")
 }
 
 func TestForm_LegacyNFlowClearedEndsErrors(t *testing.T) {
@@ -195,53 +161,6 @@ func TestForm_BlankEndsSubmitWithoutTypingErrors(t *testing.T) {
 	require.Equal(t, 0, client.calls(), "form must not call the backend with an empty ends")
 }
 
-func TestForm_FocusEndsLandsOnEndsField(t *testing.T) {
-	t.Parallel()
-	f := New(Options{
-		Clients:   map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:    defaultTenant,
-		Styles:    testutil.LoadStyles(t),
-		Now:       func() time.Time { return fixedNow },
-		Creator:   "alice",
-		FocusEnds: true,
-	})
-	require.Equal(t, fieldEnds, f.focus, "FocusEnds lands focus on Ends")
-	require.True(t, f.ends.Focused(), "FocusEnds focuses the ends input")
-	require.False(t, f.matchers.Focused(), "FocusEnds blurs the default matchers field")
-}
-
-func TestForm_TabWalksFields(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	require.Equal(t, fieldMatchers, f.focus)
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	require.Equal(t, fieldStarts, f.focus)
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	require.Equal(t, fieldMatchers, f.focus)
-}
-
-func TestForm_NonKeyMessagesReachFocusedInput(t *testing.T) {
-	t.Parallel()
-	// The bubbles cursor blink loop is driven by tea.Msg values
-	// (cursor.BlinkMsg) that are NOT tea.KeyPressMsg. If the form
-	// short-circuits on non-key messages, the blink Cmd Focus()
-	// returns produces a tea.Msg the form swallows and the cursor
-	// never blinks.
-	//
-	// We can't easily construct a cursor.BlinkMsg from the test
-	// (it's package-private), but we can prove the non-key path
-	// reaches the input by feeding any non-key tea.Msg and
-	// asserting the form returns without panicking and without
-	// converting the message into a CancelledMsg or similar.
-	f := newForm(t, &fakeClient{})
-	type bogusMsg struct{}
-	got, cmd := f.Update(bogusMsg{})
-	require.Same(t, f, got, "non-key forwarding must keep the same Form pointer")
-	// Bubbles' inputs return a nil Cmd for unknown messages, so
-	// the test asserts the path runs end-to-end without raising.
-	require.Nil(t, cmd, "bubbles must no-op on an unknown tea.Msg")
-}
-
 func TestForm_ErrorPersistsAcrossNavigation(t *testing.T) {
 	t.Parallel()
 	// A failed submit should leave the validation error visible
@@ -263,71 +182,11 @@ func TestForm_ErrorPersistsAcrossNavigation(t *testing.T) {
 	require.Equal(t, prev, f.err, "typing must not wipe the validation error")
 }
 
-func TestForm_TypingGloballyBoundCharsLandsInBuffer(t *testing.T) {
-	t.Parallel()
-	// Direct exercise of the input path: with capture-mode on,
-	// keys like '0', '1', 'q', ':', '/' must land in the focused
-	// buffer. The App's handleKey is what actually bypasses the
-	// dispatcher; this test asserts the form half of the contract
-	// (text comes through without filtering).
-	f := newForm(t, &fakeClient{})
-	type_(f, "q0/:?12abc")
-	require.Equal(t, "q0/:?12abc", f.matchers.Value(),
-		"the form must accept every printable rune; the App's "+
-			"InputCapturePage path is what shadows LayerGlobal at runtime")
-}
-
-func TestForm_TypingAppendsToFocusedField(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	type_(f, "alertname=HighCPU")
-	require.Equal(t, "alertname=HighCPU", f.matchers.Value())
-
-	// Tab to creator and overtype.
-	for range 3 {
-		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	}
-	require.Equal(t, fieldCreator, f.focus)
-	// Ctrl+U deletes from cursor to start of line — with the
-	// pre-filled "alice" and cursor at end after Focus, that
-	// clears the field.
-	_, _ = f.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	require.Empty(t, f.creator.Value(), "Ctrl+U clears the focused field")
-	type_(f, "ops")
-	require.Equal(t, "ops", f.creator.Value())
-}
-
-func TestForm_BackspacePopsRune(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	type_(f, "abc")
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	require.Equal(t, "ab", f.matchers.Value())
-}
-
-func TestForm_EnterInMatchersAddsNewline(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	type_(f, "alertname=A")
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	type_(f, "severity=critical")
-	require.Equal(t, "alertname=A\nseverity=critical", f.matchers.Value())
-}
-
-func TestForm_EnterInOtherFieldsIsNoOp(t *testing.T) {
-	t.Parallel()
-	f := newForm(t, &fakeClient{})
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // → starts
-	prev := f.starts.Value()
-	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.Equal(t, prev, f.starts.Value(),
-		"Enter must NOT modify the value of single-line inputs")
-}
-
 // blockingClient gates CreateSilence on a release channel so the
 // test can prove submit() does not perform HTTP on the Update
 // goroutine. If the form regresses to a synchronous call, Update
 // blocks forever and the test deadlocks (caught by t.Deadline).
+// Used by submitter_test.go too.
 type blockingClient struct {
 	gate    chan struct{}
 	started chan struct{}
@@ -387,7 +246,7 @@ func TestForm_SubmitDoesNotBlockUpdateGoroutine(t *testing.T) {
 
 // ctxBlockingClient signals `started` then waits for ctx to cancel.
 // Lets tests observe whether the form cancels its in-flight submit
-// when the page is Closed.
+// when the page is Closed. Used by submitter_test.go too.
 type ctxBlockingClient struct {
 	started chan struct{}
 }
@@ -569,14 +428,16 @@ func TestForm_SubmitContextCancelDropsSilently(t *testing.T) {
 	f := newForm(t, &fakeClient{})
 	// Match the active gen (fresh form is at 0) so we exercise the
 	// real apply branch rather than the stale-drop short-circuit.
-	f.submitting = true
-	msg := submitDoneMsg{gen: f.submitGen, err: context.Canceled}
+	// Drive the submitter into the in-flight state directly so the
+	// done-message processing executes the production path.
+	f.submit.inFlight = true
+	msg := submitDoneMsg{gen: f.submit.gen, err: context.Canceled}
 	_, cmd := f.Update(msg)
 	require.Nil(t, cmd,
 		"context.Canceled must drop silently — no flash on a page that's being torn down")
 	require.Empty(t, f.err,
 		"ctx-cancel is shutdown noise; the form must not record it as a submit error")
-	require.False(t, f.submitting,
+	require.False(t, f.submit.InFlight(),
 		"submitting must clear so a future re-open of the form starts clean")
 }
 
@@ -691,52 +552,6 @@ func TestForm_EndsBeforeStartsRejects(t *testing.T) {
 	require.Contains(t, msg.Text, "ends must be after starts")
 }
 
-func TestForm_PrefillMatchers(t *testing.T) {
-	t.Parallel()
-	in := []backend.Matcher{
-		{Name: "alertname", Value: "HighCPU", IsEqual: true},
-		{Name: "severity", Value: "warning|critical", IsRegex: true, IsEqual: true},
-		{Name: "team", Value: "platform"},                     // !=
-		{Name: "instance", Value: ".*-canary", IsRegex: true}, // !~
-	}
-	f := New(Options{
-		Clients:  map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:   defaultTenant,
-		Styles:   testutil.LoadStyles(t),
-		Now:      func() time.Time { return fixedNow },
-		Creator:  "alice",
-		Matchers: in,
-	})
-	want := "alertname=HighCPU\nseverity=~warning|critical\nteam!=platform\ninstance!~.*-canary"
-	require.Equal(t, want, f.matchers.Value())
-}
-
-func TestForm_PrefillEndsAt(t *testing.T) {
-	t.Parallel()
-	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
-	f := New(Options{
-		Clients: map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:  defaultTenant,
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Creator: "alice",
-		EndsAt:  endsAt,
-	})
-	require.Equal(t, "2026-04-25T14:00:00Z", f.ends.Value())
-}
-
-func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
-	t.Parallel()
-	f := New(Options{
-		Clients: map[string]Client{defaultTenant: &fakeClient{}},
-		Tenant:  defaultTenant,
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Creator: "alice",
-	})
-	require.Equal(t, "2h", f.ends.Value(), "zero EndsAt must keep the duration shorthand default")
-}
-
 func TestForm_EditModeCallsUpdate(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{}
@@ -778,43 +593,6 @@ func TestForm_EditModeClientErrorFlashesAndKeepsForm(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "update boom")
-}
-
-func TestForm_FormatMatchersRoundTrip(t *testing.T) {
-	t.Parallel()
-	// Includes values that themselves contain an operator-like
-	// substring (`a!=b`, `a=b`, `=~regex`) so the leftmost-position
-	// parser is exercised — alerts in the wild can carry such
-	// values in annotations, and a lossy round-trip would silently
-	// rewrite the matcher when the user opens an `e` form.
-	in := []backend.Matcher{
-		{Name: "alertname", Value: "HighCPU", IsEqual: true},
-		{Name: "severity", Value: "warning|critical", IsRegex: true, IsEqual: true},
-		{Name: "team", Value: "platform"},
-		{Name: "instance", Value: ".*-canary", IsRegex: true},
-		{Name: "expr", Value: "a!=b", IsEqual: true},
-		{Name: "expr2", Value: "a=b", IsEqual: true},
-		{Name: "expr3", Value: "x=~y", IsEqual: false},
-	}
-	rendered := formatMatchers(in)
-	parsed, err := matcher.Parse(rendered)
-	require.NoError(t, err)
-	require.Equal(t, in, parsed)
-}
-
-func TestMatchersFromLabels_DropsNameAndSorts(t *testing.T) {
-	t.Parallel()
-	got := MatchersFromLabels(map[string]string{
-		"__name__":  "ALERTS",
-		"alertname": "HighCPU",
-		"severity":  "critical",
-		"instance":  "host-1",
-	})
-	require.Equal(t, []backend.Matcher{
-		{Name: "alertname", Value: "HighCPU", IsEqual: true},
-		{Name: "instance", Value: "host-1", IsEqual: true},
-		{Name: "severity", Value: "critical", IsEqual: true},
-	}, got, "synthetic __name__ must be dropped; output stable-sorted by name")
 }
 
 func TestForm_TitleSwitchesOnEditID(t *testing.T) {
@@ -933,26 +711,6 @@ func TestForm_BulkModeNilClientIsAllowed(t *testing.T) {
 	require.NotNil(t, cmd)
 	_, ok := cmd().(BulkSubmittedMsg)
 	require.True(t, ok, "nil-client bulk submit must still emit BulkSubmittedMsg")
-}
-
-func TestForm_BulkModeRendersBanner(t *testing.T) {
-	t.Parallel()
-
-	// Pick a banner short enough to fit one line inside the
-	// 120-col View — long banners wrap to the input width, which
-	// is correct behaviour but would break a literal substring
-	// match. Real-world banners (e.g. "applies to 5 alerts
-	// across 2 tenants — each silenced with its own labels") may
-	// well wrap; the wrap shape is incidental, the verbatim
-	// presence in the rendered view is what we care about.
-	banner := "applies to 5 alerts; per-target labels"
-	f := newBulkForm(t, nil, banner)
-
-	view := f.View(120, 24)
-	require.Contains(t, view, banner, "bulk View must render the banner string verbatim")
-	require.Contains(t, view, "Targets", "bulk View labels the slot 'Targets' so the user knows the matchers are per-target")
-	require.NotContains(t, view, "alertname=HighCPU",
-		"bulk View must NOT render the matchers placeholder — the buffer is hidden")
 }
 
 func TestForm_BulkModeIgnoresPrefilledMatchers(t *testing.T) {
@@ -1087,54 +845,6 @@ func TestForm_MultiTenantTenantRowFocusable(t *testing.T) {
 		"Tenant Enter must open the picker via app.OpenModal")
 }
 
-// TestForm_TenantRowHintAdvertisesEnter pins the discoverability
-// affordance: when the Tenant row is editable the rendered view
-// must include "[Enter to change]" so the user does not have to
-// guess that Enter opens the picker. Disabled variants (single-
-// tenant, edit-mode) must NOT show the hint because the affordance
-// is inert there.
-func TestForm_TenantRowHintAdvertisesEnter(t *testing.T) {
-	t.Parallel()
-
-	// Anchor on the stable token, not the literal punctuation —
-	// a future theming pass that wraps the brackets in a styled
-	// span shouldn't flake the contract that the affordance is
-	// surfaced.
-	const hintToken = "Enter to change"
-
-	multi := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
-	require.Contains(t, multi.View(120, 24), hintToken,
-		"editable Tenant row must advertise the Enter-to-change affordance")
-
-	single := New(Options{
-		Clients: map[string]Client{"prod": &fakeClient{}},
-		Tenant:  "prod",
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Creator: "alice",
-	})
-	require.NotContains(t, single.View(120, 24), hintToken,
-		"disabled single-tenant Tenant row must not advertise an inert affordance")
-
-	edit := New(Options{
-		Clients: map[string]Client{"prod": &fakeClient{}, "staging": &fakeClient{}},
-		Tenant:  "prod",
-		Styles:  testutil.LoadStyles(t),
-		Now:     func() time.Time { return fixedNow },
-		Creator: "alice",
-		EditID:  "sil-7",
-	})
-	require.NotContains(t, edit.View(120, 24), hintToken,
-		"edit-mode Tenant row is read-only and must not advertise the picker")
-
-	// Narrow form: hint must elide rather than force a wrap that
-	// breaks fieldRow's continuation-padding grid. Width 30 leaves
-	// ~17 cols for the value column once label/prefix are subtracted,
-	// well below "prod" (4) + "  [Enter to change]" (21).
-	require.NotContains(t, multi.View(30, 24), hintToken,
-		"narrow-width Tenant row must elide the hint to keep the grid aligned")
-}
-
 // TestForm_MultiTenantTabCycleIncludesTenant locks the full focus
 // cycle with two enabled clients: Matchers → Starts → Ends →
 // Creator → Comment → Tenant → Matchers. Single-tenant / edit /
@@ -1213,22 +923,6 @@ func TestForm_SingleTenantTenantRowDisabled(t *testing.T) {
 	view := f.View(120, 24)
 	require.Contains(t, view, "Tenant:")
 	require.Contains(t, view, "prod")
-}
-
-// TestForm_BulkModeNoTenantRow asserts that bulk mode omits the
-// Tenant row entirely (the Targets banner is the source of truth
-// for the per-tenant breakdown in bulk). EditID + Bulk is mutually
-// exclusive per the existing comment, so this is the only path
-// that skips the row outright rather than rendering it disabled.
-func TestForm_BulkModeNoTenantRow(t *testing.T) {
-	t.Parallel()
-
-	f := newBulkForm(t, &fakeClient{}, "applies to 3 alerts across 2 tenants")
-	view := f.View(120, 24)
-	require.NotContains(t, view, "Tenant:",
-		"bulk View must NOT render the Tenant row — the Targets banner is the source of truth")
-	require.Contains(t, view, "Targets",
-		"bulk View must keep the existing Targets banner label")
 }
 
 // TestForm_PickerListIsSortedAndScopeUnfiltered locks the picker
