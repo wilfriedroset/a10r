@@ -280,9 +280,9 @@ func (f *k9sSkinFile) resolveStatus(role, value string) (color.Color, error) {
 }
 
 // compile resolves a parsed (and stock-filled) skinFile into a
-// fully-populated *Styles. The order tracks the role-mapping table
-// in docs/design/k9s-skins-dropin.md ("Role mapping (full)") so
-// reviewers can read the two side-by-side.
+// fully-populated *Styles. The order tracks the per-role fallback
+// chains established at the top of this file so reviewers can read
+// the body and the role declarations side-by-side.
 func compile(f *k9sSkinFile) (*Styles, error) {
 	out := &Styles{}
 	var err error

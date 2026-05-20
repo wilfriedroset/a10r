@@ -5,8 +5,7 @@ package theme
 // svgColors maps the lowercase SVG/CSS color name to its 24-bit RGB
 // value. Vendored from github.com/gdamore/tcell `color.Names` +
 // `color.ColorValues` (color/color.go) so a10r doesn't take a
-// runtime dependency on tcell. See docs/design/k9s-skins-dropin.md
-// (D4) for the rationale: k9s skins use these names freely, and
+// runtime dependency on tcell. k9s skins use these names freely;
 // every skin we'd reject for using them is a skin we'd otherwise
 // have to fork or convert.
 //

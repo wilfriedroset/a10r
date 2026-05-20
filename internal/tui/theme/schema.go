@@ -6,19 +6,20 @@
 //
 // a10r consumes k9s skins drop-in: any skin from derailed/k9s or the
 // community works without conversion, including those that use the
-// `default` keyword for terminal-native bg or SVG color names. See
-// docs/design/k9s-skins-dropin.md for the schema mapping, the
-// per-role fallback chains, and the rationale for picking the k9s
-// schema as our source of truth.
+// `default` keyword for terminal-native bg or SVG color names. The
+// per-role fallback chains in styles.go are the source of truth for
+// the schema mapping; the comment at the top of compile() lists
+// them in the order they fire.
 package theme
 
 import "errors"
 
 // k9sSkinFile mirrors the subset of the k9s skin YAML schema that
-// a10r consumes. We deliberately model only the fields we read; YAML
-// decoding is permissive (KnownFields(false)) so upstream additions
-// like `views.charts.*`, `info.cpuColor`, `dialog.button*` etc. are
-// silently ignored. See docs/design/k9s-skins-dropin.md (D7).
+// a10r consumes. We deliberately model only the fields we read;
+// YAML decoding is permissive (KnownFields(false)) so upstream
+// additions like `views.charts.*`, `info.cpuColor`, `dialog.button*`
+// etc. are silently ignored. The permissive choice is what lets
+// arbitrary k9s skins land drop-in.
 //
 // Empty-string semantics: the YAML decoder leaves absent string
 // fields as "". Every cascading resolver in styles.go treats "" as
@@ -126,10 +127,10 @@ type k9sDialog struct {
 	BgColor string `yaml:"bgColor"`
 }
 
-// validate enforces the strictly-required fields from the design
-// doc (D3): only `body.fgColor` and `body.bgColor` are mandatory.
-// frame.status.* are soft-required and patched in by
-// applyStockFallback before compile runs.
+// validate enforces the strictly-required fields: only
+// `body.fgColor` and `body.bgColor` are mandatory. frame.status.*
+// are soft-required and patched in by applyStockFallback before
+// compile runs.
 func (f *k9sSkinFile) validate() error {
 	if f.K9s.Body.FgColor == "" {
 		return errors.New("required field k9s.body.fgColor is missing")

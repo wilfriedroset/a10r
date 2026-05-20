@@ -18,7 +18,7 @@ import (
 // DefaultSkinName is the v0.1 default. Picked for predictability:
 // works on any terminal regardless of the user's bg config. Users
 // who curate their terminal palette typically prefer one of the
-// `-transparent` variants — see docs/design/k9s-skins-dropin.md.
+// `-transparent` variants bundled alongside.
 const DefaultSkinName = "catppuccin-mocha"
 
 // skinsDir is the basename used both for the embedded skins/
@@ -162,9 +162,9 @@ func bundledExists(name string) bool {
 //
 // Permissive YAML decoding (KnownFields(false)) lets us tolerate
 // future k9s schema additions and skins with extra fields we don't
-// model. Required-field enforcement (body.fgColor / body.bgColor)
-// happens explicitly in validate(). See docs/design/k9s-skins-dropin
-// .md (D7) for the rationale.
+// model — drop-in compatibility is the point. Required-field
+// enforcement (body.fgColor / body.bgColor) happens explicitly in
+// validate().
 func parseAndCompile(raw []byte, name string) (*Styles, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 
