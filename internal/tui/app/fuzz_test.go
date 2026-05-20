@@ -40,7 +40,8 @@ var (
 // FuzzApp is the top-level fuzz target. Each iteration builds a
 // fresh App with the alerts page pushed and one synthetic
 // poll.DataMsg hydrated, then drives a decoded msg stream through
-// Update + View. Oracle is panic-only — see docs/design/fuzzing.md.
+// Update + View. Oracle is panic-only: any panic from Update or
+// View on any synthesised input fails the iteration.
 func FuzzApp(f *testing.F) {
 	addAppSeeds(f)
 
