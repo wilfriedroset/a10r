@@ -18,6 +18,7 @@ package output
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -47,24 +48,22 @@ const (
 // actionable.
 var ErrUnknownFormat = errors.New("unknown output format")
 
-// supportedFormats drives the human-readable accept-list in
-// ParseFormat error messages. The switch in ParseFormat is the
-// actual validation gate — adding a new Format means editing both
-// (the slice for the message, the switch case for the gate).
-// Keeping the two in sync is intentional: a typo in either place
-// is loud (failing test) rather than silent (drift).
+// supportedFormats is the validation source for ParseFormat and
+// drives the human-readable accept-list in its error messages.
+// Single source of truth: adding a Format means appending here.
 var supportedFormats = []Format{FormatTable, FormatJSON, FormatYAML}
 
-// ParseFormat validates s against the supported set. Empty maps
-// to a zero Format, so the caller can layer in TTY-vs-pipe default
-// resolution after parsing — this function only enforces "if you
-// supplied something, it must be valid".
+// ParseFormat validates s against the supported set. Empty maps to a
+// zero Format so the caller can layer TTY-vs-pipe default resolution
+// after parsing — this function only enforces "if you supplied
+// something, it must be valid".
 func ParseFormat(s string) (Format, error) {
-	switch Format(s) {
-	case "":
+	if s == "" {
 		return "", nil
-	case FormatTable, FormatJSON, FormatYAML:
-		return Format(s), nil
+	}
+	f := Format(s)
+	if slices.Contains(supportedFormats, f) {
+		return f, nil
 	}
 	return "", fmt.Errorf("%w: %q (want one of %s)",
 		ErrUnknownFormat, s, formatList(supportedFormats))
