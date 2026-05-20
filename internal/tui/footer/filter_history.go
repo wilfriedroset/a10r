@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
 // HistoryClass tags one of the per-prompt history rings. The label
@@ -115,7 +117,7 @@ func NewHistory(dir string, class HistoryClass) *History {
 // env and homeDir are injected so the test suite can drive every
 // branch from a single host without setenv contamination.
 func HistoryDir(env func(string) string, homeDir func() (string, error)) (string, error) {
-	if state := env("XDG_STATE_HOME"); state != "" {
+	if state := env(xdg.StateHome); state != "" {
 		return filepath.Join(state, "a10r"), nil
 	}
 	home, err := homeDir()
