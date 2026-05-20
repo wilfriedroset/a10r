@@ -240,10 +240,6 @@ func (p *Page) handleClearMarks() tea.Cmd {
 	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
 }
 
-// toggleMarkAtCursor flips the mark on the row under the cursor.
-// No-op on an empty view. Empty fingerprints (alerts without a
-// stable identifier) are silently skipped — there's no key to
-// associate the mark with.
 func (p *Page) toggleMarkAtCursor() {
 	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e alertEntry) string { return e.a.Fingerprint })
 }
