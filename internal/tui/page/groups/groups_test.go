@@ -17,31 +17,47 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
+// sampleGroups is the canonical fixture for groups-page tests: a
+// platform team with one critical + one warning alert, and a data
+// team with a single alert. Built on pagetest.Group / pagetest.Alert
+// so the alert-construction defaults (state, age, Now baseline)
+// stay shared with alerts-page tests; the extra label per alert
+// merges with the alertname/severity defaults via the AlertOptions
+// Labels map.
 func sampleGroups() []backend.AlertGroup {
 	return []backend.AlertGroup{
-		{
+		pagetest.Group(pagetest.GroupOptions{
 			Labels: map[string]string{"team": "platform"},
 			Alerts: []backend.Alert{
-				{Labels: map[string]string{"alertname": "A", "team": "platform", "severity": "critical"}},
-				{Labels: map[string]string{"alertname": "B", "team": "platform", "severity": "warning"}},
+				pagetest.Alert(pagetest.AlertOptions{
+					Name: "A", Severity: "critical",
+					Labels: map[string]string{"team": "platform"},
+				}),
+				pagetest.Alert(pagetest.AlertOptions{
+					Name: "B", Severity: "warning",
+					Labels: map[string]string{"team": "platform"},
+				}),
 			},
-		},
-		{
+		}),
+		pagetest.Group(pagetest.GroupOptions{
 			Labels: map[string]string{"team": "data"},
 			Alerts: []backend.Alert{
-				{Labels: map[string]string{"alertname": "C", "team": "data"}},
+				pagetest.Alert(pagetest.AlertOptions{
+					Name: "C", Labels: map[string]string{"team": "data"},
+				}),
 			},
-		},
+		}),
 	}
 }
 
 func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	// sampleGroups has team=platform first and team=data second
 	// in source order; Name ASC must reorder to data, platform.
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
@@ -51,7 +67,7 @@ func TestPage_SortByNameOrdersAlphabetically(t *testing.T) {
 
 func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default: ascending by name → data (1 alert), platform (2 alerts).
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
@@ -63,7 +79,7 @@ func TestPage_SortByCountPutsBiggestGroupFirst(t *testing.T) {
 
 func TestPage_SortBySeverityPutsCriticalGroupFirst(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
 	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey())
@@ -79,7 +95,7 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	// the new focus. This pairs with poll/scope/filter recomputes
 	// which still follow the focused row by key (see
 	// TestPage_DataMsgKeepsCursor* if/when added).
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
 	// platform (row 1).
@@ -98,7 +114,7 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 
 func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	out := testutil.StripStyle(p.View(120, 10))
 	require.Contains(t, out, "NAME ↑",
@@ -119,7 +135,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// palette bg inside the unstyled body frame creates a coloured
 	// stripe. Asserts the header line carries no SGR background
 	// code.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -128,7 +144,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 
 func TestPage_EnterTogglesExpand(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// Default Name ASC puts data (1 alert) first, platform (2 alerts)
@@ -146,7 +162,7 @@ func TestPage_EnterTogglesExpand(t *testing.T) {
 
 func TestPage_TabExpandsAll(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
@@ -162,7 +178,7 @@ func TestPage_TabExpandsAll(t *testing.T) {
 
 func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Default Name ASC: row 0 = data, row 1 = platform. Walk to
 	// platform, expand it, then drill the first leaf (A).
@@ -177,7 +193,7 @@ func TestPage_EnterOnLeafEmitsDrillAlert(t *testing.T) {
 
 func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -189,7 +205,7 @@ func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
@@ -218,7 +234,7 @@ func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 func TestPage_SilenceOnGroupWithNoMatchersFlashesError(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
@@ -240,7 +256,7 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	t.Parallel()
 	// No DataMsg → empty rows → `s` flashes "no group under cursor".
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -252,7 +268,7 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:   testutil.LoadStyles(t),
+		Styles:   pagetest.Styles(t),
 		Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator:  "wilfried",
 		ReadOnly: true,
@@ -268,7 +284,7 @@ func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 
 func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: ""})
 	require.False(t, p.Refreshing)
 
@@ -313,7 +329,7 @@ func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return 
 // this test only proves the page is wired to it.
 func TestPage_VimMotions(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -322,7 +338,7 @@ func TestPage_VimMotions(t *testing.T) {
 
 func TestPage_RenderShowsGroupLabelsAndAlertCount(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Move the cursor off row 0 so it doesn't get wrapped in the
 	// row-level Cursor style — that would supersede the per-cell
@@ -345,7 +361,7 @@ func TestPage_RenderShowsSeverityLabel(t *testing.T) {
 	// severity → renders as the unknown placeholder. The SEVERITY
 	// column surfaces the worst-rank label so the user can triage
 	// without expanding.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	out := testutil.StripStyle(p.View(120, 10))
@@ -360,7 +376,7 @@ func TestPage_FocusedGroupShowsSingleTreeMarker(t *testing.T) {
 	// must not double up — a focused collapsed group used to render
 	// "▸ ▸ team=…" because the cursor and tree marker shared the
 	// same glyph.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	out := testutil.StripStyle(p.View(120, 10))
 	require.NotContains(t, out, "▸ ▸",
@@ -371,7 +387,7 @@ func TestPage_FocusedGroupShowsSingleTreeMarker(t *testing.T) {
 
 func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 	t.Parallel()
-	styles := testutil.LoadStyles(t)
+	styles := pagetest.Styles(t)
 	p := New(Options{Styles: styles})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 	// Walk the cursor onto whichever row is NOT the platform group
@@ -399,7 +415,7 @@ func TestPage_LeafRowsColourLabelsAndState(t *testing.T) {
 	// instance, not the labels already in the group header. The
 	// per-cell colouring follows the YAML viewer's palette so a
 	// k=v pair reads consistently across the TUI.
-	styles := testutil.LoadStyles(t)
+	styles := pagetest.Styles(t)
 	p := New(Options{Styles: styles})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
@@ -428,7 +444,7 @@ func TestPage_LeafRowsShowDistinguishingLabels(t *testing.T) {
 	// instance=… so the user can tell siblings apart and decide
 	// which one to drill into. alertname is already in the group
 	// header — echoing it on every leaf is dead pixels.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
 		Alerts: []backend.Alert{
@@ -456,7 +472,7 @@ func TestPage_LeafRowsFallbackToAlertnameWhenIdentical(t *testing.T) {
 	// is empty, so the leaf falls back to the alertname so the row
 	// still carries something the user can read. Edge case (a real
 	// duplicate), but the fallback prevents a blank leaf.
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	gs := []backend.AlertGroup{{
 		Labels: map[string]string{"alertname": "DiskFull", "team": "platform"},
 		Alerts: []backend.Alert{
@@ -535,7 +551,7 @@ func TestCommonLabels_KeepsSharedDropsDivergent(t *testing.T) {
 // (TestPrompt_* family); this test only proves the wiring exists.
 func TestPage_FilterNarrowsView(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups()})
 
 	// sampleGroups has two entries: team=platform and team=data.
@@ -557,7 +573,7 @@ func TestPage_FilterNarrowsView(t *testing.T) {
 // regression here still red-lights.
 func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
 	require.NotContains(t, p.Footer(), "WATCH OFF",
 		"baseline footer omits WATCH OFF")
@@ -570,7 +586,7 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p := New(Options{Styles: pagetest.Styles(t)})
 	// Single-tenant scope: detail is rendered verbatim without a
 	// tenant prefix. The page constructor seeds scope to "all" by
 	// default, so we narrow it for this case.
