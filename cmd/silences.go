@@ -60,10 +60,9 @@ func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSilencesList(cmd.Context(), cmd.OutOrStdout(), flags, silencesListOptions{
-				Output:    outputFmt,
-				State:     state,
-				Matcher:   matcherExpr,
-				FailOnAny: failOnAny,
+				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
+				State:           state,
+				Matcher:         matcherExpr,
 			})
 		},
 	}
@@ -80,10 +79,9 @@ func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 // silencesListOptions bundles the flag values so runSilencesList
 // stays test-friendly without a cobra dependency.
 type silencesListOptions struct {
-	Output    string
-	State     string
-	Matcher   string
-	FailOnAny bool
+	commonListFlags
+	State   string
+	Matcher string
 }
 
 // silenceRow is the row shape JSON / YAML / table all flatten the

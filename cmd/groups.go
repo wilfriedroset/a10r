@@ -57,9 +57,8 @@ func newGroupsListCmd(flags *GlobalFlags) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runGroupsList(cmd.Context(), cmd.OutOrStdout(), flags, groupsListOptions{
-				Output:    outputFmt,
-				Receiver:  receiver,
-				FailOnAny: failOnAny,
+				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
+				Receiver:        receiver,
 			})
 		},
 	}
@@ -74,9 +73,8 @@ func newGroupsListCmd(flags *GlobalFlags) *cobra.Command {
 // groupsListOptions bundles the flag values so runGroupsList stays
 // test-friendly without a cobra dependency.
 type groupsListOptions struct {
-	Output    string
-	Receiver  string
-	FailOnAny bool
+	commonListFlags
+	Receiver string
 }
 
 // groupRow is the row shape JSON / YAML / table all flatten the

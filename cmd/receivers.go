@@ -48,8 +48,7 @@ func newReceiversListCmd(flags *GlobalFlags) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runReceiversList(cmd.Context(), cmd.OutOrStdout(), flags, receiversListOptions{
-				Output:    outputFmt,
-				FailOnAny: failOnAny,
+				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
 			})
 		},
 	}
@@ -62,8 +61,7 @@ func newReceiversListCmd(flags *GlobalFlags) *cobra.Command {
 // receiversListOptions bundles the flag values so runReceiversList
 // stays test-friendly without a cobra dependency.
 type receiversListOptions struct {
-	Output    string
-	FailOnAny bool
+	commonListFlags
 }
 
 // receiverRow is the row shape JSON / YAML / table all flatten the

@@ -53,10 +53,9 @@ func newAlertsListCmd(flags *GlobalFlags) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAlertsList(cmd.Context(), cmd.OutOrStdout(), flags, alertsListOptions{
-				Output:    outputFmt,
-				Severity:  severity,
-				State:     state,
-				FailOnAny: failOnAny,
+				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
+				Severity:        severity,
+				State:           state,
 			})
 		},
 	}
@@ -73,10 +72,9 @@ func newAlertsListCmd(flags *GlobalFlags) *cobra.Command {
 // alertsListOptions bundles the flag values so runAlertsList
 // stays test-friendly without a cobra dependency.
 type alertsListOptions struct {
-	Output    string
-	Severity  string
-	State     string
-	FailOnAny bool
+	commonListFlags
+	Severity string
+	State    string
 }
 
 // alertRow is the row shape JSON / YAML / table all flatten the

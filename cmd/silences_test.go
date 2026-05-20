@@ -218,8 +218,7 @@ backends:
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err := runSilencesList(ctx, &buf, flags, silencesListOptions{
-		Output:    "json",
-		FailOnAny: true,
+		commonListFlags: commonListFlags{Output: "json", FailOnAny: true},
 	})
 	require.Error(t, err)
 	var ex *ExitError

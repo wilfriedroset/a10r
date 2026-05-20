@@ -14,6 +14,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 )
 
+// commonListFlags is the Output + FailOnAny pair every list
+// subcommand exposes. Embedded into each per-command options struct
+// so adding a new shared flag (or renaming one) lands in one place.
+type commonListFlags struct {
+	Output    string
+	FailOnAny bool
+}
+
 // loadCmdConfig is the listcmd-shared wrapper around config.Load
 // that owns the ExitConfigInvalid mapping. Pipeline stays unaware
 // of cmd's exit-code table; every list command routes through this
