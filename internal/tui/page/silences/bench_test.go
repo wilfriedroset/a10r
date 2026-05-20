@@ -35,7 +35,7 @@ func benchSilences(n, tenants int) map[string][]backend.Silence {
 }
 
 // BenchmarkSilenceMatches_500 measures the per-keystroke filter loop
-// at 500 silences. F14's per-entry case-folded composite is the
+// at 500 silences. The per-entry case-folded composite is the
 // load-bearing optimisation here; without it the loop runs
 // strings.ToLower on every searchable field per row per keystroke.
 func BenchmarkSilenceMatches_500(b *testing.B) {

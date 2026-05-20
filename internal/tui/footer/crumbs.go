@@ -4,7 +4,7 @@
 // prompt, flash. Each subcomponent is a value-typed bubble: Update
 // returns its concrete type (not tea.Model) so callers don't pay
 // for a type assertion and the receiver type is unambiguous in
-// reviews. The app shell (#22) composes them as fields and forwards
+// reviews. The app shell composes them as fields and forwards
 // messages explicitly; there's no aggregating tea.Model in this
 // package, by design.
 package footer

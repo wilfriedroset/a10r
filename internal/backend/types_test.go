@@ -36,8 +36,8 @@ func TestClient_InterfaceShape(t *testing.T) {
 }
 
 // fakeClient satisfies Client with no-op methods. Used purely to
-// pin the interface shape at compile time; concrete implementations
-// land in #12 (vanilla), #14 (Mimir), #16 (multi).
+// pin the interface shape at compile time; the concrete
+// implementations live in subpackages (vanilla, mimir, multi).
 type fakeClient struct {
 	caps Caps
 }

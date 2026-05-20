@@ -153,11 +153,11 @@ type PollAwarePage interface {
 }
 
 // TimeFormatChangedMsg announces a flip of the app-global time-
-// format toggle per Q7.2 — flipping it on the alerts page also
-// flips silences and the alert-detail summary so the user sees one
-// consistent time treatment across views. Defined here so pages
-// don't have to import keys/ or this file's siblings just for the
-// routed tea.Msg; the format vocabulary itself lives in timerender.
+// format toggle. Flipping it on the alerts page also flips silences
+// and the alert-detail summary so the user sees one consistent time
+// treatment across views. Defined here so pages don't have to import
+// keys/ or this file's siblings just for the routed tea.Msg; the
+// format vocabulary itself lives in timerender.
 type TimeFormatChangedMsg struct {
 	Format timerender.Format
 }

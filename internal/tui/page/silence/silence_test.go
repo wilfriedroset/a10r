@@ -227,10 +227,10 @@ func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
 			"of the new mode rather than mid-document")
 }
 
-// TestPage_TitleMarksRawYAMLMode covers the QA-driven G5 nit: the
-// silence detail page renders YAML in both modes, so without a
-// title indicator the operator had no signal which one was active.
-// Title now appends ` [raw yaml]` exactly when rawYAML is on.
+// TestPage_TitleMarksRawYAMLMode pins the title's raw-mode marker.
+// The silence detail page renders YAML in both modes, so without a
+// title indicator the operator has no signal which is active. Title
+// appends ` [raw yaml]` exactly when rawYAML is on.
 func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})

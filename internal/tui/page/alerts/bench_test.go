@@ -72,8 +72,9 @@ func BenchmarkAlertsRecompute_5000(b *testing.B) {
 }
 
 // BenchmarkAlertsFilterTyping mimics the per-keystroke recompute the
-// page does while the user types into the `/` prompt. F14's
-// per-entry case-folded cache is the load-bearing optimisation here.
+// page does while the user types into the `/` prompt. The per-entry
+// case-folded cache on each alertEntry is the load-bearing
+// optimisation; any regression there surfaces here first.
 func BenchmarkAlertsFilterTyping(b *testing.B) {
 	styles := testutil.LoadStylesB(b)
 	p := New(Options{Styles: styles, Now: time.Now})

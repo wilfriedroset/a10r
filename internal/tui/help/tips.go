@@ -13,13 +13,11 @@ type Tip struct {
 	Text string
 }
 
-// tips is the v0.0.1 curated set. Kept short on purpose — the hint
-// bar rotates one at a time and a longer list dilutes the value of
-// each entry. Items reference only features that have already
-// landed on `feat/v0.0.1-phase-2-batch`; speculative knobs (custom
-// keybindings, action registry surface, …) stay out until the
-// matching plan items land. Order is the rotation order callers
-// see when iterating Tips() index-by-index.
+// tips is the curated rotation set. Kept short on purpose — the
+// hint bar rotates one at a time and a longer list dilutes each
+// entry. Items reference only features the binary already ships;
+// speculative knobs stay out until they land. Order is the rotation
+// order callers see when iterating Tips() index-by-index.
 var tips = []Tip{
 	{Key: "?", Text: "open the help overlay"},
 	{Key: ":", Text: "command bar — try :alerts, :silences, :groups"},

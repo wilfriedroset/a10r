@@ -25,9 +25,9 @@ import (
 type HistoryClass string
 
 const (
-	// HistoryCmd backs the `:` command bar (G3 alias resolver
+	// HistoryCmd backs the `:` command bar. The alias resolver
 	// shares this ring so the user can recall a prior `:silences`
-	// without retyping).
+	// without retyping.
 	HistoryCmd HistoryClass = "cmd-history"
 	// HistoryFilter backs the `/` filter on every page where the
 	// matcher is the four-mode lfk classifier (substring, fuzzy,

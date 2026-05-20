@@ -197,9 +197,9 @@ func TestClient_GetSilence_PathEscapesID(t *testing.T) {
 		"silence ID must be url.PathEscape'd before being interpolated into the request path")
 }
 
-// TestClient_ExpireSilence_PathEscapesID extends F11 to the
-// DELETE path. Same shape — the wire-level expectation is that
-// the id segment is escaped, never raw.
+// TestClient_ExpireSilence_PathEscapesID extends the GetSilence
+// path-escape pin to the DELETE path. Same shape — the wire-level
+// expectation is that the id segment is escaped, never raw.
 func TestClient_ExpireSilence_PathEscapesID(t *testing.T) {
 	t.Parallel()
 

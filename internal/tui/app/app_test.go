@@ -179,7 +179,7 @@ func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
 
-	// `j` is a vim-motion binding registered by tables (#27), not by
+	// `j` is a vim-motion binding registered by tables, not by
 	// the app shell. At v0.1 with no page pushed it must be a silent
 	// no-op rather than emit a flash.
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})

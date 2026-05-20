@@ -9,7 +9,7 @@
 //
 // The dispatcher is deliberately decoupled from UI code: it owns
 // the key-to-handler map and the chord buffer, but knows nothing
-// about prompts, pages, or rendering. The app shell (#22) wires
+// about prompts, pages, or rendering. The app shell wires
 // tea.KeyMsg → string here, runs Dispatch, and applies the
 // resulting tea.Cmd. Tests inject string keys directly without
 // going through bubbletea.

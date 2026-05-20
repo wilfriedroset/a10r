@@ -1039,11 +1039,11 @@ func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {
 	}
 }
 
-// TestPage_TitleMarksRawYAMLMode covers the QA-driven G5 nit: with
-// no in-title indicator, structured and raw modes looked identical
-// apart from the body. The operator had no signal which one was
-// active. Title now appends ` [raw yaml]` exactly when rawYAML is
-// on; the marker drops on a second toggle.
+// TestPage_TitleMarksRawYAMLMode pins the title's raw-mode marker.
+// Without it, structured and raw modes look identical apart from the
+// body and the operator has no signal which is active. Title appends
+// ` [raw yaml]` exactly when rawYAML is on; the marker drops on a
+// second toggle.
 func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})

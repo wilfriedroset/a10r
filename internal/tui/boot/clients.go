@@ -84,7 +84,7 @@ func silenceClientsFrom(in map[string]backend.Client) map[string]silenceform.Cli
 // backend doesn't block startup; per-backend timeout caps each
 // call so a hung backend doesn't stall the program. Failures
 // silently produce an empty entry — the tenant page renders "—"
-// for missing versions per Q4.2.
+// for missing versions.
 func fetchTenantVersions(ctx context.Context, clients map[string]backend.Client) map[string]string {
 	out := make(map[string]string, len(clients))
 	if len(clients) == 0 {

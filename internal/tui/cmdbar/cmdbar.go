@@ -3,7 +3,7 @@
 // Package cmdbar resolves `:` command-bar input strings into
 // tea.Cmds. The resolver is independent of bubbletea wiring — it
 // stores alias → handler mappings and looks up by exact-or-unique-
-// prefix match. The app shell (#22) opens the prompt on `:` and
+// prefix match. The app shell opens the prompt on `:` and
 // dispatches the resolved Cmd when the prompt submits.
 //
 // Filter prompts (`/`) bypass this package — their values flow

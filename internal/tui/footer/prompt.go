@@ -39,7 +39,7 @@ func (m PromptMode) prefixGlyph() string {
 }
 
 // PromptSubmittedMsg is emitted when the user presses Enter on an
-// open prompt. The app shell (#22) routes command-mode submissions
+// open prompt. The app shell routes command-mode submissions
 // through the cmdbar resolver and forwards filter-mode submissions
 // to the top page so the page can apply the filter.
 type PromptSubmittedMsg struct {

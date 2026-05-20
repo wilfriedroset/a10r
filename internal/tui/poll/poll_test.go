@@ -901,9 +901,10 @@ func TestPoller_RefreshTriggersImmediateTick(t *testing.T) {
 	require.Equal(t, fetchPayload, data.Resource)
 }
 
-// TestPoller_RefreshDropsPendingTimer locks F10. Mashing Refresh
-// while a tenant is in backoff must not leak a pending timer per
-// press — the loop releases the previous Timer via Stop before
+// TestPoller_RefreshDropsPendingTimer pins the no-timer-leak
+// contract under Refresh storms. Mashing Refresh while a tenant is
+// in backoff must not leak a pending timer per press — the loop
+// releases the previous Timer via Stop before
 // arming the next one. Asserted by counting pending entries on the
 // fake clock after a refresh storm: each refresh consumes one
 // pending entry (the live timer), arms one more, so the count is

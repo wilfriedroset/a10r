@@ -57,8 +57,8 @@ type Options struct {
 	Styles *theme.Styles
 	// Clipboard handles the `c` (copy fingerprint) action. nil
 	// disables the binding gracefully — `c` flashes a "no clipboard
-	// integration" hint instead of crashing. Was wired to `y` pre-G5;
-	// `y` now owns the raw-YAML toggle.
+	// integration" hint instead of crashing. `y` is reserved for the
+	// raw-YAML toggle.
 	Clipboard Clipboard
 	// Browser handles the `o` (open generatorURL) action. nil
 	// disables the binding the same way.
@@ -174,9 +174,9 @@ func (*Page) Crumb() string { return "detail" }
 // Title implements app.Page — "Describe(<scope>/<alertname>)"
 // mirrors the k9s pod-detail header. Appends ` [raw yaml]` when the
 // page is in the `y`-toggled raw mode so the operator can tell at a
-// glance which view they're looking at — the QA-driven G5 nit: the
-// two modes rendered identically apart from the body, leaving the
-// user with no signal which one was active.
+// glance which view they're looking at: the two modes otherwise
+// render identically apart from the body, leaving the user with no
+// signal which one was active.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -212,8 +212,8 @@ func (p *Page) Bindings() []action.Action {
 }
 
 // Update implements app.Page. Esc is intentionally NOT handled
-// here — the App's global LayerGlobal Esc binding pops the stack
-// (#23), which is exactly the right behaviour for a detail page.
+// here — the App's global LayerGlobal Esc binding pops the stack,
+// which is exactly the right behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd

@@ -26,7 +26,7 @@ type Reader interface {
 	Status(ctx context.Context) (Status, error)
 }
 
-// Writer is the silence-mutation subset. The silence form (#30)
+// Writer is the silence-mutation subset. The silence form
 // accepts *Writer*; bulk silence and bulk expire on the alerts /
 // silences pages do too.
 //

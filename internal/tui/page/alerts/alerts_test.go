@@ -1988,10 +1988,10 @@ func TestPage_RowFitsTerminalAtBizarrelyNarrowWidth(t *testing.T) {
 	}
 }
 
-// TestPage_InitialStateFilterPreseedsTCycle covers the QA-driven
-// fix for G3 user aliases: a `:alerts --state suppressed` (typed at
-// the prompt or via an alias's expanded value) lands the page on a
-// filtered view rather than the unfiltered default.
+// TestPage_InitialStateFilterPreseedsTCycle pins the
+// state-filter-pre-seed contract: a `:alerts --state suppressed`
+// (typed at the prompt or via an alias's expanded value) lands the
+// page on a filtered view rather than the unfiltered default.
 func TestPage_InitialStateFilterPreseedsTCycle(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
