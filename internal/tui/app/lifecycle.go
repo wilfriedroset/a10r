@@ -79,8 +79,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleLifecycle covers the App's own message types: window
 // resize, quit, chord-timer, page stack ops, modal slot ops.
-// Returns (cmd, true) when handled.
+// Returns (cmd, true) when handled. The dispatch fans out into
+// three clusters so each switch stays small and the conceptual
+// grouping (session lifecycle vs poll snapshotting vs stack/modal
+// ops) is explicit.
 func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
+	if cmd, handled := a.handleSessionMsg(msg); handled {
+		return cmd, true
+	}
+	if cmd, handled := a.handlePollMsg(msg); handled {
+		return cmd, true
+	}
+	return a.handleStackMsg(msg)
+}
+
+// handleSessionMsg covers session-level lifecycle messages:
+// window resize, quit (both the bubbletea-native QuitMsg and the
+// App's QuitRequestedMsg precursor that runs page Close()s first),
+// chord-timer expiry, and refresh requests forwarded to the wiring
+// layer.
+func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
@@ -95,29 +113,55 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 		return a.quitWithCleanup(), true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
+	case RefreshRequestedMsg:
+		// Translate page-level refresh requests into poller nudges
+		// via the wiring-layer handler. Nil-handler runs (headless
+		// tests, no-config wizard) silently no-op so an early `r`
+		// press doesn't crash. The page is free to surface a flash
+		// of its own — the App stays out of UX feedback for refresh.
+		if a.refresh != nil {
+			a.refresh(m.Resource, m.Scope)
+		}
+		return nil, true
+	}
+	return nil, false
+}
+
+// handlePollMsg snapshots poll payloads before forwarding to the
+// top page. The cache lets a page push that lands later — e.g.
+// PushPage from a key handler running in the same Update tick —
+// hydrate from the freshest payload via replayCachedDataMsgs
+// instead of waiting up to a full poll interval.
+//
+// DataMsg: the labelled-cache write fires only when the poll
+// layer stamped ResourceLabel; legacy DataMsgs from tests skip
+// the cache and just forward.
+//
+// BackendStatusMsg: emitted only on STATE CHANGES, so a backend
+// already in the failing state when a page lands would otherwise
+// never light up the band on that page. The per-tenant snapshot
+// fixes that; empty Detail (recovery transition) prunes the entry
+// so a flapping backend that recovered before the push doesn't
+// drag a stale error onto the new page.
+func (a *App) handlePollMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
 	case poll.DataMsg:
-		// Snapshot before forwarding so a page push that lands
-		// later — e.g. via PushPage from a key handler running in
-		// the same Update tick — sees the freshest payload. The
-		// labelled-cache write only fires when the poll layer
-		// stamped ResourceLabel; legacy DataMsgs from tests skip
-		// the cache and just forward.
 		if m.ResourceLabel != "" {
 			a.cacheDataMsg(m)
 		}
 		return a.forwardToTop(m), true
 	case poll.BackendStatusMsg:
-		// Snapshot per-tenant before forwarding so a freshly-pushed
-		// list page (silences / groups / receivers / alerts) sees the
-		// error band immediately rather than waiting for the next
-		// transition — BackendStatusMsg is only emitted on STATE
-		// CHANGES, so a backend already in the failing state when the
-		// page lands would otherwise never light up the band on that
-		// page. Empty Detail (recovery transition) prunes the entry
-		// so a flapping backend that recovered before the push
-		// doesn't drag a stale error onto the new page.
 		a.cacheStatusMsg(m)
 		return a.forwardToTop(m), true
+	}
+	return nil, false
+}
+
+// handleStackMsg routes page-stack and modal-slot operations
+// emitted by key handlers (PushPage, PopPage, ReplacePage,
+// OpenModal, CloseModal, OpenHelp).
+func (a *App) handleStackMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
 	case pushPageMsg:
 		return a.pushPage(m.Factory), true
 	case popPageMsg:
@@ -131,16 +175,6 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 		return nil, true
 	case openHelpMsg:
 		a.openHelp(m.Options)
-		return nil, true
-	case RefreshRequestedMsg:
-		// Translate page-level refresh requests into poller nudges
-		// via the wiring-layer handler. Nil-handler runs (headless
-		// tests, no-config wizard) silently no-op so an early `r`
-		// press doesn't crash. The page is free to surface a flash
-		// of its own — the App stays out of UX feedback for refresh.
-		if a.refresh != nil {
-			a.refresh(m.Resource, m.Scope)
-		}
 		return nil, true
 	}
 	return nil, false
