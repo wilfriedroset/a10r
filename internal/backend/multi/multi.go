@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package multi orchestrates fan-out across N per-tenant
-// backend.Clients. Per audit §5.2, the multi-tenant TUI affordance
-// (selecting "all" or a subset of tenants) needs one place that
-// runs the same call against every tenant, bounds concurrency, and
-// surfaces per-tenant errors without ever silently swallowing one.
+// backend.Clients. The multi-tenant TUI affordance (selecting "all"
+// or a subset of tenants) needs one place that runs the same call
+// against every tenant, bounds concurrency, and surfaces per-tenant
+// errors without ever silently swallowing one.
 //
 // Client is deliberately NOT a backend.Client — it returns
 // slices of per-tenant Result values rather than single returns.
@@ -20,7 +20,8 @@ import (
 )
 
 // defaultPoolSize bounds parallel fan-outs when New is called with
-// poolSize <= 0. Picked to match audit §5.2's recommended bound.
+// poolSize <= 0. Tuned for the v0.1 expected fan-out size; the cap
+// can grow with workload evidence.
 const defaultPoolSize = 8
 
 // TenantClient pairs a name (typically backend.Name from a10r.yaml)

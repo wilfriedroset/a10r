@@ -264,10 +264,10 @@ func validateHeaders(h map[string]string) error {
 	return nil
 }
 
-// Capabilities are the explicit opt-in flags per audit §5.1 — nothing
+// Capabilities are the explicit opt-in flags per ADR 0028 — nothing
 // auto-enabled. v0.1 does not implement the underlying endpoints
-// (Mimir config editor is deferred per A1) but the flags must still
-// gate menu visibility once the action registry lands.
+// (the Mimir config editor is post-v0.1 work) but the flags must
+// still gate menu visibility once the action registry lands.
 type Capabilities struct {
 	ConfigAPI   bool `yaml:"config_api,omitempty"`
 	TenantAdmin bool `yaml:"tenant_admin,omitempty"`

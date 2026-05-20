@@ -11,9 +11,9 @@ import "time"
 // missing field.
 //
 // We deliberately do NOT depend on github.com/prometheus/alertmanager/
-// api/v2/models — per backend audit §1.6, importing it pulls in the
-// go-openapi runtime and strfmt. Hand-rolled equivalents keep the
-// binary small and the model surface auditable.
+// api/v2/models — importing it pulls in the go-openapi runtime and
+// strfmt. Hand-rolled equivalents keep the binary small and the
+// model surface auditable.
 
 type wireAlert struct {
 	Fingerprint  string            `json:"fingerprint"`
@@ -97,7 +97,7 @@ type wireConfigBlock struct {
 
 // wirePostableSilence is the POST /api/v2/silences body. The id
 // field is omitted for creates and set for updates — Alertmanager
-// distinguishes by its presence per audit §1.2.
+// distinguishes by its presence (no separate create/update routes).
 type wirePostableSilence struct {
 	ID        string        `json:"id,omitempty"`
 	Matchers  []wireMatcher `json:"matchers"`

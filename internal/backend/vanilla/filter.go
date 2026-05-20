@@ -13,7 +13,8 @@ import (
 // /api/v2/alerts expects. Pointer-bool fields collapse to a single
 // `key=true|false` only when set; nil leaves the param off so the
 // server applies its default. Filter strings repeat as multiple
-// `filter=` params per audit §1.4.
+// `filter=` params because /api/v2/alerts treats repeated
+// `filter=` as AND.
 func encodeAlertFilter(f backend.AlertFilter) url.Values {
 	v := url.Values{}
 	addBoolFilter(v, "active", f.Active)

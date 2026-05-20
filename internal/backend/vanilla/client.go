@@ -2,7 +2,7 @@
 
 // Package vanilla implements the backend.Client interface against
 // the upstream Alertmanager v2 HTTP API. The Mimir wrapper composes
-// a vanilla client with a prefix and tenant header (per audit §5.1)
+// a vanilla client with a prefix and tenant header (per ADR 0028)
 // rather than maintaining a parallel implementation, so this package
 // is the source of truth for "talk to /api/v2/...".
 //

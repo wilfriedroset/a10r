@@ -2,7 +2,7 @@
 
 // Package factory is the single-entry-point wiring between
 // `a10r.yaml`'s `backends:` array and the runtime backend.Client
-// implementations. Per audit §5.1 there is one code path per method;
+// implementations. See ADR 0028: there is one code path per method;
 // vanilla Alertmanager is just the Mimir constructor with empty
 // prefix and empty Headers map.
 //
@@ -43,10 +43,10 @@ func WithDebugLog(log *slog.Logger) Option {
 }
 
 // Build constructs a backend.Client from one entry of the user's
-// `backends:` array. There is no NewVanilla / NewMimir split — the
-// audit deliberately chose a single code path: vanilla means
-// "prefix is empty and no Headers"; Mimir is the same constructor
-// with prefix and (optionally) tenant header set.
+// `backends:` array. There is no NewVanilla / NewMimir split (see
+// ADR 0028 for the rationale): vanilla means "prefix is empty and
+// no Headers"; Mimir is the same constructor with prefix and
+// (optionally) tenant header set.
 //
 // The factory folds the YAML `tenant_header:` / `tenant:` sugar
 // into the same Headers map that arbitrary user-supplied headers

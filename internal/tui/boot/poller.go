@@ -16,16 +16,16 @@ import (
 )
 
 // startBackendPoller spawns the per-(backend, resource) poller
-// matrix per audit §5.1. Each entry in clients gets one poller
-// per resource (alerts, silences, receivers, alert-groups,
-// status), and every emitted DataMsg carries the backend's tenant
-// tag so list pages can union snapshots into a `byTenant` map and
-// reason about scope at render time.
+// matrix. Each entry in clients gets one poller per resource
+// (alerts, silences, receivers, alert-groups, status), and every
+// emitted DataMsg carries the backend's tenant tag so list pages
+// can union snapshots into a `byTenant` map and reason about scope
+// at render time.
 //
 // The five resources share a single interval per backend: poll
 // pressure is dominated by the alerts feed, and the others are
 // cheap reads that piggy-back. Configurable per-resource intervals
-// are deferred — overkill for v0.1 and not in the audit.
+// are deferred — overkill for v0.1.
 //
 // reg is published with each poller so the App's `r` refresh
 // handler can find the matching entry by (resource, tenant).
@@ -63,7 +63,7 @@ func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[str
 // backendInterval picks the active poll interval for a backend
 // without considering page-level overrides. Per-backend
 // `poll_interval` wins; falls back to the global default;
-// ultimate fallback is 1 minute (audit §5.1, I3).
+// ultimate fallback is 1 minute (config.DefaultPollInterval).
 func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 	if be.PollInterval > 0 {
 		return be.PollInterval

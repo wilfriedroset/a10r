@@ -4,9 +4,9 @@
 // Mimir's prefixed Alertmanager surface. v0.1 ships no Mimir-
 // specific code beyond the constructor — the prefix is handled by
 // vanilla.Client's URL builder and the per-tenant header by the
-// Headers map injected via transport.WithHeaders (per audit §5.1's
+// Headers map injected via transport.WithHeaders (the ADR 0028
 // "one code path per method" rule). The package boundary exists so
-// the post-v0.1 config editor (Mimir-only per A1) lands in a focused
+// the post-v0.1 Mimir-only config editor lands in a focused
 // location rather than growing vanilla's surface.
 package mimir
 
@@ -30,7 +30,7 @@ import (
 //
 //   - BaseURL: required.
 //   - Prefix: typically "/alertmanager"; can be customised via
-//     Mimir's `-http.alertmanager-http-prefix` flag (audit §2.1).
+//     Mimir's `-http.alertmanager-http-prefix` flag.
 //   - Headers: arbitrary per-request headers, including the tenant
 //     header (X-Scope-OrgID) when Mimir is multi-tenant. The
 //     factory layer folds the tenant_header / tenant sugar into
@@ -86,10 +86,10 @@ type ClientConfig struct {
 // New constructs a *vanilla.Client wrapped with the Mimir-specific
 // transport layers. Returns *vanilla.Client (rather than a
 // dedicated *mimir.Client) because v0.1 Mimir adds no behaviour
-// over vanilla — the audit (§5.1) explicitly chose "one code path
-// per method". The post-v0.1 config editor will introduce a
-// dedicated type that embeds or wraps vanilla.Client and overrides
-// the capability stubs.
+// over vanilla — ADR 0028 pins the "one code path per method"
+// choice. The post-v0.1 config editor will introduce a dedicated
+// type that embeds or wraps vanilla.Client and overrides the
+// capability stubs.
 func New(cfg ClientConfig) (*vanilla.Client, error) {
 	// Capture the configured backend's host so the auth/header
 	// RoundTrippers can refuse to replay credentials onto a redirect

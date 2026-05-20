@@ -46,7 +46,7 @@ func (h *observingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func TestBuild_VanillaScenario(t *testing.T) {
 	t.Parallel()
 
-	// Vanilla = empty prefix, no tenant header. Audit §5.1's
+	// Vanilla = empty prefix, no tenant header. ADR 0028's
 	// "Vanilla AM is just prefix='' tenant_header=''" is the contract.
 	h := &observingHandler{}
 	srv := httptest.NewServer(h)
@@ -67,7 +67,7 @@ func TestBuild_VanillaScenario(t *testing.T) {
 func TestBuild_MimirScenario(t *testing.T) {
 	t.Parallel()
 
-	// Mimir multi-tenant: prefix + tenant header per audit §2.2.
+	// Mimir multi-tenant: prefix + tenant header per ADR 0028.
 	h := &observingHandler{}
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)

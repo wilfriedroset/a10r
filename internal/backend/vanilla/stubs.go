@@ -10,12 +10,11 @@ import (
 
 // Capability-gated method stubs. Vanilla Alertmanager has no Mimir-
 // admin equivalents, so each method returns ErrUnsupported. The
-// Mimir wrapper (#14) overrides these when its Caps allow; for the
+// Mimir wrapper overrides these when its Caps allow; for the
 // vanilla path, callers branch on Capabilities() before attempting.
-//
-// The deferred Mimir editor (post-v0.1, see A1) will replace these
-// stubs in the Mimir package with real implementations; vanilla's
-// stubs stay.
+// The post-v0.1 Mimir config editor (see ADR 0028) will replace
+// these stubs in the Mimir package with real implementations;
+// vanilla's stubs stay.
 
 func (*Client) GetConfig(context.Context) (backend.MimirConfig, error) {
 	return backend.MimirConfig{}, backend.ErrUnsupported

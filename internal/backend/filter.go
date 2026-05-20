@@ -9,7 +9,7 @@ import "time"
 // (nil) from "filter to false explicitly". Filter is a list of
 // Prometheus-style matcher strings (`alertname="High CPU"`, etc.);
 // the client URL-encodes each entry as a separate `filter=` param
-// per audit §1.4.
+// because /api/v2/alerts treats repeated `filter=` as AND.
 type AlertFilter struct {
 	Active      *bool
 	Silenced    *bool

@@ -11,12 +11,10 @@ import (
 )
 
 // MinAlertmanagerVersion is the lowest Alertmanager v2 release a10r
-// supports. Pinned per docs/design/backend-api-audit.md §2: the
-// audit traced the v2 API surface against AM 0.28.1 and below that
-// some endpoints (notably /-/ready and the v2 status shape) lack
-// fields a10r reads. Doctor enforces this at startup so an operator
-// running an older AM sees a precise error rather than a confusing
-// 404 / decode failure on the first poll.
+// supports. Below 0.28.1 some endpoints (notably /-/ready and the v2
+// status shape) lack fields a10r reads. Doctor enforces this at
+// startup so an operator running an older AM sees a precise error
+// rather than a confusing 404 / decode failure on the first poll.
 const MinAlertmanagerVersion = "0.28.1"
 
 // Version is a parsed semver-ish triple. Alertmanager versions are

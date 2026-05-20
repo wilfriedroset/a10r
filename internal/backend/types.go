@@ -4,14 +4,9 @@
 // Prometheus Alertmanager v2 and Grafana Mimir. Implementations
 // (vanilla in internal/backend/vanilla, Mimir in internal/backend/mimir,
 // fan-out in internal/backend/multi) live alongside; this package
-// holds only the types and the interface contract.
-//
-// The shape mirrors `docs/design/backend-api-audit.md` §5.1: one
-// constructor for both backends (the Mimir wrapper composes vanilla
-// with prefix and tenant header), capability-gated methods return
-// ErrUnsupported on backends that do not enable them, and HTTP-level
-// concerns (auth, redirects, timeouts) live behind a pluggable
-// http.RoundTripper rather than leaking into this surface.
+// holds only the types and the interface contract. See ADR 0028 for
+// the one-constructor / config-driven shape and the rationale for
+// keeping HTTP concerns behind a pluggable http.RoundTripper.
 package backend
 
 import "time"
@@ -19,7 +14,8 @@ import "time"
 // AlertState mirrors `status.state` from /api/v2/alerts.
 type AlertState string
 
-// Documented states per audit §1.3.
+// AlertState values mirror the wire-level enum from
+// /api/v2/alerts (active, suppressed, unprocessed).
 const (
 	AlertStateActive      AlertState = "active"
 	AlertStateSuppressed  AlertState = "suppressed"
@@ -67,7 +63,8 @@ type AlertGroup struct {
 // SilenceState mirrors `status.state` from /api/v2/silences.
 type SilenceState string
 
-// Documented silence states per audit §1.3.
+// SilenceState values mirror the wire-level enum from
+// /api/v2/silences (active, pending, expired).
 const (
 	SilenceStateActive  SilenceState = "active"
 	SilenceStatePending SilenceState = "pending"
@@ -102,8 +99,8 @@ type Receiver struct {
 }
 
 // Status mirrors /api/v2/status. Config is the raw YAML from
-// `config.original` — the only way to inspect routes and inhibition
-// rules per audit §1.3.
+// `config.original` — the only wire-exposed way to inspect routes
+// and inhibition rules.
 type Status struct {
 	Cluster ClusterStatus
 	Version VersionInfo

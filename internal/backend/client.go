@@ -45,7 +45,7 @@ type Writer interface {
 // satisfies: vanilla Alertmanager v2, Mimir's prefixed v2 (with
 // optional tenant header), and the multi-tenant fan-out layer.
 //
-// Per audit §5.1 there is one constructor for both backends — the
+// Per ADR 0028 there is one constructor for both backends — the
 // Mimir wrapper composes a vanilla client with a prefix and tenant
 // header — so the interface deliberately does NOT expose backend
 // type. Capability-gated methods (config API, tenant admin, ring)
