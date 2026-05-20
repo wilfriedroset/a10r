@@ -177,10 +177,9 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 
 		summary := labelSummary(entry.g.Labels)
 		if !focused {
-			// Cursor row wraps the whole line in fg+bg per Q5.4 / the
-			// alerts page convention; nested ANSI inside the wrap is
-			// fragile, so the per-cell colouring is skipped on the
-			// cursor row.
+			// Cursor row wraps the whole line in fg+bg (alerts page
+			// convention); nested ANSI inside the wrap is fragile, so
+			// per-cell colouring is skipped on the cursor row.
 			summary = styledLabelSummary(entry.g.Labels, p.styles)
 		}
 		b.WriteString(format.PadRight(summary, nameW))
@@ -321,7 +320,7 @@ func labelSummary(labels map[string]string) string {
 // theme.YAML.Value — matches the YAML viewer's colouring so the
 // k=v pair reads consistently across the TUI. Punctuation (= and
 // ,) uses theme.YAML.Punct so the visual hierarchy is name >
-// value > separator. Per Q5.2.
+// value > separator.
 func styledLabelSummary(labels map[string]string, styles *theme.Styles) string {
 	keys := sortedLabelKeys(labels)
 	parts := make([]string, len(keys))

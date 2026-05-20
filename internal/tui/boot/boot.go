@@ -257,7 +257,7 @@ func buildDispatcher() *keys.Dispatcher {
 // over env. The appPtr forward-reference lets the TimeFormat closure
 // see the live *app.App once buildApp assigns to it — pages pushed
 // after the user toggles `t` then read the current app-global value.
-// User aliases (G3) are overlaid here too; conflicts fail closed at
+// User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
 // alias.
 func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir string) (*pageEnv, *cmdbar.Resolver, error) {

@@ -15,8 +15,8 @@ import (
 
 // alertsArgs is the parsed shape of `:alerts` cmdbar arguments. The
 // catalogue mirrors the headless `a10r alerts list` flags so a user
-// alias `deploy: alerts list --state suppressed` (G3) opens the
-// page filtered the same way the CLI would have rendered the list.
+// alias `deploy: alerts list --state suppressed` opens the page
+// filtered the same way the CLI would have rendered the list.
 //
 // Positional tokens that aren't recognised flags (e.g. the literal
 // `list` in the mirror-the-CLI alias above) are ignored rather than

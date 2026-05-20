@@ -40,9 +40,9 @@ func (f Format) String() string {
 }
 
 // absoluteFormat is the layout pages use when the app-global
-// time-format toggle is set to Absolute. ISO-style local time per
-// Q7.4: year-month-day HH:MM:SS, no timezone marker so the column
-// stays narrow enough for the widened AGE / ENDS / STARTS budgets.
+// time-format toggle is set to Absolute. ISO-style local time —
+// year-month-day HH:MM:SS, no timezone marker so the column stays
+// narrow enough for the widened AGE / ENDS / STARTS budgets.
 const absoluteFormat = "2006-01-02 15:04:05"
 
 // Display renders ts according to the supplied format. Returns ""
@@ -155,7 +155,7 @@ func relative(now, ts time.Time) string {
 
 // absolute renders ts in the local-zone ISO layout.
 //
-//nolint:gosmopolitan // local time is the explicit operator-facing choice per Q7.4
+//nolint:gosmopolitan // local time is the explicit operator-facing choice
 func absolute(ts time.Time) string {
 	return ts.Local().Format(absoluteFormat)
 }

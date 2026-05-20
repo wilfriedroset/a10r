@@ -89,9 +89,10 @@ func BenchmarkAlertsFilterTyping(b *testing.B) {
 }
 
 // BenchmarkAlertsRenderRows_1000 measures one frame of the row
-// renderer at 1k alerts (only the top maxRows fit on screen, so
-// the actual work is bounded by terminal height — but the per-row
-// hot path runs at full width). F4 + F9 + F11 + F12 wins land here.
+// renderer at 1k alerts. Only the top maxRows fit on screen, so the
+// actual work is bounded by terminal height — but the per-row hot
+// path runs at full width and any per-row allocation regression
+// surfaces here first.
 func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 	styles := testutil.LoadStylesB(b)
 	p := New(Options{Styles: styles, Now: time.Now})

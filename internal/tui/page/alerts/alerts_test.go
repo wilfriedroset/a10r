@@ -52,10 +52,9 @@ func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	// Move the cursor off both rows so neither inherits the cursor
-	// row-level style precedence (kept per Q1.2). With two alerts,
-	// the cursor sits on row 0 by default, so we walk it past the
-	// last row — clamped to the last index — and assert against the
-	// other row instead.
+	// row-level style precedence. With two alerts, the cursor sits on
+	// row 0 by default, so we walk it past the last row — clamped to
+	// the last index — and assert against the other row instead.
 	p.SetIndex(0, len(p.view)) // critical at index 0 (severity DESC default)
 
 	out := p.View(120, 20)
@@ -844,8 +843,8 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 	// catppuccin-mocha skin maps that to a lavender-on-base ANSI
 	// sequence; tests don't pin the colour values (the skin can
 	// change), but the cursor row MUST carry an ANSI escape — and
-	// MUST NOT carry the per-cell severity ANSI (Q1.2: row-level
-	// style wins over per-cell colouring).
+	// MUST NOT carry the per-cell severity ANSI (row-level style
+	// wins over per-cell colouring).
 	lines := strings.Split(testutil.StripStyle(out), "\n")
 	require.GreaterOrEqual(t, len(lines), 2)
 	cursorLine := strings.SplitN(out, "\n", 4)[1] // header → row 0 (cursor) → ...

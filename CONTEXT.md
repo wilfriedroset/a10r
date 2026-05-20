@@ -104,6 +104,31 @@ tenant is **connected**. Multi-offender layouts collapse to a count
 plus the alphabetically first offender's detail and **next attempt**.
 _Avoid_: status line, error banner.
 
+### Theming
+
+**Skin**:
+A k9s-format YAML file declaring colors for the TUI's roles,
+consumed drop-in (any community k9s skin loads without conversion).
+The unit of theme distribution.
+_Avoid_: theme (generic; "skin" is the operative term aligned with
+k9s upstream), colorscheme, palette (palette is a layer *inside* a
+skin, not the skin itself).
+
+**Bundled skin**:
+A skin embedded in the binary via `embed.FS`, available as
+`--theme <name>` on a fresh install. Two provenance sub-classes:
+**synced** (declared in `SOURCES.yaml.sources[]`, copied verbatim
+by `make skins-sync`) and **authored** (declared in
+`SOURCES.yaml.authored[]`, hand-edited in-tree).
+_Avoid_: built-in theme, default skin (default is a *role* one
+bundled skin fills, not a class).
+
+**User skin**:
+A skin file under `<config-dir>/a10r/skins/<name>.yaml` provided
+by the end user. Resolved ahead of bundled skins in the loader;
+shadow-warns if its name matches a bundled skin.
+_Avoid_: custom theme, override skin.
+
 ## Relationships
 
 - A **silence** is exactly one of **active**, **pending**, **expired**
@@ -120,6 +145,10 @@ _Avoid_: status line, error banner.
 - A **modal overlay** takes input precedence over a **help overlay**;
   the two never render simultaneously. `?` is shadowed while a modal
   is open so a pending decision is not dismissed off-screen.
+- A **skin** is either a **bundled skin** or a **user skin**; a
+  **bundled skin** is either **synced** (mirrored from upstream) or
+  **authored** (in-tree). The loader resolves user skins ahead of
+  bundled.
 
 ## Example dialogue
 

@@ -145,12 +145,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 		if marked {
 			mark = "✓"
 		}
-		// Per-cell severity colour applies only to plain rows.
-		// Cursor / marked / suppressed rows wrap the entire line in
-		// a row-level style; nested ANSI inside that wrap is fragile
-		// across terminals, and per Q1.2 the row-level style is
-		// supposed to win — so skip the cell-level colour entirely
-		// for those three cases.
+		// Per-cell severity colour applies only to plain rows. Cursor
+		// / marked / suppressed rows wrap the entire line in a row-
+		// level style; nested ANSI inside that wrap is fragile across
+		// terminals, and the row-level style is supposed to win — so
+		// skip the cell-level colour entirely for those three cases.
 		rowStyled := i == p.Index() || marked || a.State == backend.AlertStateSuppressed
 		sevCell := severityOf(a)
 		if !rowStyled {

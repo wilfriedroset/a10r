@@ -95,7 +95,7 @@ func TestDisplay_Absolute(t *testing.T) {
 
 	ts := time.Date(2026, 5, 1, 13, 45, 0, 0, time.UTC)
 	got := Display(Absolute, now, ts)
-	//nolint:gosmopolitan // mirrors Display's deliberate local-zone rendering per Q7.4
+	//nolint:gosmopolitan // mirrors Display's deliberate local-zone rendering
 	require.Equal(t, ts.Local().Format(absoluteFormat), got,
 		"absolute format must use the local-zone ISO layout")
 }

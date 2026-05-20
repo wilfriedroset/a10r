@@ -208,7 +208,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 // remaining flex so a long Silence.Comment gets the full
 // breathing room instead of competing with another text column.
 // STARTS / ENDS widen in absolute time mode so the ISO local
-// timestamp fits without truncation per Q7.4.
+// timestamp fits without truncation.
 func (p *Page) padColumns(parts []string, width int) string {
 	const (
 		tenantW = 16

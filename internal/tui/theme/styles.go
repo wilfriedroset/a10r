@@ -92,7 +92,7 @@ type TableStyle struct {
 	// Pages that paint cells without an inherited bg (header rows
 	// rendered inside the column-header line, marked / dimmed cells
 	// stacked over a row-level cursor wrap) read these instead of
-	// reconstructing a fresh FgOnly Style on every frame. See F12.
+	// reconstructing a fresh FgOnly Style on every frame.
 	HeaderFg       lipgloss.Style
 	HeaderActiveFg lipgloss.Style
 	MarkedFg       lipgloss.Style

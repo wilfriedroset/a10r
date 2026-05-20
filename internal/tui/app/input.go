@@ -60,13 +60,13 @@ func (a *App) registerTenantBindings() {
 }
 
 // registerGlobalBindings wires the keybindings.md §Global entries
-// the app shell owns directly. Tenant quick-switch (#35) ships
-// with its own subsystem so it can be unit-tested in isolation.
+// the app shell owns directly. Tenant quick-switch ships with its
+// own subsystem so it can be unit-tested in isolation.
 //
 // User-extensible bindings go through SetAction with the stable
 // action names documented in `<config-dir>/keys/<profile>.yaml`
 // (per ADR 0010); chord prefixes and dispatcher hooks stay on Set
-// because the v0.0.1 schema only lets users target named globals.
+// because the user schema only lets users target named globals.
 //
 // Call order is the help-overlay GENERAL-column display order:
 // `globalsCatalog` derives that column from Dispatcher.Bindings
@@ -95,11 +95,11 @@ func (a *App) registerGlobalBindings() {
 			Styles:       a.styles,
 		})
 	})
-	// `t` flips the app-global time-format toggle (Q7.1 — alerts'
-	// state-filter cycle moved to Shift+F to free this slot).
-	// Emits TimeFormatChangedMsg so every page that renders
-	// durations re-renders, and a flash so the user sees the
-	// switch took effect (Q7.5).
+	// `t` flips the app-global time-format toggle; alerts' state-
+	// filter cycle moved to Shift+F to free this slot. Emits
+	// TimeFormatChangedMsg so every page that renders durations
+	// re-renders, and a flash so the user sees the switch took
+	// effect.
 	a.dispatcher.SetAction(keys.LayerGlobal, "time-format", "time format", "t", a.toggleTimeFormatCmd)
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active

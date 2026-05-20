@@ -54,9 +54,9 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("load config: %w", loadErr)
 	}
 
-	// Aliases are an optional overlay (G3); a missing file is fine
-	// and reports as zero. A malformed file is loud — the operator
-	// sees the parse error here rather than at TUI startup.
+	// Aliases are an optional overlay; a missing file is fine and
+	// reports as zero. A malformed file is loud — the operator sees
+	// the parse error here rather than at TUI startup.
 	aliases, aliasErr := config.LoadAliases(configDir)
 	if aliasErr != nil {
 		return fmt.Errorf("load aliases: %w", aliasErr)

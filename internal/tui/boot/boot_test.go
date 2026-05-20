@@ -160,8 +160,8 @@ func TestBuild_ThemeLoadErrorAborts(t *testing.T) {
 }
 
 // TestBuild_UserAliasesErrorAborts pins the "user aliases fail
-// closed" contract (G3): a malformed aliases file must fail
-// startup, not silently drop the alias.
+// closed" contract: a malformed aliases file must fail startup,
+// not silently drop the alias.
 func TestBuild_UserAliasesErrorAborts(t *testing.T) {
 	t.Parallel()
 	deps := testDeps(t)
