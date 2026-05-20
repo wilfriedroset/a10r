@@ -10,6 +10,8 @@ import (
 	"context"
 	"os/signal"
 	"syscall"
+
+	"github.com/spf13/cobra"
 )
 
 // Version metadata is injected at build time via -X ldflags by
@@ -55,19 +57,25 @@ func Execute() error {
 
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags, nil)
-	// Group definitions and the completion / help GroupID pins live
-	// in newRootCmd so every code path (Execute + tests that build
-	// a root directly) sees them.
-	rootCmd.AddCommand(
-		newVersionCmd(),
-		newInfoCmd(&flags),
-		newValidateCmd(&flags),
-		newDoctorCmd(&flags),
-		newInitCmd(&flags),
-		newAlertsCmd(&flags),
-		newSilencesCmd(&flags),
-		newGroupsCmd(&flags),
-		newReceiversCmd(&flags),
-	)
+	registerSubcommands(rootCmd, &flags)
 	return rootCmd.ExecuteContext(ctx)
+}
+
+// registerSubcommands attaches every a10r subcommand to root. Shared
+// between Execute and the help-output test so a new subcommand only
+// has to land here once. Group definitions and the completion/help
+// GroupID pins live in newRootCmd; this function only wires the
+// AddCommand calls.
+func registerSubcommands(root *cobra.Command, flags *GlobalFlags) {
+	root.AddCommand(
+		newVersionCmd(),
+		newInfoCmd(flags),
+		newValidateCmd(flags),
+		newDoctorCmd(flags),
+		newInitCmd(flags),
+		newAlertsCmd(flags),
+		newSilencesCmd(flags),
+		newGroupsCmd(flags),
+		newReceiversCmd(flags),
+	)
 }

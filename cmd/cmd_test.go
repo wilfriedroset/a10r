@@ -20,19 +20,7 @@ func buildHelpRoot(t *testing.T) *cobra.Command {
 
 	var flags GlobalFlags
 	root := newRootCmd(&flags, func(*cobra.Command, *GlobalFlags) error { return nil })
-	// Groups + completion/help GroupID pins are set inside
-	// newRootCmd; the test only adds the subcommands.
-	root.AddCommand(
-		newVersionCmd(),
-		newInfoCmd(&flags),
-		newValidateCmd(&flags),
-		newDoctorCmd(&flags),
-		newInitCmd(&flags),
-		newAlertsCmd(&flags),
-		newSilencesCmd(&flags),
-		newGroupsCmd(&flags),
-		newReceiversCmd(&flags),
-	)
+	registerSubcommands(root, &flags)
 	return root
 }
 
