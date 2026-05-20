@@ -175,7 +175,7 @@ func TestBuild_UserAliasesErrorAborts(t *testing.T) {
 }
 
 // TestBuild_UserKeysErrorAborts pins the "user keybindings fail
-// closed" contract (P2.W1.5 / ADR 0010).
+// closed" contract (ADR 0010).
 func TestBuild_UserKeysErrorAborts(t *testing.T) {
 	t.Parallel()
 	deps := testDeps(t)

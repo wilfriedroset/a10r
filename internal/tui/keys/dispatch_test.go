@@ -345,12 +345,12 @@ func TestDispatcher_ClearRemovesAllLayerBindings(t *testing.T) {
 func TestDispatcher_ClearRestoresUnderlyingLayer(t *testing.T) {
 	t.Parallel()
 
-	// Load-bearing scenario from the keys brainstorm FM5: a modal
-	// registers `q` to close itself while the global `q` quits the
-	// app. While the modal is open, modal `q` wins (LayerModal beats
-	// LayerGlobal). After the modal closes and Clear(LayerModal)
-	// fires, the global `q` must take over again — without Clear, the
-	// modal's `q` would linger forever and shadow the global handler.
+	// Load-bearing scenario: a modal registers `q` to close itself
+	// while the global `q` quits the app. While the modal is open,
+	// modal `q` wins (LayerModal beats LayerGlobal). After the modal
+	// closes and Clear(LayerModal) fires, the global `q` must take
+	// over again — without Clear, the modal's `q` would linger
+	// forever and shadow the global handler.
 	r := &recorder{}
 	d := New(newFakeClock())
 	d.Set(LayerGlobal, "q", r.handler("global-quit"))
