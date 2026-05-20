@@ -191,8 +191,8 @@ type Page struct {
 	// editorCtx is the parent context the editor subprocess
 	// inherits when the user presses Ctrl+E. Wired to the
 	// program's RunE ctx so a parent shutdown aborts a hung
-	// editor session (audit F16). nil falls back to
-	// context.Background() inside edit.Edit.
+	// editor session. nil falls back to context.Background()
+	// inside edit.Edit.
 	editorCtx context.Context //nolint:containedctx // editor subprocess ctx, not session state.
 	// bulkCtx is the parent context the bulk-expire fanout
 	// inherits. Wired to the program's RunE ctx so a quit
@@ -240,8 +240,9 @@ type Options struct {
 	// chain so a misclick or stray paste cannot mutate state.
 	ReadOnly bool
 	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
-	// inherits. Cancelling kills the editor — audit F16. nil
-	// falls back to context.Background() inside edit.Edit.
+	// inherits. Cancelling kills the editor so a parent shutdown
+	// can abort a hung session. nil falls back to
+	// context.Background() inside edit.Edit.
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
 	// BulkCtx is the parent ctx the bulk-expire fanout inherits.
 	// Cancelling cancels every in-flight worker — important for

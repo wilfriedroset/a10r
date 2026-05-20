@@ -10,18 +10,18 @@ import (
 )
 
 // logTransportSurprises emits one log line per backend whose TLS
-// config carries a deprecated min/max version (F7) or an inline
-// CA bundle that overrides the system root pool (F6), plus an
-// INFO line resolving the active HTTPS_PROXY when the backend
-// opts into proxy_from_environment (F9). All three are "config is
-// doing what you asked but you should know" affordances:
+// config carries a deprecated min/max version or an inline CA
+// bundle that overrides the system root pool, plus an INFO line
+// resolving the active HTTPS_PROXY when the backend opts into
+// proxy_from_environment. All three are "config is doing what
+// you asked but you should know" affordances:
 //
 //   - INFO for the CA case (operator opt-in to pin a self-signed
 //     root, masked by silent replacement of the system pool).
 //   - WARN for TLS 1.0/1.1 (opt-in to a deprecated protocol).
 //   - INFO for proxy_from_environment (operator's $HTTPS_PROXY
 //     determines where the requests actually land — visibility
-//     so the F9 attack chain isn't silent).
+//     so a hijacked-proxy chain isn't silent).
 //
 // Static inspection of the resolved Config is enough; we do not
 // need to wait for a per-backend connection to fire these. The
@@ -54,8 +54,9 @@ func logTransportSurprises(logger *slog.Logger, backends []config.Backend) {
 // that opted into proxy_from_environment and emits one log line
 // describing it. The lookup uses http.ProxyFromEnvironment with a
 // synthesised GET against the backend URL so the operator sees
-// what would actually happen on the first real request — closes
-// audit F9 (HTTPS_PROXY hijack).
+// what would actually happen on the first real request — surfaces
+// a HTTPS_PROXY hijack at startup rather than letting it stay
+// silent on the wire.
 func logResolvedProxy(logger *slog.Logger, be config.Backend) {
 	target := be.URL
 	if target == "" {

@@ -135,9 +135,9 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// Stage 2 — Precedence resolution. Folds CLI > env > config >
 	// defaults into a single Effective so every downstream
 	// consumer (logger, theme loader, poll interval, page
-	// ReadOnly gate) reads the same value. F2/F3 of the security
-	// audit: bypassing this step silently dropped --read-only /
-	// --theme / --poll-interval.
+	// ReadOnly gate) reads the same value. Bypassing this step
+	// silently dropped --read-only / --theme / --poll-interval —
+	// the resolver is mandatory, not an optimisation.
 	effective, err := config.Resolve(*flags, os.Getenv, *cfg)
 	if err != nil {
 		return nil, fmt.Errorf("resolve config: %w", err)
@@ -146,9 +146,9 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 
 	// Stage 3 — Logger. Initialised before any subsystem can
 	// emit so silence write ops produce an audit trail and --log
-	// actually reaches the file (audit F4). The closer is
-	// returned in Result so the caller's `defer Close` flushes
-	// the lumberjack rotation buffer on shutdown.
+	// actually reaches the file. The closer is returned in Result
+	// so the caller's `defer Close` flushes the lumberjack
+	// rotation buffer on shutdown.
 	logger, closer, err := d.NewLogger(a10rlog.Opts{
 		Path:   effCfg.Log.Path,
 		Format: a10rlog.Format(effCfg.Defaults.LogFormat),

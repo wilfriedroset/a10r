@@ -201,8 +201,8 @@ func TestEdit_NoEditorConfigured(t *testing.T) {
 	require.Error(t, fin.Err)
 }
 
-// TestEdit_TempfileNameUsesRandomSuffix pins audit F10's
-// resolution: each Edit call must produce a tempfile whose
+// TestEdit_TempfileNameUsesRandomSuffix pins the random-suffix
+// tempfile guard: each Edit call must produce a tempfile whose
 // basename is unguessable from the resource id alone. Two calls
 // with the same id must yield different paths so a co-tenant
 // pre-creating a symlink at the obvious legacy path
@@ -267,10 +267,10 @@ func TestEdit_RejectsTempfileNotRegular(t *testing.T) {
 	require.ErrorIs(t, err, ErrTempfileNotRegular)
 }
 
-// TestEdit_CtxAbortsEditor pins audit F16: a cancelled parent
-// ctx kills the editor subprocess. Without the fix, the editor
-// inherited context.Background() and a parent shutdown couldn't
-// abort a hung session.
+// TestEdit_CtxAbortsEditor pins the editor-cancellation
+// contract: a cancelled parent ctx kills the editor subprocess.
+// Without the fix, the editor inherited context.Background() and
+// a parent shutdown couldn't abort a hung session.
 func TestEdit_CtxAbortsEditor(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == windowsGOOS {
@@ -297,11 +297,12 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	require.Error(t, fin.Err, "cancelled ctx must surface a non-nil Err on FinishedMsg")
 }
 
-// TestEdit_CacheDirTightensPreExistingPerm pins re-audit G3:
-// when ~/.cache/a10r predates the upgrade (or was created by
-// another tool at 0o755), Edit must chmod the directory down to
-// 0o700 so a co-tenant loses listing rights on a system that has
-// already been running a10r before this fix landed.
+// TestEdit_CacheDirTightensPreExistingPerm pins the
+// pre-existing-cache tightening: when ~/.cache/a10r predates the
+// upgrade (or was created by another tool at 0o755), Edit must
+// chmod the directory down to 0o700 so a co-tenant loses listing
+// rights on a system that has already been running a10r before
+// this fix landed.
 func TestEdit_CacheDirTightensPreExistingPerm(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == windowsGOOS {
@@ -328,9 +329,9 @@ func TestEdit_CacheDirTightensPreExistingPerm(t *testing.T) {
 		"pre-existing cache dir must be tightened to 0o700 on first Edit")
 }
 
-// TestEdit_CacheDirCreatedAt0o700 pins audit F10's cache-dir
-// permission requirement: a fresh CacheDir is created mode 0o700
-// so a local co-tenant cannot list / pre-populate the directory.
+// TestEdit_CacheDirCreatedAt0o700 pins the cache-dir permission
+// requirement: a fresh CacheDir is created mode 0o700 so a local
+// co-tenant cannot list / pre-populate the directory.
 func TestEdit_CacheDirCreatedAt0o700(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == windowsGOOS {

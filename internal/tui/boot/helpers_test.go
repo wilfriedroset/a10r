@@ -23,11 +23,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins audit
-// F7's resolution: TLS 1.0/1.1 stay in the schema as a connectivity
-// escape hatch for legacy backends, but every selection must emit
-// a WARN at startup so the operator sees the deprecation on every
-// run.
+// TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins the
+// deprecated-TLS warning: TLS 1.0/1.1 stay in the schema as a
+// connectivity escape hatch for legacy backends, but every
+// selection must emit a WARN at startup so the operator sees the
+// deprecation on every run.
 func TestLogTransportSurprises_TLS10MinVersionEmitsWarn(t *testing.T) {
 	t.Parallel()
 	buf := &strings.Builder{}
@@ -43,10 +43,10 @@ func TestLogTransportSurprises_TLS10MinVersionEmitsWarn(t *testing.T) {
 	require.Contains(t, out, "backend=legacy")
 }
 
-// TestLogTransportSurprises_InlineCAEmitsInfo pins audit F6's
-// resolution: keep the Prometheus-parity replace semantics but
-// log INFO once per backend so the operator sees that the inline
-// CA pinning is in effect.
+// TestLogTransportSurprises_InlineCAEmitsInfo pins the inline-CA
+// notice: keep the Prometheus-parity replace semantics but log
+// INFO once per backend so the operator sees that the inline CA
+// pinning is in effect (and the system root pool is bypassed).
 func TestLogTransportSurprises_InlineCAEmitsInfo(t *testing.T) {
 	t.Parallel()
 	buf := &strings.Builder{}
@@ -63,9 +63,10 @@ func TestLogTransportSurprises_InlineCAEmitsInfo(t *testing.T) {
 }
 
 // TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved
-// pins audit F9: a backend that opts into proxy_from_environment
-// logs which proxy URL the OS env actually resolves to, so the
-// operator can spot a HTTPS_PROXY hijack chain on startup.
+// pins the resolved-proxy log line: a backend that opts into
+// proxy_from_environment logs which proxy URL the OS env actually
+// resolves to, so the operator can spot a HTTPS_PROXY hijack
+// chain on startup.
 func TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved(t *testing.T) {
 	// Sequential because env mutation is process-wide.
 	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
@@ -109,8 +110,9 @@ func TestLevelFor_DefaultIsInfo(t *testing.T) {
 }
 
 // TestLevelFor_DebugWins asserts that --debug raises level to
-// Debug. Audit F4: previously slog.Default() (stderr) was used
-// regardless; a plumbed --debug must reach the file logger.
+// Debug. Previously slog.Default() (stderr) was used regardless;
+// a plumbed --debug must reach the file logger so debug records
+// survive into the persistent audit trail.
 func TestLevelFor_DebugWins(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, slog.LevelDebug, LevelFor(true, false))

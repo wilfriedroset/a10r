@@ -815,12 +815,12 @@ func TestRunInit_DryRunInvalidKVStillFails(t *testing.T) {
 	require.Equal(t, ExitConfigInvalid, ee.Code)
 }
 
-// TestRunInit_NudgesOnPlaintextBasicPassword pins audit F5: when the
-// captured config carries a literal basic-auth password (not a
-// `${VAR}` interpolation), init prints a one-line nudge after the
-// "wrote" confirmation pointing the operator at env-var
-// interpolation. The hint goes to stderr so scripts piping stdout
-// (`a10r init | tee ...`) still see clean confirmation output.
+// TestRunInit_NudgesOnPlaintextBasicPassword pins the init-wizard
+// nudge: when the captured config carries a literal basic-auth
+// password (not a `${VAR}` interpolation), init prints a one-line
+// nudge after the "wrote" confirmation pointing the operator at
+// env-var interpolation. The hint goes to stderr so scripts piping
+// stdout (`a10r init | tee ...`) still see clean confirmation output.
 func TestRunInit_NudgesOnPlaintextBasicPassword(t *testing.T) {
 	t.Parallel()
 
@@ -849,8 +849,8 @@ func TestRunInit_NudgesOnPlaintextBasicPassword(t *testing.T) {
 	require.Contains(t, hint, "plaintext")
 }
 
-// TestRunInit_NudgesOnPlaintextBearerToken extends F5 coverage to
-// the bearer flow — bearer tokens are credentials too.
+// TestRunInit_NudgesOnPlaintextBearerToken extends the nudge to the
+// bearer flow — bearer tokens are credentials too.
 func TestRunInit_NudgesOnPlaintextBearerToken(t *testing.T) {
 	t.Parallel()
 

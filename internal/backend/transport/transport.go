@@ -62,10 +62,11 @@ var (
 // ExpectedHost is the host portion of the configured BaseURL (as
 // parsed by url.URL.Host). When set, the auth RoundTripper only
 // injects credentials on requests whose req.URL.Host matches —
-// closing audit finding F1: a hostile / hijacked backend that
-// returns `302 Location: https://attacker/` cannot replay the
-// Authorization header on the redirect target. Empty ExpectedHost
-// preserves the unrestricted legacy behaviour for tests.
+// defends against credential replay on cross-origin redirects: a
+// hostile / hijacked backend that returns `302 Location:
+// https://attacker/` cannot replay the Authorization header on the
+// redirect target. Empty ExpectedHost preserves the unrestricted
+// legacy behaviour for tests.
 type AuthOptions struct {
 	BasicAuth     *config.BasicAuth
 	Authorization *config.Authorization
@@ -112,13 +113,12 @@ func WithHeaders(base http.RoundTripper, headers map[string]string) http.RoundTr
 	return WithHostPinnedHeaders(base, headers, "")
 }
 
-// WithHostPinnedHeaders is the variant of WithHeaders that closes
-// audit finding F18: when expectedHost is non-empty, the headers
-// (which include the tenant identifier on Mimir setups) are only
-// injected on requests whose req.URL.Host matches. A hijacked
-// backend that responds 302 to attacker.example never sees the
-// X-Scope-OrgID / arbitrary auth-bearing headers a configured
-// backend would have sent.
+// WithHostPinnedHeaders is the host-pinned variant of WithHeaders:
+// when expectedHost is non-empty, the headers (which include the
+// tenant identifier on Mimir setups) are only injected on requests
+// whose req.URL.Host matches. A hijacked backend that responds 302
+// to attacker.example never sees the X-Scope-OrgID / arbitrary
+// auth-bearing headers a configured backend would have sent.
 func WithHostPinnedHeaders(base http.RoundTripper, headers map[string]string, expectedHost string) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
@@ -377,7 +377,7 @@ func splitComma(s string) []string {
 // expectedHost is the host portion of the originally-configured
 // BaseURL. When non-empty, basicRT skips injection on any request
 // targeted at a different host so a redirect chain cannot replay
-// the credentials at an attacker-controlled origin (audit F1).
+// the credentials at an attacker-controlled origin.
 type basicRT struct {
 	base         http.RoundTripper
 	user, pass   string
@@ -417,8 +417,8 @@ func (rt *addHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
 // chaining N addHeaderRTs would be O(N) Clone calls per request.
 //
 // expectedHost gates injection the same way basicRT / addHeaderRT
-// do — closes audit F18 (the tenant header / arbitrary auth-bearing
-// headers must not leak across redirects).
+// do — the tenant header / arbitrary auth-bearing headers must
+// not leak across redirects.
 type headersRT struct {
 	base         http.RoundTripper
 	headers      map[string]string
@@ -437,8 +437,8 @@ func (rt *headersRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // hostMatches reports whether reqHost belongs to the expected
 // origin. Empty expected = "no pinning configured" so the caller
-// behaves as it did before audit F1 (always inject) — used by
-// tests and the legacy WithHeaders path. Non-empty performs a
+// behaves as the unrestricted legacy path (always inject) — used
+// by tests and the legacy WithHeaders path. Non-empty performs a
 // case-insensitive comparison; the http.Request.URL.Host fields
 // already include any port, and the constructor receives whatever
 // url.URL.Host produced from the configured BaseURL, so the two

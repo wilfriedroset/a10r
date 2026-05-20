@@ -53,11 +53,12 @@ type Request struct {
 	// highlighting kicks in. Empty defaults to "yaml".
 	Extension string
 	// Ctx is the parent context the editor subprocess inherits.
-	// Cancelling Ctx kills the editor. Closes audit F16: prior
-	// behaviour wired exec.CommandContext to context.Background()
-	// so a parent shutdown could not abort a hung editor session.
-	// nil falls back to context.Background() for tests that don't
-	// care about cancellation.
+	// Cancelling Ctx kills the editor. Prior behaviour wired
+	// exec.CommandContext to context.Background() so a parent
+	// shutdown could not abort a hung editor session — this field
+	// is the parent-cancellation hook. nil falls back to
+	// context.Background() for tests that don't care about
+	// cancellation.
 	Ctx context.Context //nolint:containedctx // intentional: this is the editor subprocess's ctx, not session state.
 }
 
@@ -125,9 +126,9 @@ func (r Resolver) Editor() []string {
 }
 
 // cacheRoot returns the tempfile parent directory, creating it
-// if it doesn't exist. Audit F10 / re-audit G3: directory mode is
-// 0o700 — both newly-created (via MkdirAll) and pre-existing (via
-// the explicit Chmod that follows). Tightening pre-existing dirs
+// if it doesn't exist. Directory mode is 0o700 — both
+// newly-created (via MkdirAll) and pre-existing (via the explicit
+// Chmod that follows). Tightening pre-existing dirs
 // matters on hosts where ~/.cache/a10r predates the upgrade or
 // was set up by another tool: without the chmod, a co-tenant
 // keeps directory listing rights, which leaks the sanitised
@@ -165,15 +166,15 @@ func ensureMode0700(dir string) (string, error) {
 // reads the post-edit content, removes the tempfile, and returns
 // FinishedMsg.
 //
-// Audit F10 (predictable tempfile, no O_EXCL, no symlink check):
-// the tempfile is created via os.CreateTemp with a random suffix
-// so a local co-tenant cannot pre-create a symlink at the path,
-// and the resulting handle is Lstat'd as belt-and-braces — a
-// non-regular result aborts the edit.
+// Defends against tempfile symlink-swap: the tempfile is created
+// via os.CreateTemp with a random suffix so a local co-tenant
+// cannot pre-create a symlink at a predictable path, and the
+// resulting handle is Lstat'd as belt-and-braces — a non-regular
+// result aborts the edit.
 //
-// Audit F16 (editor inherits context.Background()): the subprocess
-// is wired to req.Ctx so a parent shutdown can abort a hung editor
-// session.
+// Editor subprocess is wired to req.Ctx so a parent shutdown can
+// abort a hung editor session (prior behaviour inherited
+// context.Background()).
 //
 // On any preparation error (tempfile create, editor exec) the
 // returned Cmd produces a FinishedMsg with Err set and Content

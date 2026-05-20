@@ -114,13 +114,13 @@ func TestLoad_UnknownNameFallsBackToDefault(t *testing.T) {
 	require.Contains(t, out, `default=catppuccin-mocha`)
 }
 
-// TestLoad_RejectsPathTraversalNames is the audit F13 regression:
-// theme.name flows into filepath.Join(UserDir, name+".yaml"), so
-// a `..` segment would escape the skins directory and let a hostile
-// config read arbitrary files. Loader rejects names outside the
-// allowed alphabet by treating them as unknown — falling back to
-// the bundled default with a warning rather than the malicious
-// candidate path.
+// TestLoad_RejectsPathTraversalNames pins the path-traversal
+// guard: theme.name flows into filepath.Join(UserDir,
+// name+".yaml"), so a `..` segment would escape the skins
+// directory and let a hostile config read arbitrary files. Loader
+// rejects names outside the allowed alphabet by treating them as
+// unknown — falling back to the bundled default with a warning
+// rather than the malicious candidate path.
 func TestLoad_RejectsPathTraversalNames(t *testing.T) {
 	t.Parallel()
 

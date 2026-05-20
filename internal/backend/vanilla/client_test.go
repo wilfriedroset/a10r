@@ -389,7 +389,7 @@ func TestClient_ContextCancelStopsRequest(t *testing.T) {
 		"cancelled request must surface as ctx.Canceled or ErrUnreachable, got %v", err)
 }
 
-// TestClient_LimitsResponseBodySize is the audit F14 regression:
+// TestClient_LimitsResponseBodySize pins the response-body cap:
 // the JSON decoder must never read more than maxResponseBodyBytes
 // from the response body so a hostile backend cannot OOM the TUI
 // by streaming a multi-gigabyte payload. The test temporarily
@@ -428,10 +428,11 @@ func repeat(s string, n int) string {
 	return string(out)
 }
 
-// TestClient_400ResponseStripsControlCharsFromError pins audit
-// F17: a hostile backend embedding ANSI escape sequences in a 4xx
-// body must not be able to rewrite the operator's terminal title
-// or cursor when classifyStatus surfaces the body in an error.
+// TestClient_400ResponseStripsControlCharsFromError pins the
+// error-body sanitiser: a hostile backend embedding ANSI escape
+// sequences in a 4xx body must not be able to rewrite the
+// operator's terminal title or cursor when classifyStatus
+// surfaces the body in an error.
 func TestClient_400ResponseStripsControlCharsFromError(t *testing.T) {
 	t.Parallel()
 
@@ -457,11 +458,12 @@ func TestClient_400ResponseStripsControlCharsFromError(t *testing.T) {
 		"the human-readable portion of the body must still surface")
 }
 
-// TestClient_RefusesCrossOriginRedirect is the audit's
-// belt-and-braces regression for F1: a 302 to a different origin
-// must produce an ErrCrossOriginRedirect rather than a successful
-// request to the attacker target. Same shape as the transport-level
-// host-pin tests but exercises the http.Client.CheckRedirect path
+// TestClient_RefusesCrossOriginRedirect is the belt-and-braces
+// regression for the cross-origin redirect guard: a 302 to a
+// different origin must produce an ErrCrossOriginRedirect rather
+// than a successful request to the attacker target. Same shape as
+// the transport-level host-pin tests but exercises the
+// http.Client.CheckRedirect path
 // installed by ClientConfig.ExpectedHost.
 func TestClient_RefusesCrossOriginRedirect(t *testing.T) {
 	t.Parallel()

@@ -92,11 +92,12 @@ type ClientConfig struct {
 // capability stubs.
 func New(cfg ClientConfig) (*vanilla.Client, error) {
 	// Capture the configured backend's host so the auth/header
-	// RoundTrippers can refuse to replay credentials onto a redirect
-	// target with a different origin (audit F1/F18). url.Parse
-	// failure surfaces here rather than at first request — vanilla.New
-	// will catch BaseURL problems independently, but we need the
-	// parsed host for transport pinning regardless.
+	// RoundTrippers can refuse to replay credentials (and the
+	// tenant / arbitrary auth-bearing headers) onto a redirect
+	// target with a different origin. url.Parse failure surfaces
+	// here rather than at first request — vanilla.New will catch
+	// BaseURL problems independently, but we need the parsed host
+	// for transport pinning regardless.
 	expectedHost, err := parseExpectedHost(cfg.BaseURL)
 	if err != nil {
 		return nil, err

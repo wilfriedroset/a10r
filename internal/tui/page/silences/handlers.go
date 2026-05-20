@@ -432,11 +432,12 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 //     unchanged.
 //   - Empty / unchanged content: silent no-op (the user :q'd
 //     without writing).
-//   - YAML id != pending.id (audit F8): refuse the update, flash
-//     an error, and reopen the editor with the user's buffer
-//     preserved so they can fix the typo without losing their work.
-//     pendingEdit is intentionally left in place so the second
-//     attempt updates the same silence.
+//   - YAML id != pending.id (invariant: a typo'd id would mutate
+//     the wrong silence): refuse the update, flash an error, and
+//     reopen the editor with the user's buffer preserved so they
+//     can fix the typo without losing their work. pendingEdit is
+//     intentionally left in place so the second attempt updates
+//     the same silence.
 //   - Otherwise: parse YAML, call UpdateSilence on the pending
 //     tenant's client, flash success / error.
 func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
@@ -642,8 +643,8 @@ func flashFn(level footer.FlashLevel, text string) tea.Cmd {
 // auditSilenceWrite emits the structured "silence write succeeded"
 // log line surfaced on every successful silence mutation so an
 // operator can reconstruct the day's activity from the --log file.
-// Closes the F4 attack-chain tail flagged in the re-audit's G1
-// (logger plumbing was wired but no success-path entry existed).
+// Without a success-path entry, a tampered write would leave no
+// trail — the logger plumbing alone is not enough.
 //
 // Routed through slog.Default() — runTUI calls slog.SetDefault on
 // the program's logger before any page is constructed, so every

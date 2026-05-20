@@ -180,11 +180,12 @@ func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
 func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 	t.Parallel()
 
-	// Audit F2 regression: each write keypress (`n`, `e`, `x`,
-	// `Ctrl+E`, `Ctrl+N`) must flash a Warn hint rather than push
-	// a form, open the editor, or open the confirm modal. The
-	// returned Cmd carries a footer.FlashShowMsg{Level: FlashWarn};
-	// no PushPageMsg, no edit.OpenedMsg, no modal.OpenMsg.
+	// Read-only gate regression: each write keypress (`n`, `e`,
+	// `x`, `Ctrl+E`, `Ctrl+N`) must flash a Warn hint rather than
+	// push a form, open the editor, or open the confirm modal.
+	// The returned Cmd carries a footer.FlashShowMsg{Level:
+	// FlashWarn}; no PushPageMsg, no edit.OpenedMsg, no
+	// modal.OpenMsg.
 	cases := []struct {
 		name string
 		key  tea.KeyPressMsg
@@ -308,11 +309,11 @@ func TestPage_FinishedMsgErrorFlashes(t *testing.T) {
 	require.Empty(t, fake.lastUpdateID)
 }
 
-// TestPage_FinishedMsgSuccessAuditLogs pins re-audit G1: a
-// successful editor-driven UpdateSilence emits a structured log
-// entry naming op=updated, the silence id, and surface=editor so
-// an operator can reconstruct the day's silence mutations from
-// `--log`.
+// TestPage_FinishedMsgSuccessAuditLogs pins the success-path
+// audit-log entry: a successful editor-driven UpdateSilence emits
+// a structured log entry naming op=updated, the silence id, and
+// surface=editor so an operator can reconstruct the day's silence
+// mutations from `--log`.
 func TestPage_FinishedMsgSuccessAuditLogs(t *testing.T) {
 	// Sequential because newAuditLogBuf swaps slog.Default
 	// process-wide.
@@ -376,11 +377,11 @@ func TestPage_FinishedMsgSuccessCallsUpdateSilence(t *testing.T) {
 	require.Contains(t, msg.Text, "silence updated: sil-a")
 }
 
-// TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor pins
-// audit F8: the post-edit YAML's id must match pendingEdit.id, or
-// the page refuses the update, flashes an error, and reopens the
-// editor with the user's typed buffer preserved so they can fix
-// the typo without losing their work.
+// TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor pins the
+// id-mismatch invariant: the post-edit YAML's id must match
+// pendingEdit.id, or the page refuses the update, flashes an
+// error, and reopens the editor with the user's typed buffer
+// preserved so they can fix the typo without losing their work.
 func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 	t.Parallel()
 	fake := &fakeSilenceClient{}

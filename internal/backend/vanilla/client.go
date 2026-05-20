@@ -47,9 +47,9 @@ var (
 const defaultRequestTimeout = 30 * time.Second
 
 // maxResponseBodyBytes caps the response body the JSON decoder will
-// read. Closes audit F14: a hostile backend that streams a
-// multi-gigabyte payload would otherwise OOM the TUI process.
-// 64 MiB is chosen high enough to handle every realistic /api/v2/
+// read. Defends against memory exhaustion: a hostile backend that
+// streams a multi-gigabyte payload would otherwise OOM the TUI
+// process. 64 MiB is chosen high enough to handle every realistic /api/v2/
 // response (the largest, alerts at production scale, tops out in
 // single-digit MB) and low enough that a slow leak surfaces as a
 // decode error rather than memory pressure.
@@ -81,11 +81,11 @@ type ClientConfig struct {
 	// ExpectedHost is the host portion of BaseURL. When non-empty,
 	// the constructed *http.Client installs a CheckRedirect that
 	// refuses any redirect to a different origin — defense-in-depth
-	// for audit F1: even if a future RoundTripper bug re-injected
-	// credentials, the cross-origin redirect itself never fires.
-	// Empty preserves the legacy behaviour (Go's default
-	// CheckRedirect, which strips Authorization on cross-origin
-	// but happily follows up to ten redirects).
+	// against credential replay: even if a future RoundTripper bug
+	// re-injected credentials, the cross-origin redirect itself
+	// never fires. Empty preserves the legacy behaviour (Go's
+	// default CheckRedirect, which strips Authorization on
+	// cross-origin but happily follows up to ten redirects).
 	ExpectedHost string
 }
 
@@ -297,12 +297,12 @@ func (c *Client) execHeaders(req *http.Request) (http.Header, error) {
 // 400 bodies). Reading consumes resp.Body — only safe to call on
 // errors, where downstream JSON decoding would not run anyway.
 //
-// Audit F17: the body is server-controlled, so it is sanitised
-// before landing in an error string. Without this, a hostile
-// backend could embed ANSI escape sequences in a 400 response
-// body and rewrite the operator's terminal title / cursor on
-// every retry. cleanErrorBody strips control characters and caps
-// the result at maxErrorBodyLen.
+// The body is server-controlled, so it is sanitised before
+// landing in an error string. Without this, a hostile backend
+// could embed ANSI escape sequences in a 400 response body and
+// rewrite the operator's terminal title / cursor on every retry.
+// cleanErrorBody strips control characters and caps the result at
+// maxErrorBodyLen.
 func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -333,7 +333,8 @@ const maxErrorBodyLen = 512
 // characters (incl. ANSI escapes, CR, LF, tab) become spaces, runs
 // of whitespace collapse to single spaces, and the result is
 // trimmed and capped at maxErrorBodyLen with a trailing ellipsis on
-// truncation. Closes audit F17.
+// truncation. Prevents ANSI-escape injection from a hostile backend
+// rewriting the operator's terminal on every retry.
 func cleanErrorBody(in []byte) string {
 	out := make([]byte, 0, len(in))
 	for _, b := range in {

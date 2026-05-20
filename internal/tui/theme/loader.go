@@ -78,10 +78,10 @@ func (l *Loader) Load(name string) (*Styles, error) {
 // findSkin returns the raw bytes of the named skin. fromUser is
 // true when the file came from UserDir.
 //
-// Audit F13: theme.name is filepath.Join'd into UserDir without
-// validation, so `..` segments would escape the skins directory
-// and let a hostile config read arbitrary files via the embedded
-// or user-skin lookup. validSkinName below pins the accepted
+// theme.name is filepath.Join'd into UserDir, so without
+// validation a `..` segment would escape the skins directory and
+// let a hostile config read arbitrary files via the embedded or
+// user-skin lookup. validSkinName below pins the accepted
 // alphabet — Loader rejects anything else outright rather than
 // silently falling back to DefaultSkinName.
 func (l *Loader) findSkin(name string) (raw []byte, fromUser, ok bool) {

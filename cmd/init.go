@@ -212,11 +212,8 @@ func runInit(env initIO) error {
 // config is interpolation-only or auth-less, so the caller can
 // fmt.Fprintln unconditionally without polluting the output stream.
 //
-// Audit reference: F5 (security-audit.md). Originally landed in the
-// orphaned `internal/tui/wizard` package; retargeted here once that
-// package was deleted as dead code. The CLI init flow is the only
-// surface that writes credentials to disk, so this is where the
-// nudge actually reaches a user.
+// The CLI init flow is the only surface that writes credentials to
+// disk, so this is where the nudge actually reaches a user.
 func plaintextCredentialHint(cfg config.Config) string {
 	for _, be := range cfg.Backends {
 		if be.BearerToken != "" && !isEnvInterpolation(be.BearerToken) {
