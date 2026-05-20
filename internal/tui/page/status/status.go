@@ -66,9 +66,8 @@ func (p *Page) Title() string {
 
 // HeaderContent implements app.Page. Uptime is humanised via
 // timerender.Duration so the header zone stays narrow for the
-// long-uptime case (a 10-year-old backend used to render as the raw
-// Go Stringer "87600h0m0s" — see status brainstorm finding
-// HeaderContent_FormatsUptime_AsGoDurationString).
+// long-uptime case: a 10-year-old backend would otherwise render
+// as the raw Go Stringer "87600h0m0s".
 func (p *Page) HeaderContent() string {
 	if !p.have {
 		return "status: (loading)"
@@ -85,9 +84,8 @@ func (*Page) Footer() string { return "" }
 // subscribes to the "status" resource so the wire-layer poller
 // emits a DataMsg{Resource: backend.Status} every interval and
 // the page renders fresh version / uptime / config instead of
-// the cold-start snapshot for the whole session — closes the
-// brainstorm finding Page_NeverRefreshes_AfterStartup. The
-// Update branch type-asserts m.Resource to backend.Status; see
+// the cold-start snapshot for the whole session. The Update branch
+// type-asserts m.Resource to backend.Status; see
 // cmd/tui.go backendFetchers for the matching poll fetcher.
 func (*Page) PollResources() []string { return []string{"status"} }
 

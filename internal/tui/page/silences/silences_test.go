@@ -587,11 +587,10 @@ func (c *ctxBlockingSilenceClient) ExpireSilence(context.Context, string) error 
 // TestPage_CloseCancelsInflightEditorUpdate pins that closing the
 // silences page cancels the in-flight editor-driven UpdateSilence
 // call instead of letting the goroutine outlive the page. Without
-// the fix, a page-pop while a slow tenant is still writing leaves
+// the cancel, a page-pop while a slow tenant is still writing leaves
 // the goroutine running with the parent editorCtx (which only
-// cancels on app shutdown) — orphan-from-UX, mirror of the form's
-// cancel-on-Close contract (commit 7b8aa88) and tenantconfig's
-// fetch-cancel (commit adca17d).
+// cancels on app shutdown). Same cancel-on-Close contract the
+// silence form and tenantconfig fetch path use.
 func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
 	t.Parallel()
 	client := &ctxBlockingSilenceClient{started: make(chan struct{})}

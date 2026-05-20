@@ -252,13 +252,12 @@ func TestPage_ImplementsAppPageInterface(t *testing.T) {
 	var _ app.Page = New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
 }
 
-// TestMarshalSilence_SurfacesZeroValueState guards against the
-// silence-detail brainstorm finding: an `omitempty` tag on the
-// State field elided the line entirely when SilenceState was the
-// zero value (""), so an operator inspecting a malformed/legacy
-// silence couldn't tell pending from active from unknown. The
-// field must always render — empty-string is a legitimate
-// "unknown" worth surfacing.
+// TestMarshalSilence_SurfacesZeroValueState pins the State line in
+// the marshalled detail body even when SilenceState is the zero
+// value (""). An `omitempty` tag would elide the line entirely, so
+// an operator inspecting a malformed/legacy silence couldn't tell
+// pending from active from unknown. The field must always render —
+// empty-string is a legitimate "unknown" worth surfacing.
 func TestMarshalSilence_SurfacesZeroValueState(t *testing.T) {
 	t.Parallel()
 	s := sample()

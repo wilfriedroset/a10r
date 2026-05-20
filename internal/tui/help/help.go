@@ -113,8 +113,8 @@ func New(opts Options) *Help { return &Help{opts: opts} }
 // Ctrl+F/Ctrl+B plus the arrow / page-nav keys and Space) walk
 // the scroll offset instead. Wheel-only scrolling is undiscoverable
 // — a user reflexively pressing j/k to scroll a long help body
-// would otherwise close the overlay on the first keystroke (help
-// brainstorm finding `help.go:104-113`). Mouse-wheel ticks also
+// would otherwise close the overlay on the first keystroke. Mouse-
+// wheel ticks also
 // adjust the scroll offset; click / motion events arrive only while
 // the App's mouse cell-motion mode is on but the help overlay has no
 // use for them — they're ignored alongside other non-key messages.
@@ -164,10 +164,9 @@ func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 //
 // Half / full-page steps come from the cursor package so the help
 // overlay scrolls with the same cadence as the alerts and silences
-// pages. The offset is clamped to [0, lastMaxScroll] inline (see
-// the brainstorm secondary finding `help.go:121-130`) so a held-down
-// key doesn't strand the offset past the last row before View has
-// a chance to re-clamp.
+// pages. The offset is clamped to [0, lastMaxScroll] inline so a
+// held-down key doesn't strand the offset past the last row before
+// View has a chance to re-clamp.
 func (h *Help) scrollByKey(key string) bool {
 	half := cursor.HalfPageStep(h.lastBodyHeight)
 	full := cursor.FullPageStep(h.lastBodyHeight)

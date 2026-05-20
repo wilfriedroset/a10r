@@ -226,12 +226,12 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 }
 
 // TestPage_PrunesStaleFocusFingerprintAfterAlertResolved pins the
-// other half of the cursor-by-fingerprint contract that snapshotFocus's
-// empty-view preservation introduced (commit c4028d7). Preserving the
-// fingerprint is correct for the filter-narrowing path (the alert is
-// hidden, not gone), but wrong for the poll-removal path (the alert
-// resolved upstream and is genuinely absent from byTenant). Without
-// this prune, focusFingerprint sticks on a phantom across recomputes
+// other half of the cursor-by-fingerprint contract introduced by
+// snapshotFocus's empty-view preservation. Preserving the fingerprint
+// is correct for the filter-narrowing path (the alert is hidden, not
+// gone), but wrong for the poll-removal path (the alert resolved
+// upstream and is genuinely absent from byTenant). Without this prune,
+// focusFingerprint sticks on a phantom across recomputes
 // that leave the view empty — a later scope/filter widening would
 // try to re-anchor on a fingerprint no source knows about.
 //

@@ -627,7 +627,7 @@ func TestBuildTLSConfig_WarnsOnInsecureSkipVerify(t *testing.T) {
 	require.True(t, cfg.InsecureSkipVerify)
 
 	require.Contains(t, buf.String(), "TLS certificate verification disabled",
-		"InsecureSkipVerify=true must surface a WARN — MITM possible per transport brainstorm")
+		"InsecureSkipVerify=true must surface a WARN — MITM possible")
 	require.Contains(t, buf.String(), "level=WARN")
 }
 

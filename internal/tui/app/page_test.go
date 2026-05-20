@@ -715,8 +715,7 @@ func TestStack_PageInitChainedCmdsLand(t *testing.T) {
 // Update, so the cleanup must run on a precursor message; this
 // test verifies the App routes the precursor through every page
 // before emitting tea.Quit. See the alerts.Close / silences.Close
-// invariants ((adca17d), (7b8aa88), (7176a52), and the bulk
-// cancelBulk contract).
+// invariants and the bulk cancelBulk contract.
 func TestStack_QuitCascadesCloseOnEveryStackPage(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

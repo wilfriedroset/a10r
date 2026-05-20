@@ -233,8 +233,8 @@ func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
 	// programmatic caller (tests, future REPL, embedding library)
 	// that wires NewBase directly bypasses the config-load logging
 	// surface. slog.Default() is the shared sink so this layer needs
-	// no constructor seam — per transport brainstorm code-quality
-	// findings, the warning is the operator-actionable signal.
+	// no constructor seam — the warning is the operator-actionable
+	// signal.
 	if spec.InsecureSkipVerify {
 		slog.Warn("TLS certificate verification disabled — MITM possible")
 	}

@@ -463,8 +463,8 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	// so Close() aborts the in-flight UpdateSilence instead of
 	// letting the goroutine outlive the page. The parent is the
 	// editorCtx when set so an app-level shutdown still propagates;
-	// context.Background() otherwise. Mirrors the silence-form
-	// (7b8aa88) / tenantconfig (adca17d) cancel-on-Close contract.
+	// context.Background() otherwise. Same cancel-on-Close contract
+	// the silence form and tenantconfig use.
 	parent := p.editorCtx
 	if parent == nil {
 		parent = context.Background()

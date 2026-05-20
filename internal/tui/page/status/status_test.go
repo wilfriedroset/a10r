@@ -81,12 +81,11 @@ func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 	require.Contains(t, p.HeaderContent(), "prod")
 }
 
-// TestPage_HeaderContent_HumanisesUptime is the regression test for
-// the status brainstorm finding HeaderContent_FormatsUptime_AsGoDurationString
-// at status.go:71: a 10-year uptime used to render as the raw Go
-// time.Duration Stringer "87600h0m0s", which is hostile UX for an
-// SRE-targeted TUI. The fix routes Uptime through timerender.Duration
-// so the header zone shows compact units (s/m/h/d).
+// TestPage_HeaderContent_HumanisesUptime pins the HeaderContent
+// uptime render against the raw Go time.Duration Stringer. A 10-year
+// uptime as "87600h0m0s" is hostile UX for an SRE-targeted TUI; the
+// HeaderContent path routes Uptime through timerender.Duration so the
+// header zone shows compact units (s/m/h/d).
 func TestPage_HeaderContent_HumanisesUptime(t *testing.T) {
 	t.Parallel()
 
@@ -138,14 +137,13 @@ func TestPage_ConfigPreservesNewlines(t *testing.T) {
 	require.Contains(t, out, "route:\n  receiver: web")
 }
 
-// TestPage_PollResourcesIncludesStatus is the regression test for
-// the brainstorm finding Page_NeverRefreshes_AfterStartup: the
-// status page previously returned an empty PollResources slice,
-// which combined with the one-shot Init fetch left the page
-// rendering a stale version / uptime / config for the entire
-// session. Declaring the "status" resource here lets the wire
-// layer's poll machinery route DataMsg{Resource: backend.Status}
-// at the configured interval — the dynamic uptime line in
+// TestPage_PollResourcesIncludesStatus pins the page's poll
+// subscription. An empty PollResources slice combined with the
+// one-shot Init fetch would leave the page rendering a stale
+// version / uptime / config for the entire session. Declaring
+// "status" here lets the wire layer's poll machinery route
+// DataMsg{Resource: backend.Status} at the configured interval — the
+// dynamic uptime line in
 // HeaderContent then actually ticks instead of freezing on the
 // first reading.
 func TestPage_PollResourcesIncludesStatus(t *testing.T) {

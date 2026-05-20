@@ -178,8 +178,8 @@ type Page struct {
 	// async write Cmd is built; cleared by the goroutine's defer.
 	// Close() calls it so a page-pop while a slow tenant is writing
 	// aborts the request instead of letting the goroutine survive
-	// until app shutdown. Mirrors the silence-form (7b8aa88) and
-	// tenantconfig (adca17d) per-write cancel pattern.
+	// until app shutdown. Mirrors the per-write cancel pattern used
+	// by the silence form and tenantconfig.
 	cancelEditorUpdate context.CancelFunc
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
@@ -332,8 +332,8 @@ func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 // side so completing them is safe. Also cancels any in-flight
 // editor-driven UpdateSilence so a page-pop mid-write aborts the
 // request instead of letting the goroutine outlive the page —
-// mirror of the silence-form (7b8aa88) / tenantconfig (adca17d)
-// per-write cancel contract.
+// same per-write cancel contract as the silence form and
+// tenantconfig.
 func (p *Page) Close() tea.Cmd {
 	p.mu.Lock()
 	cancelEdit := p.cancelEditorUpdate
