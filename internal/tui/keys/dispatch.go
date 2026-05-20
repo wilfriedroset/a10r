@@ -22,6 +22,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/clock"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 )
 
@@ -104,7 +105,7 @@ type Dispatcher struct {
 	chordPending string
 	chordExpiry  time.Time
 
-	clock Clock
+	clock clock.Now
 }
 
 // actionEntry is the (layer, key, description, handler) tuple the
@@ -131,14 +132,14 @@ type ChordExpiredMsg struct {
 }
 
 // New constructs a Dispatcher with an empty key map at every layer.
-// Callers register bindings via Set. nil clock defaults to
-// SystemClock so the production wiring is a one-line New().
-func New(clock Clock) *Dispatcher {
-	if clock == nil {
-		clock = SystemClock{}
+// Callers register bindings via Set. nil c defaults to clock.System
+// so the production wiring is a one-line New().
+func New(c clock.Now) *Dispatcher {
+	if c == nil {
+		c = clock.System{}
 	}
 	d := &Dispatcher{
-		clock:   clock,
+		clock:   c,
 		actions: map[string]actionEntry{},
 	}
 	for i := range d.layers {

@@ -26,6 +26,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/clock"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 )
 
@@ -145,8 +146,8 @@ type Options struct {
 	Fetch FetchFunc
 	// Send publishes messages into the program loop. Must not be nil.
 	Send SendFunc
-	// Clock injects time. nil defaults to SystemClock.
-	Clock Clock
+	// Clock injects time. nil defaults to clock.System.
+	Clock clock.Clock
 	// Backoff is the failure-mode delay schedule. Zero value falls
 	// back to DefaultBackoff.
 	Backoff Backoff
@@ -169,7 +170,7 @@ type Poller struct {
 	interval time.Duration
 	fetch    FetchFunc
 	send     SendFunc
-	clock    Clock
+	clock    clock.Clock
 	backoff  Backoff
 
 	// state tracks the last connection state we emitted. The
@@ -220,9 +221,9 @@ func New(opts Options) *Poller {
 	if opts.Send == nil {
 		panic("poll.New: Send must not be nil")
 	}
-	clock := opts.Clock
-	if clock == nil {
-		clock = SystemClock{}
+	clk := opts.Clock
+	if clk == nil {
+		clk = clock.System{}
 	}
 	bo := opts.Backoff
 	if bo.Base == 0 {
@@ -253,7 +254,7 @@ func New(opts Options) *Poller {
 		interval: interval,
 		fetch:    opts.Fetch,
 		send:     opts.Send,
-		clock:    clock,
+		clock:    clk,
 		backoff:  bo,
 		refresh:  make(chan struct{}, 1),
 		// Cold-start sentinel: Unreachable so a first-tick success

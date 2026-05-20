@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/clock"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 )
 
@@ -58,7 +59,7 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 // fireNext discipline as After. Stop drops the pending entry from the
 // scheduler so cancelled timers don't get force-fired by a later
 // fireNext call (matches the production NewTimer contract).
-func (c *fakeClock) NewTimer(d time.Duration) Timer {
+func (c *fakeClock) NewTimer(d time.Duration) clock.Timer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ch := make(chan time.Time, 1)

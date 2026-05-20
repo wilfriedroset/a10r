@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/clock"
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
@@ -34,13 +35,13 @@ import (
 // can swap WithCache(cs, ...) into any place that previously used
 // cs directly.
 func WithCache(cs []Checker, ttl time.Duration) []Checker {
-	return wrapWithCache(cs, ttl, realClock{})
+	return wrapWithCache(cs, ttl, clock.System{})
 }
 
 // wrapWithCache is the DI seam exercised by tests. Production
-// callers go through WithCache, which pins realClock; tests inject
-// a fakeClock to drive the TTL boundary deterministically.
-func wrapWithCache(cs []Checker, ttl time.Duration, clk clock) []Checker {
+// callers go through WithCache, which pins clock.System; tests
+// inject a fakeClock to drive the TTL boundary deterministically.
+func wrapWithCache(cs []Checker, ttl time.Duration, clk clock.Now) []Checker {
 	out := make([]Checker, len(cs))
 	for i, c := range cs {
 		out[i] = &cachedChecker{
@@ -52,22 +53,6 @@ func wrapWithCache(cs []Checker, ttl time.Duration, clk clock) []Checker {
 	}
 	return out
 }
-
-// clock abstracts time.Now so tests can drive TTL transitions
-// without sleeping. realClock is the production implementation;
-// fakeClock lives in the test file.
-type clock interface {
-	Now() time.Time
-}
-
-type realClock struct{}
-
-// Now returns the wall-clock time. The method exists purely so
-// realClock satisfies the clock interface — no synchronization or
-// monotonic-reading tricks are needed because callers compare
-// timestamps against a stored time and time.Time already preserves
-// the monotonic reading internally.
-func (realClock) Now() time.Time { return time.Now() }
 
 // cacheEntry pairs a stored Result with the time it was recorded.
 // Equality of (now - storedAt) >= ttl triggers a refresh.
@@ -100,7 +85,7 @@ type cacheEntry struct {
 type cachedChecker struct {
 	inner   Checker
 	ttl     time.Duration
-	clock   clock
+	clock   clock.Now
 	mu      sync.Mutex
 	entries map[string]cacheEntry
 }
