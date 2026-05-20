@@ -41,8 +41,8 @@ const (
 
 	// SeverityError means the check failed in a way that prevents
 	// a10r from working correctly (unreachable, version floor
-	// violation). The doctor command exits non-zero once A4 lands
-	// — see ADR 0009 for the exit-code table.
+	// violation). The doctor command exits non-zero when a write-
+	// side health check lands — see ADR 0009 for the exit-code table.
 	SeverityError Severity = "error"
 )
 

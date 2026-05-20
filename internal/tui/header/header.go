@@ -51,11 +51,11 @@ func (s ConnState) String() string {
 // State is the rendering input for the header strip. Stateless:
 // callers reconstruct it on every frame from their own state.
 type State struct {
-	// Tenants is the tenant-selection label (per C3): "prod",
+	// Tenants is the tenant-selection label: "prod",
 	// "prod, staging", or "all (3)". Empty renders as "tenants:".
 	Tenants string
 
-	// Conn is the aggregated connection indicator per C2.
+	// Conn is the aggregated connection indicator.
 	Conn ConnState
 
 	// Count is rendered next to the indicator (e.g. "142 alerts").
@@ -71,7 +71,7 @@ type State struct {
 	Content string
 
 	// Hints are the action.Action slice for the active view (already
-	// filtered by C4 read-only mode at the registry layer). Rendered
+	// filtered by read-only mode at the registry layer). Rendered
 	// right-aligned as `[k] desc  [k] desc  [?] help`.
 	Hints []action.Action
 

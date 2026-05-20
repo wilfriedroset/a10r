@@ -278,7 +278,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// dispatcher has every built-in action registered before
 	// ApplyOverrides looks them up; failures fail-closed at
 	// startup so the operator can't run with a half-applied
-	// profile (P2.W1.5 / ADR 0010).
+	// profile (ADR 0010).
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
 		return nil, fmt.Errorf("user keybindings: %w", err)
 	}

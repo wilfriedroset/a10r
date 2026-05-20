@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package status renders the alertmanager status pane: cluster
-// state, version info, uptime, and the raw `config.original` YAML
-// per I1. Three anchor keys (c/p/v) scroll to the cluster /
-// version / config sections respectively.
+// state, version info, uptime, and the raw `config.original` YAML.
+// Three anchor keys (c/p/v) scroll to the cluster / version /
+// config sections respectively.
 package status
 
 import (

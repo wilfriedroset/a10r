@@ -47,7 +47,7 @@ import (
 // lookups) and the lower-cased description text in the help
 // overlay (the helper derives "sort by <title>" from each Column's
 // Title, which lower-cases to these strings). Order matches the
-// cycle order for h/l walk per E2.
+// cycle order for the h/l sort-column walk.
 const (
 	sortKeySeverity = "severity"
 	sortKeyName     = "alertname"

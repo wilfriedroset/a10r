@@ -53,7 +53,7 @@ const (
 // header order (BY → STARTS → ENDS → STATE). h/l walks through
 // this order so "right one column" matches what the user sees;
 // ENDS is the default sort key — silences expiring soonest at
-// the top per E2 — but that lives separately from registration
+// the top — but that lives separately from registration
 // order. All defaults are ASC.
 func silenceSortColumns() []tablesort.Column[silenceEntry] {
 	return []tablesort.Column[silenceEntry]{
@@ -441,7 +441,7 @@ func (p *Page) soonestNextRefresh() time.Time {
 func (*Page) PollResources() []string { return []string{"silences"} }
 
 // Bindings implements app.Page. Every write action carries
-// Dangerous so read-only mode (C4) hides them via the action
+// Dangerous so read-only mode hides them via the action
 // registry. `x` doubles as "expire cursor row" (no marks) and
 // "bulk expire all marked rows" (one or more marks) — k9s-style
 // same-key-different-N. Ctrl+X is intentionally absent; the

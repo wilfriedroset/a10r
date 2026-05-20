@@ -35,7 +35,7 @@ var (
 )
 
 // Retryabler is the duck-typed interface a concrete error may
-// implement to opt into the C1 backoff loop. The name follows the
+// implement to opt into the transport backoff loop. The name follows the
 // stdlib convention of suffixing capability interfaces with the
 // behaviour they describe (cf. net.Error's Timeout()/Temporary()).
 // Callers query via Retryable() below rather than asserting against
@@ -53,7 +53,7 @@ type Retryabler interface {
 }
 
 // Retryable reports whether err signals a transient failure that
-// the C1 backoff loop should retry. The rules:
+// the transport backoff loop should retry. The rules:
 //
 //   - nil → false.
 //   - errors.Is(err, ErrUnreachable) → true.

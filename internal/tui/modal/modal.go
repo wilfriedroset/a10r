@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package modal hosts the async-result overlay surfaces that take
-// precedence over the page stack: the tenant picker (Ctrl+T per C3),
+// precedence over the page stack: the tenant picker (Ctrl+T),
 // the generic yes/no confirm dialog used by destructive flows like
 // silence expire, and the alert-page silence picker. Each carries
 // a typed result (`PickerSubmittedMsg`, `ConfirmResultMsg`,

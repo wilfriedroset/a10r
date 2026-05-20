@@ -50,7 +50,7 @@ func (a *App) registerTenantBindings() {
 	})
 	for i, name := range a.tenants {
 		if i >= 9 {
-			break // numeric quick-switch tops out at 1-9 per C3
+			break // numeric quick-switch tops out at 1-9
 		}
 		captured := name
 		a.dispatcher.Set(keys.LayerGlobal, strconv.Itoa(i+1), func() tea.Cmd {
@@ -107,7 +107,7 @@ func (a *App) registerGlobalBindings() {
 	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", "Esc", PopPage)
 	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
 	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
-	// `Ctrl+T` opens the tenant picker per C3 — fuzzy search over
+	// `Ctrl+T` opens the tenant picker — fuzzy search over
 	// the configured backends with multi-select. Resulting
 	// PickerSubmittedMsg is translated into a ScopeChangedMsg in
 	// handleLifecycle so every list page reacts the same way as

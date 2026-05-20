@@ -61,7 +61,7 @@ type FrameStyle struct {
 	TitleCounterBold   lipgloss.Style
 }
 
-// HeaderStyle drives the J1 three-zone header: Default carries the
+// HeaderStyle drives the three-zone header strip: Default carries the
 // fg+bg, Accent/OK/Warn/Error are foreground-only colours used for
 // the tenant indicator, connection state badges, and counts.
 type HeaderStyle struct {
@@ -78,7 +78,7 @@ type HeaderStyle struct {
 // TableStyle covers every table-row state: the column header, the
 // active (sorted) header column, regular rows, the cursor row,
 // marked rows (Space-selected for bulk actions), and dimmed rows
-// (read-only mode + stale data per C2). Note: there is no RowAlt
+// (read-only mode + stale data). Note: there is no RowAlt
 // — the previous schema had one but no view consumed it; k9s skins
 // have no analog and the role was dead code.
 type TableStyle struct {
@@ -163,7 +163,7 @@ type CrumbsStyle struct {
 	ActivePill  lipgloss.Style
 }
 
-// HintStyle drives the J1 right-zone keybinding hint strip. Key
+// HintStyle drives the right-zone keybinding hint strip. Key
 // highlights the shortcut letter; HelpKey is the always-on `?`
 // indicator.
 type HintStyle struct {
@@ -188,7 +188,7 @@ type ModalStyle struct {
 }
 
 // YAMLStyle colours the status pane's raw config.original viewer
-// (per I1) and, post-v0.1, the Mimir config editor.
+// and, post-v0.1, the Mimir config editor.
 type YAMLStyle struct {
 	Key   lipgloss.Style
 	Value lipgloss.Style

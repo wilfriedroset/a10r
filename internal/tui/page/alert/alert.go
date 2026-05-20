@@ -2,9 +2,8 @@
 
 // Package alert renders the alert-detail page — a read-only view
 // of one cached backend.Alert pushed from the alerts list row.
-// Per C5 there is no extra GET on push: the alerts list snapshot
-// is sufficient and a poll tick will refresh it on its own
-// schedule.
+// There is no extra GET on push: the alerts list snapshot is
+// sufficient and a poll tick will refresh it on its own schedule.
 package alert
 
 import (
@@ -474,7 +473,7 @@ func (p *Page) bodyLines(width int) []string {
 // with `y`. Field order and key names mirror the Alertmanager v2
 // /api/v2/alerts wire payload so the body reads close to what the
 // API actually returns — that's the whole point of the escape
-// hatch (matches the scout doc §G5 framing). Empty optional
+// hatch. Empty optional
 // collections elide via `omitempty` so a non-suppressed alert
 // doesn't carry empty silencedBy / inhibitedBy / mutedBy noise.
 type alertYAML struct {

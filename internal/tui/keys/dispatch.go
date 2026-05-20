@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package keys is the J2 / keybindings.md dispatcher: incoming key
+// Package keys is the keybindings dispatcher: incoming key
 // events flow through five precedence layers (modal > prompt >
 // per-view > table-context > global) and the first match wins.
 // Multi-key chords are supported with a 500 ms timeout — v0.1 only
@@ -205,8 +205,7 @@ func (d *Dispatcher) Bindings(layer Layer) []action.Action {
 // the `:` / `/` command bar), and on Close it must give the
 // underlying layers their keys back. Without Clear the modal's
 // bindings would linger in their map and keep shadowing the same
-// key in lower-precedence layers — the FM5 gap from the keys
-// brainstorm code-quality findings.
+// key in lower-precedence layers.
 //
 // Scrubbing the action registry is part of the contract: if a user
 // override is applied later, ApplyOverrides must not find a stale

@@ -77,7 +77,7 @@ type Options struct {
 	// (cmd/tui.go) calls footer.DefaultHistoryDir to populate this
 	// for the production binary.
 	HistoryDir string
-	// HintBar is the optional rotating tip strip (P2.W1.7). The
+	// HintBar is the optional rotating tip strip. The
 	// zero value is a disabled bar — no tick fires, the strip
 	// renders empty so the footer collapses. Production turns it
 	// on only when `tui.tips: true` is set in a10r.yaml; tests
@@ -104,8 +104,8 @@ type App struct {
 	flash   footer.Flash
 	hintbar footer.HintBar
 
-	// histories backs the per-class recent-submissions rings
-	// (P2.W1.8 / G4). Three classes — `:` always picks cmd, `/`
+	// histories backs the per-class recent-submissions rings.
+	// Three classes — `:` always picks cmd, `/`
 	// picks silence-matcher on the silences page and filter
 	// elsewhere. nil rings are quiet no-ops, so a missing histories
 	// entry simply disables cycling for that class.

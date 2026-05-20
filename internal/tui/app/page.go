@@ -55,8 +55,8 @@ type Page interface {
 	// "alerts(prod)[531]". Empty falls back to Crumb.
 	Title() string
 
-	// HeaderContent is the per-view middle-zone slot string per the
-	// J1 header spec. Empty omits the slot.
+	// HeaderContent is the per-view middle-zone slot string in the
+	// header strip. Empty omits the slot.
 	HeaderContent() string
 
 	// Footer is the optional label centred in the bordered body's
@@ -122,8 +122,8 @@ type ClearMarksMsg struct{}
 type QuitRequestedMsg struct{}
 
 // RefreshRequestedMsg is the typed message a page emits when the
-// user presses `r` to bypass the poll tick (per keybindings.md
-// C5). The App routes it to the wiring layer's refresh func, which
+// user presses `r` to bypass the poll tick. The App routes it to
+// the wiring layer's refresh func, which
 // pokes the matching pollers via Refresh(). Resource is the bucket
 // label set on poll.Options.Resource ("alerts", "silences", …);
 // Scope mirrors the page's active scope ("all" / single tenant /

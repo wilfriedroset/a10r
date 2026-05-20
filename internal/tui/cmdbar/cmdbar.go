@@ -8,7 +8,7 @@
 //
 // Filter prompts (`/`) bypass this package — their values flow
 // straight to the active page, which interprets the syntax in its
-// own page-specific way (E1 substring + matcher tokens).
+// own page-specific way (substring + matcher tokens).
 package cmdbar
 
 import (
@@ -37,7 +37,7 @@ var (
 	// ErrUserAliasConflict is returned by RegisterUser when the
 	// short already exists in the built-in alias set. Fail-closed
 	// so a user typo can't shadow a registered binding silently —
-	// same approach as the C3 keybinding-conflict story.
+	// same approach as the keybinding-conflict handling.
 	ErrUserAliasConflict = errors.New("user alias conflicts with built-in")
 	// ErrUserAliasUnresolved is returned by RegisterUser when the
 	// alias's expanded value doesn't resolve to a known built-in.

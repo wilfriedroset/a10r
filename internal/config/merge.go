@@ -140,7 +140,7 @@ func mergeInto(base, overlay *Config, overlayPath string, backendSource map[stri
 	mergeLog(&base.Log, overlay.Log)
 	mergePages(&base.Pages, overlay.Pages)
 	mergeTUI(&base.TUI, overlay.TUI)
-	// Keys is reserved-empty today (J2). When fields land they merge
+	// Keys is reserved-empty today. When fields land they merge
 	// here under the same non-zero-wins rule.
 	return nil
 }

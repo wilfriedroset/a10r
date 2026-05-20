@@ -16,13 +16,13 @@ package action
 // part of this struct — coupling actions to tea.Cmd here would pull
 // bubbletea into a leaf package. The dispatcher in keys/ holds the
 // (layer, key) → handler map; this type carries the rendering
-// metadata the help overlay and the J1 hint strip read.
+// metadata the help overlay and the header hint strip read.
 type Action struct {
 	// Key is the wire-level binding string from keybindings.md
 	// (e.g. "s", "Ctrl+S", "Shift+E", "gg" for the chord).
 	Key string
 
-	// Description is shown in the J1 hint strip and the help
+	// Description is shown in the header hint strip and the help
 	// overlay. Short imperative phrases ("silence alert", "expire
 	// silence", "refresh") read best in both contexts.
 	Description string
@@ -34,8 +34,8 @@ type Action struct {
 	View string
 
 	// Dangerous flags actions filtered out when read-only mode is
-	// active (per C4): silence create / update / expire, Mimir
-	// config writes (post-v0.1), and any other state-mutating verb.
+	// active: silence create / update / expire, Mimir config writes
+	// (post-v0.1), and any other state-mutating verb.
 	Dangerous bool
 
 	// Bulk flags actions that require prior Space-mark selection.

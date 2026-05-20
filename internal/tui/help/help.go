@@ -16,7 +16,7 @@
 //	  - HOTKEYS holds page-specific sort and filter shortcuts when
 //	    the active page exposes them; empty when the page doesn't.
 //
-// Read-only mode (C4) hides every Dangerous binding from RESOURCE.
+// Read-only mode hides every Dangerous binding from RESOURCE.
 package help
 
 import (
@@ -69,7 +69,7 @@ type Options struct {
 	Tenants []string
 
 	// ReadOnly hides every Dangerous binding from the rendered
-	// RESOURCE column per C4.
+	// RESOURCE column.
 	ReadOnly bool
 
 	// Styles is the compiled theme. Used for the column headers,

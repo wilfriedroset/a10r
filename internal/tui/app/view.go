@@ -103,7 +103,7 @@ func tenantBindings(tenants []string) []panel.TenantBinding {
 	out = append(out, panel.TenantBinding{Key: "0", Name: "all"})
 	for i, t := range tenants {
 		if i >= 9 {
-			break // numeric quick-switch tops out at 1-9 per C3
+			break // numeric quick-switch tops out at 1-9
 		}
 		out = append(out, panel.TenantBinding{Key: strconv.Itoa(i + 1), Name: t})
 	}
@@ -168,7 +168,7 @@ func (a *App) renderBody(height int) string {
 // part of the chrome, not a footer line. Each strip can be empty;
 // the join collapses empty rows so the body fills the freed space.
 //
-// Hint-bar order: the rotating tip strip (P2.W1.7) sits above the
+// Hint-bar order: the rotating tip strip sits above the
 // crumbs so the breadcrumb line stays the closest cue to the body
 // — the user reads the page stack first, the curated tip second.
 // A disabled hint bar renders empty and the row collapses.

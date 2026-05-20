@@ -35,7 +35,7 @@ const (
 	// DefaultRemoteTimeout matches Prometheus's `remote_timeout`
 	// default (30s). Picked large enough for a slow backend with
 	// thousands of alerts but small enough that the polling loop does
-	// not stall on a hung request — the C1 backoff cap is
+	// not stall on a hung request — the transport backoff cap is
 	// poll_interval × 6, so a 30 s request timeout fits inside the
 	// smallest sensible poll_interval (1 m default).
 	DefaultRemoteTimeout = 30 * time.Second
@@ -54,7 +54,7 @@ const (
 )
 
 // Config is the top-level shape of a10r.yaml. The Keys section is
-// reserved for post-v0.1 user-defined keybinding overrides (J2) and
+// reserved for post-v0.1 user-defined keybinding overrides and
 // is intentionally empty so the schema slot is locked in.
 type Config struct {
 	Backends []Backend     `yaml:"backends,omitempty"`
@@ -408,15 +408,15 @@ type Log struct {
 	Level string `yaml:"level,omitempty"`
 }
 
-// Keys is reserved for user-defined keybinding overrides (J2,
-// post-v0.1). The struct is exported empty so the YAML key is part
-// of the schema contract from day one and adding fields later is a
-// non-breaking change.
+// Keys is reserved for user-defined keybinding overrides
+// (post-v0.1). The struct is exported empty so the YAML key is
+// part of the schema contract from day one and adding fields
+// later is a non-breaking change.
 type Keys struct{}
 
 // TUI carries TUI-presentation knobs that don't fit on Defaults
 // (which is shared with the per-backend / per-page resolver chain).
-// Today the block hosts the optional rotating hint bar (P2.W1.7);
+// Today the block hosts the optional rotating hint bar;
 // future TUI-only knobs (e.g. an idle dim threshold, a custom
 // status footer) compose here so the resolver chain stays lean.
 //

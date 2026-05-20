@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tenant renders the tenant table per C3: one row per
+// Package tenant renders the tenant table: one row per
 // configured backend with NAME / URL / VERSION columns and
 // connection / count metadata. As of #7 the table is read-only
 // — Enter drills into the per-tenant config inspector
