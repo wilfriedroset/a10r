@@ -183,8 +183,9 @@ type Options struct {
 	// calling Client.CreateSilence. The page that opened the form
 	// owns the per-target matcher substitution and the fan-out.
 	// Client may be nil in bulk mode (the form never calls it). Bulk
-	// is mutually exclusive with EditID — bulk-edit is out of scope
-	// (see docs/design/bulk-silence.md "Out of scope").
+	// is mutually exclusive with EditID — bulk-edit is intentionally
+	// out of scope (editing N silences in lockstep has no obvious UX
+	// and no current ask).
 	Bulk bool
 
 	// BulkBanner is the descriptive line rendered where the matchers

@@ -88,13 +88,13 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 // drop it from the queue. Empty marks → soft Info flash hinting
 // at the Space binding so the user discovers the affordance.
 //
-// Question wording matches docs/design/bulk-silence.md: a single
-// queued silence keeps the existing single-row "expire silence
-// <id>?" wording (functionally identical to the cursor-row path);
-// two-or-more uses "expire N silences? (tenant <breakdown>)" so
-// the user can see at a glance how many backends the fanout will
-// touch. Default-No because expire is mostly-irreversible — the
-// next poll re-fires the alert and on-call may page.
+// Question wording is split by queue size: a single queued silence
+// keeps the existing single-row "expire silence <id>?" wording
+// (functionally identical to the cursor-row path); two-or-more
+// uses "expire N silences? (tenant <breakdown>)" so the user can
+// see at a glance how many backends the fanout will touch.
+// Default-No because expire is mostly-irreversible — the next poll
+// re-fires the alert and on-call may page.
 func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	if len(p.marks) == 0 {
 		return flashFn(footer.FlashInfo, "no rows marked — Space marks one")

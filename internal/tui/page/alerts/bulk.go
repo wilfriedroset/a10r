@@ -172,9 +172,9 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 // bulkSilenceBanner formats the form's banner string. Single-
 // tenant + N=1 reads "applies to 1 alert (tenant prod)";
 // otherwise "applies to N alerts across M tenants — each
-// silenced with its own labels". Wording matches docs/design/
-// bulk-silence.md so the user sees exactly what the submit will
-// fan out to.
+// silenced with its own labels". The wording is deliberate: the
+// user must see at a glance how many alerts and tenants the
+// submit fans out across.
 func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 	n := len(targets)
 	if len(tenants) == 1 {
