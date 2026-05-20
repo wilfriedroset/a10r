@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -105,34 +106,6 @@ type State struct {
 // narrow terminals — k9s does the same for its namespace and menu
 // strips.
 const gridCols = 3
-
-// ligatureProneKeys is the set of single-character key labels
-// that font-ligature with `<` or `>` on programming-ligature
-// fonts (`<-`, `->`, `<=`, `=>`, `<>`). Bindings using these
-// keys are rendered with square brackets (`[-]`) instead of the
-// angle-bracket chip; `[ ]` does not form a ligature in any
-// common programming font, so the key stays readable on ghostty
-// / kitty / wezterm with JetBrains Mono / Fira Code / …
-//
-// Mirrored from internal/tui/help to keep the two surfaces
-// consistent without growing a cross-package dep for one map.
-var ligatureProneKeys = map[string]struct{}{
-	"-": {},
-	"=": {},
-	"<": {},
-	">": {},
-}
-
-// chipText returns the bracketed form of key, swapping to
-// square brackets for ligature-prone single-character keys so
-// programming-ligature fonts don't mangle them. Other keys
-// (Enter, 0, s, …) keep their `<key>` rendering.
-func chipText(key string) string {
-	if _, prone := ligatureProneKeys[key]; prone {
-		return "[" + key + "]"
-	}
-	return "<" + key + ">"
-}
 
 // unboundedRows is the rowsBudget callers pass when there's no
 // logo (and therefore no natural ceiling on the panel height).
@@ -378,7 +351,7 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 	}
 	maxKey := 0
 	for _, a := range hints {
-		w := lipgloss.Width(chipText(a.Key))
+		w := lipgloss.Width(help.ChipText(a.Key))
 		if w > maxKey {
 			maxKey = w
 		}
@@ -390,7 +363,7 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 		if a.Key == "?" {
 			keyStyle = styles.Hint.HelpKeyBold
 		}
-		key := keyStyle.Render(chipText(a.Key))
+		key := keyStyle.Render(help.ChipText(a.Key))
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
 		cells[i] = key + pad + descStyle.Render(a.Description)
 	}
