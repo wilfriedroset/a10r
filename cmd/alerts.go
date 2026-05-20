@@ -89,12 +89,9 @@ type alertRow struct {
 	Labels      map[string]string  `json:"labels" yaml:"labels"`
 }
 
-// runAlertsList is the per-command thin wrapper around
-// listcmd.Run: parse the user's --output value, load config,
-// build the HTTP debug logger, and assemble a Spec whose Fetcher
-// closure pushes the per-tenant filter logic *inside* the
-// per-backend goroutine. Exit-code mapping lives here, not in
-// the pipeline.
+// runAlertsList hands the alerts-specific Fetcher + filter wiring to
+// runListRecipe; the filter logic runs inside the per-backend goroutine
+// so the pipeline never sees an unfiltered slice.
 func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts alertsListOptions) error {
 	return runListRecipe(ctx, out, flags, listRecipe[alertRow]{
 		Format: opts.Output,

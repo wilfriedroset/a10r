@@ -72,10 +72,9 @@ type receiverRow struct {
 	Name   string `json:"name" yaml:"name"`
 }
 
-// runReceiversList is the per-command thin wrapper around
-// listcmd.Run: parse flags, build a Spec whose Fetcher closure
-// fans out the per-tenant ListReceivers call. Exit-code mapping
-// lives here.
+// runReceiversList hands the receivers Fetcher to runListRecipe.
+// Receivers carry no per-command filter so the Fetcher just flattens
+// the wire response.
 func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts receiversListOptions) error {
 	return runListRecipe(ctx, out, flags, listRecipe[receiverRow]{
 		Format: opts.Output,

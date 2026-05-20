@@ -92,10 +92,9 @@ type groupRow struct {
 	Receivers []string          `json:"receivers" yaml:"receivers"`
 }
 
-// runGroupsList is the per-command thin wrapper around
-// listcmd.Run: parse flags, build a Spec whose Fetcher closure
-// pushes the per-tenant filter logic inside the per-backend
-// goroutine. Exit-code mapping lives here.
+// runGroupsList hands the groups-specific Fetcher + filter wiring to
+// runListRecipe; the filter runs inside the per-backend goroutine so
+// the pipeline never sees an unfiltered slice.
 func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts groupsListOptions) error {
 	return runListRecipe(ctx, out, flags, listRecipe[groupRow]{
 		Format: opts.Output,

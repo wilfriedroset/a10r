@@ -150,10 +150,9 @@ func validateSilenceState(in string) (string, error) {
 		in, strings.Join(allowed, ", "))
 }
 
-// runSilencesList is the per-command thin wrapper around
-// listcmd.Run: parse flags, validate per-command options, build a
-// Spec whose Fetcher closure pushes the filter logic inside the
-// per-backend goroutine. Exit-code mapping lives here.
+// runSilencesList validates --state and --matcher (so a typo errors
+// without HTTP traffic) then hands the silence-specific Fetcher +
+// filter wiring to runListRecipe.
 func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts silencesListOptions) error {
 	state, err := validateSilenceState(opts.State)
 	if err != nil {

@@ -37,11 +37,11 @@ type listRecipe[R any] struct {
 	FailOnAny     bool
 }
 
-// runListRecipe is the per-command thin wrapper around listcmd.Run.
-// Parses --output, loads config, builds the HTTP debug logger +
-// factory, assembles the Spec, runs the pipeline, maps the exit. The
-// four list subcommands each provide a listRecipe[R] and trade the
-// recipe-construction noise for one call.
+// runListRecipe is the shared wrapper around listcmd.Run for every
+// list subcommand. Owns the cross-cutting scaffolding (ParseFormat,
+// loadCmdConfig, buildClientFactory + defer-close, Spec assembly,
+// mapPipelineExit) so each command just hands the per-command bits
+// in via listRecipe.
 func runListRecipe[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, r listRecipe[R]) error {
 	format, err := output.ParseFormat(r.Format)
 	if err != nil {
