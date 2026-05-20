@@ -13,46 +13,46 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
 
-// ListAlerts implements backend.Reader.
-func (c *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) ([]backend.Alert, error) {
-	u := c.urlFor("/alerts", encodeAlertFilter(filter))
-	var raw []wireAlert
+// fetchList runs the urlFor → doGet → decode → convert flow shared by
+// every list endpoint. errCtx wraps any transport or decode failure
+// so the caller gets a consistent prefix without re-implementing it
+// in every method.
+func fetchList[W, D any](ctx context.Context, c *Client, u, errCtx string, convert func(W) D) ([]D, error) {
+	var raw []W
 	if err := c.doGet(ctx, u, &raw); err != nil {
-		return nil, fmt.Errorf("list alerts: %w", err)
+		return nil, fmt.Errorf("%s: %w", errCtx, err)
 	}
-	out := make([]backend.Alert, 0, len(raw))
+	out := make([]D, 0, len(raw))
 	for _, w := range raw {
-		out = append(out, toAlert(w))
+		out = append(out, convert(w))
 	}
 	return out, nil
+}
+
+// fetchOne is the single-resource variant of fetchList for endpoints
+// that return one decoded object instead of a list.
+func fetchOne[W, D any](ctx context.Context, c *Client, u, errCtx string, convert func(W) D) (D, error) {
+	var raw W
+	var zero D
+	if err := c.doGet(ctx, u, &raw); err != nil {
+		return zero, fmt.Errorf("%s: %w", errCtx, err)
+	}
+	return convert(raw), nil
+}
+
+// ListAlerts implements backend.Reader.
+func (c *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) ([]backend.Alert, error) {
+	return fetchList(ctx, c, c.urlFor("/alerts", encodeAlertFilter(filter)), "list alerts", toAlert)
 }
 
 // ListAlertGroups implements backend.Reader.
 func (c *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) ([]backend.AlertGroup, error) {
-	u := c.urlFor("/alerts/groups", encodeAlertFilter(filter))
-	var raw []wireAlertGroup
-	if err := c.doGet(ctx, u, &raw); err != nil {
-		return nil, fmt.Errorf("list alert groups: %w", err)
-	}
-	out := make([]backend.AlertGroup, 0, len(raw))
-	for _, w := range raw {
-		out = append(out, toAlertGroup(w))
-	}
-	return out, nil
+	return fetchList(ctx, c, c.urlFor("/alerts/groups", encodeAlertFilter(filter)), "list alert groups", toAlertGroup)
 }
 
 // ListSilences implements backend.Reader.
 func (c *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) ([]backend.Silence, error) {
-	u := c.urlFor("/silences", encodeSilenceFilter(filter))
-	var raw []wireSilence
-	if err := c.doGet(ctx, u, &raw); err != nil {
-		return nil, fmt.Errorf("list silences: %w", err)
-	}
-	out := make([]backend.Silence, 0, len(raw))
-	for _, w := range raw {
-		out = append(out, toSilence(w))
-	}
-	return out, nil
+	return fetchList(ctx, c, c.urlFor("/silences", encodeSilenceFilter(filter)), "list silences", toSilence)
 }
 
 // GetSilence implements backend.Reader.
@@ -60,38 +60,21 @@ func (c *Client) GetSilence(ctx context.Context, id string) (backend.Silence, er
 	if id == "" {
 		return backend.Silence{}, errors.New("get silence: id is required")
 	}
-	u := c.urlFor("/silence/"+url.PathEscape(id), nil)
-	var raw wireSilence
-	if err := c.doGet(ctx, u, &raw); err != nil {
-		return backend.Silence{}, fmt.Errorf("get silence %q: %w", id, err)
-	}
-	return toSilence(raw), nil
+	return fetchOne(ctx, c, c.urlFor("/silence/"+url.PathEscape(id), nil), fmt.Sprintf("get silence %q", id), toSilence)
 }
 
 // ListReceivers implements backend.Reader.
 func (c *Client) ListReceivers(ctx context.Context) ([]backend.Receiver, error) {
-	u := c.urlFor("/receivers", nil)
-	var raw []wireReceiver
-	if err := c.doGet(ctx, u, &raw); err != nil {
-		return nil, fmt.Errorf("list receivers: %w", err)
-	}
-	out := make([]backend.Receiver, 0, len(raw))
-	for _, w := range raw {
-		out = append(out, toReceiver(w))
-	}
-	return out, nil
+	return fetchList(ctx, c, c.urlFor("/receivers", nil), "list receivers", toReceiver)
 }
 
 // Status implements backend.Reader. The uptime field on the wire is
 // the AM-startup timestamp; the backend.Status surface carries a
 // duration, so we compute time.Since here.
 func (c *Client) Status(ctx context.Context) (backend.Status, error) {
-	u := c.urlFor("/status", nil)
-	var raw wireStatus
-	if err := c.doGet(ctx, u, &raw); err != nil {
-		return backend.Status{}, fmt.Errorf("status: %w", err)
-	}
-	return toStatus(raw, time.Now), nil
+	return fetchOne(ctx, c, c.urlFor("/status", nil), "status", func(w wireStatus) backend.Status {
+		return toStatus(w, time.Now)
+	})
 }
 
 // ProbeReady implements backend.Prober. Targets `/-/ready` —
