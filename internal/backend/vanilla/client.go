@@ -46,18 +46,14 @@ var (
 // (1 m default).
 const defaultRequestTimeout = 30 * time.Second
 
-// maxResponseBodyBytes caps the response body the JSON decoder will
-// read. Defends against memory exhaustion: a hostile backend that
+// defaultMaxResponseBodyBytes caps the response body the JSON decoder
+// will read. Defends against memory exhaustion: a hostile backend that
 // streams a multi-gigabyte payload would otherwise OOM the TUI
-// process. 64 MiB is chosen high enough to handle every realistic /api/v2/
-// response (the largest, alerts at production scale, tops out in
-// single-digit MB) and low enough that a slow leak surfaces as a
+// process. 64 MiB is chosen high enough to handle every realistic
+// /api/v2/ response (the largest, alerts at production scale, tops out
+// in single-digit MB) and low enough that a slow leak surfaces as a
 // decode error rather than memory pressure.
-//
-// Declared as var (not const) so the cap can be lowered in tests
-// without spinning up a multi-megabyte fake response — production
-// callers do not mutate it.
-var maxResponseBodyBytes int64 = 64 << 20
+const defaultMaxResponseBodyBytes int64 = 64 << 20
 
 // ClientConfig is the constructor input for New. Fields:
 //
@@ -92,9 +88,10 @@ type ClientConfig struct {
 // Client is the vanilla Alertmanager v2 backend. Constructed via
 // New; safe for concurrent use across goroutines.
 type Client struct {
-	base string
-	http *http.Client
-	caps backend.Caps
+	base         string
+	http         *http.Client
+	caps         backend.Caps
+	maxBodyBytes int64
 }
 
 // ErrInvalidBaseURL is returned by New when ClientConfig.BaseURL is
@@ -129,7 +126,8 @@ func New(cfg ClientConfig) (*Client, error) {
 			Timeout:       timeout,
 			CheckRedirect: refuseCrossOriginRedirect(cfg.ExpectedHost),
 		},
-		caps: cfg.Caps,
+		caps:         cfg.Caps,
+		maxBodyBytes: defaultMaxResponseBodyBytes,
 	}, nil
 }
 
@@ -241,7 +239,7 @@ func (c *Client) exec(req *http.Request, dst any) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := classifyStatus(resp); err != nil {
+	if err := c.classifyStatus(resp); err != nil {
 		return err
 	}
 
@@ -249,7 +247,7 @@ func (c *Client) exec(req *http.Request, dst any) error {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
-	limited := io.LimitReader(resp.Body, maxResponseBodyBytes)
+	limited := io.LimitReader(resp.Body, c.maxBodyBytes)
 	if err := json.NewDecoder(limited).Decode(dst); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
@@ -283,7 +281,7 @@ func (c *Client) execHeaders(req *http.Request) (http.Header, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if err := classifyStatus(resp); err != nil {
+	if err := c.classifyStatus(resp); err != nil {
 		return nil, err
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
@@ -303,7 +301,7 @@ func (c *Client) execHeaders(req *http.Request) (http.Header, error) {
 // rewrite the operator's terminal title / cursor on every retry.
 // cleanErrorBody strips control characters and caps the result at
 // maxErrorBodyLen.
-func classifyStatus(resp *http.Response) error {
+func (c *Client) classifyStatus(resp *http.Response) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
@@ -313,7 +311,7 @@ func classifyStatus(resp *http.Response) error {
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 		return &transientError{status: resp.StatusCode}
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, c.maxBodyBytes))
 	msg := cleanErrorBody(body)
 	if msg == "" {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
