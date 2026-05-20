@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// PagerFromEnv returns the pager command split into prog (program
+// pagerFromEnv returns the pager command split into prog (program
 // name) + args (extra flags). Resolution order:
 //
 //  1. $PAGER, when set and non-empty (split on whitespace —
@@ -26,7 +26,7 @@ import (
 //
 // Returns ("", nil) when no pager program could be located on
 // PATH. Callers fall back to writing directly to stdout.
-func PagerFromEnv() (prog string, args []string) {
+func pagerFromEnv() (prog string, args []string) {
 	if env := os.Getenv("PAGER"); strings.TrimSpace(env) != "" {
 		fields := strings.Fields(env)
 		if _, err := exec.LookPath(fields[0]); err == nil {
@@ -105,7 +105,7 @@ func NewPager(ctx context.Context, fallback io.Writer, outIsTerminal, noPager bo
 	if noPager || !outIsTerminal {
 		return Disabled(fallback), nil
 	}
-	prog, args := PagerFromEnv()
+	prog, args := pagerFromEnv()
 	if prog == "" {
 		return Disabled(fallback), nil
 	}

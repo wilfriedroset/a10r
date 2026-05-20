@@ -44,7 +44,7 @@ func TestPagerFromEnv_HonoursPAGEREnv(t *testing.T) {
 	// avoid t.Parallel() to prevent leaking into peers.
 	t.Setenv("PAGER", "cat")
 
-	prog, args := PagerFromEnv()
+	prog, args := pagerFromEnv()
 	require.Equal(t, "cat", prog)
 	require.Empty(t, args, "cat takes no extra args from PAGER")
 }
@@ -53,7 +53,7 @@ func TestPagerFromEnv_PAGERWithArgsSplits(t *testing.T) {
 	// Multi-word PAGER env (e.g. "less -R") splits on whitespace.
 	t.Setenv("PAGER", "less -R")
 
-	prog, args := PagerFromEnv()
+	prog, args := pagerFromEnv()
 	require.Equal(t, "less", prog)
 	require.Equal(t, []string{"-R"}, args)
 }
@@ -61,7 +61,7 @@ func TestPagerFromEnv_PAGERWithArgsSplits(t *testing.T) {
 func TestPagerFromEnv_FallbackToLessWhenAvailable(t *testing.T) {
 	t.Setenv("PAGER", "")
 
-	prog, args := PagerFromEnv()
+	prog, args := pagerFromEnv()
 	if prog == "" {
 		t.Skip("less not on PATH on this host")
 	}
@@ -73,7 +73,7 @@ func TestPagerFromEnv_NoPATHReturnsEmpty(t *testing.T) {
 	t.Setenv("PAGER", "definitely-not-on-path-zzz")
 	t.Setenv("PATH", t.TempDir()) // empty PATH
 
-	prog, args := PagerFromEnv()
+	prog, args := pagerFromEnv()
 	require.Empty(t, prog, "missing pager + empty PATH yields empty result")
 	require.Nil(t, args)
 }
