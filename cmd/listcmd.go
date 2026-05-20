@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
@@ -34,7 +33,7 @@ func loadCmdConfig(flags *GlobalFlags) (*config.Config, error) {
 // symmetric and so a future change to the User-Agent or factory
 // option set touches one site, not four.
 func buildClientFactory(flags *GlobalFlags) (listcmd.ClientFactory, io.Closer, error) {
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	debugLog, closer, err := buildHTTPDebugLogger(flags)
 	if err != nil {
 		return nil, noopCloser{}, err
 	}

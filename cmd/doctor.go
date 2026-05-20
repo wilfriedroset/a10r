@@ -87,7 +87,7 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 	}
 	checkers = doctor.WithCache(checkers, doctorCacheTTL)
 
-	debugLog, closer, err := buildHTTPDebugLogger(flags, os.Stderr)
+	debugLog, closer, err := buildHTTPDebugLogger(flags)
 	if err != nil {
 		return err
 	}

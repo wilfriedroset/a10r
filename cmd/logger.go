@@ -22,14 +22,7 @@ import (
 // closer flushes the lumberjack rotation buffer on shutdown;
 // without the explicit close the last record can be lost when a
 // short-lived command exits before the file write lands.
-//
-// errOut is reserved for future fallback-warning routing — the
-// underlying logger already emits its own warning on the
-// returned Logger when the configured path is unwritable, so the
-// parameter is currently a no-op kept on the signature so a
-// future refactor can pipe lumberjack rotation events here
-// without churning every call site.
-func buildHTTPDebugLogger(flags *GlobalFlags, _ io.Writer) (*slog.Logger, io.Closer, error) {
+func buildHTTPDebugLogger(flags *GlobalFlags) (*slog.Logger, io.Closer, error) {
 	if !flags.DebugHTTP {
 		return nil, noopCloser{}, nil
 	}
