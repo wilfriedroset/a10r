@@ -276,16 +276,14 @@ func (p *Picker) refilter() {
 	}
 }
 
-// View implements Modal. Renders title + query line + filtered
-// items with the cursor row highlighted. Marked rows in multi mode
-// carry a leading "[x] " marker so the user can spot what they've
-// accumulated without leaving the picker.
-//
-// TODO(theming): the picker currently styles only via lipgloss
-// width-fitting; a future commit will take *theme.Styles via an
-// extended interface so the cursor row, marks, and title pick up
-// the active skin's modal colours. Today's plain-text fallback is
-// readable on every terminal and reviewable as-is.
+// View implements Modal. Renders title + query line + filtered items
+// with the cursor row prefixed by "▸ " and (in multi mode) marked
+// rows carrying "[x] ". Body is rendered plain-text — the cursor and
+// mark glyphs are readable on every terminal regardless of skin, and
+// the picker frame already inherits modal panel colours from the
+// outer App.View render. Adding a *theme.Styles seam would only let
+// the cursor glyph change colour, which the current ASCII arrow
+// communicates without colour at all.
 func (p *Picker) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
