@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -101,29 +100,8 @@ func (p *Page) resolveBulkSilenceTargets() (targets []bulkSilenceTarget, tenants
 	return targets, tenants
 }
 
-// formatTenantBreakdownAlerts mirrors the silences page's
-// formatTenantBreakdown shape but counts targets-per-tenant on a
-// []bulkSilenceTarget rather than []pendingExpireID. Single-tenant
-// returns the bare name; multi-tenant returns "name=count" pairs
-// sorted alphabetically and joined with ", ".
 func formatTenantBreakdownAlerts(targets []bulkSilenceTarget) string {
-	counts := map[string]int{}
-	tenants := []string{}
-	for _, t := range targets {
-		if _, seen := counts[t.Tenant]; !seen {
-			tenants = append(tenants, t.Tenant)
-		}
-		counts[t.Tenant]++
-	}
-	sort.Strings(tenants)
-	if len(tenants) == 1 {
-		return tenants[0]
-	}
-	parts := make([]string, len(tenants))
-	for i, t := range tenants {
-		parts[i] = fmt.Sprintf("%s=%d", t, counts[t])
-	}
-	return strings.Join(parts, ", ")
+	return bulkop.FormatTenantBreakdown(targets, func(t bulkSilenceTarget) string { return t.Tenant })
 }
 
 // pushBulkSilenceForm pushes the silence form in bulk mode with

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -131,29 +130,8 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	})
 }
 
-// formatTenantBreakdown renders the per-tenant count for the
-// bulk-expire confirm modal. Single tenant returns the bare name
-// (`"prod"`); multi-tenant returns a comma-joined `name=count`
-// sequence sorted alphabetically by tenant for stable wording
-// across runs (`"prod=12, staging=3"`).
 func formatTenantBreakdown(ids []pendingExpireID) string {
-	counts := map[string]int{}
-	tenants := []string{}
-	for _, id := range ids {
-		if _, seen := counts[id.tenant]; !seen {
-			tenants = append(tenants, id.tenant)
-		}
-		counts[id.tenant]++
-	}
-	sort.Strings(tenants)
-	if len(tenants) == 1 {
-		return tenants[0]
-	}
-	parts := make([]string, len(tenants))
-	for i, t := range tenants {
-		parts[i] = fmt.Sprintf("%s=%d", t, counts[t])
-	}
-	return strings.Join(parts, ", ")
+	return bulkop.FormatTenantBreakdown(ids, func(id pendingExpireID) string { return id.tenant })
 }
 
 // bulkExpireDoneMsg is the page-local wrapper around the bulkop
