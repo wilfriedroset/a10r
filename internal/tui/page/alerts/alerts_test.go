@@ -24,6 +24,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -32,24 +33,10 @@ import (
 // fixedNow returns a deterministic clock for the age column tests.
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 
-// alert builds a synthetic Alert for tests. Age is fixed at one
-// minute so age-column rendering is consistent across the suite;
-// the formatAge helper has its own dedicated test for age math.
-func mkAlert(name, severity string, state backend.AlertState) backend.Alert {
-	return backend.Alert{
-		Labels: map[string]string{
-			"alertname": name,
-			"severity":  severity,
-		},
-		State:    state,
-		StartsAt: fixedNow.Add(-time.Minute),
-	}
-}
-
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
 }
@@ -57,11 +44,11 @@ func newPage(t *testing.T) *Page {
 func TestPage_SeverityCellWearsThemeColour(t *testing.T) {
 	t.Parallel()
 
-	styles := testutil.LoadStyles(t)
+	styles := pagetest.Styles(t)
 	p := New(Options{Styles: styles, Now: func() time.Time { return fixedNow }})
 	alerts := []backend.Alert{
-		mkAlert("CritOne", "critical", backend.AlertStateActive),
-		mkAlert("WarnTwo", "warning", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "CritOne", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "WarnTwo", Severity: "warning", State: backend.AlertStateActive}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	// Move the cursor off both rows so neither inherits the cursor
@@ -82,9 +69,9 @@ func TestPage_SortBySeverityPutsCriticalFirst(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		mkAlert("WarnFoo", "warning", backend.AlertStateActive),
-		mkAlert("CritBar", "critical", backend.AlertStateActive),
-		mkAlert("InfoBaz", "info", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "WarnFoo", Severity: "warning", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "CritBar", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "InfoBaz", Severity: "info", State: backend.AlertStateActive}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
@@ -98,8 +85,8 @@ func TestPage_FilterSubstringAppliesAcrossLabels(t *testing.T) {
 
 	p := newPage(t)
 	alerts := []backend.Alert{
-		mkAlert("HighCPU", "critical", backend.AlertStateActive),
-		mkAlert("DiskSpace", "warning", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "DiskSpace", Severity: "warning", State: backend.AlertStateActive}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 
@@ -154,8 +141,8 @@ func TestPage_FilterModesDriveThroughPipeline(t *testing.T) {
 
 			p := newPage(t)
 			_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-				mkAlert("HighCPU", "critical", backend.AlertStateActive),
-				mkAlert("DiskSpace", "warning", backend.AlertStateActive),
+				pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive}),
+				pagetest.Alert(pagetest.AlertOptions{Name: "DiskSpace", Severity: "warning", State: backend.AlertStateActive}),
 			}})
 
 			_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: tc.buffer})
@@ -177,18 +164,18 @@ func TestPage_FilterModesDriveThroughPipeline(t *testing.T) {
 func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod", "staging"},
 	})
 	// Known tenant — should land.
-	known := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	known := pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{known}, Tenant: "prod"})
 	require.Contains(t, p.byTenant, "prod",
 		"known tenant must be accepted into byTenant")
 
 	// Unknown tenant — must be dropped.
-	stray := mkAlert("StrayCPU", "warning", backend.AlertStateActive)
+	stray := pagetest.Alert(pagetest.AlertOptions{Name: "StrayCPU", Severity: "warning", State: backend.AlertStateActive})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{stray}, Tenant: "ghost"})
 	require.NotContains(t, p.byTenant, "ghost",
 		"unknown tenant must not populate byTenant")
@@ -209,12 +196,12 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
-	// Explicit Fingerprint values — mkAlert doesn't set them.
-	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	// Explicit Fingerprint values — pagetest.Alert leaves Fingerprint zero.
+	a := pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive})
 	a.Fingerprint = "fp-a"
-	b := mkAlert("DiskSpace", "warning", backend.AlertStateActive)
+	b := pagetest.Alert(pagetest.AlertOptions{Name: "DiskSpace", Severity: "warning", State: backend.AlertStateActive})
 	b.Fingerprint = "fp-b"
-	c := mkAlert("MemPressure", "warning", backend.AlertStateActive)
+	c := pagetest.Alert(pagetest.AlertOptions{Name: "MemPressure", Severity: "warning", State: backend.AlertStateActive})
 	c.Fingerprint = "fp-c"
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a, b, c}})
 
@@ -258,12 +245,12 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 func TestPage_PrunesStaleFocusFingerprintAfterAlertResolved(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
-	// Explicit Fingerprint values — mkAlert doesn't set them.
-	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	// Explicit Fingerprint values — pagetest.Alert leaves Fingerprint zero.
+	a := pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive})
 	a.Fingerprint = "fp-a"
-	b := mkAlert("DiskSpace", "warning", backend.AlertStateActive)
+	b := pagetest.Alert(pagetest.AlertOptions{Name: "DiskSpace", Severity: "warning", State: backend.AlertStateActive})
 	b.Fingerprint = "fp-b"
-	c := mkAlert("MemPressure", "warning", backend.AlertStateActive)
+	c := pagetest.Alert(pagetest.AlertOptions{Name: "MemPressure", Severity: "warning", State: backend.AlertStateActive})
 	c.Fingerprint = "fp-c"
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a, b, c}})
 
@@ -300,8 +287,8 @@ func TestPage_VimMotionsMoveCursor(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("A", "critical", backend.AlertStateActive),
-		mkAlert("B", "warning", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "B", Severity: "warning", State: backend.AlertStateActive}),
 	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -316,9 +303,9 @@ func TestPage_StateFilterCycle(t *testing.T) {
 	// the dispatcher precedence stack.
 	p := newPage(t)
 	alerts := []backend.Alert{
-		mkAlert("A", "critical", backend.AlertStateActive),
-		mkAlert("B", "warning", backend.AlertStateSuppressed),
-		mkAlert("C", "info", backend.AlertStateUnprocessed),
+		pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "B", Severity: "warning", State: backend.AlertStateSuppressed}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "C", Severity: "info", State: backend.AlertStateUnprocessed}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: alerts})
 	require.Len(t, p.view, 3)
@@ -374,7 +361,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// HeaderActive were rendered via .Render (which carries bg).
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive}),
 	}})
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -391,7 +378,7 @@ func TestPage_SilenceKey(t *testing.T) {
 	withClients := func(t *testing.T, creator string) *Page {
 		t.Helper()
 		return New(Options{
-			Styles:  testutil.LoadStyles(t),
+			Styles:  pagetest.Styles(t),
 			Now:     func() time.Time { return fixedNow },
 			Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 			Creator: creator,
@@ -437,7 +424,7 @@ func TestPage_SilenceKey(t *testing.T) {
 			p := tc.newPage(t)
 			if tc.seedData {
 				_, _ = p.Update(poll.DataMsg{
-					Resource: []backend.Alert{mkAlert("HighCPU", "critical", backend.AlertStateActive)},
+					Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive})},
 					Tenant:   "prod",
 				})
 			}
@@ -551,7 +538,7 @@ func TestPage_CursorPreservedAcrossDataRefresh(t *testing.T) {
 	// alert.
 	p := newPage(t)
 	withFP := func(name, fp string) backend.Alert {
-		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a := pagetest.Alert(pagetest.AlertOptions{Name: name, Severity: "warning", State: backend.AlertStateActive})
 		a.Fingerprint = fp
 		return a
 	}
@@ -587,7 +574,7 @@ func TestPage_UserResortKeepsCursorAtIndex(t *testing.T) {
 	// the row position.
 	p := newPage(t)
 	withFP := func(name, severity, fp string) backend.Alert {
-		a := mkAlert(name, severity, backend.AlertStateActive)
+		a := pagetest.Alert(pagetest.AlertOptions{Name: name, Severity: severity, State: backend.AlertStateActive})
 		a.Fingerprint = fp
 		return a
 	}
@@ -629,7 +616,7 @@ func TestPage_CursorClampsWhenFocusedAlertGone(t *testing.T) {
 
 	p := newPage(t)
 	withFP := func(name, fp string) backend.Alert {
-		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a := pagetest.Alert(pagetest.AlertOptions{Name: name, Severity: "warning", State: backend.AlertStateActive})
 		a.Fingerprint = fp
 		return a
 	}
@@ -651,7 +638,7 @@ func TestPage_EnterDrillsToDetail(t *testing.T) {
 	t.Parallel()
 
 	p := newPage(t)
-	a := mkAlert("HighCPU", "critical", backend.AlertStateActive)
+	a := pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive})
 	a.Fingerprint = "fp-cpu"
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
 
@@ -684,7 +671,7 @@ func TestPage_SpaceTogglesMarkAndHeaderShowsCount(t *testing.T) {
 
 	p := newPage(t)
 	mk := func(name, fp string) backend.Alert {
-		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a := pagetest.Alert(pagetest.AlertOptions{Name: name, Severity: "warning", State: backend.AlertStateActive})
 		a.Fingerprint = fp
 		return a
 	}
@@ -710,7 +697,7 @@ func TestPage_MarkedRowCarriesMarkedStyle(t *testing.T) {
 
 	p := newPage(t)
 	mk := func(name, fp string) backend.Alert {
-		a := mkAlert(name, "warning", backend.AlertStateActive)
+		a := pagetest.Alert(pagetest.AlertOptions{Name: name, Severity: "warning", State: backend.AlertStateActive})
 		a.Fingerprint = fp
 		return a
 	}
@@ -747,7 +734,7 @@ func TestPage_GoToFirstRowResetsCursorAndScroll(t *testing.T) {
 
 	alerts := make([]backend.Alert, 30)
 	for i := range alerts {
-		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i] = pagetest.Alert(pagetest.AlertOptions{Name: fmt.Sprintf("Alert%02d", i), Severity: "warning", State: backend.AlertStateActive})
 		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
 	}
 	p := newPage(t)
@@ -778,7 +765,7 @@ func TestPage_HandleMotionUpdatesTopRowWithoutRender(t *testing.T) {
 
 	alerts := make([]backend.Alert, 30)
 	for i := range alerts {
-		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i] = pagetest.Alert(pagetest.AlertOptions{Name: fmt.Sprintf("Alert%02d", i), Severity: "warning", State: backend.AlertStateActive})
 		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
 	}
 	p := newPage(t)
@@ -810,7 +797,7 @@ func TestPage_ViewportFollowsCursor(t *testing.T) {
 	// so the cursor row is rendered.
 	alerts := make([]backend.Alert, 30)
 	for i := range alerts {
-		alerts[i] = mkAlert(fmt.Sprintf("Alert%02d", i), "warning", backend.AlertStateActive)
+		alerts[i] = pagetest.Alert(pagetest.AlertOptions{Name: fmt.Sprintf("Alert%02d", i), Severity: "warning", State: backend.AlertStateActive})
 		alerts[i].Fingerprint = fmt.Sprintf("fp-%02d", i)
 	}
 	p := newPage(t)
@@ -848,8 +835,8 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("First", "critical", backend.AlertStateActive),
-		mkAlert("Second", "warning", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "First", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "Second", Severity: "warning", State: backend.AlertStateActive}),
 	}})
 
 	out := p.View(120, 20)
@@ -868,7 +855,7 @@ func TestPage_CursorRowIsHighlighted(t *testing.T) {
 	// Non-cursor rows do carry per-cell severity ANSI now. Assert
 	// the Cursor style ANSI is absent — that's the contract that
 	// keeps the cursor visually distinct from a coloured cell.
-	styles := testutil.LoadStyles(t)
+	styles := pagetest.Styles(t)
 	cursorANSI := styles.Table.Cursor.Render("x")
 	cursorPrefix := strings.SplitN(cursorANSI, "x", 2)[0]
 	require.NotContains(t, otherLine, cursorPrefix,
@@ -914,18 +901,18 @@ func TestPage_TenantColumnAppearsForAllScope(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "all",
 	})
 
 	// Two backends emit DataMsgs — TENANT column kicks in.
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("B", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "B", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "staging",
 	})
 
@@ -939,12 +926,12 @@ func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "prod",
 	})
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 
@@ -966,7 +953,7 @@ func TestPage_TitleIncludesScope(t *testing.T) {
 
 	// Explicit scope from Options threads into the title.
 	p2 := New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "prod",
 	})
@@ -1022,7 +1009,7 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	// asserts only the date portion which is timezone-stable
 	// within a few hours of UTC.
 	startsAt := fixedNow.Add(-time.Minute)
-	a := mkAlert("CritOne", "critical", backend.AlertStateActive)
+	a := pagetest.Alert(pagetest.AlertOptions{Name: "CritOne", Severity: "critical", State: backend.AlertStateActive})
 	a.StartsAt = startsAt
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}, Tenant: ""})
 
@@ -1050,16 +1037,16 @@ func TestPage_ScopeChangedMsgFiltersAndUpdatesTitle(t *testing.T) {
 
 	// Two backends each report one alert. Scope starts as "all".
 	p := New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 		Scope:  "all",
 	})
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("A", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("B", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "B", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "staging",
 	})
 
@@ -1108,7 +1095,7 @@ func TestPage_CrumbAndHeader(t *testing.T) {
 func TestPage_ReadOnlyDropsSilenceBinding(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:   testutil.LoadStyles(t),
+		Styles:   pagetest.Styles(t),
 		Now:      func() time.Time { return fixedNow },
 		ReadOnly: true,
 	})
@@ -1121,14 +1108,14 @@ func TestPage_ReadOnlyDropsSilenceBinding(t *testing.T) {
 func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:   testutil.LoadStyles(t),
+		Styles:   pagetest.Styles(t),
 		Now:      func() time.Time { return fixedNow },
 		ReadOnly: true,
 		Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
 	_, _ = p.Update(poll.DataMsg{
 		Tenant:   "prod",
-		Resource: []backend.Alert{mkAlert("X", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "X", Severity: "warning", State: backend.AlertStateActive})},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -1177,8 +1164,8 @@ func TestPage_SuppressedRowsRenderDimmed(t *testing.T) {
 	// row at row 1 — the latter is the row whose dimmed style we're
 	// asserting on.
 	p := newPage(t)
-	active := mkAlert("Firing", "critical", backend.AlertStateActive)
-	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	active := pagetest.Alert(pagetest.AlertOptions{Name: "Firing", Severity: "critical", State: backend.AlertStateActive})
+	suppressed := pagetest.Alert(pagetest.AlertOptions{Name: "Silenced", Severity: "warning", State: backend.AlertStateSuppressed})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
 
 	out := p.View(120, 10)
@@ -1204,9 +1191,9 @@ func TestPage_MarkedSuppressedRowKeepsMarkedStyle(t *testing.T) {
 	// cursor can leave the marked row (otherwise cursor wins over
 	// both marked and dimmed).
 	p := newPage(t)
-	active := mkAlert("Firing", "critical", backend.AlertStateActive)
+	active := pagetest.Alert(pagetest.AlertOptions{Name: "Firing", Severity: "critical", State: backend.AlertStateActive})
 	active.Fingerprint = "fp-active"
-	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	suppressed := pagetest.Alert(pagetest.AlertOptions{Name: "Silenced", Severity: "warning", State: backend.AlertStateSuppressed})
 	suppressed.Fingerprint = "fp-supp"
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{active, suppressed}})
 	// sortKeySeverity desc: critical at row 0, warning at row 1.
@@ -1232,7 +1219,7 @@ func TestPage_CursorOnSuppressedRowKeepsCursorStyle(t *testing.T) {
 	// — so the expected SGR is Cursor with bg overridden to the
 	// row's severity.warning fg, not the static cursorBgColor.
 	p := newPage(t)
-	suppressed := mkAlert("Silenced", "warning", backend.AlertStateSuppressed)
+	suppressed := pagetest.Alert(pagetest.AlertOptions{Name: "Silenced", Severity: "warning", State: backend.AlertStateSuppressed})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{suppressed}})
 	// Cursor is on row 0 by default.
 
@@ -1273,7 +1260,7 @@ func bulkPage(t *testing.T, alertsByTenant map[string][]backend.Alert, fakes map
 		clients[tenant] = fake
 	}
 	p := New(Options{
-		Styles:          testutil.LoadStyles(t),
+		Styles:          pagetest.Styles(t),
 		Now:             func() time.Time { return fixedNow },
 		Scope:           "all",
 		Clients:         clients,
@@ -1779,7 +1766,7 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 	p := newPage(t)
 	// First snapshot lands normally.
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("first", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 	require.NotEmpty(t, p.byTenant["prod"], "first DataMsg must populate byTenant")
@@ -1791,8 +1778,8 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 	// Subsequent DataMsg is swallowed: byTenant stays at the old snapshot.
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Alert{
-			mkAlert("first", "warning", backend.AlertStateActive),
-			mkAlert("second", "critical", backend.AlertStateActive),
+			pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive}),
+			pagetest.Alert(pagetest.AlertOptions{Name: "second", Severity: "critical", State: backend.AlertStateActive}),
 		},
 		Tenant: "prod",
 	})
@@ -1804,9 +1791,9 @@ func TestPage_WatchModeToggleSwallowsDataMsg(t *testing.T) {
 	require.False(t, p.Paused)
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Alert{
-			mkAlert("first", "warning", backend.AlertStateActive),
-			mkAlert("second", "critical", backend.AlertStateActive),
-			mkAlert("third", "info", backend.AlertStateActive),
+			pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive}),
+			pagetest.Alert(pagetest.AlertOptions{Name: "second", Severity: "critical", State: backend.AlertStateActive}),
+			pagetest.Alert(pagetest.AlertOptions{Name: "third", Severity: "info", State: backend.AlertStateActive}),
 		},
 		Tenant: "prod",
 	})
@@ -1817,7 +1804,7 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("first", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 
@@ -1834,8 +1821,8 @@ func TestPage_WatchModeManualRefreshHonouredOnce(t *testing.T) {
 
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Alert{
-			mkAlert("first", "warning", backend.AlertStateActive),
-			mkAlert("second", "critical", backend.AlertStateActive),
+			pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive}),
+			pagetest.Alert(pagetest.AlertOptions{Name: "second", Severity: "critical", State: backend.AlertStateActive}),
 		},
 		Tenant: "prod",
 	})
@@ -1857,7 +1844,7 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("first", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "first", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 	require.NotContains(t, p.Footer(), "WATCH OFF",
@@ -1911,7 +1898,7 @@ func TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Scope:   "all",
 		Tenants: []string{"prod", "broken"},
@@ -1919,7 +1906,7 @@ func TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied(t *testing.T) {
 
 	// Working tenant lands a successful tick.
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Alert{mkAlert("OK", "warning", backend.AlertStateActive)},
+		Resource: []backend.Alert{pagetest.Alert(pagetest.AlertOptions{Name: "OK", Severity: "warning", State: backend.AlertStateActive})},
 		Tenant:   "prod",
 	})
 	// Broken tenant emits its first-ever status as a transport error
@@ -1951,7 +1938,7 @@ func TestPage_FlexColumnExpandsOnWideTerminal(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("Short", "critical", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "Short", Severity: "critical", State: backend.AlertStateActive}),
 	}})
 
 	narrow := p.columnWidths(80)
@@ -1970,7 +1957,7 @@ func TestPage_FlexColumnEllipsizesNarrowTerminal(t *testing.T) {
 	p := newPage(t)
 	long := strings.Repeat("HighCPULongAlertname", 4) // 80 cells of label
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert(long, "critical", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: long, Severity: "critical", State: backend.AlertStateActive}),
 	}})
 
 	out := testutil.StripStyle(p.View(60, 5))
@@ -1992,7 +1979,7 @@ func TestPage_RowFitsTerminalAtBizarrelyNarrowWidth(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("HighCPU", "critical", backend.AlertStateActive),
+		pagetest.Alert(pagetest.AlertOptions{Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive}),
 	}})
 
 	out := testutil.StripStyle(p.View(20, 5))
@@ -2009,13 +1996,13 @@ func TestPage_RowFitsTerminalAtBizarrelyNarrowWidth(t *testing.T) {
 func TestPage_InitialStateFilterPreseedsTCycle(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:             testutil.LoadStyles(t),
+		Styles:             pagetest.Styles(t),
 		Now:                func() time.Time { return fixedNow },
 		InitialStateFilter: string(backend.AlertStateSuppressed),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
-		mkAlert("ActiveOne", "critical", backend.AlertStateActive),
-		mkAlert("SilencedTwo", "warning", backend.AlertStateSuppressed),
+		pagetest.Alert(pagetest.AlertOptions{Name: "ActiveOne", Severity: "critical", State: backend.AlertStateActive}),
+		pagetest.Alert(pagetest.AlertOptions{Name: "SilencedTwo", Severity: "warning", State: backend.AlertStateSuppressed}),
 	}})
 
 	require.Equal(t, string(backend.AlertStateSuppressed), p.stateFilter,
@@ -2032,7 +2019,7 @@ func TestPage_InitialStateFilterPreseedsTCycle(t *testing.T) {
 func TestPage_InitialFilterPreseedsSlashFilter(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:        testutil.LoadStyles(t),
+		Styles:        pagetest.Styles(t),
 		Now:           func() time.Time { return fixedNow },
 		InitialFilter: "web",
 	})
