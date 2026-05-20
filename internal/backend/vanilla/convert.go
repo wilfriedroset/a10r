@@ -8,10 +8,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
 
-// Wire-to-domain conversions. Kept as plain functions (not methods)
-// so they're trivially unit-testable and the dependency direction
-// is one-way — domain types do not know wire types exist.
-
+// toAlert and its siblings are the wire-to-domain converters used by
+// every read-path Client method. Kept as plain functions (not methods)
+// so they're trivially unit-testable and the dependency direction is
+// one-way: domain types do not know wire types exist.
 func toAlert(w wireAlert) backend.Alert {
 	a := backend.Alert{
 		Fingerprint:  w.Fingerprint,

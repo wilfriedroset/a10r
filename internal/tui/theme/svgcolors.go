@@ -17,7 +17,6 @@ package theme
 // decade, and we wouldn't trust a community PR to "add a colour" we
 // hadn't audited against tcell anyway. Refresh by hand only.
 var svgColors = map[string]uint32{
-	// X11 / VGA basics.
 	"black":   0x000000,
 	"maroon":  0x800000,
 	"green":   0x008000,
@@ -35,7 +34,6 @@ var svgColors = map[string]uint32{
 	"aqua":    0x00FFFF,
 	"white":   0xFFFFFF,
 
-	// Extended SVG / CSS named colors.
 	"aliceblue":            0xF0F8FF,
 	"antiquewhite":         0xFAEBD7,
 	"aquamarine":           0x7FFFD4,

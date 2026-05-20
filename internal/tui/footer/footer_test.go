@@ -13,7 +13,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// ----- crumbs -----
 
 func TestCrumbs_PushPopRender(t *testing.T) {
 	t.Parallel()
@@ -71,7 +70,6 @@ func TestCrumbs_SetIsDefensiveCopy(t *testing.T) {
 		"Set must copy the input slice so external mutation doesn't bleed in")
 }
 
-// ----- prompt -----
 
 func TestPrompt_BackspaceRemovesLastRune(t *testing.T) {
 	t.Parallel()
@@ -294,7 +292,6 @@ func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
 	}
 }
 
-// ----- prompt: ghost-text completion -----
 
 // stubSuggester returns a function that maps an exact input to a
 // canned suggestion. Anything not in the map returns "" — matches
@@ -492,7 +489,6 @@ func TestPrompt_RenderHasNoBackgroundFillWithGhost(t *testing.T) {
 		"ghost must not paint a background colour even when chained with fg")
 }
 
-// ----- prompt + history -----
 
 func TestPrompt_UpCyclesHistoryPrev(t *testing.T) {
 	t.Parallel()
@@ -649,7 +645,6 @@ func TestPrompt_OpenResetsHistoryCycle(t *testing.T) {
 		"OpenWithHistory must Reset the ring so the cursor starts at present")
 }
 
-// ----- flash -----
 
 func TestFlash_NewIsInactive(t *testing.T) {
 	t.Parallel()
