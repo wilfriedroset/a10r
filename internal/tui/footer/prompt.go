@@ -180,6 +180,10 @@ func (p Prompt) Suggestion() string { return p.suggestion }
 // don't pay for an interface assertion. The Prompt does not close
 // itself on Submit — the app shell does that after consuming the
 // resulting message.
+//
+// The body is a dispatch table over keyMsg.String(); each case
+// delegates to a small named helper so the routing stays scannable
+// and the per-key logic lives next to a comment that explains it.
 func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if !p.open {
 		return p, nil
@@ -196,51 +200,15 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 
 	switch keyMsg.String() {
 	case "enter":
-		submitted := p.value
-		mode := p.mode
-		p.history.Append(submitted)
-		p.open = false
-		p.value = ""
-		p.suggestion = ""
-		p.history = nil
-		return p, func() tea.Msg { return PromptSubmittedMsg{Mode: mode, Value: submitted} }
+		return p.submit()
 	case "esc":
-		mode := p.mode
-		p.history.Reset()
-		p.open = false
-		p.value = ""
-		p.suggestion = ""
-		p.history = nil
-		return p, func() tea.Msg { return PromptCancelledMsg{Mode: mode} }
+		return p.cancel()
 	case "backspace":
-		if p.value != "" {
-			r := []rune(p.value)
-			p.value = string(r[:len(r)-1])
-			p = p.recomputeSuggestion()
-			return p, p.changedCmd()
-		}
-		return p, nil
+		return p.deleteRune()
 	case "ctrl+u":
-		if p.value == "" {
-			return p, nil
-		}
-		p.value = ""
-		p = p.recomputeSuggestion()
-		return p, p.changedCmd()
+		return p.clearBuffer()
 	case "tab", "ctrl+f":
-		// Tab is dual-purpose: accept the ghost-text completion
-		// when one is showing, otherwise step backward through
-		// history. The completion path runs first because the user
-		// typed a prefix and the ghost is the immediate visible
-		// affordance — surprising them by cycling instead would
-		// shadow the more obvious action. Ctrl+F mirrors Tab here
-		// for users who can't easily reach Tab; same precedence.
-		if p.mode == PromptCommand && p.suggestion != "" {
-			p.value = p.suggestion + " "
-			p = p.recomputeSuggestion()
-			return p, p.changedCmd()
-		}
-		return p.cyclePrev()
+		return p.acceptOrCyclePrev()
 	case "up":
 		// Up always means "older" — works even when a ghost
 		// completion is active (Tab would accept it; Up still
@@ -251,12 +219,82 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		// cycle so the user can back out without committing.
 		return p.cycleNext()
 	}
-	// Append the printable character. Prefer Text (the actual entered
-	// rune as the terminal reports it, post-IME / shift / dead key);
-	// fall back to Code when Text is empty but Code is a printable
-	// rune. Function keys, arrows, modifier-only events, and ctrl
-	// combos all leave Text empty AND Code outside the printable
-	// range, so they naturally drop.
+	return p.appendRune(keyMsg)
+}
+
+// submit closes the prompt, stashes the entry in history, and
+// emits PromptSubmittedMsg with the value captured at submit time.
+func (p Prompt) submit() (Prompt, tea.Cmd) {
+	submitted, mode := p.value, p.mode
+	p.history.Append(submitted)
+	p.open = false
+	p.value = ""
+	p.suggestion = ""
+	p.history = nil
+	return p, func() tea.Msg { return PromptSubmittedMsg{Mode: mode, Value: submitted} }
+}
+
+// cancel closes the prompt without recording the buffer and emits
+// PromptCancelledMsg so live-filter pages can restore their
+// pre-prompt snapshot.
+func (p Prompt) cancel() (Prompt, tea.Cmd) {
+	mode := p.mode
+	p.history.Reset()
+	p.open = false
+	p.value = ""
+	p.suggestion = ""
+	p.history = nil
+	return p, func() tea.Msg { return PromptCancelledMsg{Mode: mode} }
+}
+
+// deleteRune trims the trailing rune from the buffer; empty
+// buffer is a quiet no-op so backspace at the start does not emit
+// a spurious Changed.
+func (p Prompt) deleteRune() (Prompt, tea.Cmd) {
+	if p.value == "" {
+		return p, nil
+	}
+	r := []rune(p.value)
+	p.value = string(r[:len(r)-1])
+	p = p.recomputeSuggestion()
+	return p, p.changedCmd()
+}
+
+// clearBuffer empties the value in one keystroke (Ctrl+U).
+// Already-empty is a no-op for the same reason as deleteRune.
+func (p Prompt) clearBuffer() (Prompt, tea.Cmd) {
+	if p.value == "" {
+		return p, nil
+	}
+	p.value = ""
+	p = p.recomputeSuggestion()
+	return p, p.changedCmd()
+}
+
+// acceptOrCyclePrev handles the Tab / Ctrl+F dual binding: accept
+// the ghost-text completion when one is showing, otherwise step
+// backward through history. The completion path runs first because
+// the user typed a prefix and the ghost is the immediate visible
+// affordance — surprising them by cycling instead would shadow the
+// more obvious action. Ctrl+F mirrors Tab for users who can't
+// easily reach Tab; same precedence.
+func (p Prompt) acceptOrCyclePrev() (Prompt, tea.Cmd) {
+	if p.mode == PromptCommand && p.suggestion != "" {
+		p.value = p.suggestion + " "
+		p = p.recomputeSuggestion()
+		return p, p.changedCmd()
+	}
+	return p.cyclePrev()
+}
+
+// appendRune handles the printable-character fallback when no
+// named binding consumed the key. Prefer Text (the actual entered
+// rune as the terminal reports it, post-IME / shift / dead key);
+// fall back to Code when Text is empty but Code is a printable
+// rune. Function keys, arrows, modifier-only events, and ctrl
+// combos all leave Text empty AND Code outside the printable
+// range, so they naturally drop.
+func (p Prompt) appendRune(keyMsg tea.KeyMsg) (Prompt, tea.Cmd) {
 	prev := p.value
 	k := keyMsg.Key()
 	if k.Text != "" {
