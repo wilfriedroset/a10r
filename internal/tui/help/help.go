@@ -368,12 +368,12 @@ var ligatureProneKeys = map[string]struct{}{
 	">": {},
 }
 
-// ChipText returns the bracketed form of key, swapping to
-// square brackets for ligature-prone single-character keys so
-// programming-ligature fonts don't mangle them. Exported because
-// the rotating hint bar (footer.HintBar) renders the same chip
-// shape and a single rule keeps the help overlay and the hint
-// bar from drifting on a future ligature addition.
+// ChipText returns the bracketed form of key, swapping to square
+// brackets for ligature-prone single-character keys so programming-
+// ligature fonts don't mangle them. Exported because the footer hint
+// bar and the top panel's action chips render the same shape; a
+// single rule keeps every binding chrome consistent on a future
+// ligature addition.
 func ChipText(key string) string {
 	if _, prone := ligatureProneKeys[key]; prone {
 		return "[" + key + "]"
