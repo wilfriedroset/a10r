@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -140,21 +139,6 @@ func sortReceiverRows(rows []receiverRow) {
 		}
 		return rows[i].Name < rows[j].Name
 	})
-}
-
-// renderReceiverRows dispatches to the chosen format. Kept as a
-// thin shim for the existing unit tests; production wiring goes
-// through the per-format Renderer map in runReceiversList.
-func renderReceiverRows(out io.Writer, rows []receiverRow, format output.Format) error {
-	switch format {
-	case output.FormatJSON:
-		return renderReceiverJSON(out, rows)
-	case output.FormatYAML:
-		return renderReceiverYAML(out, rows)
-	case output.FormatTable:
-		return renderReceiverTable(out, rows)
-	}
-	return fmt.Errorf("unknown format %q", format)
 }
 
 func renderReceiverJSON(out io.Writer, rows []receiverRow) error { return output.WriteJSON(out, rows) }

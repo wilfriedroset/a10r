@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -191,21 +190,6 @@ func sortAlertRows(rows []alertRow) {
 		}
 		return rows[i].Fingerprint < rows[j].Fingerprint
 	})
-}
-
-// renderAlertRows dispatches to the chosen format. Kept as a thin
-// shim for the existing unit tests; production wiring goes through
-// the per-format Renderer map in runAlertsList.
-func renderAlertRows(out io.Writer, rows []alertRow, format output.Format) error {
-	switch format {
-	case output.FormatJSON:
-		return renderAlertJSON(out, rows)
-	case output.FormatYAML:
-		return renderAlertYAML(out, rows)
-	case output.FormatTable:
-		return renderAlertTable(out, rows)
-	}
-	return fmt.Errorf("unknown format %q", format)
 }
 
 func renderAlertJSON(out io.Writer, rows []alertRow) error { return output.WriteJSON(out, rows) }

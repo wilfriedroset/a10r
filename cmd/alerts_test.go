@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 func TestToAlertRow_PullsLabels(t *testing.T) {
@@ -92,7 +91,7 @@ func TestRenderAlertRows_TableHeaderAndCells(t *testing.T) {
 		{Tenant: "prod", Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderAlertRows(&buf, rows, output.FormatTable))
+	require.NoError(t, renderAlertTable(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, "TENANT")
 	require.Contains(t, out, "NAME")
@@ -111,7 +110,7 @@ func TestRenderAlertRows_JSONIncludesLabels(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderAlertRows(&buf, rows, output.FormatJSON))
+	require.NoError(t, renderAlertJSON(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"severity": "critical"`)

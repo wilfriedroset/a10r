@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 func TestToGroupRow_DedupsAndSortsReceivers(t *testing.T) {
@@ -101,7 +100,7 @@ func TestRenderGroupRows_TableHeaderAndCells(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderGroupRows(&buf, rows, output.FormatTable))
+	require.NoError(t, renderGroupTable(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, "TENANT")
 	require.Contains(t, out, "LABELS")
@@ -123,7 +122,7 @@ func TestRenderGroupRows_JSONIncludesLabelsMap(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderGroupRows(&buf, rows, output.FormatJSON))
+	require.NoError(t, renderGroupJSON(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"team": "plat"`,

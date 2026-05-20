@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 func TestValidateSilenceState(t *testing.T) {
@@ -154,7 +153,7 @@ func TestRenderSilenceRows_TableHeaderAndCells(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderSilenceRows(&buf, rows, output.FormatTable))
+	require.NoError(t, renderSilenceTable(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, "TENANT")
 	require.Contains(t, out, "ID")
@@ -175,7 +174,7 @@ func TestRenderSilenceRows_JSONIncludesMatchers(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderSilenceRows(&buf, rows, output.FormatJSON))
+	require.NoError(t, renderSilenceJSON(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"state": "active"`)

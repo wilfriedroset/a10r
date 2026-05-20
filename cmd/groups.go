@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -217,21 +216,6 @@ func sortGroupRows(rows []groupRow) {
 		}
 		return rows[i].Count < rows[j].Count
 	})
-}
-
-// renderGroupRows dispatches to the chosen format. Kept as a thin
-// shim for the existing unit tests; production wiring goes through
-// the per-format Renderer map in runGroupsList.
-func renderGroupRows(out io.Writer, rows []groupRow, format output.Format) error {
-	switch format {
-	case output.FormatJSON:
-		return renderGroupJSON(out, rows)
-	case output.FormatYAML:
-		return renderGroupYAML(out, rows)
-	case output.FormatTable:
-		return renderGroupTable(out, rows)
-	}
-	return fmt.Errorf("unknown format %q", format)
 }
 
 func renderGroupJSON(out io.Writer, rows []groupRow) error { return output.WriteJSON(out, rows) }

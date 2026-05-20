@@ -298,21 +298,6 @@ func sortSilenceRows(rows []silenceRow) {
 	})
 }
 
-// renderSilenceRows dispatches to the chosen format. Kept as a
-// thin shim for the existing unit tests; production wiring goes
-// through the per-format Renderer map in runSilencesList.
-func renderSilenceRows(out io.Writer, rows []silenceRow, format output.Format) error {
-	switch format {
-	case output.FormatJSON:
-		return renderSilenceJSON(out, rows)
-	case output.FormatYAML:
-		return renderSilenceYAML(out, rows)
-	case output.FormatTable:
-		return renderSilenceTable(out, rows)
-	}
-	return fmt.Errorf("unknown format %q", format)
-}
-
 func renderSilenceJSON(out io.Writer, rows []silenceRow) error { return output.WriteJSON(out, rows) }
 func renderSilenceYAML(out io.Writer, rows []silenceRow) error { return output.WriteYAML(out, rows) }
 
