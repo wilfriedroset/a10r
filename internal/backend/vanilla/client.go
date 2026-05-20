@@ -230,7 +230,12 @@ func (c *Client) doDelete(ctx context.Context, fullURL string) error {
 // JSON into dst, matching the `Accept: application/json` the doX
 // callers set.
 func (c *Client) exec(req *http.Request, dst any) error {
-	resp, err := c.http.Do(req)
+	// gosec G704 (SSRF taint): the request URL is the user-configured
+	// Alertmanager / Mimir endpoint by design — the whole purpose of
+	// this tool is to HTTP to operator-supplied AM URLs. Host pinning
+	// at the transport layer (parseExpectedHost in mimir.New) blocks
+	// auth-replay across redirects to a different origin.
+	resp, err := c.http.Do(req) //nolint:gosec // G704: Alertmanager URL is operator-configured by design
 	if err != nil {
 		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
 	}

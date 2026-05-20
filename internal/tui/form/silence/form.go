@@ -351,7 +351,8 @@ func (*Form) Bindings() []action.Action {
 // non-key messages would silence the blink loop.
 func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if m, ok := msg.(submitDoneMsg); ok {
-		return f, f.applySubmitDone(m)
+		cmd := f.applySubmitDone(m)
+		return f, cmd
 	}
 	// Picker results land here when the user picks (or cancels) a
 	// tenant on the Tenant row's Enter. Submitted updates f.tenant;

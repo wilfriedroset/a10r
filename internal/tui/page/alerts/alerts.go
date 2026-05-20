@@ -479,8 +479,10 @@ func (p *Page) Bindings() []action.Action {
 	// `r` is a global binding too; surface it on the alerts hint
 	// strip so the affordance reads at a glance alongside the
 	// page-specific verbs. Same shape as silences.
-	out = append(out, action.Action{Key: "r", Description: "refresh", View: "alerts"})
-	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "alerts"})
+	out = append(out,
+		action.Action{Key: "r", Description: "refresh", View: "alerts"},
+		action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "alerts"},
+	)
 	if p.readOnly {
 		return action.FilterDangerous(out)
 	}

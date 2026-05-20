@@ -1049,17 +1049,17 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 			lines := strings.Split(out, "\n")
 			require.GreaterOrEqual(t, len(lines), 2,
 				"need a header line and at least one data row")
-			header, data := lines[0], lines[1]
+			hdr, data := lines[0], lines[1]
 
 			// ENDS header and its payload ("in 2h") must start at the
 			// same visual column — otherwise the table reads
 			// shifted, like in the bug report screenshot. Compared
 			// in display widths (lipgloss.Width) because the ▸
 			// cursor glyph is multi-byte but one visual cell.
-			hdrCol := visualColumnOf(t, header, "ENDS")
+			hdrCol := visualColumnOf(t, hdr, "ENDS")
 			rowCol := visualColumnOf(t, data, "in 2h")
 			require.Equal(t, hdrCol, rowCol,
-				"ENDS column header and data must start in the same visual column (header=%q row=%q)", header, data)
+				"ENDS column header and data must start in the same visual column (header=%q row=%q)", hdr, data)
 		})
 	}
 }
@@ -2062,7 +2062,7 @@ func TestSingleLine_StripsControlBytes(t *testing.T) {
 		{"backspace", "back\bspace", "back space"},
 		{"null", "nul\x00here", "nul here"},
 		{"del", "del\x7fhere", "del here"},
-		{"c1_csi", "c1here", "c1 here"},
+		{"c1_csi", "c1\u009bhere", "c1 here"},
 		{"already_handled_newline", "line1\nline2", "line1 line2"},
 		{"plain_printable_untouched", "hello, plain ascii", "hello, plain ascii"},
 	} {

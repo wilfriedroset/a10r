@@ -186,7 +186,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	}
 	if paste, ok := msg.(tea.PasteMsg); ok {
 		p.value += paste.Content
-		p.recomputeSuggestion()
+		p = p.recomputeSuggestion()
 		return p, p.changedCmd()
 	}
 	keyMsg, ok := msg.(tea.KeyMsg)
@@ -216,7 +216,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		if p.value != "" {
 			r := []rune(p.value)
 			p.value = string(r[:len(r)-1])
-			p.recomputeSuggestion()
+			p = p.recomputeSuggestion()
 			return p, p.changedCmd()
 		}
 		return p, nil
@@ -225,7 +225,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 			return p, nil
 		}
 		p.value = ""
-		p.recomputeSuggestion()
+		p = p.recomputeSuggestion()
 		return p, p.changedCmd()
 	case "tab", "ctrl+f":
 		// Tab is dual-purpose: accept the ghost-text completion
@@ -237,7 +237,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 		// for users who can't easily reach Tab; same precedence.
 		if p.mode == PromptCommand && p.suggestion != "" {
 			p.value = p.suggestion + " "
-			p.recomputeSuggestion()
+			p = p.recomputeSuggestion()
 			return p, p.changedCmd()
 		}
 		return p.cyclePrev()
@@ -267,7 +267,7 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 	if p.value == prev {
 		return p, nil
 	}
-	p.recomputeSuggestion()
+	p = p.recomputeSuggestion()
 	return p, p.changedCmd()
 }
 
@@ -293,7 +293,7 @@ func (p Prompt) cyclePrev() (Prompt, tea.Cmd) {
 		return p, nil
 	}
 	p.value = v
-	p.recomputeSuggestion()
+	p = p.recomputeSuggestion()
 	return p, p.changedCmd()
 }
 
@@ -313,28 +313,32 @@ func (p Prompt) cycleNext() (Prompt, tea.Cmd) {
 		return p, nil
 	}
 	p.value = v
-	p.recomputeSuggestion()
+	p = p.recomputeSuggestion()
 	return p, p.changedCmd()
 }
 
 // recomputeSuggestion refreshes the ghost-text candidate against
-// the current buffer. Filter mode and a nil suggester both clear
-// it — the seam exists only for command-mode alias completion.
+// the current buffer and returns the updated Prompt. Filter mode
+// and a nil suggester both clear it — the seam exists only for
+// command-mode alias completion. The value-receiver shape matches
+// the rest of Prompt's API so callers stay consistent
+// (`p = p.recomputeSuggestion()`).
 //
 // Defensive: a suggester that returns a string which doesn't have
 // the buffer as a prefix would render as garbled overlay (the
 // trim in Render would no-op and the full suggestion would glue
 // after the cursor). Drop the result rather than render it.
-func (p *Prompt) recomputeSuggestion() {
+func (p Prompt) recomputeSuggestion() Prompt {
 	if p.mode != PromptCommand || p.suggester == nil {
 		p.suggestion = ""
-		return
+		return p
 	}
 	s := p.suggester(p.value)
 	if s != "" && !strings.HasPrefix(s, p.value) {
 		s = ""
 	}
 	p.suggestion = s
+	return p
 }
 
 // changedCmd builds the per-keystroke broadcast Cmd. Captures the

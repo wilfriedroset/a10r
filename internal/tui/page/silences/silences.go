@@ -466,8 +466,10 @@ func (p *Page) Bindings() []action.Action {
 	// `r` is documented in the global help catalog; the page hint
 	// strip surfaces it here so the affordance also shows up next
 	// to the page-specific verbs.
-	out = append(out, action.Action{Key: "r", Description: "refresh", View: "silences"})
-	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "silences"})
+	out = append(out,
+		action.Action{Key: "r", Description: "refresh", View: "silences"},
+		action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "silences"},
+	)
 	if p.readOnly {
 		return action.FilterDangerous(out)
 	}

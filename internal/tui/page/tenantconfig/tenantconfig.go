@@ -310,7 +310,11 @@ func redactedBackendYAML(cfg config.Backend) (string, error) {
 		out.BearerToken = redactionMarker
 	}
 	out.Headers = redactHeaders(cfg.Headers)
-	body, err := yaml.Marshal(out)
+	// gosec G117 false positive: BearerToken (and BasicAuth /
+	// Authorization / Headers) are replaced with redactionMarker
+	// above before this Marshal — the inspector never emits real
+	// credentials.
+	body, err := yaml.Marshal(out) //nolint:gosec // G117: secrets replaced with redactionMarker above
 	if err != nil {
 		return "", fmt.Errorf("marshal backend: %w", err)
 	}

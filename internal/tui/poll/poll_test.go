@@ -18,6 +18,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 )
 
+// fetchPayload is the dummy value the fake Fetch funcs return in
+// tests that only care about the polling-loop mechanics, not the
+// payload shape.
+const fetchPayload = "payload"
+
 // fakeClock is a deterministic Clock for backoff / interval tests.
 // After calls return a channel that the test fires by calling
 // Advance — no real time passes. Now returns a fixed timestamp
@@ -172,7 +177,7 @@ func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 		Resource: "alerts",
 		Interval: 10 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
-			return "payload", nil
+			return fetchPayload, nil
 		},
 		Send:    rec.Send,
 		Clock:   newFakeClock(),
@@ -193,7 +198,7 @@ func TestPoller_FirstTickFiresImmediately(t *testing.T) {
 	// Second emission: the data payload.
 	data, ok := rec.next(t).(DataMsg)
 	require.True(t, ok)
-	require.Equal(t, "payload", data.Resource)
+	require.Equal(t, fetchPayload, data.Resource)
 	require.Equal(t, "prod", data.Tenant)
 	require.Equal(t, "alerts", data.ResourceLabel,
 		"DataMsg must carry the constructor's Resource label so the App-level cache can key by (label, tenant)")
@@ -817,7 +822,7 @@ func TestPoller_DataMsgCarriesAtAndNextAt(t *testing.T) {
 		Resource: "silences",
 		Interval: 30 * time.Second,
 		Fetch: func(_ context.Context) (any, error) {
-			return "payload", nil
+			return fetchPayload, nil
 		},
 		Send:    rec.Send,
 		Clock:   clock,
@@ -853,7 +858,7 @@ func TestPoller_RefreshTriggersImmediateTick(t *testing.T) {
 		Resource: "silences",
 		Interval: time.Hour, // long enough that After never fires in this test
 		Fetch: func(_ context.Context) (any, error) {
-			return "payload", nil
+			return fetchPayload, nil
 		},
 		Send:    rec.Send,
 		Clock:   clock,
@@ -892,7 +897,7 @@ func TestPoller_RefreshTriggersImmediateTick(t *testing.T) {
 	p.Refresh()
 	data, ok := rec.next(t).(DataMsg)
 	require.True(t, ok, "Refresh must produce a DataMsg without firing the schedule")
-	require.Equal(t, "payload", data.Resource)
+	require.Equal(t, fetchPayload, data.Resource)
 }
 
 // TestPoller_RefreshDropsPendingTimer locks F10. Mashing Refresh
@@ -911,7 +916,7 @@ func TestPoller_RefreshDropsPendingTimer(t *testing.T) {
 		Tenant:   "prod",
 		Resource: "alerts",
 		Interval: time.Hour,
-		Fetch:    func(_ context.Context) (any, error) { return "payload", nil },
+		Fetch:    func(_ context.Context) (any, error) { return fetchPayload, nil },
 		Send:     rec.Send,
 		Clock:    clock,
 		Backoff:  noJitter,

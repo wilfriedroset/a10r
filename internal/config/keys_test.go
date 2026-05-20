@@ -10,11 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeKeys(t *testing.T, profile, body string) string {
+// writeKeys lays down a single key-overrides YAML under the
+// "default" profile and returns the dir the tests pass to
+// LoadKeys. Every caller targets the default profile; if a future
+// test needs a named profile, take the parameter back as a variadic
+// or split the helper.
+func writeKeys(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, KeysDir), 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, KeysDir, profile+".yaml"), []byte(body), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, KeysDir, "default.yaml"), []byte(body), 0o600))
 	return dir
 }
 
@@ -25,7 +30,7 @@ func TestLoadKeys_RoundTrip(t *testing.T) {
 	// time so they reach the dispatcher in the same shape the
 	// bubbletea normaliser emits at runtime — see canonicaliseKey for
 	// the rationale.
-	dir := writeKeys(t, "default", `
+	dir := writeKeys(t, `
 quit: ['Q']
 silence: ['S', 's2']
 `)
@@ -44,7 +49,7 @@ func TestLoadKeys_ScalarSugarEqualsSingletonList(t *testing.T) {
 	// the simplest user file ("just give me one extra key") doesn't
 	// require list syntax. Tested here to lock the equivalence so a
 	// future refactor can't quietly drop it.
-	dir := writeKeys(t, "default", "quit: Q\n")
+	dir := writeKeys(t, "quit: Q\n")
 	got, err := LoadKeys(dir, "default")
 	require.NoError(t, err)
 	require.Equal(t, KeyOverrides{"quit": {"Shift+Q"}}, got)
@@ -70,7 +75,7 @@ func TestLoadKeys_EmptyDirArgIsNoError(t *testing.T) {
 func TestLoadKeys_EmptyProfileFallsBackToDefault(t *testing.T) {
 	t.Parallel()
 
-	dir := writeKeys(t, "default", "quit: Q\n")
+	dir := writeKeys(t, "quit: Q\n")
 	got, err := LoadKeys(dir, "")
 	require.NoError(t, err)
 	require.Equal(t, KeyOverrides{"quit": {"Shift+Q"}}, got)
@@ -89,7 +94,7 @@ func TestLoadKeys_EmptyFileVariants(t *testing.T) {
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			dir := writeKeys(t, "default", body)
+			dir := writeKeys(t, body)
 			got, err := LoadKeys(dir, "default")
 			require.NoError(t, err)
 			require.NotNil(t, got)
@@ -115,7 +120,7 @@ func TestLoadKeys_RejectsReservedKey(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			dir := writeKeys(t, "default", tc.body)
+			dir := writeKeys(t, tc.body)
 			_, err := LoadKeys(dir, "default")
 			require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 			require.Contains(t, err.Error(), "0-9 are reserved")
@@ -132,7 +137,7 @@ func TestLoadKeys_RejectsSameFileConflict(t *testing.T) {
 	// would mask a typo. Different file vs default is fine — that's
 	// the whole point of overrides.
 	body := "quit: ['Q']\nrefresh: ['Q']\n"
-	dir := writeKeys(t, "default", body)
+	dir := writeKeys(t, body)
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), `key "Shift+Q" is also bound to action "quit"`)
@@ -147,7 +152,7 @@ func TestLoadKeys_SameKeyTwiceUnderSameActionIsFine(t *testing.T) {
 	// Repeated key under the same action is benign (idempotent
 	// override); we coalesce silently rather than treating it as a
 	// conflict.
-	dir := writeKeys(t, "default", "quit: ['Q', 'Q']\n")
+	dir := writeKeys(t, "quit: ['Q', 'Q']\n")
 	got, err := LoadKeys(dir, "default")
 	require.NoError(t, err)
 	require.Equal(t, KeyOverrides{"quit": {"Shift+Q", "Shift+Q"}}, got)
@@ -156,7 +161,7 @@ func TestLoadKeys_SameKeyTwiceUnderSameActionIsFine(t *testing.T) {
 func TestLoadKeys_RejectsEmptyKey(t *testing.T) {
 	t.Parallel()
 
-	dir := writeKeys(t, "default", "quit: ['']\n")
+	dir := writeKeys(t, "quit: ['']\n")
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), "key must not be empty")
@@ -167,7 +172,7 @@ func TestLoadKeys_RejectsEmptyAction(t *testing.T) {
 
 	// `'': [Q]` is a syntactic possibility we want to refuse — empty
 	// action names can never resolve at apply time.
-	dir := writeKeys(t, "default", "'': ['Q']\n")
+	dir := writeKeys(t, "'': ['Q']\n")
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), "action name must not be empty")
@@ -176,7 +181,7 @@ func TestLoadKeys_RejectsEmptyAction(t *testing.T) {
 func TestLoadKeys_RejectsNonMappingTopLevel(t *testing.T) {
 	t.Parallel()
 
-	dir := writeKeys(t, "default", "- quit\n- refresh\n")
+	dir := writeKeys(t, "- quit\n- refresh\n")
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), "top-level must be a mapping")
@@ -187,7 +192,7 @@ func TestLoadKeys_RejectsNestedMappingValue(t *testing.T) {
 
 	// `quit: { foo: bar }` is neither a scalar nor a sequence —
 	// reject with a precise pointer to the offending line.
-	dir := writeKeys(t, "default", "quit:\n  foo: bar\n")
+	dir := writeKeys(t, "quit:\n  foo: bar\n")
 	_, err := LoadKeys(dir, "default")
 	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
 	require.Contains(t, err.Error(), "value must be a string or list of strings")
@@ -243,7 +248,7 @@ func TestCanonicaliseKey(t *testing.T) {
 // can't drift.
 func TestLoadKeys_LowercaseShiftPrefixCanonicalises(t *testing.T) {
 	t.Parallel()
-	dir := writeKeys(t, "default", "quit: ['shift+q']\n")
+	dir := writeKeys(t, "quit: ['shift+q']\n")
 	got, err := LoadKeys(dir, "default")
 	require.NoError(t, err)
 	require.Equal(t, KeyOverrides{"quit": {"Shift+Q"}}, got)

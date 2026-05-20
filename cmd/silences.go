@@ -49,10 +49,10 @@ func newSilencesCmd(flags *GlobalFlags) *cobra.Command {
 // when at least one row survived the filters; ExitOK (0) otherwise.
 func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 	var (
-		outputFmt string
-		state     string
-		matcher   string
-		failOnAny bool
+		outputFmt   string
+		state       string
+		matcherExpr string
+		failOnAny   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -62,7 +62,7 @@ func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 			return runSilencesList(cmd.Context(), cmd.OutOrStdout(), flags, silencesListOptions{
 				Output:    outputFmt,
 				State:     state,
-				Matcher:   matcher,
+				Matcher:   matcherExpr,
 				FailOnAny: failOnAny,
 			})
 		},
@@ -70,7 +70,7 @@ func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
 	cmd.Flags().StringVar(&state, "state", "",
 		"keep only silences in the named state: active, pending, expired")
-	cmd.Flags().StringVar(&matcher, "matcher", "",
+	cmd.Flags().StringVar(&matcherExpr, "matcher", "",
 		`keep only silences whose matcher set contains the given Prom-style matcher (e.g. severity="critical")`)
 	cmd.Flags().BoolVar(&failOnAny, "fail", false,
 		"exit with code 10 when at least one silence matches the filters")
