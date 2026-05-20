@@ -29,6 +29,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -55,19 +56,9 @@ func newAuditLogBuf(t *testing.T) *strings.Builder {
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: testutil.LoadStyles(t),
+		Styles: pagetest.Styles(t),
 		Now:    func() time.Time { return fixedNow },
 	})
-}
-
-func sil(id, by string, state backend.SilenceState, endsIn time.Duration) backend.Silence { //nolint:unparam // state kept for future tests covering pending / expired silences
-	return backend.Silence{
-		ID:        id,
-		CreatedBy: by,
-		State:     state,
-		StartsAt:  fixedNow.Add(-time.Hour),
-		EndsAt:    fixedNow.Add(endsIn),
-	}
 }
 
 func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
@@ -75,7 +66,7 @@ func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour})},
 		Tenant:   "",
 	})
 
@@ -101,9 +92,9 @@ func TestPage_DataMsgPopulatesAndSortsByEndsAtAscending(t *testing.T) {
 
 	p := newPage(t)
 	silences := []backend.Silence{
-		sil("late", "alice", backend.SilenceStateActive, 24*time.Hour),
-		sil("soon", "bob", backend.SilenceStateActive, time.Hour),
-		sil("mid", "carol", backend.SilenceStateActive, 6*time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "late", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: 24 * time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "soon", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "mid", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: 6 * time.Hour}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 	require.Equal(t, "soon", p.view[0].s.ID)
@@ -139,9 +130,9 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 
 	p := newPage(t)
 	silences := []backend.Silence{
-		sil("a", "carol", backend.SilenceStateActive, time.Hour),
-		sil("b", "alice", backend.SilenceStateActive, time.Hour),
-		sil("c", "bob", backend.SilenceStateActive, time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "b", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "c", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: time.Hour}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
@@ -160,8 +151,8 @@ func TestPage_VimMotions(t *testing.T) {
 
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
-		sil("a", "x", backend.SilenceStateActive, time.Hour),
-		sil("b", "y", backend.SilenceStateActive, 2*time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "b", CreatedBy: "y", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
 	}})
 
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -176,7 +167,7 @@ func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
 	// list, so dropping them here turns off the affordance in
 	// both surfaces without each consumer re-filtering.
 	p := New(Options{
-		Styles:   testutil.LoadStyles(t),
+		Styles:   pagetest.Styles(t),
 		Now:      func() time.Time { return fixedNow },
 		ReadOnly: true,
 	})
@@ -208,7 +199,7 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New(Options{
-				Styles:   testutil.LoadStyles(t),
+				Styles:   pagetest.Styles(t),
 				Now:      func() time.Time { return fixedNow },
 				ReadOnly: true,
 				Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
@@ -216,7 +207,7 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 			// Land at least one row so the cursor isn't on an empty view.
 			_, _ = p.Update(poll.DataMsg{
 				Tenant:   "prod",
-				Resource: []backend.Silence{sil("a", "alice", backend.SilenceStateActive, time.Hour)},
+				Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour})},
 			})
 			_, cmd := p.Update(tc.key)
 			require.NotNil(t, cmd, "read-only must produce a flash Cmd, never a silent no-op")
@@ -255,7 +246,7 @@ type recordingResolver struct {
 func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
@@ -400,7 +391,7 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 	// editor was reopened with the user's typed buffer.
 	var edits []edit.Request
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
@@ -503,7 +494,7 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 	}
 
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
@@ -604,7 +595,7 @@ func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
 	t.Parallel()
 	client := &ctxBlockingSilenceClient{started: make(chan struct{})}
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": client},
 		Creator: "wilfried",
@@ -665,8 +656,8 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 
 	p := newPage(t)
 	first := []backend.Silence{
-		sil("alpha", "x", backend.SilenceStateActive, time.Hour),
-		sil("beta", "x", backend.SilenceStateActive, 2*time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "alpha", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "beta", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: first})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
@@ -675,9 +666,9 @@ func TestPage_CursorPreservedByID(t *testing.T) {
 	// "beta" now has a later ends-at; reordering pushes it to the
 	// bottom. Cursor must follow.
 	second := []backend.Silence{
-		sil("gamma", "x", backend.SilenceStateActive, 30*time.Minute),
-		sil("alpha", "x", backend.SilenceStateActive, time.Hour),
-		sil("beta", "x", backend.SilenceStateActive, 4*time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "gamma", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: 30 * time.Minute}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "alpha", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "beta", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: 4 * time.Hour}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: second})
 	require.Equal(t, "beta", p.view[p.Index()].s.ID,
@@ -692,7 +683,7 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	// code.
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
-		sil("a", "x", backend.SilenceStateActive, time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "x", State: backend.SilenceStateActive, EndsIn: time.Hour}),
 	}})
 	headerLine, _, _ := strings.Cut(p.View(160, 10), "\n")
 	require.NotContains(t, headerLine, "\x1b[48",
@@ -707,9 +698,9 @@ func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	// poll refreshes follow content; sort keystrokes follow position.
 	p := newPage(t)
 	silences := []backend.Silence{
-		sil("alpha", "carol", backend.SilenceStateActive, time.Hour),
-		sil("beta", "alice", backend.SilenceStateActive, 2*time.Hour),
-		sil("gamma", "bob", backend.SilenceStateActive, 30*time.Minute),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "alpha", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "beta", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "gamma", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 30 * time.Minute}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 	// Default ENDS ASC: gamma (30m), alpha (1h), beta (2h).
@@ -937,7 +928,7 @@ func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 	// alerts: foreground-only dim so the row is still legible
 	// but visibly demoted. The active row in the same view
 	// stays at full contrast so the comparison is obvious.
-	styles := testutil.LoadStyles(t)
+	styles := pagetest.Styles(t)
 	p := New(Options{
 		Styles: styles,
 		Now:    func() time.Time { return fixedNow },
@@ -1013,7 +1004,7 @@ func TestPage_RenderShowsCreatorAndState(t *testing.T) {
 
 	p := newPage(t)
 	silences := []backend.Silence{
-		sil("a", "alice@example", backend.SilenceStateActive, time.Hour),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "alice@example", State: backend.SilenceStateActive, EndsIn: time.Hour}),
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: silences})
 	out := testutil.StripStyle(p.View(120, 10))
@@ -1039,15 +1030,17 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := newPage(t)
-			// EndsAt 2h in the future, StartsAt 5h in the past (sil()
-			// always sets StartsAt = fixedNow - 1h, so widen it via
-			// a manual override). Distinct relative-time strings —
-			// "in 2h" vs. "5h ago" — keep the column-search below
-			// unambiguous. Uses an active silence so the ENDS column
-			// renders a forward-looking value, which is the common
-			// case operators see.
-			s := sil("only", "alice", backend.SilenceStateActive, 2*time.Hour)
-			s.StartsAt = fixedNow.Add(-5 * time.Hour)
+			// EndsAt 2h in the future, StartsAt 5h in the past.
+			// pagetest.Silence defaults StartsIn to -1h, so widen it
+			// via StartsIn explicitly here. Distinct relative-time
+			// strings — "in 2h" vs. "5h ago" — keep the column-search
+			// below unambiguous. Uses an active silence so the ENDS
+			// column renders a forward-looking value, which is the
+			// common case operators see.
+			s := pagetest.Silence(pagetest.SilenceOptions{
+				ID: "only", CreatedBy: "alice", State: backend.SilenceStateActive,
+				StartsIn: -5 * time.Hour, EndsIn: 2 * time.Hour,
+			})
 			_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{s}})
 			if tc.mark {
 				_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
@@ -1357,7 +1350,7 @@ func TestPage_EnterPushesSilenceDetail(t *testing.T) {
 func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
@@ -1378,7 +1371,7 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
@@ -1404,7 +1397,7 @@ func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1416,7 +1409,7 @@ func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 func TestPage_EditKeyWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
-	silences := []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)}
+	silences := []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour})}
 	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -1435,7 +1428,7 @@ func TestPage_EditKeyPushesEditForm(t *testing.T) {
 func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1449,7 +1442,7 @@ func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
 func TestPage_RecreateKeyWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := newPage(t) // no clients configured
-	silences := []backend.Silence{sil("sil-1", "alice", backend.SilenceStateExpired, -time.Hour)}
+	silences := []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateExpired, EndsIn: -time.Hour})}
 	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	msg := cmd().(footer.FlashShowMsg)
@@ -1475,13 +1468,13 @@ func TestPage_RecreateKeyOnActiveSilenceFlashesHint(t *testing.T) {
 func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-expired", "alice", backend.SilenceStateExpired, -time.Hour)},
+		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-expired", CreatedBy: "alice", State: backend.SilenceStateExpired, EndsIn: -time.Hour})},
 		Tenant:   "prod",
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
@@ -1512,7 +1505,7 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 	}
 	fake := &fakeSilenceClient{}
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
@@ -1549,7 +1542,7 @@ func TestPage_FormSubmittedUpdatedFlashesUpdated(t *testing.T) {
 func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
-		Styles:  testutil.LoadStyles(t),
+		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 	})
@@ -1741,7 +1734,7 @@ func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
 	// Concurrency = 2 with 5 marks → at most 2 blocked at once.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          testutil.LoadStyles(t),
+		Styles:          pagetest.Styles(t),
 		Now:             func() time.Time { return fixedNow },
 		Clients:         map[string]silenceform.Client{"prod": fake},
 		Creator:         "wilfried",
@@ -1796,7 +1789,7 @@ func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
 	// callers arrive at the fake after Close.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          testutil.LoadStyles(t),
+		Styles:          pagetest.Styles(t),
 		Now:             func() time.Time { return fixedNow },
 		Clients:         map[string]silenceform.Client{"prod": fake},
 		Creator:         "wilfried",
@@ -2006,7 +1999,7 @@ func TestPage_WatchModeFooterRendersWatchOff(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
 	_, _ = p.Update(poll.DataMsg{
-		Resource: []backend.Silence{sil("sil-1", "alice", backend.SilenceStateActive, time.Hour)},
+		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour})},
 		Tenant:   "prod",
 	})
 	require.NotContains(t, p.Footer(), "WATCH OFF",
