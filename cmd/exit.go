@@ -58,8 +58,12 @@ const (
 // have to thread an exit-code parameter through helpers — while
 // still letting main own the os.Exit call.
 type ExitError struct {
+	// Code is one of the Exit* constants and becomes the process
+	// exit status when main() type-switches on this error.
 	Code int
-	Err  error
+	// Err is the underlying error returned by the subcommand; its
+	// Error() text is what stderr-formatting paths render.
+	Err error
 }
 
 // Error implements the error interface, delegating to the
