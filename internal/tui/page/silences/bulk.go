@@ -62,14 +62,14 @@ func (p *Page) openExpireConfirmUnified() tea.Cmd {
 // open and Yes still routes ExpireSilence at the right backend.
 func (p *Page) openExpireConfirm() tea.Cmd {
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no silence under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	p.pendingExpire = pendingExpire{
 		ids:  []pendingExpireID{{id: entry.s.ID, tenant: entry.tenant}},
@@ -97,10 +97,10 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 // re-fires the alert and on-call may page.
 func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	if len(p.marks) == 0 {
-		return flashFn(footer.FlashInfo, "no rows marked — Space marks one")
+		return footer.ShowFlash(footer.FlashInfo, "no rows marked — Space marks one")
 	}
 	if len(p.clients) == 0 {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	ids := make([]pendingExpireID, 0, len(p.marks))
 	for tenant, sils := range p.byTenant {
@@ -114,7 +114,7 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 		// Marks survived but every silence vanished from byTenant
 		// (every backend re-emitted without them). Defensive:
 		// flash and clear so the user can re-mark.
-		return flashFn(footer.FlashInfo, "no marked silences remain")
+		return footer.ShowFlash(footer.FlashInfo, "no marked silences remain")
 	}
 	// Sort by ID for deterministic confirm-question wording and
 	// stable iteration order across runs / tests.
@@ -278,15 +278,15 @@ func (p *Page) flashExpireResult(_ bool, success, failed int) tea.Cmd {
 	total := success + failed
 	if total == 1 {
 		if success == 1 {
-			return flashFn(footer.FlashSuccess, "silence expired")
+			return footer.ShowFlash(footer.FlashSuccess, "silence expired")
 		}
-		return flashFn(footer.FlashError, "expire failed")
+		return footer.ShowFlash(footer.FlashError, "expire failed")
 	}
 	if failed == 0 {
-		return flashFn(footer.FlashSuccess, fmt.Sprintf("expired %d silences", success))
+		return footer.ShowFlash(footer.FlashSuccess, fmt.Sprintf("expired %d silences", success))
 	}
 	if success == 0 {
-		return flashFn(footer.FlashError, fmt.Sprintf("expire failed for %d silences", failed))
+		return footer.ShowFlash(footer.FlashError, fmt.Sprintf("expire failed for %d silences", failed))
 	}
-	return flashFn(footer.FlashWarn, fmt.Sprintf("expired %d of %d — %d failed", success, total, failed))
+	return footer.ShowFlash(footer.FlashWarn, fmt.Sprintf("expired %d of %d — %d failed", success, total, failed))
 }

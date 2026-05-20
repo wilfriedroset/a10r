@@ -56,7 +56,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			slog.String("op", "created"),
 			slog.String("id", m.ID),
 			slog.String("surface", "alerts-form"))
-		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+		return p, footer.ShowFlash(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. Esc on the form is a non-event.
 		// If a pending bulk round was waiting for the form, drop it
@@ -147,7 +147,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.recompute()
 	case "s":
 		if p.readOnly {
-			return p, flashFn(footer.FlashWarn, hintReadOnly)
+			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
 		cmd := p.openSilenceForS()
 		return p, cmd
@@ -219,14 +219,14 @@ func (p *Page) openSilenceForS() tea.Cmd {
 // carrying that metric name.
 func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no alert under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no alert under the cursor")
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(entry.a.Labels)
 	creator := p.creator
@@ -256,12 +256,6 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 // the 80-col footer width.
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
-func flashFn(level footer.FlashLevel, text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: level, Text: text}
-	}
-}
-
 // handleClearMarks drops every mark on the page in response to
 // the global Ctrl+\ binding. Flashes "marks cleared" when the
 // pre-clear count was non-zero so the user sees confirmation;
@@ -273,7 +267,7 @@ func (p *Page) handleClearMarks() tea.Cmd {
 		return nil
 	}
 	p.marks = map[string]struct{}{}
-	return flashFn(footer.FlashInfo, "marks cleared")
+	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
 }
 
 // toggleMarkAtCursor flips the mark on the row under the cursor.
@@ -304,7 +298,7 @@ func (p *Page) toggleMarkAtCursor() {
 // reference — pages share the wiring layer's authoritative copy.
 func (p *Page) drillToDetail() tea.Cmd {
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no alert under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no alert under the cursor")
 	}
 	entry := p.view[p.Index()]
 	styles := p.styles

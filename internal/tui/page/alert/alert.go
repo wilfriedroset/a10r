@@ -231,7 +231,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			slog.String("op", "created"),
 			slog.String("id", m.ID),
 			slog.String("surface", "alert-detail-form"))
-		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+		return p, footer.ShowFlash(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.
 		return p, nil
@@ -258,7 +258,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return p, cmd
 	case "s":
 		if p.readOnly {
-			return p, flashFn(footer.FlashWarn, hintReadOnly)
+			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
 		cmd := p.openSilenceForm()
 		return p, cmd
@@ -314,10 +314,10 @@ func (p *Page) ingestSilences(m poll.DataMsg) {
 // so the affordance reads consistently across pages.
 func (p *Page) openSilenceForm() tea.Cmd {
 	if len(p.clients) == 0 || p.tenant == "" {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	if _, ok := p.clients[p.tenant]; !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(p.a.Labels)
 	creator := p.creator
@@ -357,15 +357,15 @@ const hintReadOnly = "read-only mode — alerts cannot be silenced"
 // integration" path.
 func (p *Page) copyFingerprint() tea.Cmd {
 	if p.clip == nil {
-		return flashFn(footer.FlashWarn, "clipboard not configured")
+		return footer.ShowFlash(footer.FlashWarn, "clipboard not configured")
 	}
 	if p.a.Fingerprint == "" {
-		return flashFn(footer.FlashWarn, "alert has no fingerprint")
+		return footer.ShowFlash(footer.FlashWarn, "alert has no fingerprint")
 	}
 	if err := p.clip.Copy(p.a.Fingerprint); err != nil {
-		return flashFn(footer.FlashError, "copy failed: "+err.Error())
+		return footer.ShowFlash(footer.FlashError, "copy failed: "+err.Error())
 	}
-	return flashFn(footer.FlashSuccess, "fingerprint copied")
+	return footer.ShowFlash(footer.FlashSuccess, "fingerprint copied")
 }
 
 // openGeneratorURL asks the browser integration to open the
@@ -378,18 +378,18 @@ func (p *Page) copyFingerprint() tea.Cmd {
 // the browser is the only sensible target for an alert link.
 func (p *Page) openGeneratorURL() tea.Cmd {
 	if p.a.GeneratorURL == "" {
-		return flashFn(footer.FlashInfo, "this alert has no generator URL")
+		return footer.ShowFlash(footer.FlashInfo, "this alert has no generator URL")
 	}
 	if p.browser == nil {
-		return flashFn(footer.FlashWarn, "browser not configured")
+		return footer.ShowFlash(footer.FlashWarn, "browser not configured")
 	}
 	if !isSafeBrowserURL(p.a.GeneratorURL) {
-		return flashFn(footer.FlashError, "refusing to open non-http(s) URL")
+		return footer.ShowFlash(footer.FlashError, "refusing to open non-http(s) URL")
 	}
 	if err := p.browser.Open(p.a.GeneratorURL); err != nil {
-		return flashFn(footer.FlashError, "open failed: "+err.Error())
+		return footer.ShowFlash(footer.FlashError, "open failed: "+err.Error())
 	}
-	return flashFn(footer.FlashSuccess, "opened in browser")
+	return footer.ShowFlash(footer.FlashSuccess, "opened in browser")
 }
 
 // isSafeBrowserURL accepts http(s) URLs only. Anything else is
@@ -695,7 +695,7 @@ func collapseFirstLine(s string) string {
 // what the body shows.
 func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 0 {
-		return flashFn(footer.FlashInfo, "no silences attached to this alert")
+		return footer.ShowFlash(footer.FlashInfo, "no silences attached to this alert")
 	}
 	if len(p.silencedBy) == 1 {
 		return p.openSilenceDetail(p.silencedBy[0])
@@ -744,7 +744,7 @@ func dedupStrings(in []string) []string {
 func (p *Page) openSilenceDetail(id string) tea.Cmd {
 	s, ok := p.silences[id]
 	if !ok {
-		return flashFn(footer.FlashInfo, "silence "+id+" not in snapshot — try :silences")
+		return footer.ShowFlash(footer.FlashInfo, "silence "+id+" not in snapshot — try :silences")
 	}
 	tenant := p.tenant
 	styles := p.styles
@@ -912,12 +912,4 @@ func bestBreakIndex(s string, limit int) int {
 // views agree on how the toggle reads.
 func (p *Page) formatTime(ts time.Time) string {
 	return timerender.Display(p.timeFormat, p.now(), ts)
-}
-
-// flashFn is a tiny constructor for FlashShowMsg-emitting Cmds so
-// the action handlers stay one-liners.
-func flashFn(level footer.FlashLevel, text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: level, Text: text}
-	}
 }

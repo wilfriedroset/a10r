@@ -46,7 +46,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			slog.String("op", "created"),
 			slog.String("id", m.ID),
 			slog.String("surface", "groups-form"))
-		return p, flashFn(footer.FlashSuccess, "silence created: "+m.ID)
+		return p, footer.ShowFlash(footer.FlashSuccess, "silence created: "+m.ID)
 	case silenceform.CancelledMsg:
 		return p, nil
 	case footer.PromptOpenedMsg, footer.PromptChangedMsg,
@@ -87,7 +87,7 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p.onEnter(rows)
 	case "s":
 		if p.readOnly {
-			return p, flashFn(footer.FlashWarn, hintReadOnly)
+			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
 		return p.onSilence(rows)
 	case "r":
@@ -193,18 +193,18 @@ func (p *Page) onEnter(rows []row) (app.Page, tea.Cmd) {
 // always covers every alert in the group.
 func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	if p.Index() >= len(rows) {
-		return p, flashFn(footer.FlashInfo, "no group under the cursor")
+		return p, footer.ShowFlash(footer.FlashInfo, "no group under the cursor")
 	}
 	r := rows[p.Index()]
 	if r.groupIdx >= len(p.flat) {
-		return p, flashFn(footer.FlashInfo, "no group under the cursor")
+		return p, footer.ShowFlash(footer.FlashInfo, "no group under the cursor")
 	}
 	entry := p.flat[r.groupIdx]
 	if len(p.clients) == 0 {
-		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return p, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return p, flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return p, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(commonLabels(entry.g.Alerts))
 	if len(matchers) == 0 {
@@ -215,7 +215,7 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 		// away mid-poll, or a heterogeneous group with no
 		// labels-in-common. Drill into an individual alert and
 		// silence from there if that's the intent.
-		return p, flashFn(footer.FlashError,
+		return p, footer.ShowFlash(footer.FlashError,
 			"cannot silence group with no common labels — drill into an alert and silence it individually")
 	}
 	creator := p.creator
@@ -238,14 +238,6 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 			SubmitCtx: submitCtx,
 		})
 	})
-}
-
-// flashFn returns a Cmd emitting a FlashShowMsg. Tiny helper so
-// the action handlers stay one-liners.
-func flashFn(level footer.FlashLevel, text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: level, Text: text}
-	}
 }
 
 // hintNoWriteableBackend mirrors the alerts / alert page consts

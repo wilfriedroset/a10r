@@ -296,18 +296,9 @@ func (p *Page) drillToConfig() tea.Cmd {
 	name := rows[p.window.Index()].Name
 	page, err := p.drill(name)
 	if err != nil {
-		return flashFn(footer.FlashWarn, err.Error())
+		return footer.ShowFlash(footer.FlashWarn, err.Error())
 	}
 	return app.PushPage(func() app.Page { return page })
-}
-
-// flashFn returns a Cmd emitting a FlashShowMsg with the supplied
-// level and text. Mirror of the alerts / silences / groups
-// helper so the wording stays consistent across pages.
-func flashFn(level footer.FlashLevel, text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: level, Text: text}
-	}
 }
 
 // View implements app.Page.

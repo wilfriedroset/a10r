@@ -85,7 +85,7 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 			verb = "updated"
 		}
 		auditSilenceWrite(verb, m.ID, "form")
-		return flashFn(footer.FlashSuccess, "silence "+verb+": "+m.ID)
+		return footer.ShowFlash(footer.FlashSuccess, "silence "+verb+": "+m.ID)
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — form Esc is a
 		// non-event from the user's perspective.
@@ -188,7 +188,7 @@ func (p *Page) toggleWatch() {
 // touch-point and a stray new write verb cannot bypass it.
 func (p *Page) runWriteAction(action func() tea.Cmd) tea.Cmd {
 	if p.readOnly {
-		return flashFn(footer.FlashWarn, hintReadOnly)
+		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 	}
 	return action()
 }
@@ -203,7 +203,7 @@ const hintReadOnly = "read-only mode — silences cannot be modified"
 // Info flash so the user sees a reason for the no-op.
 func (p *Page) drillToDetail() tea.Cmd {
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no silence under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	entry := p.view[p.Index()]
 	styles := p.styles
@@ -248,7 +248,7 @@ func (p *Page) handleClearMarks() tea.Cmd {
 		return nil
 	}
 	p.marks = map[string]struct{}{}
-	return flashFn(footer.FlashInfo, "marks cleared")
+	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
 }
 
 // toggleMarkAtCursor flips the mark on the cursor row. No-op on
@@ -280,14 +280,14 @@ func (p *Page) toggleMarkAtCursor() {
 // freezes the selection on entry.tenant.
 func (p *Page) openEditSilenceForm() tea.Cmd {
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no silence under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	creator := entry.s.CreatedBy
 	if creator == "" {
@@ -334,18 +334,18 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 // CreateSilence rather than UpdateSilence.
 func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 	if p.Index() >= len(p.view) {
-		return silenceform.Options{}, flashFn(footer.FlashInfo, "no silence under the cursor"), false
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashInfo, "no silence under the cursor"), false
 	}
 	if len(p.clients) == 0 {
-		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend), false
 	}
 	entry := p.view[p.Index()]
 	if entry.s.State != backend.SilenceStateExpired {
-		return silenceform.Options{}, flashFn(footer.FlashInfo,
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashInfo,
 			"only expired silences can be recreated — use `e` to edit a live silence"), false
 	}
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return silenceform.Options{}, flashFn(footer.FlashWarn, hintNoWriteableBackend), false
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend), false
 	}
 	return silenceform.Options{
 		Clients:   p.clients,
@@ -404,18 +404,18 @@ type editorUpdateResultMsg struct {
 // editor returns.
 func (p *Page) openEditorForCursor() tea.Cmd {
 	if p.Index() >= len(p.view) {
-		return flashFn(footer.FlashInfo, "no silence under the cursor")
+		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.editor.EditorEnv) == 0 && p.editor.DefaultEditor == "" {
-		return flashFn(footer.FlashWarn, "editor handoff requires $EDITOR or $A10R_EDITOR")
+		return footer.ShowFlash(footer.FlashWarn, "editor handoff requires $EDITOR or $A10R_EDITOR")
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	body, err := silenceToYAML(entry.s)
 	if err != nil {
-		return flashFn(footer.FlashError, "yaml encode: "+err.Error())
+		return footer.ShowFlash(footer.FlashError, "yaml encode: "+err.Error())
 	}
 	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant}
 	return p.editor.Edit(edit.Request{
@@ -443,7 +443,7 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	if m.Err != nil {
 		p.pendingEdit = pendingEdit{}
-		return flashFn(footer.FlashError, "editor: "+m.Err.Error())
+		return footer.ShowFlash(footer.FlashError, "editor: "+m.Err.Error())
 	}
 	if strings.TrimSpace(m.Content) == "" {
 		p.pendingEdit = pendingEdit{}
@@ -453,7 +453,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	id, spec, err := silenceFromYAML([]byte(m.Content))
 	if err != nil {
 		p.pendingEdit = pendingEdit{}
-		return flashFn(footer.FlashError, "yaml: "+err.Error())
+		return footer.ShowFlash(footer.FlashError, "yaml: "+err.Error())
 	}
 	if pending.id != "" && id != "" && id != pending.id {
 		// Keep pendingEdit so the reopened editor session updates
@@ -461,7 +461,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		// the editor with the user's just-edited content rather
 		// than the original snapshot — losing their work to a typo
 		// would be hostile UX.
-		flash := flashFn(footer.FlashError,
+		flash := footer.ShowFlash(footer.FlashError,
 			"silence id mismatch — expected "+pending.id+", got "+id+"; reopening editor")
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: pending.id,
@@ -495,7 +495,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		// flash. Content is sacrificed, but the user can re-open
 		// the silence after fixing config.
 		p.pendingEdit = pendingEdit{}
-		return flashFn(footer.FlashError, "no writeable backend for silence "+id)
+		return footer.ShowFlash(footer.FlashError, "no writeable backend for silence "+id)
 	}
 	// Dispatch the write asynchronously so a slow backend doesn't
 	// freeze the bubbletea Update loop. The result lands as an
@@ -548,7 +548,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 // pattern). See editorUpdateResultMsg for why this is split out.
 func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 	if m.err != nil {
-		flash := flashFn(footer.FlashError, "update: "+m.err.Error())
+		flash := footer.ShowFlash(footer.FlashError, "update: "+m.err.Error())
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: m.pending.id,
 			Initial:    m.content,
@@ -559,7 +559,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 	}
 	p.pendingEdit = pendingEdit{}
 	auditSilenceWrite("updated", m.id, "editor")
-	return flashFn(footer.FlashSuccess, "silence updated: "+m.id)
+	return footer.ShowFlash(footer.FlashSuccess, "silence updated: "+m.id)
 }
 
 // openNewSilenceForm pushes an empty silence form targeting the
@@ -572,7 +572,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 func (p *Page) openNewSilenceForm() tea.Cmd {
 	tenant, _, ok := p.pickWriteTarget()
 	if !ok {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	creator := p.defaultCreator()
 	now := p.now
@@ -630,15 +630,6 @@ func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 	return "", nil, false
 }
 
-// flashFn returns a Cmd that emits a FlashShowMsg with the
-// supplied level and text. Tiny indirection so the page's
-// action handlers stay one-liners and so the level (Info / Warn
-// / Error / Success) reads at the call site.
-func flashFn(level footer.FlashLevel, text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: level, Text: text}
-	}
-}
 
 // auditSilenceWrite emits the structured "silence write succeeded"
 // log line surfaced on every successful silence mutation so an

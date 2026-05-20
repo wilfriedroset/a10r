@@ -167,7 +167,7 @@ func (s *submitter) Done(msg submitDoneMsg) (stale bool) {
 // land in the transport timeout anyway.
 func (f *Form) submitNow() tea.Cmd {
 	if f.submit.InFlight() {
-		return flashFn("silence: submit already in flight")
+		return footer.ShowFlash(footer.FlashWarn, "silence: submit already in flight")
 	}
 	spec, err := f.parseSpec()
 	if err != nil {
@@ -225,16 +225,6 @@ func (f *Form) applySubmitDone(m submitDoneMsg) tea.Cmd {
 	id := m.id
 	updated := m.updated
 	return func() tea.Msg { return SubmittedMsg{ID: id, Updated: updated} }
-}
-
-// flashFn is a tiny helper for surfacing a single ephemeral hint
-// without touching f.err — used when the form rejects a keystroke
-// (e.g. duplicate Ctrl+S during an in-flight submit) without
-// recording it as the persistent submit error.
-func flashFn(text string) tea.Cmd {
-	return func() tea.Msg {
-		return footer.FlashShowMsg{Level: footer.FlashWarn, Text: text}
-	}
 }
 
 // fail records the error on the form and returns a Cmd that

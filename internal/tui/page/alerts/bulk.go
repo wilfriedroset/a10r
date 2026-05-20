@@ -44,11 +44,11 @@ type pendingBulkSilence struct {
 // no marks left after resolution drops to a soft Info flash.
 func (p *Page) openBulkSilence() tea.Cmd {
 	if len(p.clients) == 0 {
-		return flashFn(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
 	targets, tenants := p.resolveBulkSilenceTargets()
 	if len(targets) == 0 {
-		return flashFn(footer.FlashInfo, "no marked alerts remain")
+		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
 	if len(targets) == 1 {
@@ -145,7 +145,7 @@ func formatTenantBreakdownAlerts(targets []bulkSilenceTarget) string {
 func (p *Page) pushBulkSilenceForm() tea.Cmd {
 	pending := p.pendingBulkSilence
 	if len(pending.targets) == 0 {
-		return flashFn(footer.FlashInfo, "no marked alerts remain")
+		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
 	creator := p.creator
 	if creator == "" {
@@ -308,17 +308,17 @@ func (p *Page) handleBulkSilenceDone(m bulkop.DoneMsg[string]) tea.Cmd {
 func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
 	if total == 1 {
 		if success == 1 {
-			return flashFn(footer.FlashSuccess, "silence created")
+			return footer.ShowFlash(footer.FlashSuccess, "silence created")
 		}
-		return flashFn(footer.FlashError, "silence failed")
+		return footer.ShowFlash(footer.FlashError, "silence failed")
 	}
 	if failed == 0 {
-		return flashFn(footer.FlashSuccess, fmt.Sprintf("silenced %d alerts", success))
+		return footer.ShowFlash(footer.FlashSuccess, fmt.Sprintf("silenced %d alerts", success))
 	}
 	if success == 0 {
-		return flashFn(footer.FlashError, fmt.Sprintf("silence failed for %d alerts", failed))
+		return footer.ShowFlash(footer.FlashError, fmt.Sprintf("silence failed for %d alerts", failed))
 	}
-	return flashFn(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
+	return footer.ShowFlash(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
 }
 
 // hintNoWriteableBackend is the shared "configure a writeable
