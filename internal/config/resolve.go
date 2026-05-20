@@ -11,7 +11,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/log"
 )
 
-// Env var names consulted by Resolve (matching K1).
+// Env var names consulted by Resolve. See ADR 0027 for the precedence
+// chain these env vars sit in.
 const (
 	envLog       = "A10R_LOG"
 	envLogFormat = "A10R_LOG_FORMAT"
@@ -30,7 +31,9 @@ var ErrInvalidReadOnlyEnv = errors.New("invalid A10R_READ_ONLY value")
 // cmd.GlobalFlags is a type alias for this struct so the cobra binder
 // and the resolver share one shape and conversion is a no-op.
 //
-// Field set mirrors open-question K1 in docs/design/open-questions.md.
+// The field set carries every value that participates in the ADR 0027
+// precedence chain, plus the three CLI-only exemptions (Tenant,
+// DebugHTTP, NoPager) documented below.
 type CLIFlags struct {
 	// ConfigPath is an explicit path to a config file. When set
 	// it overrides ConfigDir resolution — the loader reads this
@@ -50,8 +53,8 @@ type CLIFlags struct {
 	// NoPager, when true, disables the pager subprocess that
 	// otherwise wraps `--output=table` rendering on a TTY. CLI-only
 	// (no env / file equivalent — pager preference is per-invocation
-	// terminal context, not durable config). Same K1 exemption as
-	// DebugHTTP below.
+	// terminal context, not durable config). Same ADR 0027 exemption
+	// as DebugHTTP below.
 	NoPager bool
 
 	// DebugHTTP enables transport.WithDebugLog wrapping per backend
@@ -60,12 +63,12 @@ type CLIFlags struct {
 	// flags compose: --debug-http alone bumps level to Debug;
 	// --debug-http --debug is redundant but harmless.
 	//
-	// CLI-only: DebugHTTP intentionally bypasses K1 precedence — it
-	// has no env-var equivalent and no file-side knob. Debug
-	// transport logging is a runtime-only, ephemeral concern (like
-	// Tenant) that should never be persisted into a10r.yaml. Resolve
-	// passes it through unchanged so cmd-layer callers read the same
-	// value they bound to cobra.
+	// CLI-only: DebugHTTP intentionally bypasses the ADR 0027
+	// precedence chain — it has no env-var equivalent and no
+	// file-side knob. Debug transport logging is a runtime-only,
+	// ephemeral concern (like Tenant) that should never be persisted
+	// into a10r.yaml. Resolve passes it through unchanged so
+	// cmd-layer callers read the same value they bound to cobra.
 	DebugHTTP bool
 }
 
@@ -73,12 +76,12 @@ type CLIFlags struct {
 // os.Getenv; tests inject a closure-backed fake.
 type EnvSource func(string) string
 
-// Effective is the materialized configuration after K1 precedence
-// resolution. Config carries the file-shaped state with global
-// defaults filled in; the runtime-only knobs (Debug, Quiet, Tenant)
-// live as side-band fields rather than embedded into Config so a
-// future `a10r config dump` (or any serialisation of Config back to
-// disk) does not pollute the file with TUI session state.
+// Effective is the materialized configuration after ADR 0027
+// precedence resolution. Config carries the file-shaped state with
+// global defaults filled in; the runtime-only knobs (Debug, Quiet,
+// Tenant) live as side-band fields rather than embedded into Config
+// so a future `a10r config dump` (or any serialisation of Config
+// back to disk) does not pollute the file with TUI session state.
 type Effective struct {
 	Config Config
 	Debug  bool
@@ -87,11 +90,11 @@ type Effective struct {
 }
 
 // Resolve produces an Effective by merging the CLI flags, env var
-// values, and the parsed config file under K1 precedence:
+// values, and the parsed config file under ADR 0027 precedence:
 //
 //	CLI flag → env var (where defined) → config file → built-in default
 //
-// Two K1 specials are honoured here:
+// Two specials are honoured here per ADR 0027:
 //
 //   - --read-only is one-way. Any TRUE source forces true; the only
 //     way to disable it is to clear every source. A garbage env value

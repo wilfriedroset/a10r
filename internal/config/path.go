@@ -10,9 +10,10 @@ import (
 
 // xdgConfigHome and localAppData are the env vars consulted on Unix
 // and Windows respectively for the XDG-style config directory
-// resolution from B2. localAppData mirrors the constant in
-// internal/log/path.go; once a third package needs XDG resolution
-// we'll factor both into internal/xdg.
+// resolution (the env-var slot in ADR 0027's precedence chain).
+// localAppData mirrors the constant in internal/log/path.go; once a
+// third package needs XDG resolution we'll factor both into
+// internal/xdg.
 const (
 	xdgConfigHome = "XDG_CONFIG_HOME"
 	localAppData  = "LOCALAPPDATA"
@@ -30,8 +31,8 @@ const (
 // fallback on Windows without it.
 var errLocalAppDataMissing = errors.New("LOCALAPPDATA not set")
 
-// DefaultDir returns the OS-conformant config directory per
-// open-question B2:
+// DefaultDir returns the OS-conformant config directory (the
+// "built-in default" rung of ADR 0027's precedence chain):
 //
 //   - Unix:    $XDG_CONFIG_HOME/a10r (default ~/.config/a10r)
 //   - macOS:   ~/Library/Application Support/a10r
@@ -75,8 +76,9 @@ func defaultConfigDirFor(
 	}
 }
 
-// resolveConfigDir applies the K1/B2 precedence: explicit (CLI flag) >
-// A10R_CONFIG_DIR env > OS XDG default.
+// resolveConfigDir applies ADR 0027 precedence for the config
+// directory: explicit (CLI flag) > A10R_CONFIG_DIR env > OS XDG
+// default.
 func resolveConfigDir(
 	explicit string,
 	env func(string) string,

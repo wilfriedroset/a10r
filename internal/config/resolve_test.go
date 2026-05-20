@@ -87,8 +87,9 @@ func TestResolve_ReadOnlyAnyTrueSourceWins(t *testing.T) {
 		{name: "env=0 falsy", env: map[string]string{envReadOnly: "0"}, want: false},
 		{name: "env=false falsy", env: map[string]string{envReadOnly: "false"}, want: false},
 		{
-			// K1: CLI true sticks even if env or config says false. The
-			// resolver short-circuits on cli||file before consulting env.
+			// ADR 0027: CLI true sticks even if env or config says false.
+			// The resolver short-circuits on cli||file before consulting
+			// env.
 			name: "cli true overrides env=false",
 			cli:  true,
 			env:  map[string]string{envReadOnly: "false"},
@@ -115,7 +116,7 @@ func TestResolve_ReadOnlyAnyTrueSourceWins(t *testing.T) {
 func TestResolve_ReadOnlyGarbageEnvErrors(t *testing.T) {
 	t.Parallel()
 
-	// Pinning K1's "loud over silent" stance: a typoed
+	// Pinning ADR 0027's "loud over silent" stance: a typoed
 	// A10R_READ_ONLY=tru must surface, not be ignored. Asserting via
 	// errors.Is keeps the contract independent of the exact wrapper
 	// message format.
@@ -158,10 +159,10 @@ func TestResolve_ReadOnlyFileShortCircuitsGarbageEnv(t *testing.T) {
 func TestResolve_PollIntervalCLIWinsOnlyOverDefault(t *testing.T) {
 	t.Parallel()
 
-	// K1: --poll-interval overrides defaults.poll_interval but per-
-	// backend poll_interval values stay untouched. Resolve does not
-	// touch Backends; the per-backend mix-in happens at the backend
-	// factory.
+	// ADR 0027: --poll-interval overrides defaults.poll_interval but
+	// per-backend poll_interval values stay untouched. Resolve does
+	// not touch Backends; the per-backend mix-in happens at the
+	// backend factory.
 	cli := 5 * time.Second
 	cfg := Config{
 		Defaults: Defaults{PollInterval: 30 * time.Second},

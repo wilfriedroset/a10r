@@ -116,10 +116,9 @@ func hasYAMLSuffix(name string) bool {
 // mergeInto folds overlay onto base in place. Last-key-wins for
 // scalar fields (Defaults, Theme, Log, Pages) at the field level —
 // only non-zero overlay values overwrite the base. Backends are
-// appended; a duplicate name across sources is a fail-closed error
-// per the open-questions decision (the user almost certainly meant
-// distinct tenants and a silent collision would route writes to the
-// wrong backend).
+// appended; a duplicate name across sources is a fail-closed error:
+// the operator almost certainly meant distinct tenants, and a silent
+// collision would route writes to the wrong backend.
 //
 // The backendSource map carries every already-claimed backend name
 // to its source file so the duplicate-name error can echo BOTH

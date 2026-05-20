@@ -92,11 +92,10 @@ func TestConfig_RoundTripPreservesEverything(t *testing.T) {
 func TestDefaultsAreThePinnedConstants(t *testing.T) {
 	t.Parallel()
 
-	// Pin the constants to the values referenced from the design docs;
-	// changing them is a deliberate schema decision and must update
-	// open-questions.md alongside.
-	require.Equal(t, time.Minute, DefaultPollInterval, "I3 fixes the default poll interval at 1m")
-	require.Equal(t, "catppuccin-mocha", DefaultThemeName, "M1 fixes the default theme name")
+	// Pin the constants to the user-visible defaults; changing them
+	// is a deliberate behaviour change and must surface in CHANGELOG.
+	require.Equal(t, time.Minute, DefaultPollInterval, "default poll interval is 1m")
+	require.Equal(t, "catppuccin-mocha", DefaultThemeName, "default theme is catppuccin-mocha")
 	require.Equal(t, 30*time.Second, DefaultRemoteTimeout,
 		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
 	require.Equal(t, "Bearer", DefaultAuthorizationType,
@@ -440,7 +439,7 @@ func TestTLSConfig_VersionStringValidation(t *testing.T) {
 	}
 }
 
-func TestTLSConfig_CertKeyReservedForF2(t *testing.T) {
+func TestTLSConfig_CertKeyReservedForMTLS(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{
@@ -452,7 +451,7 @@ func TestTLSConfig_CertKeyReservedForF2(t *testing.T) {
 		require.NoError(t, yaml.Unmarshal([]byte(src), &tls))
 		err := tls.Validate()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "F2")
+		require.Contains(t, err.Error(), "mTLS")
 	}
 }
 

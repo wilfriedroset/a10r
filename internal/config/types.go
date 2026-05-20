@@ -20,17 +20,16 @@ import (
 	"time"
 )
 
-// User-facing defaults pinned by the design docs. Each constant is
-// the exact value referenced in a Resolved entry of open-questions.md
-// so a `git grep` from either side surfaces the link.
+// User-facing defaults pinned by the schema. Changing any of these
+// is a user-visible behaviour change; surface it in CHANGELOG.
 const (
-	// DefaultPollInterval matches I3 — 1 min, configurable per backend
-	// and globally via defaults.poll_interval.
+	// DefaultPollInterval is 1 min, configurable per backend and
+	// globally via defaults.poll_interval.
 	DefaultPollInterval = 1 * time.Minute
 
-	// DefaultThemeName matches M1 — catppuccin-mocha is the bundled
-	// default; users override with theme.name in `a10r.yaml` or the
-	// --theme CLI flag.
+	// DefaultThemeName is the bundled catppuccin-mocha skin. Users
+	// override with theme.name in `a10r.yaml` or the --theme CLI
+	// flag.
 	DefaultThemeName = "catppuccin-mocha"
 
 	// DefaultRemoteTimeout matches Prometheus's `remote_timeout`
@@ -276,7 +275,8 @@ type Capabilities struct {
 }
 
 // BasicAuth carries HTTP Basic credentials. Both fields are
-// env-interpolatable (loader resolves `${VAR}` patterns per F1).
+// env-interpolatable (the loader resolves `${VAR}` patterns at
+// parse time so secrets live in the environment, not the file).
 type BasicAuth struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
@@ -293,10 +293,9 @@ type Authorization struct {
 
 // TLSConfig configures TLS for the backend's HTTP transport. v0.1
 // supports inline-only fields; the file-based and secret-manager
-// variants (`*_file`, `*_ref`) are deferred per F1. `cert:` and
-// `key:` are accepted by the schema but rejected by the validator
-// until the mTLS work in F2 lands — the slot is reserved so a future
-// addition is non-breaking.
+// variants (`*_file`, `*_ref`) are reserved on the same terms as
+// `cert:` / `key:` — accepted by the schema, rejected by the
+// validator until the mTLS work lands. See ADR 0029.
 //
 // Inline `ca:` REPLACES the system root pool for that backend
 // (Prometheus parity, audit F6). When set the system CAs are not
@@ -326,10 +325,11 @@ type TLSConfig struct {
 var validTLSVersions = []string{"TLS10", "TLS11", "TLS12", "TLS13"}
 
 // Validate enforces the inline-only TLS subset and version-string
-// contract. Called from Backend.Validate.
+// contract. Called from Backend.Validate. The cert/key rejection
+// is the gate documented in ADR 0029.
 func (t *TLSConfig) Validate() error {
 	if t.Cert != "" || t.Key != "" {
-		return errors.New("tls_config.cert and tls_config.key are reserved for the mTLS implementation (see open-questions F2)")
+		return errors.New("tls_config.cert and tls_config.key are reserved for future mTLS support; remove them to proceed")
 	}
 	if err := validateTLSVersion("min_version", t.MinVersion); err != nil {
 		return err
@@ -394,7 +394,7 @@ func (d *Defaults) BulkConcurrencyOrDefault() int {
 	return d.BulkConcurrency
 }
 
-// Theme picks the bundled or user-supplied skin per M1. An empty Name
+// Theme picks the bundled or user-supplied skin. An empty Name
 // means DefaultThemeName.
 type Theme struct {
 	Name string `yaml:"name,omitempty"`

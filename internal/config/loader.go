@@ -25,7 +25,7 @@ import (
 var ErrNotFound = errors.New("config file not found")
 
 // LoadOpts directs config resolution. All fields are optional;
-// defaults reproduce the K1 / B2 precedence:
+// defaults reproduce the ADR 0027 precedence:
 //
 //   - Dir: explicit (CLI flag) > A10R_CONFIG_DIR env > OS XDG default.
 //   - File: a10r.yaml inside the resolved directory.
@@ -211,11 +211,11 @@ func hostGetenv(name string) string { return os.Getenv(name) }
 func hostHomeDir() (string, error)  { return os.UserHomeDir() }
 func hostGOOS() string              { return runtime.GOOS }
 
-// ResolveDir returns the directory Load would consult under the K1
-// precedence (explicit > A10R_CONFIG_DIR env > OS default), without
-// touching the filesystem. Useful for diagnostics like `a10r info`
-// that need to display the location even when the config file does
-// not exist.
+// ResolveDir returns the directory Load would consult under the
+// ADR 0027 precedence (explicit > A10R_CONFIG_DIR env > OS default),
+// without touching the filesystem. Useful for diagnostics like
+// `a10r info` that need to display the location even when the
+// config file does not exist.
 func ResolveDir(explicit string) (string, error) {
 	return resolveConfigDir(explicit, hostGetenv, hostHomeDir, hostGOOS())
 }

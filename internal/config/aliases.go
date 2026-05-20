@@ -17,8 +17,7 @@ import (
 )
 
 // AliasesFile is the basename of the user alias overlay file inside
-// the resolved <config-dir>. Matches the G3 spec in
-// docs/design/phase-2-plan.md.
+// the resolved <config-dir>.
 const AliasesFile = "aliases.yaml"
 
 // ErrAliasInvalid wraps every validation failure (empty key, value
@@ -39,8 +38,8 @@ type AliasMap map[string]string
 // An empty file (zero entries) is also fine. Only malformed YAML or
 // validation failures surface as errors.
 //
-// dir is the resolved config directory (per K1/B2 precedence). Pass
-// the same value the rest of the loader uses; this function does not
+// dir is the resolved config directory (per ADR 0027). Pass the
+// same value the rest of the loader uses; this function does not
 // re-resolve it.
 func LoadAliases(dir string) (AliasMap, error) {
 	if dir == "" {

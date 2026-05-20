@@ -12,7 +12,7 @@ import (
 // defaultLoadStyles is the production wiring for Deps.LoadStyles.
 // Compiles the requested theme; empty name falls back to the
 // default skin name. configDir is the resolved config-dir root
-// (per K1/B2 precedence) — user-supplied skins live in
+// (per ADR 0027) — user-supplied skins live in
 // <configDir>/skins/<name>.yaml and shadow bundled skins of the
 // same name with a logged warning.
 func defaultLoadStyles(name, configDir string) (*theme.Styles, error) {

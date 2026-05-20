@@ -136,9 +136,10 @@ type Options struct {
 	// wiring layer uses it to bucket pollers so manual `r` refresh
 	// can target a specific resource for the active scope.
 	Resource string
-	// Interval is the desired success-case tick spacing. Per I3 the
-	// configuration default is 1 minute; the poller does NOT enforce
-	// a floor — tests use sub-second intervals freely.
+	// Interval is the desired success-case tick spacing. The
+	// configuration default is 1 minute (see config.DefaultPollInterval);
+	// the poller does NOT enforce a floor — tests use sub-second
+	// intervals freely.
 	Interval time.Duration
 	// Fetch is the per-tick worker. Must not be nil.
 	Fetch FetchFunc

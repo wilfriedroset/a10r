@@ -17,8 +17,7 @@ import (
 )
 
 // KeysDir is the basename of the per-profile keybinding overlay
-// directory inside the resolved <config-dir>. Matches the C3 schema
-// in docs/design/phase-2-plan.md (P2.W1.5) and ADR 0010.
+// directory inside the resolved <config-dir>. Schema per ADR 0010.
 const KeysDir = "keys"
 
 // DefaultKeysProfile is the auto-loaded profile name. v0.0.1 only
@@ -63,9 +62,9 @@ type KeyOverrides map[string][]string
 // pre-resolved profile string straight from the config without
 // branching on the empty case.
 //
-// dir is the resolved config directory (per K1/B2 precedence). Pass
-// the same value the rest of the loader uses; this function does
-// not re-resolve it.
+// dir is the resolved config directory (per ADR 0027). Pass the
+// same value the rest of the loader uses; this function does not
+// re-resolve it.
 func LoadKeys(dir, profile string) (KeyOverrides, error) {
 	if dir == "" {
 		return KeyOverrides{}, nil

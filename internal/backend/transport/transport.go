@@ -3,14 +3,14 @@
 // Package transport composes http.RoundTripper layers for backend
 // auth, header injection, TLS, and proxy configuration. The split
 // into a transport package (rather than baking into the vanilla /
-// Mimir clients) reflects the audit's design that auth and tenant
+// Mimir clients) reflects the principle that auth and tenant
 // scoping are orthogonal concerns: every backend type uses the same
-// auth shapes (basic / authorization / bearer — mTLS, OAuth2, SigV4
-// deferred per F2/F3), and Mimir only differs from vanilla in
-// needing the tenant header injected.
+// auth shapes (basic / authorization / bearer — mTLS, OAuth2, and
+// SigV4 are deferred per ADR 0029, slotting in as additional
+// RoundTripper layers when they land), and Mimir only differs from
+// vanilla in needing the tenant header injected.
 //
-// Schema is the Prometheus `remote_write` shape per
-// docs/design/prometheus-remote-write-parity.md — `basic_auth:`,
+// Schema mirrors the Prometheus `remote_write` block — `basic_auth:`,
 // `authorization:`, `bearer_token:` are peers on the Backend struct
 // rather than a discriminated `auth:` envelope.
 package transport
@@ -249,11 +249,11 @@ func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
 		}
 		cfg.RootCAs = pool
 		// Inline CA REPLACES the system root pool for this backend
-		// (Prometheus parity, audit F6); the trust narrowing is
-		// surprising for callers reading "added a CA" as "augmented"
-		// rather than "replaced". v0.1 supports inline only, so
-		// ca_source is hard-coded; broaden the attr when the file /
-		// ref variants land per F2/F3.
+		// (Prometheus parity); the trust narrowing is surprising
+		// for callers reading "added a CA" as "augmented" rather
+		// than "replaced". v0.1 supports inline only, so ca_source
+		// is hard-coded; broaden the attr when the file / ref
+		// variants land (same reservation posture as ADR 0029).
 		slog.Warn("custom CA bundle replaces system roots", slog.String("ca_source", "inline"))
 	}
 	if v, ok := tlsVersionLookup(spec.MinVersion); ok {

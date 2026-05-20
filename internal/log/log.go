@@ -2,9 +2,8 @@
 
 // Package log builds the project's *slog.Logger from runtime
 // configuration. JSON and logfmt are the two configurable output
-// formats (per open-questions D1/D3 in docs/design/open-questions.md);
-// pretty/colour TTY output is deliberately not provided so the log
-// file stays grep- and jq-friendly without ANSI escapes.
+// formats; pretty/colour TTY output is deliberately not provided so
+// the log file stays grep- and jq-friendly without ANSI escapes.
 package log
 
 import (
@@ -33,8 +32,8 @@ const (
 	// DefaultFormat is used when Opts.Format is the empty string.
 	DefaultFormat = FormatLogfmt
 
-	// maxLogSizeMB and maxLogBackups match D1: rotation 10 MB max,
-	// 3 keepers.
+	// maxLogSizeMB and maxLogBackups bound on-disk log retention:
+	// rotate at 10 MB, keep 3 historical files.
 	maxLogSizeMB  = 10
 	maxLogBackups = 3
 	logDirPerm    = 0o755

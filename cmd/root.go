@@ -11,9 +11,9 @@ import (
 
 const (
 	// defaultLogFormat is the format used when neither the CLI flag nor
-	// the config sets one. Matches D1/D3 — JSON and logfmt are the only
-	// two configurable formats; logfmt is the friendlier default for
-	// `tail`-ing the log file by hand.
+	// the config sets one. JSON and logfmt are the only two configurable
+	// formats; logfmt is the friendlier default for `tail`-ing the log
+	// file by hand.
 	defaultLogFormat = "logfmt"
 )
 
@@ -22,10 +22,11 @@ const (
 // no-op so the flag-binding suite doesn't try to open a TTY.
 type RootRunFn func(*cobra.Command, *GlobalFlags) error
 
-// newRootCmd builds the a10r root command and binds every K1 persistent
-// flag onto flags. Callers register subcommands via cmd.AddCommand
-// before calling Execute. runFn is the no-subcommand RunE — typically
-// runTUI; tests pass a no-op so cobra's RunE doesn't try to open a TTY.
+// newRootCmd builds the a10r root command and binds every
+// ADR-0027-governed persistent flag onto flags. Callers register
+// subcommands via cmd.AddCommand before calling Execute. runFn is the
+// no-subcommand RunE — typically runTUI; tests pass a no-op so cobra's
+// RunE doesn't try to open a TTY.
 func newRootCmd(flags *GlobalFlags, runFn RootRunFn) *cobra.Command {
 	if runFn == nil {
 		runFn = runTUI
@@ -101,10 +102,10 @@ func persistentPreRun(flags *GlobalFlags) func(*cobra.Command, []string) error {
 	}
 }
 
-// reconcileLogLevelFlags applies the K1 rule "if both --debug and
-// --quiet are set, --debug wins and a warning is logged". The reset
-// is intentional so downstream resolution sees a single coherent
-// level rather than two contradictory bits.
+// reconcileLogLevelFlags applies the ADR 0027 rule "if both --debug
+// and --quiet are set, --debug wins and a warning is logged". The
+// reset is intentional so downstream resolution sees a single
+// coherent level rather than two contradictory bits.
 //
 // --debug-http implies --debug because the WithDebugLog wrapper
 // emits at LevelDebug; without the level bump the lines never reach

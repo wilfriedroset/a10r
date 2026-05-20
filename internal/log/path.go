@@ -23,8 +23,7 @@ const (
 // Windows without it.
 var errLocalAppDataMissing = errors.New("LOCALAPPDATA not set")
 
-// DefaultPath returns the OS-conformant log file path per
-// open-question D1:
+// DefaultPath returns the OS-conformant log file path:
 //
 //   - Unix:    $XDG_STATE_HOME/a10r/a10r.log (default
 //     ~/.local/state/a10r/a10r.log when XDG_STATE_HOME is unset)
