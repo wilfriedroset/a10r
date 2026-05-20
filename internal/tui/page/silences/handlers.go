@@ -225,18 +225,7 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // an empty view; silences without an ID are silently skipped
 // (defensive — every backend.Silence the v2 API returns has one).
 func (p *Page) toggleMarkAtCursor() {
-	if p.Index() >= len(p.view) {
-		return
-	}
-	id := p.view[p.Index()].s.ID
-	if id == "" {
-		return
-	}
-	if _, ok := p.marks[id]; ok {
-		delete(p.marks, id)
-		return
-	}
-	p.marks[id] = struct{}{}
+	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e silenceEntry) string { return e.s.ID })
 }
 
 // openEditSilenceForm pushes the silence form in edit mode

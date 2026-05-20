@@ -39,3 +39,24 @@ func RequestRefresh(b *Base, ui *PollingUI, resource string) tea.Cmd {
 	}
 	return tea.Batch(emit, ui.Spinner.Tick)
 }
+
+// ToggleMarkAtCursor toggles the mark for the cursor row's key in the
+// supplied marks map. No-ops when the cursor is past the view (empty
+// page) or the resolved key is empty (defensive — every row the live
+// backend emits has one, but the assertion belt-and-braces). keyFn
+// lets each page extract its own primary key (Fingerprint, ID, …)
+// without leaking the row type into listpage.
+func ToggleMarkAtCursor[E any](view []E, cursorIdx int, marks map[string]struct{}, keyFn func(E) string) {
+	if cursorIdx >= len(view) {
+		return
+	}
+	k := keyFn(view[cursorIdx])
+	if k == "" {
+		return
+	}
+	if _, ok := marks[k]; ok {
+		delete(marks, k)
+		return
+	}
+	marks[k] = struct{}{}
+}

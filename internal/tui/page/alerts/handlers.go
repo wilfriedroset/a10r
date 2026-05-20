@@ -245,18 +245,7 @@ func (p *Page) handleClearMarks() tea.Cmd {
 // stable identifier) are silently skipped — there's no key to
 // associate the mark with.
 func (p *Page) toggleMarkAtCursor() {
-	if p.Index() >= len(p.view) {
-		return
-	}
-	fp := p.view[p.Index()].a.Fingerprint
-	if fp == "" {
-		return
-	}
-	if _, ok := p.marks[fp]; ok {
-		delete(p.marks, fp)
-		return
-	}
-	p.marks[fp] = struct{}{}
+	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e alertEntry) string { return e.a.Fingerprint })
 }
 
 // drillToDetail returns a Cmd that pushes the alert-detail page
