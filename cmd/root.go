@@ -37,6 +37,7 @@ func newRootCmd(flags *GlobalFlags, runFn RootRunFn) *cobra.Command {
 and Grafana Mimir, inspired by k9s.
 
 Run with no subcommand to launch the TUI.`,
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -44,6 +45,10 @@ Run with no subcommand to launch the TUI.`,
 		},
 		PersistentPreRunE: persistentPreRun(flags),
 	}
+	// Match the `a10r version` subcommand's output byte-for-byte so
+	// scripts parsing either form get the same line. Trailing newline
+	// is part of the contract for shell pipelines.
+	rootCmd.SetVersionTemplate("a10r {{.Version}} commit=" + commit + " built=" + date + "\n")
 	// Group definitions live here so every code path that builds a
 	// root command (Execute + tests that register subcommands
 	// directly) sees them — otherwise cobra panics when a command
