@@ -310,30 +310,28 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 // SeverityWarning instead of Error.
 type capabilityProbe func(ctx context.Context, c backend.Client) error
 
-// capabilityProbes maps each Capabilities flag to the smoke call
-// CapabilitiesChecker uses to verify the backend honours it. The
-// map is keyed by the human-readable name that lands in the result
-// message; capabilityFromConfig walks Capabilities and returns the
-// (name, probe) pairs whose flag is set.
-//
-// Probes call the corresponding backend.Client method and treat
-// backend.ErrUnsupported as a hard mismatch ("config says yes,
-// backend says no") regardless of the underlying HTTP status.
-// Other errors propagate verbatim so the message tells the
+// defaultProbes returns the smoke-call map CapabilitiesChecker uses
+// when no test override is supplied. A fresh map per call so a test
+// fixture mutating its returned copy cannot leak into the next caller.
+// Probes treat backend.ErrUnsupported as a hard mismatch ("config
+// says yes, backend says no") regardless of the underlying HTTP
+// status; other errors propagate verbatim so the message tells the
 // operator what failed.
-var capabilityProbes = map[string]capabilityProbe{
-	"config_api": func(ctx context.Context, c backend.Client) error {
-		_, err := c.GetConfig(ctx)
-		return err
-	},
-	"tenant_admin": func(ctx context.Context, c backend.Client) error {
-		_, err := c.ListTenantConfigs(ctx)
-		return err
-	},
-	"ring": func(ctx context.Context, c backend.Client) error {
-		_, err := c.RingStatus(ctx)
-		return err
-	},
+func defaultProbes() map[string]capabilityProbe {
+	return map[string]capabilityProbe{
+		"config_api": func(ctx context.Context, c backend.Client) error {
+			_, err := c.GetConfig(ctx)
+			return err
+		},
+		"tenant_admin": func(ctx context.Context, c backend.Client) error {
+			_, err := c.ListTenantConfigs(ctx)
+			return err
+		},
+		"ring": func(ctx context.Context, c backend.Client) error {
+			_, err := c.RingStatus(ctx)
+			return err
+		},
+	}
 }
 
 // enabledCapabilities returns the capability names whose flag is
@@ -369,9 +367,9 @@ func enabledCapabilities(caps config.Capabilities) []string {
 //     downgrading here avoids double-counting it as a hard
 //     capability mismatch).
 type CapabilitiesChecker struct {
-	// probes is the test seam. Nil delegates to the package-level
-	// capabilityProbes map. Test fixtures swap individual probes to
-	// pin per-cap responses without spinning up an HTTP server.
+	// probes is the test seam. Nil falls back to defaultProbes();
+	// fixtures swap individual probes to pin per-cap responses without
+	// spinning up an HTTP server.
 	probes map[string]capabilityProbe
 }
 
@@ -400,7 +398,7 @@ func (cc CapabilitiesChecker) Run(ctx context.Context, b config.Backend, c backe
 
 	probes := cc.probes
 	if probes == nil {
-		probes = capabilityProbes
+		probes = defaultProbes()
 	}
 
 	var (

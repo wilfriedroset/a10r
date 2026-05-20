@@ -326,8 +326,8 @@ func TestCapabilitiesChecker(t *testing.T) {
 	t.Parallel()
 
 	// Each test pins a per-cap probes map so the checker exercises
-	// only the flags the test sets — no implicit dependency on the
-	// production capabilityProbes map.
+	// only the flags the test sets — no implicit dependency on
+	// defaultProbes().
 	okProbe := func(context.Context, backend.Client) error { return nil }
 	notFoundProbe := func(context.Context, backend.Client) error {
 		return errors.New("HTTP 404")
