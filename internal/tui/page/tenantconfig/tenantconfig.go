@@ -212,7 +212,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.loading = false
 		if m.err != nil {
 			if errors.Is(m.err, context.Canceled) {
-				// ditto: ctx-cancel is shutdown noise, not a real fetch
+				// ctx-cancel is shutdown noise, not a real fetch
 				// failure. Drop silently rather than rendering
 				// "(fetch failed: context canceled)" on the last frame.
 				return p, nil

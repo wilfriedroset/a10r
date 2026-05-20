@@ -16,10 +16,7 @@ import (
 
 // Version metadata is injected at build time via -X ldflags by
 // goreleaser. The defaults here let `go build` produce a usable
-// binary without ldflags during local development. These are the
-// only sanctioned package-level mutable vars in the project;
-// everything else uses constructor injection per the "no globals
-// beyond sentinels and embeds" rule in CLAUDE.md.
+// binary without ldflags during local development.
 var (
 	version = "dev"
 	commit  = "none"

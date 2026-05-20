@@ -11,11 +11,10 @@ package backend
 
 import "time"
 
-// AlertState mirrors `status.state` from /api/v2/alerts.
+// AlertState mirrors `status.state` from /api/v2/alerts (active,
+// suppressed, unprocessed).
 type AlertState string
 
-// AlertState values mirror the wire-level enum from
-// /api/v2/alerts (active, suppressed, unprocessed).
 const (
 	AlertStateActive      AlertState = "active"
 	AlertStateSuppressed  AlertState = "suppressed"
@@ -60,11 +59,10 @@ type AlertGroup struct {
 	Alerts []Alert
 }
 
-// SilenceState mirrors `status.state` from /api/v2/silences.
+// SilenceState mirrors `status.state` from /api/v2/silences (active,
+// pending, expired).
 type SilenceState string
 
-// SilenceState values mirror the wire-level enum from
-// /api/v2/silences (active, pending, expired).
 const (
 	SilenceStateActive  SilenceState = "active"
 	SilenceStatePending SilenceState = "pending"

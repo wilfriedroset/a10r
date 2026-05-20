@@ -19,8 +19,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// fakeFetcher captures the call and replies with a fixed
-// Status. Tests that need a delay can set ch and signal manually.
+// fakeFetcher replies with a fixed Status. Single round-trip; tests
+// that need to drive cancellation use a separate blocking variant.
 type fakeFetcher struct {
 	cfg string
 	err error

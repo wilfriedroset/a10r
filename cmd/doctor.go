@@ -281,10 +281,10 @@ func renderDoctor(out io.Writer, results []doctor.Result, format output.Format) 
 	return tbl.Write(out)
 }
 
-// doctorRows flattens results to the column shape the Table
-// helper consumes. Sort by backend then by the registration
-// order of the checker so multi-backend output reads naturally
-// from top to bottom.
+// doctorRows flattens results to the column shape the Table helper
+// consumes, preserving the caller's order. The caller fans checkers
+// in deterministic order across backends, so multi-backend output
+// already reads naturally from top to bottom without a sort here.
 func doctorRows(results []doctor.Result) [][]string {
 	rows := make([][]string, 0, len(results))
 	for _, r := range results {
