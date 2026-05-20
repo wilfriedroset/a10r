@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -156,10 +155,6 @@ func validateSilenceState(in string) (string, error) {
 // Spec whose Fetcher closure pushes the filter logic inside the
 // per-backend goroutine. Exit-code mapping lives here.
 func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts silencesListOptions) error {
-	format, err := output.ParseFormat(opts.Output)
-	if err != nil {
-		return err
-	}
 	state, err := validateSilenceState(opts.State)
 	if err != nil {
 		return err
@@ -172,19 +167,8 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		}
 		matcherFilter = &m
 	}
-	cfg, err := loadCmdConfig(flags)
-	if err != nil {
-		return err
-	}
-	build, closer, err := buildClientFactory(flags)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = closer.Close() }()
-
-	spec := listcmd.Spec[silenceRow]{
-		Config: cfg,
-		Format: format,
+	return runListRecipe(ctx, out, flags, listRecipe[silenceRow]{
+		Format: opts.Output,
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]silenceRow, error) {
 			silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
 			if err != nil {
@@ -204,11 +188,7 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		Sort:          sortSilenceRows,
 		ResourceLabel: "silence",
 		FailOnAny:     opts.FailOnAny,
-		NoPager:       flags.NoPager,
-		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
-	}
-	return mapPipelineExit(listcmd.Run(ctx, spec))
+	})
 }
 
 // toSilenceRow flattens one backend.Silence into the headless row

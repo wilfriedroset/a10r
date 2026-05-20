@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -97,23 +96,8 @@ type alertRow struct {
 // per-backend goroutine. Exit-code mapping lives here, not in
 // the pipeline.
 func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts alertsListOptions) error {
-	format, err := output.ParseFormat(opts.Output)
-	if err != nil {
-		return err
-	}
-	cfg, err := loadCmdConfig(flags)
-	if err != nil {
-		return err
-	}
-	build, closer, err := buildClientFactory(flags)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = closer.Close() }()
-
-	spec := listcmd.Spec[alertRow]{
-		Config: cfg,
-		Format: format,
+	return runListRecipe(ctx, out, flags, listRecipe[alertRow]{
+		Format: opts.Output,
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]alertRow, error) {
 			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
 			if err != nil {
@@ -133,11 +117,7 @@ func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 		Sort:          sortAlertRows,
 		ResourceLabel: "alert",
 		FailOnAny:     opts.FailOnAny,
-		NoPager:       flags.NoPager,
-		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
-	}
-	return mapPipelineExit(listcmd.Run(ctx, spec))
+	})
 }
 
 // toAlertRow flattens one backend.Alert into the headless row

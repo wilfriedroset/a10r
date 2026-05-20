@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
+	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 // commonListFlags is the Output + FailOnAny pair every list
@@ -20,6 +22,54 @@ import (
 type commonListFlags struct {
 	Output    string
 	FailOnAny bool
+}
+
+// listRecipe is the per-command shape runListRecipe lifts into a
+// listcmd.Spec. Holds the bits each subcommand customises while the
+// helper bolts on the cross-cutting wiring (config load, factory,
+// pager, stderr, mapPipelineExit).
+type listRecipe[R any] struct {
+	Format        string
+	Fetcher       listcmd.Fetcher[R]
+	Renderers     map[output.Format]listcmd.Renderer[R]
+	Sort          func([]R)
+	ResourceLabel string
+	FailOnAny     bool
+}
+
+// runListRecipe is the per-command thin wrapper around listcmd.Run.
+// Parses --output, loads config, builds the HTTP debug logger +
+// factory, assembles the Spec, runs the pipeline, maps the exit. The
+// four list subcommands each provide a listRecipe[R] and trade the
+// recipe-construction noise for one call.
+func runListRecipe[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, r listRecipe[R]) error {
+	format, err := output.ParseFormat(r.Format)
+	if err != nil {
+		return err
+	}
+	cfg, err := loadCmdConfig(flags)
+	if err != nil {
+		return err
+	}
+	build, closer, err := buildClientFactory(flags)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+
+	spec := listcmd.Spec[R]{
+		Config:        cfg,
+		Format:        format,
+		Fetcher:       r.Fetcher,
+		Renderers:     r.Renderers,
+		Sort:          r.Sort,
+		ResourceLabel: r.ResourceLabel,
+		FailOnAny:     r.FailOnAny,
+		NoPager:       flags.NoPager,
+		Out:           out,
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
+	}
+	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 
 // loadCmdConfig is the listcmd-shared wrapper around config.Load

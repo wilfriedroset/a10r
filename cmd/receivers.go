@@ -5,7 +5,6 @@ package cmd
 import (
 	"context"
 	"io"
-	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -78,23 +77,8 @@ type receiverRow struct {
 // fans out the per-tenant ListReceivers call. Exit-code mapping
 // lives here.
 func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts receiversListOptions) error {
-	format, err := output.ParseFormat(opts.Output)
-	if err != nil {
-		return err
-	}
-	cfg, err := loadCmdConfig(flags)
-	if err != nil {
-		return err
-	}
-	build, closer, err := buildClientFactory(flags)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = closer.Close() }()
-
-	spec := listcmd.Spec[receiverRow]{
-		Config: cfg,
-		Format: format,
+	return runListRecipe(ctx, out, flags, listRecipe[receiverRow]{
+		Format: opts.Output,
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]receiverRow, error) {
 			recvs, err := c.ListReceivers(ctx)
 			if err != nil {
@@ -114,11 +98,7 @@ func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, op
 		Sort:          sortReceiverRows,
 		ResourceLabel: "receiver",
 		FailOnAny:     opts.FailOnAny,
-		NoPager:       flags.NoPager,
-		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
-	}
-	return mapPipelineExit(listcmd.Run(ctx, spec))
+	})
 }
 
 // toReceiverRow flattens one backend.Receiver into the headless row
