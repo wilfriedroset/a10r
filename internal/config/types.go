@@ -5,11 +5,11 @@
 // env-variable interpolation, and CLI/env precedence resolution live
 // in sibling files; this file is types only and contains no I/O.
 //
-// The schema mirrors Prometheus's `remote_write` block per
-// docs/design/prometheus-remote-write-parity.md so a user can paste
-// a `remote_write` entry under `backends:`, adjust the URL path, and
-// be done. Field names and YAML tags are stable contracts: changing
-// them is a schema break and requires a migration story.
+// The schema mirrors Prometheus's `remote_write` block so a user
+// can paste a `remote_write` entry under `backends:`, adjust the
+// URL path, and be done. Field names and YAML tags are stable
+// contracts: changing them is a schema break and requires a
+// migration story.
 package config
 
 import (

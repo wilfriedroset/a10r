@@ -50,10 +50,10 @@ var (
 )
 
 // AuthOptions bundles the three peer auth blocks that may appear on
-// a Backend. The constructor enforces the "at most one" rule per
-// docs/design/prometheus-remote-write-parity.md §3.1; passing a
-// second non-nil block alongside a populated one returns an error
-// rather than silently picking a winner.
+// a Backend. The constructor enforces an "at most one" rule
+// (matching Prometheus's HTTPClientConfig); passing a second
+// non-nil block alongside a populated one returns an error rather
+// than silently picking a winner.
 //
 // The struct shape mirrors Prometheus's HTTPClientConfig peers so
 // the factory can copy fields straight off `config.Backend` without
