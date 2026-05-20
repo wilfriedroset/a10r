@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -137,7 +138,7 @@ func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 		FailOnAny:     opts.FailOnAny,
 		NoPager:       flags.NoPager,
 		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
 	}
 	return mapPipelineExit(listcmd.Run(ctx, spec))
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -118,7 +119,7 @@ func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, op
 		FailOnAny:     opts.FailOnAny,
 		NoPager:       flags.NoPager,
 		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: cmdStderr},
+		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
 	}
 	return mapPipelineExit(listcmd.Run(ctx, spec))
 }

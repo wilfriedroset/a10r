@@ -56,12 +56,6 @@ func newPagerWriteCloser(ctx context.Context, fallback io.Writer, outIsTerminal,
 	return NewPager(ctx, fallback, outIsTerminal, noPager)
 }
 
-// cmdStderr is the default Spec.Deps.Stderr the four list commands
-// pass through. Package-level so the test suite can swap it via the
-// build-tag-free injection seam in Spec.Deps directly — production
-// wiring stays a one-liner.
-var cmdStderr io.Writer = os.Stderr
-
 // mapPipelineExit translates listcmd's canonical sentinels into
 // cmd's ExitError types. errors.Is keeps the seam loose (the
 // pipeline wraps the sentinels with a templated message), so the
