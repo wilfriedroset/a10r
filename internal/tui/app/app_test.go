@@ -205,8 +205,8 @@ func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
 	a = updated.(*App)
 	require.NotNil(t, cmd, "Ctrl+T must produce a Cmd that opens the picker")
 	drive(t, a, cmd)
-	require.NotNil(t, a.modal, "Ctrl+T must open a modal")
-	require.Equal(t, "tenants", a.modal.Title())
+	require.NotNil(t, a.overlays.modal, "Ctrl+T must open a modal")
+	require.Equal(t, "tenants", a.overlays.modal.Title())
 }
 
 func TestPickerSelectionsToScope(t *testing.T) {
@@ -307,9 +307,9 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 	}
 	require.False(t, a.prompt.IsOpen(),
 		"capturing page must shadow `:` / `/` so they don't open the prompt")
-	require.Nil(t, a.modal,
+	require.Nil(t, a.overlays.modal,
 		"capturing page must shadow `?` so it doesn't open a modal")
-	require.Nil(t, a.help,
+	require.Nil(t, a.overlays.help,
 		"capturing page must shadow `?` so it doesn't open the help overlay")
 	require.Len(t, *form.updateLog, 7, "every globally-bound key must reach the form")
 }
@@ -624,12 +624,12 @@ func TestApp_MouseWheelRoutedToHelpOverlay(t *testing.T) {
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	a = updated.(*App)
 	drive(t, a, cmd)
-	require.NotNil(t, a.help, "help overlay must be open before the wheel tick")
+	require.NotNil(t, a.overlays.help, "help overlay must be open before the wheel tick")
 	before := len(*page.updateLog)
 
 	_, cmd = a.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	require.Nil(t, cmd, "help overlay returns nil on wheel — no Cmd")
-	require.NotNil(t, a.help, "wheel must NOT close the help overlay")
+	require.NotNil(t, a.overlays.help, "wheel must NOT close the help overlay")
 	require.Len(t, *page.updateLog, before,
 		"wheel on an open overlay must NOT reach the page beneath it")
 }

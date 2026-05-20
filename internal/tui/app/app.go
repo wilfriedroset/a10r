@@ -116,20 +116,9 @@ type App struct {
 	// wiring (cmd/tui.go) pushes the first page.
 	stack []Page
 
-	// modal is the open async-result overlay (tenant picker, confirm
-	// dialog, alert-page silence picker). When non-nil it captures
-	// every key event before the dispatcher and renders in the body
-	// slot. nil = no modal.
-	modal modal.Modal
-
-	// help is the open viewer overlay (the `?` keybindings catalogue).
-	// When non-nil it captures every key event before the dispatcher
-	// and renders in the body slot, exactly like modal does, but
-	// without the async-result machinery — see ADR 0020. modal takes
-	// precedence over help: `?` is dispatcher-gated and the dispatcher
-	// is bypassed while a modal is open, so a pending decision is
-	// never dismissed off-screen by a stray `?`.
-	help *help.Help
+	// overlays holds the two body-slot overlay surfaces. See the
+	// overlays type below for the precedence + dispatcher discipline.
+	overlays overlays
 
 	width  int
 	height int
@@ -143,51 +132,58 @@ type App struct {
 	// with.
 	timeFormat timerender.Format
 
-	// pollCache stores the latest poll.DataMsg per
-	// (ResourceLabel, Tenant) tuple. Updated as a side-effect of
-	// the App's DataMsg interception in handleLifecycle, replayed
-	// into a freshly-pushed page so the user sees populated rows
-	// the moment the page lands rather than waiting up to a full
-	// poll interval for the next tick. Pollers spawn at process
-	// start (cmd/tui.go), so this cache is populated before the
-	// user can navigate — every page push that comes after the
-	// first round of fetches hydrates instantly.
-	//
-	// Outer key is the poll resource label ("alerts", "silences",
-	// …); inner key is the tenant tag. Value is the full DataMsg
-	// so At/NextAt come along for the page's footer countdown
-	// without a separate ticker.
-	//
-	// Bounded: O(resources × tenants). The map shape is fixed at
-	// 4 resources × N configured backends. Per-entry size is
-	// dominated by the alert / silence payload it carries:
-	//
-	//   -  1 000 alerts × 4 resources ×  4 backends ~=  16 MiB resident
-	//   -  5 000 alerts × 4 resources × 10 backends ~= 200 MiB resident
-	//   - 10 000 alerts (storm) × 4 × 10            ~= 400 MiB resident
-	//
-	// Bounded ≠ small. Operators running long-lived sessions
-	// against busy fleets should expect heap on the order of the
-	// largest in-flight alert volume × number of backends. A
-	// quit releases the cache fully; there is no leak.
-	//
-	// Single-threaded by construction: bubbletea routes every
-	// Update through the same goroutine, so the App is the sole
-	// reader and writer — no mutex needed.
-	pollCache map[string]map[string]poll.DataMsg
+	// caches holds the App's per-tenant poll-data and per-tenant
+	// backend-status snapshots, replayed into a freshly-pushed page
+	// so it shows populated rows immediately rather than waiting up
+	// to a full poll interval for the next tick. See the caches type
+	// below for the bounds and threading discipline.
+	caches caches
+}
 
-	// statusCache stores the latest poll.BackendStatusMsg per tenant.
-	// BackendStatusMsg is only emitted on state TRANSITIONS so a page
-	// pushed AFTER the transition would otherwise never see the
-	// failing-backend signal and silently render no error band.
-	// Replayed on push the same way pollCache is, but unlike pollCache
-	// the entries are pruned on a recovery transition (Detail empty)
-	// so a backend that flapped and recovered before the page push
-	// doesn't drag a stale error band onto the new page.
-	//
-	// Bounded: O(tenants). Single-threaded by construction, same
-	// reasoning as pollCache.
-	statusCache map[string]poll.BackendStatusMsg
+// overlays bundles the two body-slot overlays the App can show in
+// front of the active page. Both intercept every key event before
+// the dispatcher and render in the body slot.
+//
+// modal is the async-result overlay (tenant picker, confirm dialog,
+// alert-page silence picker). nil = no modal.
+//
+// help is the `?` keybindings catalogue (see ADR 0020). Same body-
+// slot + key-capture shape as modal, without the async-result
+// machinery. modal takes precedence: `?` is dispatcher-gated and the
+// dispatcher is bypassed while a modal is open, so a pending decision
+// is never dismissed off-screen by a stray `?`.
+type overlays struct {
+	modal modal.Modal
+	help  *help.Help
+}
+
+// caches bundles the App's two replay snapshots. Both maps are
+// updated as a side-effect of the App's DataMsg / BackendStatusMsg
+// interception in handleLifecycle; pages pushed after the pollers
+// have started hydrate from these instead of waiting on the next
+// tick. Single-threaded by construction: bubbletea routes every
+// Update through the same goroutine, so the App is the sole reader
+// and writer — no mutex needed.
+//
+// poll: latest DataMsg per (ResourceLabel, Tenant). Outer key is
+// the poll resource label ("alerts", "silences", …); inner key is
+// the tenant tag. Value is the full DataMsg so At/NextAt come along
+// for the page's footer countdown without a separate ticker.
+// Bounded O(resources × tenants), but per-entry size scales with
+// payload: 1 000 alerts × 4 resources × 4 backends ≈ 16 MiB,
+// 5 000 × 4 × 10 ≈ 200 MiB, 10 000 (storm) × 4 × 10 ≈ 400 MiB.
+// Bounded ≠ small; operators on busy fleets should expect heap on
+// the order of the largest in-flight alert volume × backend count.
+// Quit releases the maps fully; there is no leak.
+//
+// status: latest BackendStatusMsg per tenant. Transitions only —
+// pages pushed AFTER a transition would otherwise miss the failing-
+// backend signal. Entries are pruned on recovery (Detail empty) so
+// a backend that flapped and recovered before push doesn't drag a
+// stale error band onto the new page. Bounded O(tenants).
+type caches struct {
+	poll   map[string]map[string]poll.DataMsg
+	status map[string]poll.BackendStatusMsg
 }
 
 // appHistories bundles the three per-class history rings the App
@@ -251,9 +247,11 @@ func NewApp(opts Options) *App {
 		prompt:      footer.NewPrompt(resolver.Suggest),
 		flash:       footer.NewFlash(),
 		hintbar:     opts.HintBar,
-		pollCache:   map[string]map[string]poll.DataMsg{},
-		statusCache: map[string]poll.BackendStatusMsg{},
-		histories:   newAppHistories(opts.HistoryDir),
+		caches: caches{
+			poll:   map[string]map[string]poll.DataMsg{},
+			status: map[string]poll.BackendStatusMsg{},
+		},
+		histories: newAppHistories(opts.HistoryDir),
 	}
 	a.registerGlobalBindings()
 	a.registerTenantBindings()

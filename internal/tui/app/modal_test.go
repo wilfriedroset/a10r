@@ -31,7 +31,7 @@ func TestModal_KeysCapturedBeforeDispatcher(t *testing.T) {
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	a = updated.(*App)
 	require.Nil(t, cmd, "modal must capture the key — Quit must NOT fire")
-	require.NotNil(t, a.modal,
+	require.NotNil(t, a.overlays.modal,
 		"the modal must still be open: `q` is not a picker dismiss key")
 }
 
@@ -49,7 +49,7 @@ func TestModal_EscDismissesModal(t *testing.T) {
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	a = updated.(*App)
 	drive(t, a, cmd)
-	require.Nil(t, a.modal, "Esc inside modal must close the modal")
+	require.Nil(t, a.overlays.modal, "Esc inside modal must close the modal")
 }
 
 func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
@@ -83,7 +83,7 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	a = updated.(*App)
 	drive(t, a, cmd)
 
-	require.Nil(t, a.modal, "submit must close the modal")
+	require.Nil(t, a.overlays.modal, "submit must close the modal")
 	require.NotEmpty(t, *page.updateLog)
 	last := (*page.updateLog)[len(*page.updateLog)-1]
 	scope, ok := last.(ScopeChangedMsg)
@@ -107,7 +107,7 @@ func TestModal_ConfirmSubmitFlowsThrough(t *testing.T) {
 	a = updated.(*App)
 	drive(t, a, cmd)
 
-	require.Nil(t, a.modal)
+	require.Nil(t, a.overlays.modal)
 	last := (*page.updateLog)[len(*page.updateLog)-1]
 	res, ok := last.(modal.ConfirmResultMsg)
 	require.True(t, ok)

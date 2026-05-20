@@ -26,7 +26,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// modal.ResultMsg fan-out: viewer overlays don't satisfy
 		// ResultMsg (per ADR 0020), and no page needs to observe
 		// the dismissal — the overlay only renders information.
-		a.help = nil
+		a.overlays.help = nil
 		return a, nil
 	}
 	if isModalResult(msg) {
@@ -303,10 +303,10 @@ func (a *App) replacePage(factory func() Page) tea.Cmd {
 // Tenant) tuple. Subsequent ticks for the same tuple overwrite —
 // the cache is a snapshot, not a history.
 func (a *App) cacheDataMsg(m poll.DataMsg) {
-	bucket := a.pollCache[m.ResourceLabel]
+	bucket := a.caches.poll[m.ResourceLabel]
 	if bucket == nil {
 		bucket = map[string]poll.DataMsg{}
-		a.pollCache[m.ResourceLabel] = bucket
+		a.caches.poll[m.ResourceLabel] = bucket
 	}
 	bucket[m.Tenant] = m
 }
@@ -319,10 +319,10 @@ func (a *App) cacheDataMsg(m poll.DataMsg) {
 // overwrite — the cache is a snapshot, not a history.
 func (a *App) cacheStatusMsg(m poll.BackendStatusMsg) {
 	if m.Detail == "" {
-		delete(a.statusCache, m.Tenant)
+		delete(a.caches.status, m.Tenant)
 		return
 	}
-	a.statusCache[m.Tenant] = m
+	a.caches.status[m.Tenant] = m
 }
 
 // replayCachedDataMsgs feeds cached snapshots into the top-of-
@@ -361,7 +361,7 @@ func (a *App) replayCachedDataMsgs() tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	allowed, filtering := a.replayFilter()
-	for label, bucket := range a.pollCache {
+	for label, bucket := range a.caches.poll {
 		if filtering {
 			if _, ok := allowed[label]; !ok {
 				continue
@@ -375,7 +375,7 @@ func (a *App) replayCachedDataMsgs() tea.Cmd {
 			}
 		}
 	}
-	for _, m := range a.statusCache {
+	for _, m := range a.caches.status {
 		top, cmd := a.stack[len(a.stack)-1].Update(m)
 		a.stack[len(a.stack)-1] = top
 		if cmd != nil {

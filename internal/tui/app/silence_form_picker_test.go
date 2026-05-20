@@ -62,7 +62,7 @@ func TestModal_NonScopePickerForwardsToTopPage(t *testing.T) {
 	a = updated.(*App)
 	drive(t, a, cmd)
 
-	require.Nil(t, a.modal, "submit must close the modal")
+	require.Nil(t, a.overlays.modal, "submit must close the modal")
 
 	// The page must have seen the picker result — that's the
 	// integration path the prior wiring broke.
@@ -117,7 +117,7 @@ func TestModal_NonScopePickerCancelForwardsToTopPage(t *testing.T) {
 	a = updated.(*App)
 	drive(t, a, cmd)
 
-	require.Nil(t, a.modal, "Esc must close the modal")
+	require.Nil(t, a.overlays.modal, "Esc must close the modal")
 	require.NotEmpty(t, *page.updateLog)
 	last := (*page.updateLog)[len(*page.updateLog)-1]
 	pc, ok := last.(modal.PickerCancelledMsg)
@@ -156,7 +156,7 @@ func TestModal_ScopePickerStillTranslates(t *testing.T) {
 	a = updated.(*App)
 	drive(t, a, cmd)
 
-	require.Nil(t, a.modal)
+	require.Nil(t, a.overlays.modal)
 	require.NotEmpty(t, *page.updateLog)
 	last := (*page.updateLog)[len(*page.updateLog)-1]
 	_, ok := last.(ScopeChangedMsg)

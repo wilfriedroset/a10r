@@ -272,14 +272,14 @@ func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 // that surprising the user with column walks is worse than
 // dropping the event.
 func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
-	if a.modal != nil {
-		next, cmd := a.modal.Update(m)
-		a.modal = next
+	if a.overlays.modal != nil {
+		next, cmd := a.overlays.modal.Update(m)
+		a.overlays.modal = next
 		return cmd
 	}
-	if a.help != nil {
-		next, cmd := a.help.Update(m)
-		a.help = next
+	if a.overlays.help != nil {
+		next, cmd := a.overlays.help.Update(m)
+		a.overlays.help = next
 		return cmd
 	}
 	if a.prompt.IsOpen() || a.topPageCapturesInput() {
@@ -365,14 +365,14 @@ func quitRequestedCmd() tea.Cmd {
 //
 // Unconsumed keys drop silently.
 func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if a.modal != nil {
-		next, cmd := a.modal.Update(m)
-		a.modal = next
+	if a.overlays.modal != nil {
+		next, cmd := a.overlays.modal.Update(m)
+		a.overlays.modal = next
 		return a, cmd
 	}
-	if a.help != nil {
-		next, cmd := a.help.Update(m)
-		a.help = next
+	if a.overlays.help != nil {
+		next, cmd := a.overlays.help.Update(m)
+		a.overlays.help = next
 		return a, cmd
 	}
 	if a.prompt.IsOpen() {

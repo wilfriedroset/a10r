@@ -29,5 +29,5 @@ func OpenHelp(opts help.Options) tea.Cmd {
 // (handleKey routes keys to the open overlay rather than the
 // dispatcher), but the assignment is overwrite-not-append either way.
 func (a *App) openHelp(opts help.Options) {
-	a.help = help.New(opts)
+	a.overlays.help = help.New(opts)
 }

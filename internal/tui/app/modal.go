@@ -53,7 +53,7 @@ func (a *App) openModal(factory func() modal.Modal) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	a.modal = m
+	a.overlays.modal = m
 	return m.Init()
 }
 
@@ -61,7 +61,7 @@ func (a *App) openModal(factory func() modal.Modal) tea.Cmd {
 // (e.g. CloseModal Cmd plus a result message arriving in the same
 // frame) is harmless.
 func (a *App) closeModal() {
-	a.modal = nil
+	a.overlays.modal = nil
 }
 
 // isModalResult reports whether msg is a modal-resolution message

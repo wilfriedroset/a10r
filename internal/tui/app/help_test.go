@@ -14,7 +14,7 @@ import (
 )
 
 // TestApp_HelpKeyOpensHelpSlot pins the post-ADR-0020 contract: `?`
-// installs the help overlay in its own slot (a.help), not the modal
+// installs the help overlay in its own slot (a.overlays.help), not the modal
 // slot. The dispatcher's `?` Cmd lands as openHelpMsg; handleLifecycle
 // consumes it.
 func TestApp_HelpKeyOpensHelpSlot(t *testing.T) {
@@ -27,8 +27,8 @@ func TestApp_HelpKeyOpensHelpSlot(t *testing.T) {
 	a = updated.(*App)
 	require.NotNil(t, cmd, "? must produce a Cmd that opens the help overlay")
 	drive(t, a, cmd)
-	require.NotNil(t, a.help, "? must populate the help slot")
-	require.Nil(t, a.modal, "? must NOT touch the modal slot")
+	require.NotNil(t, a.overlays.help, "? must populate the help slot")
+	require.Nil(t, a.overlays.modal, "? must NOT touch the modal slot")
 }
 
 // TestApp_HelpScrollKeyAbsorbedByHelp covers the scroll-vs-dismiss
@@ -48,7 +48,7 @@ func TestApp_HelpScrollKeyAbsorbedByHelp(t *testing.T) {
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	a = updated.(*App)
 	drive(t, a, cmd)
-	require.NotNil(t, a.help)
+	require.NotNil(t, a.overlays.help)
 	before := len(*page.updateLog)
 
 	for _, key := range []tea.KeyPressMsg{
@@ -60,7 +60,7 @@ func TestApp_HelpScrollKeyAbsorbedByHelp(t *testing.T) {
 		require.Nil(t, scrollCmd,
 			"scroll key %v must not emit a Cmd while help is open", key)
 	}
-	require.NotNil(t, a.help, "scroll keys must NOT close the help overlay")
+	require.NotNil(t, a.overlays.help, "scroll keys must NOT close the help overlay")
 	require.Len(t, *page.updateLog, before,
 		"scroll keys on open help must NOT reach the page underneath")
 }
@@ -88,7 +88,7 @@ func TestApp_HelpDismissKeyClosesHelp(t *testing.T) {
 			updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 			a = updated.(*App)
 			drive(t, a, cmd)
-			require.NotNil(t, a.help, "baseline: ? opens the help slot")
+			require.NotNil(t, a.overlays.help, "baseline: ? opens the help slot")
 
 			_, cmd = a.Update(tc.key)
 			require.NotNil(t, cmd, "dismiss key %q must emit a Cmd", tc.name)
@@ -97,7 +97,7 @@ func TestApp_HelpDismissKeyClosesHelp(t *testing.T) {
 			require.Truef(t, ok,
 				"dismiss key %q must emit help.ClosedMsg, got %T", tc.name, msg)
 			drive(t, a, cmd)
-			require.Nil(t, a.help,
+			require.Nil(t, a.overlays.help,
 				"after help.ClosedMsg the help slot must be cleared")
 		})
 	}
@@ -116,14 +116,14 @@ func TestApp_HelpKeyShadowedWhileModalOpen(t *testing.T) {
 
 	c := modal.NewConfirm("expire silence?", modal.ConfirmDefaultNo)
 	drive(t, a, OpenModal(func() modal.Modal { return c }))
-	require.NotNil(t, a.modal, "baseline: confirm modal is open")
+	require.NotNil(t, a.overlays.modal, "baseline: confirm modal is open")
 
 	_, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	require.Nil(t, cmd,
 		"? while a modal is open must reach the modal (which ignores it), "+
 			"not the dispatcher — the modal returns nil")
-	require.Nil(t, a.help, "? must NOT open the help overlay while a modal is up")
-	require.NotNil(t, a.modal, "the modal must stay open — decisions are sticky")
+	require.Nil(t, a.overlays.help, "? must NOT open the help overlay while a modal is up")
+	require.NotNil(t, a.overlays.modal, "the modal must stay open — decisions are sticky")
 }
 
 // TestApp_ClosedHelpReleasesDispatcher pins the post-dismiss flow:
@@ -139,12 +139,12 @@ func TestApp_ClosedHelpReleasesDispatcher(t *testing.T) {
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
 	a = updated.(*App)
 	drive(t, a, cmd)
-	require.NotNil(t, a.help)
+	require.NotNil(t, a.overlays.help)
 
 	// Dismiss with Esc.
 	_, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	drive(t, a, cmd)
-	require.Nil(t, a.help, "baseline: help slot cleared after dismiss")
+	require.Nil(t, a.overlays.help, "baseline: help slot cleared after dismiss")
 
 	// `q` now reaches the dispatcher and emits QuitRequestedMsg.
 	_, cmd = a.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})

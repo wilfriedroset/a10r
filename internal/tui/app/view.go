@@ -126,15 +126,15 @@ func (a *App) renderBody(height int) string {
 
 	var inner, title, pageFooter string
 	switch {
-	case a.modal != nil:
-		title = a.modal.Title()
+	case a.overlays.modal != nil:
+		title = a.overlays.modal.Title()
 		if title == "" {
 			title = "modal"
 		}
-		inner = a.modal.View(innerWidth, innerHeight)
-	case a.help != nil:
+		inner = a.overlays.modal.View(innerWidth, innerHeight)
+	case a.overlays.help != nil:
 		title = "Help"
-		inner = a.help.View(innerWidth, innerHeight)
+		inner = a.overlays.help.View(innerWidth, innerHeight)
 	case a.topPage() != nil:
 		p := a.topPage()
 		title = p.Title()
