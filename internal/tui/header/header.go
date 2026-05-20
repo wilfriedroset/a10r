@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package header renders the J1 three-zone header strip:
+// Package header renders the three-zone header strip:
 //
 //	[ tenants: prod ● 142 · 5s ]   [ per-view content ]   [ hints  [s] silence  [?] help ]
 //
 // Stateless: pages build a State and call Render. The app shell
-// (#22) is responsible for keeping conn-state aggregated across
-// backends and re-rendering on every BackendStatusMsg / poll tick;
-// per C2 / C3 the header just displays what it is told.
+// is responsible for keeping conn-state aggregated across backends
+// and re-rendering on every BackendStatusMsg / poll tick; the
+// header just displays what it is told.
 package header
 
 import (
@@ -20,14 +20,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// ConnState is the aggregated per-session connection state per C2.
-// When multiple tenants are selected, the upstream caller computes
-// the worst-case across them; the header renders one indicator.
+// ConnState is the aggregated per-session connection state. When
+// multiple tenants are selected, the upstream caller computes the
+// worst-case across them; the header renders one indicator.
 type ConnState int
 
-// Connection states in C2 order: connected (●), degraded (◐),
-// unreachable (○). The numeric ordering matches "worsening" so
-// callers can max() across backends.
+// Connection states ordered worst-last so callers can max() across
+// backends: connected (●), degraded (◐), unreachable (○).
 const (
 	ConnConnected ConnState = iota
 	ConnDegraded

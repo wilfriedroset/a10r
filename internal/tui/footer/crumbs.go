@@ -20,11 +20,11 @@ import (
 // shape is the visual cue, an extra glyph between them is noise.
 const crumbSeparator = " "
 
-// Crumbs renders the page-stack breadcrumb strip per the k9s audit
-// §2 layout. Pages don't push directly here — the app shell (#22)
-// owns the page stack and rebuilds Crumbs from it on every push/
-// pop. Crumbs.Set rebuilds in one shot; Push/Pop are convenience
-// helpers for code that prefers an incremental API.
+// Crumbs renders the page-stack breadcrumb strip in the footer.
+// Pages don't push directly here — the app shell owns the page
+// stack and rebuilds Crumbs from it on every push/pop. Crumbs.Set
+// rebuilds in one shot; Push/Pop are convenience helpers for code
+// that prefers an incremental API.
 type Crumbs struct {
 	entries []string
 }

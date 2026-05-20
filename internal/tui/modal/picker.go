@@ -65,9 +65,10 @@ type PickerCancelledMsg struct {
 // IsModalResult satisfies ResultMsg.
 func (PickerCancelledMsg) IsModalResult() {}
 
-// Picker is the fuzzy-matched item picker per C3 / k9s audit §3.
-// Items are rendered top-down with the cursor highlighted; typing
-// narrows the list via fuzzy match, Up/Down (or j/k) walk it.
+// Picker is the fuzzy-matched item picker (the k9s-style "type to
+// narrow, j/k to navigate" affordance). Items are rendered top-down
+// with the cursor highlighted; typing narrows the list via fuzzy
+// match, Up/Down (or j/k) walk it.
 //
 // The picker doesn't know it's the tenant picker — the same shape
 // will host receiver / silence picking later. The caller wraps it

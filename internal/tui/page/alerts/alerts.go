@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package alerts renders the alerts list page — the home view of
-// the TUI per A1 / k9s-look-and-feel.md §3. v0.1 ships a minimal
-// table:
+// the TUI. v0.1 ships a minimal table:
 //
 //   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes
 //     PromptSubmittedMsg{PromptFilter} to the page).
 //   - Severity / alertname / instance / age columns.
-//   - Per E2 sort cycling by `Shift+S` (severity), `Shift+N`
-//     (alertname), `Shift+T` (state), `Shift+R` (receiver). `h`/`l`
-//     walk between sort columns.
+//   - Sort cycling by `Shift+S` (severity), `Shift+N` (alertname),
+//     `Shift+T` (state), `Shift+R` (receiver). `h`/`l` walk
+//     between sort columns.
 //   - `s` follows the k9s same-key-different-N rule: with no marks
 //     it silences the cursor row via the per-row silence form;
 //     with one or more marks it fans out a bulk silence — the

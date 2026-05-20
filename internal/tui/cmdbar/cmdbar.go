@@ -87,7 +87,7 @@ func (r *Resolver) Register(alias string, h Handler) {
 
 // Aliases returns the registered alias names sorted alphabetically.
 // Today this is consumed only by tests; reserved for the future
-// fish-buffer suggestion ring per k9s-look-and-feel.md §3.
+// fish-buffer style suggestion ring.
 func (r *Resolver) Aliases() []string {
 	out := make([]string, 0, len(r.handlers))
 	for a := range r.handlers {

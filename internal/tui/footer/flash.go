@@ -11,7 +11,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// FlashLevel is the colour band per C2 / theming.md.
+// FlashLevel is the colour band a flash renders in; the theme owns
+// the per-level fg/bg colours so a skin re-paints all four levels.
 type FlashLevel int
 
 const (
@@ -45,11 +46,11 @@ type flashClearMsg struct {
 	id uint64
 }
 
-// Flash is the bottom-strip transient-message line per the k9s
-// audit §2 layout. Auto-clears via tea.Tick after the configured
-// TTL. The component doesn't choose colours from the level — it
-// hands off to the theme — so a future skin can re-paint the four
-// flash levels without touching this file.
+// Flash is the bottom-strip transient-message line. Auto-clears
+// via tea.Tick after the configured TTL. The component doesn't
+// choose colours from the level — it hands off to the theme — so
+// a future skin can re-paint the four flash levels without
+// touching this file.
 type Flash struct {
 	level FlashLevel
 	text  string
