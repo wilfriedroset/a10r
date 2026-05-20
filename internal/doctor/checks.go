@@ -311,12 +311,13 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 type capabilityProbe func(ctx context.Context, c backend.Client) error
 
 // defaultProbes returns the smoke-call map CapabilitiesChecker uses
-// when no test override is supplied. A fresh map per call so a test
-// fixture mutating its returned copy cannot leak into the next caller.
-// Probes treat backend.ErrUnsupported as a hard mismatch ("config
-// says yes, backend says no") regardless of the underlying HTTP
-// status; other errors propagate verbatim so the message tells the
-// operator what failed.
+// when CapabilitiesChecker.probes is nil. Built lazily so the registry
+// is not shared mutable state; tests override individual entries via
+// the struct field rather than reaching for a package-level handle.
+// Probes treat backend.ErrUnsupported as a hard mismatch ("config says
+// yes, backend says no") regardless of the underlying HTTP status;
+// other errors propagate verbatim so the message tells the operator
+// what failed.
 func defaultProbes() map[string]capabilityProbe {
 	return map[string]capabilityProbe{
 		"config_api": func(ctx context.Context, c backend.Client) error {
