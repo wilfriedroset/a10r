@@ -35,19 +35,11 @@ var (
 )
 
 // Retryabler is the duck-typed interface a concrete error may
-// implement to opt into the transport backoff loop. The name follows the
-// stdlib convention of suffixing capability interfaces with the
+// implement to opt into the transport backoff loop. The name follows
+// the stdlib convention of suffixing capability interfaces with the
 // behaviour they describe (cf. net.Error's Timeout()/Temporary()).
 // Callers query via Retryable() below rather than asserting against
-// this interface directly; it is exported so that #11's HTTP error
-// type and any other implementer can satisfy the contract by
-// declaration rather than coincidence.
-//
-// TODO(#11): the HTTP transport's error type should opt in for
-// 5xx and 429 responses (transient server-side issues) and opt out
-// for 4xx (persistent client-side issues). Tests in this file
-// already cover the contract; the implementer just needs to
-// implement Retryable() bool with the right policy.
+// this interface directly.
 type Retryabler interface {
 	Retryable() bool
 }
