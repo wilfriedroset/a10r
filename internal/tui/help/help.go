@@ -111,13 +111,12 @@ func New(opts Options) *Help { return &Help{opts: opts} }
 // (it's read-only — `?` toggles off, `Esc` and `q` close it),
 // but the standard vim-style scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/
 // Ctrl+F/Ctrl+B plus the arrow / page-nav keys and Space) walk
-// the scroll offset instead. Wheel-only scrolling is undiscoverable
-// — a user reflexively pressing j/k to scroll a long help body
-// would otherwise close the overlay on the first keystroke. Mouse-
-// wheel ticks also
-// adjust the scroll offset; click / motion events arrive only while
-// the App's mouse cell-motion mode is on but the help overlay has no
-// use for them — they're ignored alongside other non-key messages.
+// the scroll offset instead. Wheel-only scrolling is
+// undiscoverable — a user reflexively pressing j/k to scroll a
+// long help body would otherwise close the overlay on the first
+// keystroke. Click / motion events arrive only while the App's
+// mouse cell-motion mode is on but the help overlay has no use
+// for them — they're ignored alongside other non-key messages.
 func (h *Help) Update(msg tea.Msg) (*Help, tea.Cmd) {
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		h.scrollBy(wheel)
