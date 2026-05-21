@@ -146,10 +146,6 @@ func (p *Page) handleKey(m tea.KeyPressMsg) app.Page {
 		p.scroll = min(p.scroll+cursor.FullPageStep(p.bodyHeight), max(len(lines)-1, 0))
 	case "ctrl+b":
 		p.scroll = max(p.scroll-cursor.FullPageStep(p.bodyHeight), 0)
-	// `g` alone is dead code — the dispatcher's chord buffer at
-	// LayerTable consumes the first `g` waiting for the second.
-	// The chord-completed `gg` arrives as app.GoToFirstRowMsg and
-	// is handled in Update.
 	case "G":
 		p.scroll = max(len(lines)-1, 0)
 	case "c":

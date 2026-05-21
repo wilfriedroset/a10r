@@ -327,10 +327,6 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleSort(m) {
 		return p, nil
 	}
-	// `g` alone is dead code — the dispatcher's chord buffer at
-	// LayerTable consumes the first `g` waiting for the second. The
-	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
-	// handled in Update.
 	if changed, handled := p.MoveCursor(m.String(), len(p.view)); handled {
 		if changed {
 			p.snapshotFocus()

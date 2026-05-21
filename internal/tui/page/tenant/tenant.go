@@ -241,10 +241,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if p.handleSort(keyMsg) {
 		return p, nil
 	}
-	// `g` alone is dead code — the dispatcher's chord buffer at
-	// LayerTable consumes the first `g` waiting for the second. The
-	// chord-completed `gg` arrives as app.GoToFirstRowMsg and is
-	// handled in Update.
 	if _, handled := p.window.MoveCursor(keyMsg.String(), len(p.rows)); handled {
 		return p, nil
 	}
