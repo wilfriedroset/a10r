@@ -151,11 +151,11 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 
 	dispatcher := buildDispatcher()
 
-	// Stage 9→10 dance: pageEnv's TimeFormat closure needs the live
-	// *app.App, but app.NewApp itself consumes env-derived values.
-	// Forward-declare the pointer, build env around it, then assign
-	// in buildApp — closures resolve `a` at invocation time, which
-	// is after buildApp has returned.
+	// buildPageEnv → buildApp dance: pageEnv's TimeFormat closure
+	// needs the live *app.App, but app.NewApp itself consumes env-
+	// derived values. Forward-declare the pointer, build env around
+	// it, then assign in buildApp — closures resolve `a` at
+	// invocation time, which is after buildApp has returned.
 	var a *app.App
 	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir)
 	if err != nil {

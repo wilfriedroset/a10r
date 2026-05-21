@@ -81,9 +81,9 @@ func TestBuild_HappyPathReturnsApp(t *testing.T) {
 }
 
 // TestBuild_LoadConfigErrorPropagates pins the precondition that
-// Stage 1's config parsing is load-bearing — a malformed file
-// must fail the whole boot rather than degrading silently.
-// ErrNotFound is the only tolerated outcome (cold-start path).
+// the config-parse step is load-bearing — a malformed file must
+// fail the whole boot rather than degrading silently. ErrNotFound
+// is the only tolerated outcome (cold-start path).
 func TestBuild_LoadConfigErrorPropagates(t *testing.T) {
 	t.Parallel()
 	deps := testDeps(t)
@@ -94,7 +94,7 @@ func TestBuild_LoadConfigErrorPropagates(t *testing.T) {
 
 	_, err := Build(t.Context(), &config.CLIFlags{}, deps)
 	require.ErrorIs(t, err, want,
-		"Stage 1 must propagate a non-ErrNotFound config error verbatim "+
+		"Build must propagate a non-ErrNotFound config error verbatim "+
 			"so the operator sees the parse failure on startup")
 }
 
@@ -119,7 +119,7 @@ func TestBuild_LoadConfigErrNotFoundIsTolerated(t *testing.T) {
 }
 
 // TestBuild_LoggerFactoryErrorAborts pins the precondition that
-// Stage 3 is hard-required: a logger init failure aborts startup
+// initLogger is hard-required: a logger init failure aborts startup
 // (we don't have anywhere to emit subsequent audit records).
 func TestBuild_LoggerFactoryErrorAborts(t *testing.T) {
 	t.Parallel()
@@ -130,12 +130,12 @@ func TestBuild_LoggerFactoryErrorAborts(t *testing.T) {
 	}
 
 	_, err := Build(t.Context(), &config.CLIFlags{}, deps)
-	require.ErrorIs(t, err, want, "Stage 3 must propagate a logger factory failure")
+	require.ErrorIs(t, err, want, "Build must propagate a logger factory failure")
 }
 
-// TestBuild_ResolveConfigDirErrorAborts pins Stage 7's hard
-// dependency on configDir — the theme loader, key loader, and
-// alias loader all read from it.
+// TestBuild_ResolveConfigDirErrorAborts pins the hard dependency on
+// configDir — the theme loader, key loader, and alias loader all
+// read from it.
 func TestBuild_ResolveConfigDirErrorAborts(t *testing.T) {
 	t.Parallel()
 	deps := testDeps(t)
@@ -313,10 +313,10 @@ func TestResult_PushHomeShortCircuitsCancelledCtx(t *testing.T) {
 			"between Build and Run does not crash the disposed program")
 }
 
-// TestBuild_LoadOptsFromFlagsForwardsConfigPath pins Stage 1's
-// flag-to-LoadOpts mapping: an explicit --config path must split
-// into Dir + File so the loader reads the requested file rather
-// than the XDG default.
+// TestBuild_LoadOptsFromFlagsForwardsConfigPath pins the flag-to-
+// LoadOpts mapping: an explicit --config path must split into Dir +
+// File so the loader reads the requested file rather than the XDG
+// default.
 func TestBuild_LoadOptsFromFlagsForwardsConfigPath(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
