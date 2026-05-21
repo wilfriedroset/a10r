@@ -13,10 +13,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 )
 
-// newResolver builds the cmdbar resolver with the v0.1 alias
-// catalogue. Each `:command` handler hands an env-bound page
-// factory to app.PushPage; pageEnv carries the shared deps so the
-// resolver itself is just dispatch glue.
+// newResolver builds the cmdbar resolver with the in-tree alias
+// catalogue. Each `:command` handler hands an env-bound page factory
+// to app.PushPage; pageEnv carries the shared deps so the resolver
+// itself is just dispatch glue.
 func newResolver(env *pageEnv) *cmdbar.Resolver {
 	r := cmdbar.New()
 	r.Register("alerts", func(args []string) tea.Cmd {

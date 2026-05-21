@@ -173,10 +173,10 @@ func TestClient_ListSilences(t *testing.T) {
 }
 
 // TestClient_GetSilence_PathEscapesID pins the path-escape
-// invariant: silence IDs (UUIDs in v0.1, but operator-controllable
-// in principle) must be URL-escaped before being concatenated into
-// the request path, otherwise a slash-bearing id would silently
-// reroute the GET to a different endpoint.
+// invariant: silence IDs (UUIDs today, but operator-controllable in
+// principle) must be URL-escaped before being concatenated into the
+// request path, otherwise a slash-bearing id would silently reroute
+// the GET to a different endpoint.
 //
 // The assertion reads r.URL.RawPath because Go's http.Request
 // decodes Path back into its plain form for routing — RawPath

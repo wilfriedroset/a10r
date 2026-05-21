@@ -49,8 +49,8 @@ type HintBar struct {
 	idx int
 
 	// generation tags every scheduled tick so a stale tick from a
-	// superseded timer round drops silently on arrival. v0.0.1 only
-	// increments it on construction (always zero), but the same
+	// superseded timer round drops silently on arrival. Today it
+	// only increments on construction (always zero), but the same
 	// idiom Flash uses leaves room for a future hot-reload to
 	// invalidate pending ticks without changing the wire shape.
 	generation uint64

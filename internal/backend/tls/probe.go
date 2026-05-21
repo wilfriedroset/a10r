@@ -9,7 +9,7 @@
 // certificate. ProbeCert opens a fresh TCP+TLS connection, reads
 // the peer's leaf cert, and closes the connection — nothing more.
 //
-// v0.0.1 scope:
+// Scope:
 //   - HTTP_PROXY / HTTPS_PROXY environment variables are NOT
 //     honoured. A backend reachable only through a corporate proxy
 //     surfaces ProbeCert as ErrUnreachable and the operator falls

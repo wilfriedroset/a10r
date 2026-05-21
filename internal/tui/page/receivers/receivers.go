@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package receivers renders the receivers list. v0.1 ships a
-// trivial single-column table — receivers carry only a Name on
-// the AM side, so the page's value is mostly the drill-down: an
-// Enter on a row pushes the alerts page filtered by `receiver=…`.
+// Package receivers renders the receivers list — a trivial single-
+// column table. Receivers carry only a Name on the AM side, so the
+// page's value is mostly the drill-down: an Enter on a row pushes
+// the alerts page filtered by `receiver=…`.
 package receivers
 
 import (

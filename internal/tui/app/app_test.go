@@ -36,8 +36,9 @@ func TestApp_InitNoCmd(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	require.Nil(t, a.Init(),
-		"no startup command at v0.1 — polling lifecycle is #24, "+
-			"and the hint bar is OFF by default so its tick doesn't fire either")
+		"App.Init must emit no startup command — pollers are spawned by "+
+			"the wiring layer (cmd/tui.go), and the hint bar is OFF by "+
+			"default so its tick doesn't fire either")
 }
 
 func TestApp_InitSchedulesHintBarTickWhenEnabled(t *testing.T) {
@@ -179,9 +180,9 @@ func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
 
-	// `j` is a vim-motion binding registered by tables, not by
-	// the app shell. At v0.1 with no page pushed it must be a silent
-	// no-op rather than emit a flash.
+	// `j` is a vim-motion binding registered by tables, not by the
+	// app shell. With no page pushed it must be a silent no-op
+	// rather than emit a flash.
 	updated, cmd := a.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	a = updated.(*App)
 	require.Nil(t, cmd)

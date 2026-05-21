@@ -54,8 +54,8 @@ const (
 )
 
 // Config is the top-level shape of a10r.yaml. The Keys section is
-// reserved for post-v0.1 user-defined keybinding overrides and
-// is intentionally empty so the schema slot is locked in.
+// reserved for future user-defined keybinding overrides and is
+// intentionally empty so the schema slot is locked in.
 type Config struct {
 	Backends []Backend     `yaml:"backends,omitempty"`
 	Defaults Defaults      `yaml:"defaults,omitempty"`
@@ -67,9 +67,9 @@ type Config struct {
 }
 
 // PageOverrides carries per-page runtime knobs that a user can
-// tune without touching the per-backend config. v0.0.1 ships
-// only the poll-interval override; future fields (default
-// filter, error-band threshold) compose here under the same
+// tune without touching the per-backend config. Today only the
+// poll-interval override is wired; future fields (default filter,
+// error-band threshold) compose here under the same
 // `pages.<name>.*` shape.
 //
 // An empty PageOverrides leaves every page on its backend-derived
@@ -265,8 +265,8 @@ func validateHeaders(h map[string]string) error {
 }
 
 // Capabilities are the explicit opt-in flags per ADR 0028 — nothing
-// auto-enabled. v0.1 does not implement the underlying endpoints
-// (the Mimir config editor is post-v0.1 work) but the flags must
+// auto-enabled. The underlying endpoints are not implemented today
+// (the Mimir config editor is future work) but the flags must
 // still gate menu visibility once the action registry lands.
 type Capabilities struct {
 	ConfigAPI   bool `yaml:"config_api,omitempty"`
@@ -291,11 +291,11 @@ type Authorization struct {
 	Credentials string `yaml:"credentials,omitempty"`
 }
 
-// TLSConfig configures TLS for the backend's HTTP transport. v0.1
-// supports inline-only fields; the file-based and secret-manager
-// variants (`*_file`, `*_ref`) are reserved on the same terms as
-// `cert:` / `key:` — accepted by the schema, rejected by the
-// validator until the mTLS work lands. See ADR 0029.
+// TLSConfig configures TLS for the backend's HTTP transport. Only
+// the inline fields are supported today; the file-based and secret-
+// manager variants (`*_file`, `*_ref`) are reserved on the same
+// terms as `cert:` / `key:` — accepted by the schema, rejected by
+// the validator until the mTLS work lands. See ADR 0029.
 //
 // Inline `ca:` REPLACES the system root pool for that backend
 // (Prometheus parity). When set the system CAs are not consulted:
@@ -408,10 +408,10 @@ type Log struct {
 	Level string `yaml:"level,omitempty"`
 }
 
-// Keys is reserved for user-defined keybinding overrides
-// (post-v0.1). The struct is exported empty so the YAML key is
-// part of the schema contract from day one and adding fields
-// later is a non-breaking change.
+// Keys is reserved for future user-defined keybinding overrides.
+// The struct is exported empty so the YAML key is part of the
+// schema contract from day one and adding fields later is a non-
+// breaking change.
 type Keys struct{}
 
 // TUI carries TUI-presentation knobs that don't fit on Defaults

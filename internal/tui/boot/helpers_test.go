@@ -400,8 +400,8 @@ func TestPageOverride_AllResources(t *testing.T) {
 		"unknown resource returns zero so caller falls through to backend")
 }
 
-// writeDefaultKeys drops a `<dir>/keys/default.yaml` file with
-// the given body. v0.0.1 only auto-loads the default profile, so
+// writeDefaultKeys drops a `<dir>/keys/default.yaml` file with the
+// given body. Only the default profile is auto-loaded today, so
 // that's the only one the cmd-layer wiring exercises.
 func writeDefaultKeys(t *testing.T, body string) string {
 	t.Helper()

@@ -251,9 +251,9 @@ func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
 		// Inline CA REPLACES the system root pool for this backend
 		// (Prometheus parity); the trust narrowing is surprising
 		// for callers reading "added a CA" as "augmented" rather
-		// than "replaced". v0.1 supports inline only, so ca_source
-		// is hard-coded; broaden the attr when the file / ref
-		// variants land (same reservation posture as ADR 0029).
+		// than "replaced". Only inline is supported today, so
+		// ca_source is hard-coded; broaden the attr when the file /
+		// ref variants land (same reservation posture as ADR 0029).
 		slog.Warn("custom CA bundle replaces system roots", slog.String("ca_source", "inline"))
 	}
 	if v, ok := tlsVersionLookup(spec.MinVersion); ok {

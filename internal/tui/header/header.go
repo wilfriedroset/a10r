@@ -98,8 +98,8 @@ const middleBreathingCols = 2
 // guarantees the width-padding invariant. The left zone's required
 // content (tenants + glyph + count + age) can itself exceed very
 // small widths, and ANSI-aware truncation of styled left-zone
-// output is intentionally out of scope for v0.1. Pages should never
-// see a tea.WindowSizeMsg below this width on any modern terminal.
+// output is intentionally out of scope. Pages should never see a
+// tea.WindowSizeMsg below this width on any modern terminal.
 const MinSensibleWidth = 50
 
 // Render produces the styled header string for state. Returns

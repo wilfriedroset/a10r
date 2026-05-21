@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultSkinName is the v0.1 default. Picked for predictability:
+// DefaultSkinName is the default skin. Picked for predictability:
 // works on any terminal regardless of the user's bg config. Users
 // who curate their terminal palette typically prefer one of the
 // `-transparent` variants bundled alongside.

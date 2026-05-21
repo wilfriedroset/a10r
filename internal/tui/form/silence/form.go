@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package silence renders the silence-creation / -edit form. v0.1
+// Package silence renders the silence-creation / -edit form. It
 // composes bubbles' textinput / textarea models for the per-field
 // chrome and keeps a thin wrapper for cross-field navigation,
 // validation, and the CreateSilence / UpdateSilence verb selection.

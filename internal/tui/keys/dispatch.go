@@ -3,8 +3,8 @@
 // Package keys is the keybindings dispatcher: incoming key
 // events flow through five precedence layers (modal > prompt >
 // per-view > table-context > global) and the first match wins.
-// Multi-key chords are supported with a 500 ms timeout — v0.1 only
-// uses one chord (`gg` for "first row" per the table-context
+// Multi-key chords are supported with a 500 ms timeout — only one
+// chord is wired today (`gg` for "first row" per the table-context
 // catalog) but the mechanism is general.
 //
 // The dispatcher is deliberately decoupled from UI code: it owns
@@ -61,10 +61,10 @@ type Handler func() tea.Cmd
 // strings from keybindings.md (`s`, `Ctrl+S`, `Shift+E`, `gg`).
 type KeyMap map[string]Handler
 
-// chordPrefix is the first key of every supported chord. v0.1 has
-// only `gg` so this is `{"g": "gg"}`. Generalised so a future chord
-// like `bs` (bulk-silence) can be added by extending this map and
-// the precedence stack picks it up automatically.
+// chordPrefix is the first key of every supported chord. Today
+// only `gg` is wired so this is `{"g": "gg"}`; generalised so a
+// future chord like `bs` (bulk-silence) can be added by extending
+// this map and the precedence stack picks it up automatically.
 var chordPrefix = map[string]string{
 	"g": "gg",
 }
@@ -84,7 +84,7 @@ type Dispatcher struct {
 	// ApplyOverrides can wire user-supplied keys onto the matching
 	// (layer, handler) pair. Populated only via SetAction; SetWithout-
 	// Action bindings (chords like `gg`, dispatcher-internal hooks)
-	// stay invisible to overrides because the v0.0.1 schema only lets
+	// stay invisible to overrides because the user schema only lets
 	// users bind to named actions registered through SetAction.
 	actions map[string]actionEntry
 
@@ -333,7 +333,7 @@ func (d *Dispatcher) dispatchFresh(key string, now time.Time) (bool, tea.Cmd) {
 // HandleChordExpired processes a ChordExpiredMsg. Idempotent:
 // stale ticks (the chord was resolved by a key arrival before the
 // tick fired) are discarded silently. No tea.Cmd is currently
-// fired since v0.1's only chord prefix (`g`) has no single-key
+// fired since the only chord prefix today (`g`) has no single-key
 // binding to fall back to; the contract is preserved so a future
 // single-key fallback can land additively.
 func (d *Dispatcher) HandleChordExpired(msg ChordExpiredMsg) tea.Cmd {

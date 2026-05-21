@@ -34,11 +34,12 @@ func TestTips_NotEmptyAndCopied(t *testing.T) {
 func TestTips_DoesNotReferenceUnshippedFeatures(t *testing.T) {
 	t.Parallel()
 
-	// Scout-doc / future-plan features (custom keybindings via J2,
-	// the action registry surface, the Mimir config editor) must
-	// not appear in v0.0.1 tips. Catching the exact phrase is good
-	// enough — the curated catalogue is small, so a substring guard
-	// keeps the test simple without enumerating every banned word.
+	// Future-plan features (custom keybindings, action registry
+	// surface, Mimir config editor) must not appear in tips —
+	// catalogue today only references features the binary already
+	// ships. Catching the exact phrase is good enough; the curated
+	// catalogue is small, so a substring guard keeps the test
+	// simple without enumerating every banned word.
 	banned := []string{
 		"custom keybindings",
 		"config editor",

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package mimir constructs a backend.Client configured for Grafana
-// Mimir's prefixed Alertmanager surface. v0.1 ships no Mimir-
-// specific code beyond the constructor — the prefix is handled by
+// Mimir's prefixed Alertmanager surface. No Mimir-specific code
+// ships beyond the constructor today — the prefix is handled by
 // vanilla.Client's URL builder and the per-tenant header by the
 // Headers map injected via transport.WithHeaders (the ADR 0028
 // "one code path per method" rule). The package boundary exists so
-// the post-v0.1 Mimir-only config editor lands in a focused
-// location rather than growing vanilla's surface.
+// a future Mimir-only config editor lands in a focused location
+// rather than growing vanilla's surface.
 package mimir
 
 import (
@@ -40,9 +40,9 @@ import (
 //     transport.NewBase.
 //   - Timeout: per-request timeout. Zero defers to
 //     vanilla.Client's default.
-//   - Caps: capability flags from `a10r.yaml`. v0.1 leaves these as
-//     hints to the TUI; the methods themselves still return
-//     ErrUnsupported until the post-v0.1 config editor lands.
+//   - Caps: capability flags from `a10r.yaml`. These are hints to
+//     the TUI today; the methods themselves still return
+//     ErrUnsupported until a future config editor lands.
 type ClientConfig struct {
 	BaseURL string
 	Prefix  string
@@ -84,12 +84,11 @@ type ClientConfig struct {
 }
 
 // New constructs a *vanilla.Client wrapped with the Mimir-specific
-// transport layers. Returns *vanilla.Client (rather than a
-// dedicated *mimir.Client) because v0.1 Mimir adds no behaviour
-// over vanilla — ADR 0028 pins the "one code path per method"
-// choice. The post-v0.1 config editor will introduce a dedicated
-// type that embeds or wraps vanilla.Client and overrides the
-// capability stubs.
+// transport layers. Returns *vanilla.Client (rather than a dedicated
+// *mimir.Client) because Mimir adds no behaviour over vanilla today
+// — ADR 0028 pins the "one code path per method" choice. A future
+// config editor will introduce a dedicated type that embeds or
+// wraps vanilla.Client and overrides the capability stubs.
 func New(cfg ClientConfig) (*vanilla.Client, error) {
 	// Capture the configured backend's host so the auth/header
 	// RoundTrippers can refuse to replay credentials (and the

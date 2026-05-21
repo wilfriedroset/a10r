@@ -25,7 +25,7 @@ import (
 //
 // No body capture: bodies are open-ended (free-form alert
 // annotations, silence comments) and a regex scrub layer is more
-// risk than the v0.0.1 debugging value warrants — see ADR 0008.
+// risk than the debugging value warrants — see ADR 0008.
 func WithDebugLog(base http.RoundTripper, log *slog.Logger) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport

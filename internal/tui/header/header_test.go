@@ -219,9 +219,9 @@ func TestRender_WidthInvariantHoldsAtNarrowWidths(t *testing.T) {
 
 	// At MinSensibleWidth and above, the invariant always holds even
 	// when content + hints overflow. Below MinSensibleWidth the
-	// header documents that left-zone overflow may occur (ANSI-
-	// aware truncation of the styled left zone is out of scope for
-	// v0.1).
+	// header documents that left-zone overflow may occur (ANSI-aware
+	// truncation of the styled left zone is intentionally out of
+	// scope).
 	for _, width := range []int{MinSensibleWidth, 60, 80, 120, 200} {
 		out := Render(State{
 			Tenants: "prod",

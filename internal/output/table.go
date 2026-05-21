@@ -50,10 +50,9 @@ const (
 // single-pass — large outputs (10k+ rows) are common on Mimir
 // tenants and a separate validation walk would double the cost.
 //
-// Tabwriter handles alignment for both terminals and pipes —
-// there is no separate "TTY" code path in v0.0.1; lipgloss-styled
-// headers can layer in later without touching this function's
-// contract.
+// Tabwriter handles alignment for both terminals and pipes — there
+// is no separate "TTY" code path today; lipgloss-styled headers can
+// layer in later without touching this function's contract.
 func (t Table) Write(w io.Writer) error {
 	tw := tabwriter.NewWriter(w, tabMinWidth, tabWidth, tabPadding, tabPadChar, tabFlags)
 	if _, err := fmt.Fprintln(tw, header(t.Cols)); err != nil {

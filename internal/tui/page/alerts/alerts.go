@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package alerts renders the alerts list page — the home view of
-// the TUI. v0.1 ships a minimal table:
+// the TUI:
 //
 //   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes

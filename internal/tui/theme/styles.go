@@ -188,7 +188,7 @@ type ModalStyle struct {
 }
 
 // YAMLStyle colours the status pane's raw config.original viewer
-// and, post-v0.1, the Mimir config editor.
+// (and any future Mimir config editor).
 type YAMLStyle struct {
 	Key   lipgloss.Style
 	Value lipgloss.Style

@@ -25,7 +25,7 @@ import (
 // The five resources share a single interval per backend: poll
 // pressure is dominated by the alerts feed, and the others are
 // cheap reads that piggy-back. Configurable per-resource intervals
-// are deferred — overkill for v0.1.
+// are deferred — overkill at the current fan-out.
 //
 // reg is published with each poller so the App's `r` refresh
 // handler can find the matching entry by (resource, tenant).

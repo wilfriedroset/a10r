@@ -34,8 +34,8 @@ type Action struct {
 	View string
 
 	// Dangerous flags actions filtered out when read-only mode is
-	// active: silence create / update / expire, Mimir config writes
-	// (post-v0.1), and any other state-mutating verb.
+	// active: silence create / update / expire, future Mimir config
+	// writes, and any other state-mutating verb.
 	Dangerous bool
 
 	// Bulk flags actions that require prior Space-mark selection.

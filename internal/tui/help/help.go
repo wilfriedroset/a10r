@@ -389,7 +389,7 @@ func (h *Help) entry(key, desc string) string {
 }
 
 // headingLabel renders a column heading in the table-header colour
-// (uppercase per the v0.1 polish UX rules).
+// (uppercase to match the list-page table headers).
 func (h *Help) headingLabel(name string) string {
 	st := lipgloss.NewStyle().
 		Foreground(h.opts.Styles.Table.Header.GetForeground()).

@@ -8,9 +8,9 @@
 //
 // Read endpoints (ListAlerts/AlertGroups/Silences/GetSilence/Receivers/
 // Status) live in read.go; write endpoints (CreateSilence,
-// UpdateSilence, ExpireSilence) land in #13. Capability-gated methods
-// stay as ErrUnsupported stubs in this package — Mimir's wrapper
-// implements them when caps allow, post-v0.1.
+// UpdateSilence, ExpireSilence) live in write.go. Capability-gated
+// methods stay as ErrUnsupported stubs in this package — Mimir's
+// wrapper implements them when caps allow.
 package vanilla
 
 import (
@@ -65,8 +65,8 @@ const defaultMaxResponseBodyBytes int64 = 64 << 20
 //     nil defaults to http.DefaultTransport.
 //   - Timeout: per-request timeout. Zero defaults to
 //     defaultRequestTimeout.
-//   - Caps: capability flags from `a10r.yaml`. v0.1 leaves all flags
-//     off on vanilla; the field exists so the Mimir wrapper can pass
+//   - Caps: capability flags from `a10r.yaml`. All flags are off on
+//     vanilla today; the field exists so the Mimir wrapper can pass
 //     real caps through.
 type ClientConfig struct {
 	BaseURL   string

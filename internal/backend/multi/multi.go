@@ -20,8 +20,8 @@ import (
 )
 
 // defaultPoolSize bounds parallel fan-outs when New is called with
-// poolSize <= 0. Tuned for the v0.1 expected fan-out size; the cap
-// can grow with workload evidence.
+// poolSize <= 0. Tuned for the current expected fan-out size; the
+// cap can grow with workload evidence.
 const defaultPoolSize = 8
 
 // TenantClient pairs a name (typically backend.Name from a10r.yaml)

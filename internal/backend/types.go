@@ -22,9 +22,9 @@ const (
 )
 
 // Alert is the in-memory shape of one entry from /api/v2/alerts. The
-// fields the v0.1 TUI consumes are first-class; the few audit-listed
-// fields the TUI does not currently render (e.g. fingerprintExt) are
-// dropped to avoid carrying dead state.
+// fields the TUI consumes are first-class; fields the TUI does not
+// render (e.g. fingerprintExt) are dropped to avoid carrying dead
+// state.
 //
 // Labels and Annotations are maps. Implementations MUST NOT share
 // the underlying map across goroutines — the polling loop replaces
@@ -130,14 +130,14 @@ type VersionInfo struct {
 
 // MimirConfig is the payload of Mimir's /api/v1/alerts (the *config*
 // endpoint — distinct from vanilla AM's now-removed /api/v1/alerts
-// which served the alerts list). v0.1 does not implement reads or
-// writes against this surface — the Mimir wrapper returns
+// which served the alerts list). No reads or writes are implemented
+// against this surface today — the Mimir wrapper returns
 // ErrUnsupported for every method that touches it — but the type is
-// locked in so the post-v0.1 editor can land additively.
+// locked in so a future config editor can land additively.
 //
-// SemVer note: stub types in this block (MimirConfig, TenantConfig,
-// Ring, RingInstance) carry no implementation in v0.1 and may grow
-// fields before the post-v0.1 Mimir config editor ships. Treat them
+// SemVer note: the stub types in this block (MimirConfig,
+// TenantConfig, Ring, RingInstance) carry no implementation today
+// and may grow fields before a Mimir config editor ships. Treat them
 // as unstable until the editor lands; downstream consumers that
 // import these types should expect non-breaking field additions.
 type MimirConfig struct {
@@ -146,19 +146,19 @@ type MimirConfig struct {
 }
 
 // TenantConfig is one entry in the multi-tenant config listing
-// (Mimir admin). v0.1 stub; see MimirConfig SemVer note.
+// (Mimir admin). Stub; see MimirConfig SemVer note.
 type TenantConfig struct {
 	Tenant string
 	Config string
 }
 
 // Ring is the response shape of /multitenant_alertmanager/ring.
-// v0.1 stub; see MimirConfig SemVer note.
+// Stub; see MimirConfig SemVer note.
 type Ring struct {
 	Instances []RingInstance
 }
 
-// RingInstance is one node in the Mimir hash ring. v0.1 stub; see
+// RingInstance is one node in the Mimir hash ring. Stub; see
 // MimirConfig SemVer note.
 type RingInstance struct {
 	ID     string

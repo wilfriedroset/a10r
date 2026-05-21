@@ -54,7 +54,7 @@ func TestModal_EscDismissesModal(t *testing.T) {
 
 func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	t.Parallel()
-	// The tenant picker is the only picker wired in v0.1. Its
+	// The tenant picker is the only picker wired today. Its
 	// submission translates to a ScopeChangedMsg so every list
 	// page reacts the same way as for the `<0>` / `<1>`-`<9>`
 	// numeric quick-switch — pages never see the raw picker

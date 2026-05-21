@@ -113,10 +113,10 @@ type Backoff struct {
 	JitterFraction float64
 }
 
-// defaultBackoff is the v0.1 default: 1s base, capped at 6×
-// interval, ±10% jitter — matches the plan and matches the k9s
-// audit's reconnection cadence. A function (not a var) so callers
-// can't accidentally mutate the package-level schedule.
+// defaultBackoff is the project default: 1s base, capped at 6×
+// interval, ±10% jitter — matches the k9s audit's reconnection
+// cadence. A function (not a var) so callers can't accidentally
+// mutate the package-level schedule.
 func defaultBackoff() Backoff {
 	return Backoff{
 		Base:           time.Second,
@@ -477,8 +477,8 @@ func (b Backoff) applyJitter(d time.Duration) time.Duration {
 	return out
 }
 
-// stateFromErr maps a backend error into a connection state. v0.1
-// keeps it coarse: anything that satisfies ErrUnreachable maps to
+// stateFromErr maps a backend error into a connection state. The
+// mapping is coarse: anything that satisfies ErrUnreachable maps to
 // Unreachable; anything else (auth, transient) maps to Degraded.
 func stateFromErr(err error) header.ConnState {
 	if errors.Is(err, backend.ErrUnreachable) {

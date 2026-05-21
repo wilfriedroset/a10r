@@ -227,7 +227,7 @@ func TestHandleChordExpired_RoundTripClearsState(t *testing.T) {
 	// Simulate the tea.Tick firing at the exact expiry time.
 	expiredAt := clock.Now().Add(ChordTimeout)
 	expiredCmd := d.HandleChordExpired(ChordExpiredMsg{At: expiredAt})
-	require.Nil(t, expiredCmd, "v0.1 has no single-g binding to fall back to")
+	require.Nil(t, expiredCmd, "no single-g binding is wired to fall back to")
 
 	// Now any g must start a fresh chord, NOT complete the original.
 	r := &recorder{}

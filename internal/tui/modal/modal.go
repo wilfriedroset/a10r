@@ -24,8 +24,8 @@
 // real layer (keys.LayerModal), but today the App owns modal
 // routing end-to-end so the layer slot is reserved for a future
 // feature: cross-modal app-level bindings (e.g. a global "panic
-// quit" key the user can press inside any modal). For v0.1 the
-// modal slot is sufficient; LayerModal stays empty.
+// quit" key the user can press inside any modal). The modal slot
+// is sufficient today; LayerModal stays empty.
 package modal
 
 import (
