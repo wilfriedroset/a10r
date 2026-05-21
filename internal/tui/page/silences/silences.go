@@ -376,32 +376,14 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
-// Footer renders the next-refresh deadline (or "refreshing…" while
-// a manual `r` is in flight) into the bottom border. Drawn from the
-// soonest in-scope DataMsg.NextAt — the operator cares about the
-// next tick that fires, not a per-tenant table.
+// Footer is the refresh countdown surface — see CONTEXT.md.
 func (p *Page) Footer() string {
-	if p.Paused {
-		// Paused state takes precedence over the refresh countdown
-		// so the operator immediately sees that auto-poll is off.
-		// The refreshing indicator is kept too — a pausedRefresh
-		// in flight is still informative.
-		if p.Refreshing {
-			return "WATCH OFF · refreshing…"
-		}
-		return "WATCH OFF"
-	}
-	if p.Refreshing {
-		return "refreshing…"
-	}
-	if !p.PolledInScope(p.ScopeIncludes) {
-		return ""
-	}
-	next := p.SoonestNextRefresh(p.ScopeIncludes)
-	if next.IsZero() {
-		return ""
-	}
-	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
+	return listpage.RefreshCountdown(
+		p.Paused, p.Refreshing,
+		p.PolledInScope(p.ScopeIncludes),
+		p.SoonestNextRefresh(p.ScopeIncludes),
+		p.now(),
+	)
 }
 
 // PollResources implements app.PollAwarePage so the App-level

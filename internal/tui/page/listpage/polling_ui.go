@@ -89,6 +89,28 @@ func (u *PollingUI) LoadingTitle(noun string) string {
 	return u.Spinner.View() + " loading " + noun + "…"
 }
 
+// RefreshCountdown returns the refresh-countdown footer for a polled
+// list page. Five branches, in priority order: paused (with or
+// without a manual refresh in flight), refreshing alone, pre-poll
+// (no in-scope tenant has answered yet), polled-without-NextAt, and
+// polled-with-NextAt (rendered via NextRefreshLabel). See CONTEXT.md
+// for the vocabulary.
+func RefreshCountdown(paused, refreshing, polled bool, soonest, now time.Time) string {
+	if paused {
+		if refreshing {
+			return "WATCH OFF · refreshing…"
+		}
+		return "WATCH OFF"
+	}
+	if refreshing {
+		return "refreshing…"
+	}
+	if !polled || soonest.IsZero() {
+		return ""
+	}
+	return "next refresh " + NextRefreshLabel(now, soonest)
+}
+
 // NextRefreshLabel formats the bottom-border deadline used by the
 // refresh countdown ("next refresh 25s"). Past-due renders as
 // "due" so a slow tick reads honestly without flashing a negative
