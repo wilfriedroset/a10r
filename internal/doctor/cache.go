@@ -38,9 +38,8 @@ func WithCache(cs []Checker, ttl time.Duration) []Checker {
 	return wrapWithCache(cs, ttl, clock.System{})
 }
 
-// wrapWithCache is the DI seam exercised by tests. Production
-// callers go through WithCache, which pins clock.System; tests
-// inject a fakeClock to drive the TTL boundary deterministically.
+// wrapWithCache is the DI seam; production reaches it via
+// WithCache (pinned to clock.System).
 func wrapWithCache(cs []Checker, ttl time.Duration, clk clock.Now) []Checker {
 	out := make([]Checker, len(cs))
 	for i, c := range cs {

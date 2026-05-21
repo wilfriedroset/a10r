@@ -56,9 +56,7 @@ func LoadAliases(dir string) (AliasMap, error) {
 	return parseAliases(raw, path)
 }
 
-// parseAliases is the I/O-free core of LoadAliases. Pulled out so
-// tests can drive every branch without writing to disk and so the
-// strict-decode error wrapping has a single home.
+// parseAliases is the I/O-free core of LoadAliases.
 func parseAliases(raw []byte, source string) (AliasMap, error) {
 	// Whitespace-only is "no aliases" — short-circuit before the
 	// decoder so an io.EOF on empty input doesn't surface as a parse

@@ -50,10 +50,8 @@ func Load(opts LoadOpts) (*Config, error) {
 	return loadWithEnv(opts, hostGetenv, hostHomeDir, hostGOOS())
 }
 
-// loadWithEnv is the test-injectable core of Load. Production code
-// always reaches it via Load (which passes the host's env, home,
-// and GOOS). Tests pass deterministic stubs to drive every branch
-// without touching real env state.
+// loadWithEnv is the test-injectable core of Load; production
+// reaches it via Load with the host's env, home, and GOOS.
 func loadWithEnv(
 	opts LoadOpts,
 	env func(string) string,
@@ -185,14 +183,9 @@ func loadDropIn(path string, env func(string) string) (*Config, error) {
 }
 
 // decodeStrict runs a strict-mode YAML decode of the (already
-// interpolated) byte stream. Pulled out so the loader stays flat
-// and so tests can drive the strict-mode branch without going
-// through the full filesystem path.
-//
-// The internal yaml decode error is returned unwrapped because
-// loadWithEnv already adds the `parse config %q: %w` wrapper at the
-// only production call site; double-wrapping would just produce
-// `parse config "...": strict decode: yaml: ...`.
+// interpolated) byte stream. The yaml error is returned unwrapped
+// because loadWithEnv adds the `parse config %q: %w` wrapper at
+// the only production call site.
 func decodeStrict(b []byte) (*Config, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(b))
 	decoder.KnownFields(true)

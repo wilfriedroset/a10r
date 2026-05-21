@@ -21,9 +21,8 @@ func DefaultPath() (string, error) {
 	return defaultPathFor(runtime.GOOS, os.Getenv, os.UserHomeDir)
 }
 
-// defaultPathFor is the testable core of DefaultPath. The env and
-// homeDir func parameters are injection points so the caller can
-// drive every OS branch from a single host without build tags.
+// defaultPathFor is the testable core of DefaultPath; env and
+// homeDir let one host exercise every GOOS branch without build tags.
 func defaultPathFor(
 	goos string,
 	env func(string) string,

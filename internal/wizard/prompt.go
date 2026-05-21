@@ -98,9 +98,7 @@ func newTTY(stdin, stdout *os.File) *Prompter {
 // enableColor probes whether ANSI styling should be emitted on
 // stdout: stdout must be a TTY, NO_COLOR must be unset (any non-
 // empty value disables — https://no-color.org), and TERM must not
-// be "dumb". Extracted from newTTY so the env-honour matrix is
-// unit-testable without instantiating a full Prompter or messing
-// with os.Stdin in tests.
+// be "dumb".
 func enableColor(stdout *os.File) bool {
 	return term.IsTerminal(stdout.Fd()) &&
 		os.Getenv("NO_COLOR") == "" &&

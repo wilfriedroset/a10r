@@ -80,8 +80,8 @@ func New(opts Opts) (*slog.Logger, io.Closer, error) {
 	return newWithOpener(opts, openSink)
 }
 
-// newWithOpener is the test-injectable core of New. Production code
-// always reaches it via New (which passes the real openSink).
+// newWithOpener is the test-injectable core of New; production
+// reaches it via New with the real openSink.
 func newWithOpener(opts Opts, openSinkFn sinkOpener) (*slog.Logger, io.Closer, error) {
 	format, err := normaliseFormat(opts.Format)
 	if err != nil {

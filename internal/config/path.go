@@ -26,9 +26,8 @@ func DefaultDir() (string, error) {
 	return defaultConfigDirFor(hostGOOS(), hostGetenv, hostHomeDir)
 }
 
-// defaultConfigDirFor is the testable core of DefaultDir. The env
-// and homeDir func parameters are the injection points so the test
-// can drive every OS branch from a single host without build tags.
+// defaultConfigDirFor is the testable core of DefaultDir; env and
+// homeDir let one host exercise every GOOS branch without build tags.
 func defaultConfigDirFor(
 	goos string,
 	env func(string) string,

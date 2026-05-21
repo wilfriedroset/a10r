@@ -80,13 +80,9 @@ func LoadKeys(dir, profile string) (KeyOverrides, error) {
 	return parseKeys(raw, path)
 }
 
-// parseKeys is the I/O-free core of LoadKeys. Pulled out so tests
-// can drive every branch without writing to disk.
-//
-// Decoded into a yaml.Node tree (rather than directly into a map)
-// so the validator can quote the exact line:column of each binding
-// in error messages — the operator opens their editor at the right
-// spot rather than hunting through the file.
+// parseKeys is the I/O-free core of LoadKeys. Decoded into a
+// yaml.Node tree (not directly into a map) so the validator can
+// quote the exact line:column of each binding in error messages.
 func parseKeys(raw []byte, source string) (KeyOverrides, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return KeyOverrides{}, nil
