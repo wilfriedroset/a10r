@@ -33,26 +33,18 @@ type Timer interface {
 	Stop() bool
 }
 
-// System is the production implementation backed by stdlib time.
-// Satisfies both Now (via the trivial Now method) and Clock (via the
-// After + NewTimer methods on the same receiver).
+// System is the production implementation backed by stdlib time;
+// satisfies both Now and Clock.
 type System struct{}
 
-// Now returns the current local time.
-func (System) Now() time.Time { return time.Now() }
-
-// After returns a channel that fires after d.
+func (System) Now() time.Time                         { return time.Now() }
 func (System) After(d time.Duration) <-chan time.Time { return time.After(d) }
+func (System) NewTimer(d time.Duration) Timer         { return systemTimer{t: time.NewTimer(d)} }
 
-// NewTimer returns a stoppable timer that fires after d.
-func (System) NewTimer(d time.Duration) Timer { return systemTimer{t: time.NewTimer(d)} }
-
-// systemTimer wraps *time.Timer to satisfy the Timer interface.
-// Lives here rather than in the poll consumer so the contract and
-// its sanctioned impl stay co-located.
+// systemTimer keeps Timer's sanctioned implementation alongside the
+// interface so a fake can mirror the contract without reading stdlib.
 type systemTimer struct{ t *time.Timer }
 
-// C returns the timer's fire channel.
 func (s systemTimer) C() <-chan time.Time { return s.t.C }
 
 // Stop tries to drop the timer before it fires. Returns true if the

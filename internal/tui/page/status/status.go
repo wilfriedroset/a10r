@@ -38,7 +38,6 @@ type Page struct {
 	bodyHeight int
 }
 
-// New constructs an empty status page.
 func New(styles *theme.Styles, tenant string) *Page {
 	return &Page{styles: styles, tenant: tenant}
 }

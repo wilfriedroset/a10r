@@ -17,7 +17,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// Format identifies the log output format.
 type Format string
 
 const (
@@ -39,8 +38,8 @@ const (
 	logDirPerm    = 0o755
 )
 
-// ErrUnknownFormat is returned by New when Opts.Format is set to a
-// value other than "json" or "logfmt".
+// ErrUnknownFormat surfaces when Opts.Format is set to a value
+// outside FormatJSON / FormatLogfmt.
 var ErrUnknownFormat = errors.New("unknown log format")
 
 // Opts configures the logger factory. The zero value is valid:
@@ -110,7 +109,6 @@ func emitFallbackWarning(logger *slog.Logger, attemptedPath string, cause error)
 	logger.Warn("log file unwritable; falling back to stderr", attrs...)
 }
 
-// normaliseFormat validates and defaults Opts.Format.
 func normaliseFormat(f Format) (Format, error) {
 	switch f {
 	case "":

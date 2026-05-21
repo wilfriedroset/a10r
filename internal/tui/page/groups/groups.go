@@ -193,7 +193,6 @@ type Page struct {
 // scopeAll is the canonical "every configured tenant" label.
 const scopeAll = "all"
 
-// New constructs an empty groups page.
 func New(opts Options) *Page {
 	now := opts.Now
 	if now == nil {

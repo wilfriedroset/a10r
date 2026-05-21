@@ -61,37 +61,35 @@ type Result[V any] struct {
 	Err    error
 }
 
-// ListAlerts fans out backend.Reader.ListAlerts to every tenant.
-// Returns one Result per tenant in declaration order; errors are
-// per-tenant and never silently swallowed.
+// Each Reader method below fans the corresponding backend.Reader
+// call out to every tenant. Results are returned in declaration
+// order; per-tenant errors are surfaced on Result.Err, never
+// swallowed.
+
 func (m *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) []Result[[]backend.Alert] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.Alert, error) {
 		return c.ListAlerts(ctx, filter)
 	})
 }
 
-// ListAlertGroups fans out backend.Reader.ListAlertGroups.
 func (m *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) []Result[[]backend.AlertGroup] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.AlertGroup, error) {
 		return c.ListAlertGroups(ctx, filter)
 	})
 }
 
-// ListSilences fans out backend.Reader.ListSilences.
 func (m *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) []Result[[]backend.Silence] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.Silence, error) {
 		return c.ListSilences(ctx, filter)
 	})
 }
 
-// ListReceivers fans out backend.Reader.ListReceivers.
 func (m *Client) ListReceivers(ctx context.Context) []Result[[]backend.Receiver] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.Receiver, error) {
 		return c.ListReceivers(ctx)
 	})
 }
 
-// Status fans out backend.Reader.Status.
 func (m *Client) Status(ctx context.Context) []Result[backend.Status] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) (backend.Status, error) {
 		return c.Status(ctx)

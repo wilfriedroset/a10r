@@ -12,8 +12,6 @@ package cmd
 // existing values) — every wrapper script in a user's CI is a
 // consumer.
 const (
-	// ExitOK reports success. main() returns 0 when cmd.Execute
-	// returns nil.
 	ExitOK = 0
 
 	// ExitRuntimeError is the catch-all for unexpected failures
@@ -58,17 +56,10 @@ const (
 // have to thread an exit-code parameter through helpers — while
 // still letting main own the os.Exit call.
 type ExitError struct {
-	// Code is one of the Exit* constants and becomes the process
-	// exit status when main() type-switches on this error.
 	Code int
-	// Err is the underlying error returned by the subcommand; its
-	// Error() text is what stderr-formatting paths render.
-	Err error
+	Err  error
 }
 
-// Error implements the error interface, delegating to the
-// wrapped Err so existing fmt-based formatting paths render the
-// underlying message unchanged.
 func (e *ExitError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""

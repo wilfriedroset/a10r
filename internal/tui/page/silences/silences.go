@@ -264,7 +264,6 @@ type Options struct {
 	Tenants []string
 }
 
-// New constructs an empty silences page.
 func New(opts Options) *Page {
 	now := opts.Now
 	if now == nil {

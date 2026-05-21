@@ -37,10 +37,8 @@ func buildHTTPDebugLogger(flags *GlobalFlags) (*slog.Logger, io.Closer, error) {
 	return logger, closer, nil
 }
 
-// noopCloser is the placeholder returned when --debug-http is not
-// set so callers can `defer closer.Close()` unconditionally
-// without wrapping the closer in another nil check.
+// noopCloser stands in when --debug-http is off so callers can
+// `defer closer.Close()` unconditionally.
 type noopCloser struct{}
 
-// Close implements io.Closer. Always nil.
 func (noopCloser) Close() error { return nil }

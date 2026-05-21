@@ -90,14 +90,11 @@ type cachedChecker struct {
 	entries map[string]cacheEntry
 }
 
-// Name passes through to the wrapped checker so --only filtering
-// and the "check" column in output keep working unchanged.
 func (c *cachedChecker) Name() string { return c.inner.Name() }
 
 // Run returns the cached Result for b.Name when the stored entry
-// is younger than ttl, otherwise re-runs the wrapped checker and
-// stores the fresh Result. Cache misses and TTL expiries both
-// invoke inner.Run; cache hits never do.
+// is younger than ttl; cache misses and TTL expiries invoke
+// inner.Run and store the fresh Result.
 func (c *cachedChecker) Run(ctx context.Context, b config.Backend, cl backend.Client) Result {
 	c.mu.Lock()
 	defer c.mu.Unlock()

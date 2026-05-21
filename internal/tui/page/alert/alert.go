@@ -135,7 +135,6 @@ type Page struct {
 	rawYAML bool
 }
 
-// New constructs an alert-detail page.
 func New(opts Options) *Page {
 	now := opts.Now
 	if now == nil {

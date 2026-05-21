@@ -161,7 +161,6 @@ type Page struct {
 	scope string
 }
 
-// New constructs a tenant page from Options.
 func New(opts Options) *Page {
 	return &Page{
 		styles: opts.Styles,

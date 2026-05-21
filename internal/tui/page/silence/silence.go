@@ -64,7 +64,6 @@ type Page struct {
 	rawYAML bool
 }
 
-// New constructs a silence-detail page.
 func New(opts Options) *Page {
 	body, err := marshalSilence(opts.Silence)
 	if err != nil {

@@ -163,11 +163,10 @@ func refuseCrossOriginRedirect(expectedHost string) func(*http.Request, []*http.
 	}
 }
 
-// Capabilities returns the caps the client was constructed with.
 func (c *Client) Capabilities() backend.Caps { return c.caps }
 
-// urlFor builds the absolute URL for an /api/v2/... path. query may
-// be nil for parameterless endpoints.
+// urlFor builds the absolute URL for an /api/v2/... path. Nil query
+// is allowed for parameterless endpoints.
 func (c *Client) urlFor(path string, query url.Values) string {
 	u := c.base + "/api/v2" + path
 	if len(query) > 0 {

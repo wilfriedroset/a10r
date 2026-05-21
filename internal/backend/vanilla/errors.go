@@ -17,5 +17,4 @@ func (e *transientError) Error() string {
 	return fmt.Sprintf("transient HTTP %d", e.status)
 }
 
-// Retryable returns true so backend.Retryable(err) → true.
 func (*transientError) Retryable() bool { return true }

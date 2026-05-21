@@ -40,23 +40,15 @@ func pagerFromEnv() (prog string, args []string) {
 }
 
 // Pager is a writer that pipes output through the resolved pager
-// subprocess. Constructed via NewPager; obey the contract by
-// writing to it like any io.Writer and calling Close when done —
-// Close flushes the pipe, waits for the pager to exit, and
-// returns any pager error.
-//
-// Use Disabled when --no-pager is set, the format is non-table,
-// or stdout is not a TTY: it returns a Pager that writes through
-// to fallback unchanged with a no-op Close, so call sites don't
-// branch on whether paging is active.
+// subprocess. Constructed via NewPager (live pager) or Disabled
+// (write-through). Callers Write like any io.Writer; Close flushes
+// the pipe, waits for the pager, and returns any pager error.
 type Pager struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	target io.Writer
 }
 
-// Write implements io.Writer. Routes bytes to the pager pipe
-// when active, or to the fallback target when disabled.
 func (p *Pager) Write(b []byte) (int, error) {
 	return p.target.Write(b)
 }
@@ -82,9 +74,9 @@ func (p *Pager) Close() error {
 	return errors.Join(closeErr, waitErr)
 }
 
-// Disabled returns a Pager that writes through to fallback with
-// a no-op Close. Used when paging conditions aren't met (non-TTY,
-// non-table, --no-pager).
+// Disabled returns a write-through Pager for the paths where
+// paging is not engaged (non-TTY, non-table, --no-pager) so call
+// sites stay unconditional.
 func Disabled(fallback io.Writer) *Pager {
 	return &Pager{target: fallback}
 }
