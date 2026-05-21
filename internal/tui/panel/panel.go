@@ -398,18 +398,11 @@ func maxWidth(lines []string) int {
 	return w
 }
 
-// MinBodyWidth is the smallest viewport width at which a10r's
-// table-based pages render legibly — the k9s 3-column shortcut
-// grid was the canary, but every listing page is squeezed when
-// the inner width is < ~58 columns. Below the threshold
-// RenderBody substitutes a centered "resize" placeholder for the
-// body, preserving the panel chrome so the operator still sees
-// the page title.
-//
-// 60 is the value chosen by the 2026-05-08 triage — wide enough
-// to clear known cell-width footguns, narrow enough that a
-// half-screen tmux pane still works. Promote/demote in one place
-// per CLAUDE.md's "no magic numbers" rule.
+// MinBodyWidth is the smallest viewport width at which the
+// table-based pages render legibly. Below the threshold RenderBody
+// substitutes a centred "resize" placeholder so the operator still
+// sees the panel chrome and page title. 60 clears known cell-width
+// footguns and still fits a half-screen tmux pane.
 const MinBodyWidth = 60
 
 // RenderBody wraps the page's body content in a single-line

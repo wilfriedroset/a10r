@@ -11,17 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExecuteContext_CancelsOnContextDone pins Fix 2:
-// cmd.Context() must become cancellable via signal.NotifyContext +
-// ExecuteContext. Pages document that editorCtx / bulkCtx parents
-// propagate app shutdown — but the contract was dead because
-// cmd/cmd.go called rootCmd.Execute() so cmd.Context() was always
-// context.Background(). This test exercises the wiring with a
-// no-op RunE and verifies that once the parent context is
-// cancelled the command observes it via cmd.Context(). Real
-// SIGTERM is exercised indirectly: signal.NotifyContext produces
-// a context that cancels on the configured signals, and the only
-// thing ExecuteContext is doing is plumbing that context through.
+// TestExecuteContext_CancelsOnContextDone pins that cmd.Context()
+// is cancellable: pages document editorCtx / bulkCtx propagate app
+// shutdown, so Execute must thread signal.NotifyContext through
+// rather than running with context.Background(). SIGTERM is
+// exercised indirectly — signal.NotifyContext returns a regular
+// cancellable Context and ExecuteContext is the only plumbing.
 func TestExecuteContext_CancelsOnContextDone(t *testing.T) {
 	t.Parallel()
 

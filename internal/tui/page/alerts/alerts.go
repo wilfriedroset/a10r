@@ -6,10 +6,11 @@
 //   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes
 //     PromptSubmittedMsg{PromptFilter} to the page).
-//   - Severity / alertname / instance / age columns.
+//   - Severity / alertname / state / age columns (plus tenant
+//     when the active scope spans more than one backend).
 //   - Sort cycling by `Shift+S` (severity), `Shift+N` (alertname),
-//     `Shift+T` (state), `Shift+R` (receiver). `h`/`l` walk
-//     between sort columns.
+//     `Shift+T` (state), `Shift+A` (age). `h`/`l` walk between
+//     sort columns.
 //   - `s` follows the k9s same-key-different-N rule: with no marks
 //     it silences the cursor row via the per-row silence form;
 //     with one or more marks it fans out a bulk silence — the
