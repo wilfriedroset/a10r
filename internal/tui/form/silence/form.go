@@ -31,17 +31,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// Client is the writeable-silences surface the form and the
-// silences list page share. The form calls Create / Update (it
-// can land in either mode per Options.EditID); the silences page
-// also calls ExpireSilence on `x` / `Ctrl+X`. The form never
-// expires anything, so ExpireSilence is a cosmetic member of the
-// form's contract — that cost is preferred over carrying a
-// parallel narrower interface plus the map-narrowing projection
-// helpers Go's lack of map-value covariance would otherwise
-// require. Allows tests to inject a fake without booting the
-// real backend wiring; testutil.FakeSilenceClient already
-// satisfies the three-method surface.
+// Client is the writeable-silences surface shared with the
+// silences list page. The form never expires anything, so
+// ExpireSilence is cosmetic here — kept so the form and the page
+// can share one map[string]Client without Go's missing map-value
+// covariance forcing projection helpers at every callsite.
 type Client interface {
 	CreateSilence(ctx context.Context, spec backend.SilenceSpec) (string, error)
 	UpdateSilence(ctx context.Context, id string, spec backend.SilenceSpec) error
@@ -133,88 +127,51 @@ type Form struct {
 }
 
 // Options captures the dependency surface. The prefill fields
-// (Matchers / Comment / EndsAt / EditID) are independently
-// optional — they exist so a caller pushing the form on `s` from
-// an alert / group can pre-populate matchers, and so a caller
-// pushing on `e` against an existing silence can hand the form
-// every field plus the EditID that switches submit to
-// UpdateSilence. None of them are required for the create-from-
-// scratch path.
+// (Matchers / Comment / EndsAt / EditID) are independently optional
+// — none are required for the create-from-scratch path.
 type Options struct {
-	// Clients is the writeable backend map the form picks from on
-	// Enter against the Tenant row. The caller hands the whole map
-	// (typically the page's p.clients) so scope filtering doesn't
-	// gate write targets — picking a tenant out-of-scope is a
-	// legitimate operator action. Per ADR-0011.
+	// Clients is the full writeable backend map (typically the
+	// page's p.clients). Scope filtering does not gate write targets
+	// per ADR-0011 — picking out-of-scope is a legitimate action.
 	Clients map[string]Client
 	// Tenant is the initial selection. Required when Clients is
-	// non-empty and Bulk is false; ignored in bulk mode (the banner
-	// carries the per-target breakdown there).
+	// non-empty and Bulk is false; ignored in bulk mode.
 	Tenant string
 	Styles *theme.Styles
 	// Now injects the clock used to default StartsAt and resolve
-	// duration shorthands like "2h". nil falls back to time.Now.
+	// duration shorthands like "2h"; nil falls back to time.Now.
 	Now func() time.Time
-	// Creator is the default value for the creator field —
-	// typically $USER.
-	Creator string
-	// Matchers, when non-empty, prefill the matchers buffer
-	// formatted one per line in the same syntax the user types
-	// manually (`name=value`, `name=~regex`, …). Round-trips
-	// through matcher.Parse so editing via Tab + backspace works
-	// without a special path.
+	// Creator defaults the creator field — typically $USER.
+	Creator  string
 	Matchers []backend.Matcher
-	// Comment, when non-empty, prefills the comment field.
-	Comment string
-	// EndsAt, when non-zero, prefills the ends field with an
-	// RFC3339 timestamp. The form keeps the existing "2h"
-	// shorthand default when EndsAt is the zero value.
+	Comment  string
+	// EndsAt prefills the ends field with an RFC3339 timestamp when
+	// non-zero. Zero keeps the "2h" placeholder default.
 	EndsAt time.Time
-	// EditID switches submit from CreateSilence to UpdateSilence.
-	// Empty → create mode (default). Non-empty → edit mode; the
-	// form's title and SubmittedMsg both echo the id so callers
-	// can flash "silence updated: <id>".
+	// EditID switches submit to UpdateSilence(id). Empty → create.
 	EditID string
 
-	// Bulk switches the form into bulk-create mode. The matchers
-	// buffer is hidden, the matchers-required validation is skipped,
-	// the banner string below is rendered where the buffer would
-	// have lived, and submit emits BulkSubmittedMsg instead of
-	// calling Client.CreateSilence. The page that opened the form
-	// owns the per-target matcher substitution and the fan-out.
-	// Client may be nil in bulk mode (the form never calls it). Bulk
-	// is mutually exclusive with EditID — bulk-edit is intentionally
-	// out of scope (editing N silences in lockstep has no obvious UX
-	// and no current ask).
+	// Bulk hides matchers, skips matcher validation, renders the
+	// banner in the buffer's slot, and emits BulkSubmittedMsg
+	// instead of calling Client.CreateSilence. Mutually exclusive
+	// with EditID (bulk-edit is out of scope).
 	Bulk bool
-
-	// BulkBanner is the descriptive line rendered where the matchers
-	// buffer would have rendered when Bulk is true. The page formats
-	// this string with the target count and tenant breakdown so the
-	// user sees what their submit will fan out to (e.g. "applies to
-	// 5 alerts across 2 tenants — each silenced with its own
-	// labels"). Ignored when Bulk is false.
+	// BulkBanner is rendered where the matchers buffer would
+	// otherwise sit when Bulk is true; the page formats this so the
+	// user sees what their submit will fan out to.
 	BulkBanner string
 
-	// BlankEnds skips the "2h" default in the Ends field, leaving
-	// it empty so the user must type a fresh duration. Used by the
-	// recreate-expired entry point so a stray Ctrl+S does not
-	// resurrect the silence with a placeholder duration.
+	// BlankEnds skips the "2h" default so the recreate-expired path
+	// can't be Ctrl+S'd through with a placeholder duration.
 	BlankEnds bool
-
-	// FocusEnds lands initial focus on the Ends field instead of
-	// the default Matchers field. Used by the recreate-expired
-	// entry point where Matchers / Comment are already prefilled
-	// and the only field the user still has to set is Ends.
+	// FocusEnds lands initial focus on Ends instead of Matchers —
+	// used by recreate-expired, where Ends is the only field the
+	// user still has to set.
 	FocusEnds bool
 
-	// SubmitCtx is the parent ctx the Create/UpdateSilence call
-	// inherits. Cancelling cancels the in-flight write — keeps the
-	// form in lockstep with the alerts/silences pages whose
-	// BulkCtx / EditorCtx already chain through cmd.Context(), so
-	// app-level shutdown propagates through the ctx (not only
-	// through Close). nil falls back to context.Background() —
-	// kept so tests that don't pin the parent stay green.
+	// SubmitCtx is the parent of the in-flight Create/UpdateSilence
+	// ctx so app-level shutdown propagates through the call (not
+	// only through Close). Nil falls back to context.Background().
 	SubmitCtx context.Context //nolint:containedctx // submit write ctx, plumbed once at construction.
 }
 

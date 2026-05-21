@@ -108,20 +108,11 @@ func (f *Form) tenantRow(inputWidth int) string {
 	return f.fieldRow("Tenant", fieldTenant, value+hint)
 }
 
-// disabledRow renders a row with no leading marker and the neutral
-// label style — used by Tenant when the row is read-only. Shares
-// label padding and multi-line continuation alignment with
-// fieldRow so the form's grid stays consistent.
-//
-// The value cell is dimmed via lipgloss.Faint — a real SGR
-// (`\x1b[2m`) that renders as a foreground-only attenuation on
-// every modern terminal. ADR-0011 calls for a visual "disabled
-// (greyed)" treatment; without it a disabled row would render
-// identically to a blurred-but-interactive row (same default fg
-// + bold label). Faint is foreground-only by definition so the
-// no-background-paint rule still holds, and we deliberately
-// don't reach for a new theme role — the dim is a render-time
-// affordance, not a palette concept.
+// disabledRow renders a read-only row with the value dimmed via
+// lipgloss.Faint (SGR `\x1b[2m`). Foreground-only by definition so
+// the no-bg-paint rule still holds; ADR-0011 calls for the dim
+// treatment so a disabled row reads differently from a blurred-
+// but-interactive one.
 func (f *Form) disabledRow(label, value string) string {
 	prefix := "  "
 	labelStyle := lipgloss.NewStyle().

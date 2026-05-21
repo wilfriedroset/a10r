@@ -158,12 +158,9 @@ func (*Page) PollResources() []string { return []string{"silences"} }
 
 func (*Page) Crumb() string { return "detail" }
 
-// Title implements app.Page — "Describe(<scope>/<alertname>)"
-// mirrors the k9s pod-detail header. Appends ` [raw yaml]` when the
-// page is in the `y`-toggled raw mode so the operator can tell at a
-// glance which view they're looking at: the two modes otherwise
-// render identically apart from the body, leaving the user with no
-// signal which one was active.
+// Title is k9s-style "Describe(<scope>/<alertname>)". Appends
+// ` [raw yaml]` when `y` has toggled raw mode — both modes
+// otherwise render the same chrome.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -176,14 +173,9 @@ func (p *Page) Title() string {
 	return base
 }
 
-// Bindings implements app.Page. When the page is in read-only
-// mode the Dangerous entries (`s`) are stripped before the slice
-// is returned so the hint strip and help overlay both render the
-// read-only verb set.
-//
-// `y` toggles the raw-YAML escape hatch (k9s convention); `c`
-// owns copy-to-clipboard. `y` was historically copy-fp but moved
-// to `c` so the YAML toggle could land on the canonical key.
+// Bindings: `y` toggles the raw-YAML escape hatch (k9s
+// convention); `c` owns copy-to-clipboard. Dangerous (`s`) entries
+// are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
 	out := []action.Action{
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
@@ -477,16 +469,10 @@ type alertYAML struct {
 }
 
 // rawYAMLLines marshals the alert as raw-mode YAML and returns it
-// as a flat line slice, ready for the same scroll / style pipeline
-// the structured render uses. Marshal failures surface inline as
-// a single descriptive line — the page never blanks; the user can
-// still toggle back to structured. WriteYAML drives the encoder so
-// indent / dep choice stays consistent with the headless `--output=yaml`
-// path (silence detail uses yaml.Marshal directly because it
-// pre-marshals once at construction; the alert page re-marshals on
-// every View — cheap given the payload size — so the live
-// app-global TimeFormat-toggled timestamp on the alert can flow
-// through if a future revision threads it).
+// as a flat line slice for the structured render's scroll / style
+// pipeline. Marshal failures surface as a single descriptive line
+// so the page never blanks. WriteYAML keeps indent / encoder
+// choice consistent with the headless `--output=yaml` path.
 func (p *Page) rawYAMLLines() []string {
 	doc := alertYAML{
 		Fingerprint:  p.a.Fingerprint,

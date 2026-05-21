@@ -28,37 +28,26 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// StatusFetcher is the small surface the page needs to resolve
-// /api/v2/status against the page's tenant. backend.Client
-// satisfies it for free; tests inject a recording fake.
+// StatusFetcher is the page's /api/v2/status seam; backend.Client
+// satisfies it for free.
 type StatusFetcher interface {
 	Status(ctx context.Context) (backend.Status, error)
 }
 
 // Options bundles the constructor inputs.
 type Options struct {
-	// Tenant is the configured backend name displayed in the title.
-	Tenant string
-	// Backend is the resolved a10r.yaml entry. Rendered through the
-	// redacted yaml so secrets never reach the screen.
+	Tenant  string
 	Backend config.Backend
 	// Fetcher resolves the AM `config.original` for the tenant.
-	// nil disables the AM section gracefully — the page renders
-	// "(no client available)" instead of crashing.
+	// Nil renders "(no client available)" instead of crashing.
 	Fetcher StatusFetcher
-	// Styles is the compiled theme.
-	Styles *theme.Styles
-	// FetchTimeout caps the AM /status round-trip. Zero defaults to
-	// 30s, matching the vanilla client's request timeout.
+	Styles  *theme.Styles
+	// FetchTimeout caps the AM /status round-trip; zero defaults to
+	// 30s (vanilla client's request timeout).
 	FetchTimeout time.Duration
-
-	// FetchCtx is the parent ctx the /api/v2/status fetch inherits.
-	// Cancelling cancels the in-flight call — keeps the page in
-	// lockstep with the alerts/silences pages whose BulkCtx /
-	// EditorCtx already chain through cmd.Context(), so app-level
-	// shutdown propagates through the ctx (not only through
-	// Close). nil falls back to context.Background() — kept so
-	// tests that don't pin the parent stay green.
+	// FetchCtx is the parent of the in-flight Status fetch so
+	// app-level shutdown propagates through the call (not only
+	// through Close). Nil falls back to context.Background().
 	FetchCtx context.Context //nolint:containedctx // fetch ctx, plumbed once at construction.
 }
 

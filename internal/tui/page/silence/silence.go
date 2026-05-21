@@ -30,12 +30,9 @@ import (
 
 // Options bundles the per-page dependencies.
 type Options struct {
-	// Silence is the cached object to render. Required.
 	Silence backend.Silence
-	// Tenant is the source-backend tag for the header strip.
-	Tenant string
-	// Styles is the compiled theme.
-	Styles *theme.Styles
+	Tenant  string
+	Styles  *theme.Styles
 }
 
 // Page is the silence-detail view. Implements app.Page.
@@ -85,13 +82,9 @@ func New(opts Options) *Page {
 
 func (*Page) Crumb() string { return "silence" }
 
-// Title implements app.Page — "Describe(<scope>/<id>)" mirrors the
-// alert-detail header so the two read consistently. Appends
-// ` [raw yaml]` when the page is in the `y`-toggled raw mode so the
-// operator can tell at a glance which view they're looking at —
-// the structured curated view and the raw payload both render as
-// YAML, so without the marker the two modes are visually identical
-// except for the body content.
+// Title is "Describe(<scope>/<id>)" — same shape as alert-detail.
+// Appends ` [raw yaml]` when `y` has toggled raw mode; both modes
+// render as YAML so the marker is the only visual difference.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -221,15 +214,10 @@ func marshalSilence(s backend.Silence) (string, error) {
 	return string(out), nil
 }
 
-// marshalRawSilence renders the cached backend.Silence directly
-// via output.WriteYAML — the k9s-style "what does the API
-// actually return?" escape hatch. Distinct from marshalSilence:
-// no curated key set, no RFC3339 timestamp formatting, no zero-
-// value omission. The point of the toggle is showing the raw
-// payload, complete with go-default lowercased field names and
-// any zero-valued timestamps the upstream emitted. Sharing the
-// indent / encoder choice with the headless `--output=yaml` path
-// keeps the two views internally consistent.
+// marshalRawSilence renders the cached backend.Silence via
+// output.WriteYAML — the k9s "what does the API actually return?"
+// escape hatch. Distinct from marshalSilence: no curated key set,
+// no RFC3339 formatting, no zero-value omission.
 func marshalRawSilence(s backend.Silence) (string, error) {
 	var buf bytes.Buffer
 	if err := output.WriteYAML(&buf, s); err != nil {
