@@ -38,7 +38,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// Drop ticks outside the cold-start / refresh-in-flight
 		// windows to break the self-perpetuating Tick chain when
 		// nothing is loading.
-		if !p.spinnerActive() {
+		if !p.SpinnerActive(p.ScopeIncludes) {
 			return p, nil
 		}
 		var cmd tea.Cmd

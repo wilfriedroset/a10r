@@ -52,7 +52,7 @@ func (p *Page) View(width, height int) string {
 // silences (yet)"), or a non-filter narrowing that still hides
 // every row ("no silences in view").
 func (p *Page) emptyState() string {
-	if !p.polled() || p.Refreshing {
+	if p.SpinnerActive(p.ScopeIncludes) {
 		return ""
 	}
 	if p.Filter != "" {

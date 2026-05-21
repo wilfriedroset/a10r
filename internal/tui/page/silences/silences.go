@@ -347,12 +347,12 @@ func (p *Page) Close() tea.Cmd {
 
 func (*Page) Crumb() string { return "silences" }
 
-// Title is k9s-style "silences(<scope>)[<count>]"; flips to a
-// spinner-led "loading silences…" during a loading window.
-// Same shape as the alerts page.
+// Title is k9s-style "silences(<scope>)[<count>]"; flips to the
+// loading affordance during a loading window. Same shape as the
+// alerts page.
 func (p *Page) Title() string {
-	if !p.polled() || p.Refreshing {
-		return p.Spinner.View() + " loading silences…"
+	if p.SpinnerActive(p.ScopeIncludes) {
+		return p.LoadingTitle("silences")
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -394,30 +394,14 @@ func (p *Page) Footer() string {
 	if p.Refreshing {
 		return "refreshing…"
 	}
-	if !p.polled() {
+	if !p.PolledInScope(p.ScopeIncludes) {
 		return ""
 	}
-	next := p.soonestNextRefresh()
+	next := p.SoonestNextRefresh(p.ScopeIncludes)
 	if next.IsZero() {
 		return ""
 	}
 	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
-}
-
-// soonestNextRefresh returns the earliest DataMsg.NextAt across
-// in-scope tenants — the next moment fresh data will land. Zero
-// when no in-scope tenant has published a NextAt.
-func (p *Page) soonestNextRefresh() time.Time {
-	var soonest time.Time
-	for tenant, ts := range p.NextRefresh {
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		if soonest.IsZero() || ts.Before(soonest) {
-			soonest = ts
-		}
-	}
-	return soonest
 }
 
 // PollResources implements app.PollAwarePage so the App-level
@@ -462,19 +446,4 @@ func (p *Page) Bindings() []action.Action {
 		return action.FilterDangerous(out)
 	}
 	return out
-}
-
-func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
-
-// polled reports whether at least one in-scope tenant has
-// produced a DataMsg. Scope-aware so a fast out-of-scope tenant in
-// a multi-backend setup doesn't flip the page out of loading state
-// before the in-scope tenant has answered.
-func (p *Page) polled() bool {
-	for tenant := range p.PolledTenants {
-		if p.ScopeIncludes(tenant) {
-			return true
-		}
-	}
-	return false
 }

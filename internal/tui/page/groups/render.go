@@ -22,7 +22,7 @@ import (
 // show, the body returns an info hint that distinguishes "no
 // groups at all" from "filter masked them all".
 func (p *Page) emptyState() string {
-	if !p.polled() || p.Refreshing {
+	if p.SpinnerActive(p.ScopeIncludes) {
 		return ""
 	}
 	if p.Filter != "" {

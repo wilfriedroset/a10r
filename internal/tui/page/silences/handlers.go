@@ -42,7 +42,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		// cold-start / refresh-in-flight windows we drop the tick,
 		// which breaks the spinner's self-perpetuating Tick chain
 		// and stops the per-frame redraw cost.
-		if !p.spinnerActive() {
+		if !p.SpinnerActive(p.ScopeIncludes) {
 			return p, nil
 		}
 		var cmd tea.Cmd

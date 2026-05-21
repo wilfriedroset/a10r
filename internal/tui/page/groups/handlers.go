@@ -32,7 +32,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		})
 		return p, nil
 	case spinner.TickMsg:
-		if !p.spinnerActive() {
+		if !p.SpinnerActive(p.ScopeIncludes) {
 			return p, nil
 		}
 		var cmd tea.Cmd

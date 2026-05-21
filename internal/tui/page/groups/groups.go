@@ -238,13 +238,12 @@ func (*Page) Crumb() string { return "groups" }
 
 // Title implements app.Page. Mirrors the alerts shape:
 // `groups(<scope>)[<count>]` or `groups(<scope>)[F/T]` while a
-// filter is active. While the page is in a loading window —
-// cold start (no DataMsg yet) or a manual `r` refresh in flight
-// — the title flips to the spinner-led "loading groups…" so the
-// border itself reads as the loading affordance, k9s-style.
+// filter is active. During a loading window the title flips to the
+// loading affordance so the border itself reads as the loading
+// state, k9s-style.
 func (p *Page) Title() string {
-	if !p.polled() || p.Refreshing {
-		return p.Spinner.View() + " loading groups…"
+	if p.SpinnerActive(p.ScopeIncludes) {
+		return p.LoadingTitle("groups")
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -282,44 +281,15 @@ func (p *Page) Footer() string {
 	if p.Refreshing {
 		return "refreshing…"
 	}
-	if !p.polled() {
+	if !p.PolledInScope(p.ScopeIncludes) {
 		return ""
 	}
-	next := p.soonestNextRefresh()
+	next := p.SoonestNextRefresh(p.ScopeIncludes)
 	if next.IsZero() {
 		return ""
 	}
 	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
 }
-
-// soonestNextRefresh returns the earliest in-scope DataMsg.NextAt.
-func (p *Page) soonestNextRefresh() time.Time {
-	var soonest time.Time
-	for tenant, ts := range p.NextRefresh {
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		if soonest.IsZero() || ts.Before(soonest) {
-			soonest = ts
-		}
-	}
-	return soonest
-}
-
-// polled reports whether at least one in-scope tenant has produced
-// a DataMsg yet. Scope-aware to avoid flickering out of loading
-// state on a multi-backend setup with a narrowed scope.
-func (p *Page) polled() bool {
-	for tenant := range p.PolledTenants {
-		if p.ScopeIncludes(tenant) {
-			return true
-		}
-	}
-	return false
-}
-
-// spinnerActive reports whether the spinner should keep ticking.
-func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "groups" payloads into this page

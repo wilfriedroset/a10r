@@ -342,12 +342,11 @@ func (p *Page) Close() tea.Cmd {
 func (*Page) Crumb() string { return "alerts" }
 
 // Title is k9s-style "alerts(<scope>)[<count>]". During a loading
-// window — cold start or a manual `r` in flight — it flips to a
-// spinner-led "loading alerts…" so the border itself reads as the
-// loading affordance.
+// window the title flips to the loading affordance so the border
+// itself reads as the loading state.
 func (p *Page) Title() string {
-	if !p.polled() || p.Refreshing {
-		return p.Spinner.View() + " loading alerts…"
+	if p.SpinnerActive(p.ScopeIncludes) {
+		return p.LoadingTitle("alerts")
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -391,50 +390,15 @@ func (p *Page) Footer() string {
 	if p.Refreshing {
 		return "refreshing…"
 	}
-	if !p.polled() {
+	if !p.PolledInScope(p.ScopeIncludes) {
 		return ""
 	}
-	next := p.soonestNextRefresh()
+	next := p.SoonestNextRefresh(p.ScopeIncludes)
 	if next.IsZero() {
 		return ""
 	}
 	return "next refresh " + listpage.NextRefreshLabel(p.now(), next)
 }
-
-// soonestNextRefresh returns the earliest DataMsg.NextAt across
-// in-scope tenants. Zero when no in-scope tenant has published a
-// NextAt — the wiring layer's poll.DataMsg is the single source.
-func (p *Page) soonestNextRefresh() time.Time {
-	var soonest time.Time
-	for tenant, ts := range p.NextRefresh {
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		if soonest.IsZero() || ts.Before(soonest) {
-			soonest = ts
-		}
-	}
-	return soonest
-}
-
-// polled reports whether at least one in-scope tenant has
-// produced a DataMsg. Read by Title / Footer / emptyState to
-// pick between the loading affordance and the populated frame.
-// Scope-aware so a fast out-of-scope tenant in a multi-backend
-// setup doesn't flip the page out of loading state before the
-// in-scope tenant has answered.
-func (p *Page) polled() bool {
-	for tenant := range p.PolledTenants {
-		if p.ScopeIncludes(tenant) {
-			return true
-		}
-	}
-	return false
-}
-
-// spinnerActive is true in the two loading windows (cold start
-// and refresh-in-flight); false otherwise.
-func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "alerts" payloads into this page

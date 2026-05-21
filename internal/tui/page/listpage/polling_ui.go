@@ -44,8 +44,53 @@ type PollingUI struct {
 	Spinner spinner.Model
 }
 
+// PolledInScope reports whether at least one in-scope tenant has
+// produced a DataMsg. The scope predicate is supplied by the caller
+// (typically `Base.ScopeIncludes`) so PollingUI stays unaware of
+// Base's scope/tenants fields — see ADR 0013's inclusion rule.
+func (u *PollingUI) PolledInScope(includes func(string) bool) bool {
+	for tenant := range u.PolledTenants {
+		if includes(tenant) {
+			return true
+		}
+	}
+	return false
+}
+
+// SpinnerActive reports whether the loading affordance should
+// keep ticking — true during the cold-start window (no in-scope
+// DataMsg yet) and during a manual `r` refresh in flight. See
+// CONTEXT.md for the affordance vocabulary.
+func (u *PollingUI) SpinnerActive(includes func(string) bool) bool {
+	return !u.PolledInScope(includes) || u.Refreshing
+}
+
+// SoonestNextRefresh returns the earliest DataMsg.NextAt among
+// in-scope tenants. Zero when no in-scope tenant has published a
+// NextAt; the refresh countdown caller renders that case as the
+// empty footer branch.
+func (u *PollingUI) SoonestNextRefresh(includes func(string) bool) time.Time {
+	var soonest time.Time
+	for tenant, ts := range u.NextRefresh {
+		if !includes(tenant) {
+			continue
+		}
+		if soonest.IsZero() || ts.Before(soonest) {
+			soonest = ts
+		}
+	}
+	return soonest
+}
+
+// LoadingTitle returns the loading affordance title used while
+// the page is in a loading window — `<spinner-frame> loading <noun>…`.
+// Pages compose it into their Title() by branching on SpinnerActive.
+func (u *PollingUI) LoadingTitle(noun string) string {
+	return u.Spinner.View() + " loading " + noun + "…"
+}
+
 // NextRefreshLabel formats the bottom-border deadline used by the
-// list pages' Footer ("next refresh 25s"). Past-due renders as
+// refresh countdown ("next refresh 25s"). Past-due renders as
 // "due" so a slow tick reads honestly without flashing a negative
 // duration. Pure helper — kept in the listpage package because it
 // only makes sense for pages that present a refresh UI.
