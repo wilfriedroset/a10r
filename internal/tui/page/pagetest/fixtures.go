@@ -11,8 +11,7 @@ import (
 
 // AlertOptions is the option-struct shape behind Alert. Every
 // field has a sensible default so a zero-value Options still
-// produces a renderable Alert — the field set covers what the
-// per-page mkAlert helpers used to parameterise.
+// produces a renderable Alert.
 type AlertOptions struct {
 	Name        string
 	Severity    string
@@ -157,8 +156,5 @@ func Group(opts GroupOptions) backend.AlertGroup {
 }
 
 // defaultNow is the deterministic clock baseline every fixture
-// builder falls back to when callers leave Now unset. Picked to
-// match the historical fixedNow value used across the per-page
-// test files so migrated tests get bit-for-bit identical timestamps
-// without restating the constant.
+// builder falls back to when callers leave Now unset.
 var defaultNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)

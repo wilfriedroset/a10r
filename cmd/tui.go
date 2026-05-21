@@ -14,13 +14,8 @@ import (
 // the boot graph, defer the logger close, wrap the App in a
 // bubbletea program, spawn the poller goroutines + push the home
 // page (both need prog.Send which doesn't exist until the program
-// is constructed), and block on Run.
-//
-// Every stage that earned a block comment in the pre-boot version
-// of this file now lives next to its helper inside
-// internal/tui/boot — Build's body is the canonical sequence and
-// runTUI is one of two adapter callers (the other being the
-// test harness for boot.Build).
+// is constructed), and block on Run. The canonical sequence lives
+// in internal/tui/boot.Build; runTUI is one of two adapter callers.
 func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	res, err := boot.Build(cmd.Context(), flags, boot.Deps{
 		Version: version,

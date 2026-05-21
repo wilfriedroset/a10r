@@ -67,8 +67,8 @@ func parseTimeOrNow(in string, now time.Time) (time.Time, error) {
 // relative to base, or an RFC3339 timestamp. Empty input is a
 // validation error so the BlankEnds entry point (recreate-expired)
 // can't be Ctrl+S'd through with no duration typed — the field's
-// "2h" placeholder is a hint, not a default. The legacy `n` and
-// `e` flows pre-fill a non-empty value, so they never hit this path.
+// "2h" placeholder is a hint, not a default. The `n` and `e` flows
+// pre-fill a non-empty value so they never hit the empty branch.
 func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {

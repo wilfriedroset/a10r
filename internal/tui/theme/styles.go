@@ -78,9 +78,7 @@ type HeaderStyle struct {
 // TableStyle covers every table-row state: the column header, the
 // active (sorted) header column, regular rows, the cursor row,
 // marked rows (Space-selected for bulk actions), and dimmed rows
-// (read-only mode + stale data). Note: there is no RowAlt
-// — the previous schema had one but no view consumed it; k9s skins
-// have no analog and the role was dead code.
+// (read-only mode + stale data).
 type TableStyle struct {
 	Header       lipgloss.Style
 	HeaderActive lipgloss.Style

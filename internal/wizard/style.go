@@ -21,9 +21,9 @@ func newStyler(color bool) styler { return styler{color: color} }
 
 // String formats a free-form prompt line. defaultValue rendered
 // inside `[...]` when non-empty; empty default means no brackets.
-// Layout in color-off mode is byte-identical to the pre-styling
-// `fmt.Fprintf("%s [%s]: ", q, def)` formatting that prompt_test.go
-// asserts on, so existing tests stay green without edits.
+// Color-off mode is byte-identical to the unstyled
+// `fmt.Fprintf("%s [%s]: ", q, def)` so prompt_test.go can assert
+// on the literal bytes without an ANSI-strip helper.
 func (s styler) String(question, defaultValue string) string {
 	if defaultValue == "" {
 		return s.chrome(question + ": ")

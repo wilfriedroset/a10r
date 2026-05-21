@@ -1079,11 +1079,8 @@ func TestPage_HeaderColumnsAlignWithRows(t *testing.T) {
 //     (a configured-but-silent backend still anchors the column).
 //
 // Silences reads the same configured-tenant list via the shared
-// showTenantColumn() predicate. Only the silences-specific
-// column-order claim is exercised here; the previous "multi-tenant
-// — TENANT first" and "configured but silent tenant" subtests were
-// pure re-derivations of the alerts canonical and have been
-// dropped.
+// showTenantColumn() predicate, so only the silences-specific
+// column-order claim is exercised here.
 func TestPage_HeaderColumnOrder(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
@@ -1185,12 +1182,12 @@ func TestPage_LongFieldsAreClipped(t *testing.T) {
 	require.NotContains(t, out, longComment, "long Comment must be clipped")
 }
 
-// TestPage_CommentWithNewlinesStaysSingleRow guards the alignment
-// fix: a Comment containing \n (operators love pasting URLs on
-// their own line) must render as a single body row so STARTS /
-// ENDS / STATE stay in their visual columns. Without the
-// flattening, the embedded newline shoved the trailing time and
-// state columns onto the next physical line, mid-URL.
+// TestPage_CommentWithNewlinesStaysSingleRow pins the alignment
+// contract: a Comment containing \n (operators love pasting URLs
+// on their own line) renders as a single body row so STARTS /
+// ENDS / STATE stay in their visual columns. An embedded newline
+// would shove the trailing time and state cells onto the next
+// physical line, mid-URL.
 func TestPage_CommentWithNewlinesStaysSingleRow(t *testing.T) {
 	t.Parallel()
 

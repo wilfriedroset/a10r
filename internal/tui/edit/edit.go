@@ -171,8 +171,7 @@ func ensureMode0700(dir string) (string, error) {
 // result aborts the edit.
 //
 // Editor subprocess is wired to req.Ctx so a parent shutdown can
-// abort a hung editor session (prior behaviour inherited
-// context.Background()).
+// abort a hung editor session.
 //
 // On any preparation error (tempfile create, editor exec) the
 // returned Cmd produces a FinishedMsg with Err set and Content

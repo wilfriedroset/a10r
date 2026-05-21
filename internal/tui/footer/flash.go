@@ -38,10 +38,8 @@ type FlashShowMsg struct {
 }
 
 // ShowFlash returns the tea.Cmd that surfaces a flash with the given
-// level + text. Every page that wanted to flash previously inlined
-// the same `return func() tea.Msg { return FlashShowMsg{...} }`
-// closure; the wording "ShowFlash(FlashWarn, …)" reads as the intent
-// at the call site.
+// level + text. Shared so call sites read as the intent ("ShowFlash(
+// FlashWarn, …)") rather than as a raw FlashShowMsg closure.
 func ShowFlash(level FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return FlashShowMsg{Level: level, Text: text}

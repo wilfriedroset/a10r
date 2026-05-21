@@ -48,14 +48,13 @@ func (p *Page) View(width, height int) string {
 }
 
 // emptyState picks the right body for an empty list. The cold-
-// start / refresh-in-flight loading hint now lives in the title
-// (Title swaps to "<spinner> loading silences…" while !polled
-// or refreshing), so the body stays empty in that window — no
-// duplicate spinner. After the first DataMsg lands and there's
-// genuinely nothing to show, three distinct branches: filter
-// masks every row (actionable — show the Esc affordance), empty
-// backend ("no silences (yet)"), or a non-filter narrowing that
-// still hides every row ("no silences in view").
+// start / refresh-in-flight loading hint lives in the title, so
+// the body stays empty in that window — no duplicate spinner.
+// After the first DataMsg lands and there's genuinely nothing to
+// show, three distinct branches: filter masks every row
+// (actionable — show the Esc affordance), empty backend ("no
+// silences (yet)"), or a non-filter narrowing that still hides
+// every row ("no silences in view").
 func (p *Page) emptyState() string {
 	if !p.polled() || p.Refreshing {
 		return ""

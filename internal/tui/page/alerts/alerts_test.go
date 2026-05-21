@@ -187,11 +187,10 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 
 // TestPage_FilterToZeroResultsPreservesFocusForRestore pins the
 // cursor-by-fingerprint contract across a filter→zero-results→clear
-// cycle. Without the fix, recompute on an empty view clobbered
-// focusFingerprint to "", so re-widening the filter snapped the
-// cursor to row 0 instead of re-anchoring on the originally focused
-// alert. UX-wise: "I narrowed too much, let me back off — and now
-// my place is lost."
+// cycle. Recompute on an empty view must preserve focusFingerprint
+// so re-widening the filter re-anchors the cursor on the originally
+// focused alert. UX: "I narrowed too much, let me back off — and
+// my place is preserved."
 func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 	t.Parallel()
 	p := newPage(t)
@@ -225,14 +224,13 @@ func TestPage_FilterToZeroResultsPreservesFocusForRestore(t *testing.T) {
 }
 
 // TestPage_PrunesStaleFocusFingerprintAfterAlertResolved pins the
-// other half of the cursor-by-fingerprint contract introduced by
-// snapshotFocus's empty-view preservation. Preserving the fingerprint
-// is correct for the filter-narrowing path (the alert is hidden, not
-// gone), but wrong for the poll-removal path (the alert resolved
-// upstream and is genuinely absent from byTenant). Without this prune,
-// focusFingerprint sticks on a phantom across recomputes
-// that leave the view empty — a later scope/filter widening would
-// try to re-anchor on a fingerprint no source knows about.
+// other half of the cursor-by-fingerprint contract. Preserving the
+// fingerprint is correct for the filter-narrowing path (the alert
+// is hidden, not gone), but wrong for the poll-removal path (the
+// alert resolved upstream and is genuinely absent from byTenant).
+// Without the prune, focusFingerprint sticks on a phantom across
+// recomputes that leave the view empty — a later scope/filter
+// widening would try to re-anchor on a fingerprint no source knows.
 //
 // The scenario exercises an active filter that masks all but the
 // focused alert: when a fresh poll drops the focused alert, the view
