@@ -250,8 +250,8 @@ func (p *Page) handleBulkExpireDone(m bulkExpireDoneMsg) tea.Cmd {
 
 // flashExpireResult picks the flash level (success / warn / error)
 // and message wording from the success/failure counts of an expire
-// fanout. The leading bool arg is unused today; bulkExpireDoneMsg
-// carries it as a surface tag for the audit log.
+// fanout. The leading bool is unused here — kept so callers don't
+// branch on the single-row vs. bulk shape at the call site.
 func (p *Page) flashExpireResult(_ bool, success, failed int) tea.Cmd {
 	total := success + failed
 	if total == 1 {
