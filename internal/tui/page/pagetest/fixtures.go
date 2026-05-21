@@ -95,7 +95,7 @@ type SilenceOptions struct {
 
 // Silence builds a synthetic backend.Silence from opts. The
 // StartsIn / EndsIn naming surfaces the relative-to-Now semantic
-// the old per-test sil/mkSil helpers encoded.
+// so tests express durations rather than absolute timestamps.
 func Silence(opts SilenceOptions) backend.Silence {
 	now := opts.Now
 	if now.IsZero() {

@@ -7,14 +7,11 @@
 // The entrypoint is Build; everything else in the package is
 // internal scaffolding for the stages it sequences.
 //
-// The package exists to keep cmd/tui.go's runTUI a thin shell:
-// before this extraction, runTUI carried ~28 helpers and the
-// precondition order between them was encoded only by call
-// sequence in one ~250-line function. Build's body now reads
-// top-to-bottom as a stage list with one block comment per stage
-// describing the load-bearing precondition; the helpers live next
-// to the stage that calls them so a future contributor can scan
-// the orchestration without paging through helper noise.
+// The package keeps cmd/tui.go's runTUI a thin shell. Build's
+// body reads top-to-bottom as a stage list with one block comment
+// per stage describing the load-bearing precondition; the helpers
+// live next to the stage that calls them so the orchestration is
+// scannable without paging through helper noise.
 //
 // Build does not start the bubbletea program or push the home
 // page — those need *tea.Program which is created after Build

@@ -73,9 +73,9 @@ type Deps struct {
 
 	// Stderr is the destination for per-backend fetch errors. The
 	// pipeline sorts errors by backend name then prints one per
-	// line, mirroring today's `fmt.Fprintln(os.Stderr, e)` loop.
-	// Nil falls back to discarding the lines — the production
-	// caller wires os.Stderr.
+	// line so the output is deterministic across runs. Nil falls
+	// back to discarding the lines — the production caller wires
+	// os.Stderr.
 	Stderr io.Writer
 }
 
@@ -107,16 +107,14 @@ type Spec[R any] struct {
 	// rather than printing nothing.
 	Renderers map[output.Format]Renderer[R]
 
-	// Sort mutates the accumulated row slice in place. Mirrors the
-	// existing sortAlertRows / sortSilenceRows / sortGroupRows /
-	// sortReceiverRows shape so per-command sort logic does not
-	// need a return-shape refactor to plug into the pipeline.
+	// Sort mutates the accumulated row slice in place. In-place so
+	// per-command sort logic stays a simple func value without a
+	// return-shape contract.
 	Sort func([]R)
 
 	// ResourceLabel is the singular noun the ErrMatched message
 	// uses ("alert" / "silence" / "group" / "receiver"). Pipeline
-	// templates "--fail: N <label>(s) matched the filter" so the
-	// rendered error matches today's per-command string.
+	// templates "--fail: N <label>(s) matched the filter".
 	ResourceLabel string
 
 	// FailOnAny mirrors the per-command --fail flag. When true and

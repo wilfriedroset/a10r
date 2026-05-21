@@ -15,6 +15,6 @@ var ErrAllBackendsFailed = errors.New("every configured backend failed to list")
 // Spec.FailOnAny is set and at least one row survived the fetcher.
 // Mirror of ErrAllBackendsFailed: the cmd layer maps it onto
 // ExitFailMatched. Wrap with a count + ResourceLabel-derived message
-// so the rendered error reads as today's
+// so the rendered error reads
 // "--fail: N alert(s) matched the filter".
 var ErrMatched = errors.New("rows matched --fail filter")

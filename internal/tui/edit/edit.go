@@ -53,10 +53,8 @@ type Request struct {
 	// highlighting kicks in. Empty defaults to "yaml".
 	Extension string
 	// Ctx is the parent context the editor subprocess inherits.
-	// Cancelling Ctx kills the editor. Prior behaviour wired
-	// exec.CommandContext to context.Background() so a parent
-	// shutdown could not abort a hung editor session — this field
-	// is the parent-cancellation hook. nil falls back to
+	// Cancelling Ctx kills the editor so an app-level shutdown
+	// can abort a hung session. nil falls back to
 	// context.Background() for tests that don't care about
 	// cancellation.
 	Ctx context.Context //nolint:containedctx // intentional: this is the editor subprocess's ctx, not session state.
