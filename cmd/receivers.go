@@ -14,10 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
-// newReceiversCmd returns the `a10r receivers` parent command. Mirror
-// of newAlertsCmd / newSilencesCmd / newGroupsCmd: a single `list`
-// verb today, future verbs (e.g. drill into alerts targeted at a
-// receiver) reserved on the same noun-verb shape.
+// newReceiversCmd returns the `a10r receivers` parent command.
 func newReceiversCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "receivers",
@@ -63,10 +60,10 @@ type receiversListOptions struct {
 	commonListFlags
 }
 
-// receiverRow is the row shape JSON / YAML / table all flatten the
-// receiver payload into. Trivial today (Tenant + Name) but kept on
-// the same struct shape as alertRow / silenceRow / groupRow so the
-// JSON consumer story is uniform across the four list commands.
+// receiverRow is the row shape JSON / YAML / table all flatten
+// the receiver payload into. Same struct shape as alertRow /
+// silenceRow / groupRow so the JSON consumer story is uniform
+// across the four list commands.
 type receiverRow struct {
 	Tenant string `json:"tenant" yaml:"tenant"`
 	Name   string `json:"name" yaml:"name"`

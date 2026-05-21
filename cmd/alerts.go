@@ -15,10 +15,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
-// newAlertsCmd returns the `a10r alerts` parent command. The
-// only child today is `list`; future verbs (silence, ack, …)
-// hang off the same parent so the noun-verb shape stays
-// consistent with kubectl / k9s.
+// newAlertsCmd returns the `a10r alerts` parent command. Noun-
+// verb shape stays consistent with kubectl / k9s.
 func newAlertsCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "alerts",

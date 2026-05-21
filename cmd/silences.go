@@ -18,10 +18,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
-// newSilencesCmd returns the `a10r silences` parent command. Mirror
-// of newAlertsCmd: a single `list` verb today, with future verbs
-// (create, expire) reserved on the same noun-verb shape so the help
-// reads consistently across the read-list pages.
+// newSilencesCmd returns the `a10r silences` parent command.
 func newSilencesCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "silences",

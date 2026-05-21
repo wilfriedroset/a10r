@@ -16,10 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
-// newGroupsCmd returns the `a10r groups` parent command. Mirror of
-// newAlertsCmd / newSilencesCmd: a single `list` verb today, future
-// verbs (e.g. silence-from-group) reserved on the same shape so the
-// help reads consistently across the read-list pages.
+// newGroupsCmd returns the `a10r groups` parent command.
 func newGroupsCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "groups",
