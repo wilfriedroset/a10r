@@ -4,7 +4,7 @@
 // via tea.ExecProcess and returns the edited contents (or the
 // error) as a tea.Msg.
 //
-// Editor resolution per the L1 plan:
+// Editor resolution:
 //
 //	$A10R_EDITOR  →  $EDITOR  →  "vi" (Linux/macOS)  /  "notepad" (Windows)
 //

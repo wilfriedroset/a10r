@@ -85,15 +85,15 @@ type silencesListOptions struct {
 
 // silenceRow is the row shape JSON / YAML / table all flatten the
 // silence payload into. Mirrors alertRow's documentation contract:
-// the struct tags pin the JSON key set as the v0.0.1 stability
-// snapshot per docs/end-users/output-formats.md.
+// struct tags pin the JSON key set per docs/end-users/output-
+// formats.md.
 //
 // Matchers is *not* []backend.Matcher: the backend type carries no
 // JSON tags so a direct embed leaks PascalCase Go field names onto
-// the v0.0.1 wire shape, breaking the "tenant / id / state / …"
-// lowercase convention every other JSON key in this command set
-// already follows. Wrapping in matcherRow keeps the public schema
-// uniform across silences vs alerts vs groups vs receivers.
+// the wire shape, breaking the "tenant / id / state / …" lowercase
+// convention every other JSON key in this command set already
+// follows. Wrapping in matcherRow keeps the public schema uniform
+// across silences vs alerts vs groups vs receivers.
 type silenceRow struct {
 	Tenant    string               `json:"tenant" yaml:"tenant"`
 	ID        string               `json:"id" yaml:"id"`

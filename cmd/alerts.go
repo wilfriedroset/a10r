@@ -77,9 +77,8 @@ type alertsListOptions struct {
 }
 
 // alertRow is the row shape JSON / YAML / table all flatten the
-// alert payload into. The struct tags pin the JSON key set as
-// the v0.0.1 stability snapshot per docs/end-users/output-
-// formats.md (which itself documents pre-v1 fluidity).
+// alert payload into. Struct tags pin the JSON key set per
+// docs/end-users/output-formats.md.
 type alertRow struct {
 	Tenant      string             `json:"tenant" yaml:"tenant"`
 	Fingerprint string             `json:"fingerprint" yaml:"fingerprint"`

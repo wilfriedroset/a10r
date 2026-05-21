@@ -78,8 +78,8 @@ type groupsListOptions struct {
 
 // groupRow is the row shape JSON / YAML / table all flatten the
 // alert-group payload into. Mirrors alertRow's documentation
-// contract: the struct tags pin the JSON key set as the v0.0.1
-// stability snapshot per docs/end-users/output-formats.md.
+// contract: struct tags pin the JSON key set per docs/end-users/
+// output-formats.md.
 //
 // Receivers is the union of receivers across every alert in the
 // group, deduplicated. Carried as a first-class field rather than a

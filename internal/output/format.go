@@ -7,9 +7,8 @@
 // a tabwriter-backed Table helper, leaving the per-command
 // row-flattening to the command itself.
 //
-// JSON output schema is documented in
-// docs/end-users/output-formats.md and ships with an explicit
-// "format may change pre-v1" disclaimer for the v0.0.1 release.
+// JSON output schema is documented in docs/end-users/output-
+// formats.md, which carries the format-stability disclaimer.
 // Field stability is not yet promised; structural shape (one
 // top-level object per command, items keyed by name) is the
 // implicit contract.
