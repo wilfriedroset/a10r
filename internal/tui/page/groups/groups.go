@@ -228,8 +228,8 @@ func New(opts Options) *Page {
 	return p
 }
 
-// Init implements app.Page. Kicks the spinner so the cold-start
-// "loading" affordance animates while the first poll tick lands.
+// Init kicks the spinner so the cold-start "loading" affordance
+// animates until the first DataMsg lands.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 func (*Page) Close() tea.Cmd { return nil }

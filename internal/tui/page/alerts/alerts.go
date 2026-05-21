@@ -260,8 +260,6 @@ type Page struct {
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
-// New constructs a Page from the supplied Options. Initial
-// state is no alerts, no filter, sorted by severity descending.
 func New(opts Options) *Page {
 	now := opts.Now
 	if now == nil {
@@ -320,12 +318,10 @@ func (p *Page) SetScope(s string) {
 	p.recompute()
 }
 
-// Init implements app.Page. Kicks the spinner so the cold-start
-// "loading" affordance animates while the first poll tick lands.
-// The Tick chain is broken in Update once the page has any
-// in-scope DataMsg (and re-armed on each manual `r` refresh) so
-// the spinner stops costing per-frame redraws when there's
-// nothing to wait for.
+// Init kicks the spinner so the cold-start "loading" affordance
+// animates until the first DataMsg lands. Update breaks the Tick
+// chain once any in-scope DataMsg has arrived and re-arms it on
+// every manual `r` refresh.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page. Cancels any in-flight bulk-silence
@@ -345,15 +341,10 @@ func (p *Page) Close() tea.Cmd {
 
 func (*Page) Crumb() string { return "alerts" }
 
-// Title implements app.Page — k9s-style
-// "alerts(<scope>)[<count>]" with the scope being the active
-// tenant set ("all" / "prod" / "prod,staging" / etc.) and the
-// count being the filtered/total view size. While the page is
-// in a loading window — cold start (no in-scope DataMsg yet) or
-// a manual `r` refresh in flight — the title flips to the
-// spinner-led "loading alerts…" so the border itself reads as
-// the loading affordance, k9s-style. Mirror of the silences
-// page's pattern.
+// Title is k9s-style "alerts(<scope>)[<count>]". During a loading
+// window — cold start or a manual `r` in flight — it flips to a
+// spinner-led "loading alerts…" so the border itself reads as the
+// loading affordance.
 func (p *Page) Title() string {
 	if !p.polled() || p.Refreshing {
 		return p.Spinner.View() + " loading alerts…"
@@ -383,12 +374,9 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
-// Footer implements app.Page. Renders the next-refresh deadline
-// — or "refreshing…" while a manual `r` is in flight — into the
-// bordered body's bottom edge, k9s-style symmetry with the title
-// in the top edge. Same shape as the silences page so the two
-// list pages frame identically. Empty pre-poll so the cold-start
-// frame stays quiet (the spinner already says "loading").
+// Footer renders the next-refresh deadline (or "refreshing…" while
+// a manual `r` is in flight) into the bottom border, k9s-style.
+// Empty pre-poll so the cold-start frame stays quiet.
 func (p *Page) Footer() string {
 	if p.Paused {
 		// Paused state takes precedence over the refresh countdown
@@ -444,9 +432,8 @@ func (p *Page) polled() bool {
 	return false
 }
 
-// spinnerActive reports whether the spinner should continue to
-// animate. Two windows: cold start and refresh-in-flight.
-// Outside those, the page draws static "next refresh" timing.
+// spinnerActive is true in the two loading windows (cold start
+// and refresh-in-flight); false otherwise.
 func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // PollResources implements app.PollAwarePage so the App-level

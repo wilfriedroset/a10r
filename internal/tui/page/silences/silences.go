@@ -317,11 +317,9 @@ func New(opts Options) *Page {
 // lockstep — same shape as the alerts page.
 const scopeAll = "all"
 
-// Init implements app.Page. Kicks the spinner so the cold-start
-// "loading" empty state animates while the first poll tick
-// resolves. Once a DataMsg lands, the spinner's Tick chain is
-// broken (see Update) so it stops re-issuing without a separate
-// timer to manage.
+// Init kicks the spinner so the cold-start "loading" empty state
+// animates until the first DataMsg lands. Update breaks the Tick
+// chain after that.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page. Cancels any in-flight bulk-expire
@@ -349,13 +347,9 @@ func (p *Page) Close() tea.Cmd {
 
 func (*Page) Crumb() string { return "silences" }
 
-// Title implements app.Page. Mirrors the alerts page's shape:
-// `silences(<scope>)[<count>]` or `silences(<scope>)[F/T]` while
-// a filter is active. While the page is in a loading window —
-// cold start (no DataMsg yet) or a manual `r` refresh in flight —
-// the title flips to the spinner-led "loading silences…" so the
-// border itself reads as the loading affordance, k9s-style. The
-// title swaps back to the count form on the next DataMsg.
+// Title is k9s-style "silences(<scope>)[<count>]"; flips to a
+// spinner-led "loading silences…" during a loading window.
+// Same shape as the alerts page.
 func (p *Page) Title() string {
 	if !p.polled() || p.Refreshing {
 		return p.Spinner.View() + " loading silences…"
@@ -382,15 +376,10 @@ func (p *Page) HeaderContent() string {
 	return strings.Join(parts, " · ")
 }
 
-// Footer implements app.Page. Renders the next-refresh deadline
-// — or "refreshing…" while a manual `r` is in flight — into the
-// bordered body's bottom edge, k9s-style symmetry with the
-// title in the top edge. Returns empty pre-poll so the cold-
-// start frame stays quiet (the spinner in the body already says
-// "loading"). Drawn from the soonest in-scope DataMsg.NextAt:
-// the operator cares about the next tick that fires, not a per-
-// tenant table. Past-due reads "due" so a slow loop never
-// flashes a negative duration.
+// Footer renders the next-refresh deadline (or "refreshing…" while
+// a manual `r` is in flight) into the bottom border. Drawn from the
+// soonest in-scope DataMsg.NextAt — the operator cares about the
+// next tick that fires, not a per-tenant table.
 func (p *Page) Footer() string {
 	if p.Paused {
 		// Paused state takes precedence over the refresh countdown
@@ -478,13 +467,9 @@ func (p *Page) Bindings() []action.Action {
 func (p *Page) spinnerActive() bool { return !p.polled() || p.Refreshing }
 
 // polled reports whether at least one in-scope tenant has
-// produced a DataMsg. Read by Title / Footer / emptyState to
-// pick between the loading affordance and the populated frame.
-// Scope-aware so a fast out-of-scope tenant in a multi-backend
-// setup doesn't flip the page out of loading state before the
-// in-scope tenant has answered — the user would otherwise see
-// "no silences (yet)" flash under a "silences(primary)[0]"
-// title while waiting for primary's first poll.
+// produced a DataMsg. Scope-aware so a fast out-of-scope tenant in
+// a multi-backend setup doesn't flip the page out of loading state
+// before the in-scope tenant has answered.
 func (p *Page) polled() bool {
 	for tenant := range p.PolledTenants {
 		if p.ScopeIncludes(tenant) {

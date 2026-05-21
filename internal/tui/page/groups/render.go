@@ -81,12 +81,8 @@ func (p *Page) View(width, height int) string {
 	rows := p.rows()
 	p.SetViewport(height-1-bandLines, len(rows))
 	if len(rows) == 0 {
-		// Render bg-less so the empty state matches the regular
-		// table view's framing — both use the terminal default
-		// background. styles.Body.Default would paint the body
-		// palette behind the empty pane, which renders as a
-		// coloured patch the populated view doesn't have, breaking
-		// the visual parity between "loading" and "loaded" frames.
+		// Render bg-less so the empty pane keeps the terminal
+		// default background that the populated frame uses.
 		body := p.emptyState()
 		if band != "" {
 			body = band + "\n" + body

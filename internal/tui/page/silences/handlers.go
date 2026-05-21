@@ -70,8 +70,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 
 // handleWriteResult dispatches the four messages emitted by the
 // page's write-action machinery (silence form submit / cancel,
-// confirm modal result, bulk-expire fanout result). Pulled out of
-// Update so the main switch stays under the cyclop budget.
+// confirm modal result, bulk-expire fanout result).
 func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 	switch m := msg.(type) {
 	case silenceform.SubmittedMsg:
@@ -274,19 +273,11 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 }
 
 // recreateFormOptions assembles the silenceform.Options for a
-// recreate-expired flow against the cursor row. On a recreatable
-// row it returns (opts, nil, true); on every refusal it returns
-// (zero, flash, false) — flash is the Cmd the caller surfaces.
-// Funnelling the refusal flashes through the same helper that owns
-// the guards keeps the handler from drifting: a new refusal added
-// here surfaces in openRecreateSilenceForm without further wiring.
-//
-// The returned Options pin Matchers + Comment from the source
-// silence verbatim, set Creator from the page (current user, NOT the
-// original silence's CreatedBy — recreate is a new silence with new
-// authorship), set BlankEnds + FocusEnds so the user lands on Ends
-// with no "2h" footgun, and leave EditID empty so submit fires
-// CreateSilence rather than UpdateSilence.
+// recreate-expired flow against the cursor row. Returns
+// (opts, nil, true) on a recreatable row; on any refusal, returns
+// (zero, flash, false) so the caller dispatches the refusal flash.
+// Creator is the current user — recreate is a new silence, not a
+// re-authored copy of the source's CreatedBy.
 func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 	if p.Index() >= len(p.view) {
 		return silenceform.Options{}, footer.ShowFlash(footer.FlashInfo, "no silence under the cursor"), false
@@ -452,18 +443,9 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		p.pendingEdit = pendingEdit{}
 		return footer.ShowFlash(footer.FlashError, "no writeable backend for silence "+id)
 	}
-	// Dispatch the write asynchronously so a slow backend doesn't
-	// freeze the bubbletea Update loop. The result lands as an
-	// editorUpdateResultMsg that handleEditorUpdateResult turns
-	// into the appropriate flash + audit (success) or flash + reopen
-	// (failure, content preserved via msg.content).
-	//
-	// Wire a cancellable ctx (mu-guarded cancel stored on the page)
-	// so Close() aborts the in-flight UpdateSilence instead of
-	// letting the goroutine outlive the page. The parent is the
-	// editorCtx when set so an app-level shutdown still propagates;
-	// context.Background() otherwise. Same cancel-on-Close contract
-	// the silence form and tenantconfig use.
+	// Async write so a slow backend doesn't block Update. The
+	// cancel handle (mu-guarded) lets Close() abort the in-flight
+	// UpdateSilence; editorCtx propagates app-level shutdown when set.
 	parent := p.editorCtx
 	if parent == nil {
 		parent = context.Background()
@@ -497,10 +479,8 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 }
 
 // handleEditorUpdateResult resolves the async UpdateSilence
-// outcome. On success, clears pendingEdit and audits + flashes;
-// on failure, keeps pendingEdit and reopens the editor with the
-// user's typed YAML preserved (mirrors the id-mismatch retry
-// pattern). See editorUpdateResultMsg for why this is split out.
+// outcome. On failure, the editor is reopened with the user's
+// typed YAML preserved (same retry pattern as the id-mismatch path).
 func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 	if m.err != nil {
 		flash := footer.ShowFlash(footer.FlashError, "update: "+m.err.Error())

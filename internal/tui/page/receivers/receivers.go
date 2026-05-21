@@ -366,12 +366,8 @@ func (p *Page) View(width, height int) string {
 		if len(p.unionScoped()) > 0 && p.Filter != "" {
 			msg = "no receivers match the active filter — Esc clears the prompt"
 		}
-		// Render bg-less so the empty state matches the regular
-		// table view's framing — both use the terminal default
-		// background. styles.Body.Default would paint the body
-		// palette behind the empty pane, which renders as a
-		// coloured patch the populated view doesn't have, breaking
-		// the visual parity between "loading" and "loaded" frames.
+		// Render bg-less so the empty pane keeps the terminal
+		// default background that the populated frame uses.
 		body := msg
 		if band != "" {
 			body = band + "\n" + msg
