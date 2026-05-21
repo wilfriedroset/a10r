@@ -1018,10 +1018,11 @@ func TestPage_TimeFormatToggleSwitchesAgeColumn(t *testing.T) {
 	require.NotContains(t, out, "2026-",
 		"relative mode must not surface the absolute date")
 
-	// Flip to absolute — body shows the ISO local stamp. Per
-	// post-batch UX call (max real-estate), the time mode is NOT
-	// surfaced in HeaderContent; the toggle's flash is the
-	// affordance signal and the cell content speaks for itself.
+	// Flip to absolute — body shows the ISO local stamp. The time
+	// mode is intentionally NOT surfaced in HeaderContent: the
+	// toggle's flash is the affordance signal and the cell content
+	// speaks for itself, so the slot stays available for filter /
+	// sort / mark indicators that the user cannot otherwise see.
 	_, _ = p.Update(app.TimeFormatChangedMsg{Format: timerender.Absolute})
 	out = testutil.StripStyle(p.View(140, 20))
 	require.NotContains(t, out, "1m ago")
@@ -1880,19 +1881,15 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 		"recovery clears the band so transient blips don't linger")
 }
 
-// TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied locks
-// in the QA-driven contract for the round-2 fix: a multi-tenant
-// fleet with one broken backend (cold-start connection refused, no
-// DataMsg ever arrives) must still render the TENANT column AND
-// the error band so the operator sees both halves of the diagnosis
-// — which tenant is in trouble, and why.
-//
-// Pre-fix: the poller swallowed the first-tick failure (state was
-// born in ConnUnreachable, so the transition matched and emitted
-// nothing), and the column auto-hid because byTenant only knew the
-// healthy tenant. Post-fix: the poller always emits the first
-// status, and showTenantColumn reads from the configured-tenant
-// list so the column survives a silent backend.
+// TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied pins
+// that a multi-tenant fleet with one broken backend (cold-start
+// connection refused, no DataMsg ever arrives) still renders the
+// TENANT column AND the error band so the operator sees both
+// halves of the diagnosis — which tenant is in trouble, and why.
+// Two contracts ride here together: the poller emits the first
+// status unconditionally (no transition-swallow) so the band
+// surfaces, and showTenantColumn reads the configured-tenant list
+// (not byTenant) so the column survives a silent backend.
 func TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied(t *testing.T) {
 	t.Parallel()
 
@@ -1926,12 +1923,11 @@ func TestPage_ErrorBandSurfacesConfiguredTenantThatNeverReplied(t *testing.T) {
 		"all-scope band prefixes the tenant name so the operator knows which backend is down")
 }
 
-// TestPage_FlexColumnExpandsOnWideTerminal locks in the B5
-// contract: ALERTNAME is the unbounded flex column, so when the
-// terminal has cells to spare every leftover cell goes there
-// rather than being parked as dead padding. Compare two widths
-// against the same dataset; the wider terminal must give the
-// alertname column more cells.
+// TestPage_FlexColumnExpandsOnWideTerminal pins that ALERTNAME is
+// the unbounded flex column: when the terminal has cells to spare
+// every leftover cell goes there rather than being parked as dead
+// padding. Compare two widths against the same dataset; the wider
+// terminal must give the alertname column more cells.
 func TestPage_FlexColumnExpandsOnWideTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -1946,10 +1942,10 @@ func TestPage_FlexColumnExpandsOnWideTerminal(t *testing.T) {
 		"flex column must absorb extra terminal width — that's why labels are unbounded")
 }
 
-// TestPage_FlexColumnEllipsizesNarrowTerminal locks the B5
-// contract from the other side: when the terminal is narrow
-// enough that an alertname cannot fit, padColumns must emit the
-// `…` suffix rather than slicing the label silently.
+// TestPage_FlexColumnEllipsizesNarrowTerminal pins the other side
+// of the flex contract: when the terminal is narrow enough that
+// an alertname cannot fit, padColumns emits the `…` suffix rather
+// than slicing the label silently.
 func TestPage_FlexColumnEllipsizesNarrowTerminal(t *testing.T) {
 	t.Parallel()
 

@@ -11,10 +11,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// TestSoak_AlertsHeapStable approximates the heap-stability soak the
-// audit's acceptance bar calls for. Drives the alerts page through
-// many DataMsg ingest + filter cycles and asserts the heap doesn't
-// drift upward — captures the multi-day-session regression risk.
+// TestSoak_AlertsHeapStable drives the alerts page through many
+// DataMsg ingest + filter cycles and asserts the heap doesn't drift
+// upward — captures the multi-day-session regression risk.
 //
 // Skipped under -short. Steady-state allocation churn is fine; what
 // matters is that goroutine count and live heap settle at a bound.

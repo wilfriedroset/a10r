@@ -80,9 +80,9 @@ func TestPage_TimeFormatToggleSwitchesEndsAndStartsColumns(t *testing.T) {
 	out = testutil.StripStyle(p.View(180, 20))
 	require.Contains(t, out, "2026-",
 		"absolute mode must surface the ISO local date prefix on both columns")
-	// Per post-batch UX call, time mode is intentionally absent
-	// from HeaderContent — the flash on `t` is the affordance,
-	// and the visible cells make the mode self-evident.
+	// Time mode is intentionally absent from HeaderContent: the
+	// flash on `t` is the affordance, and the visible cells make
+	// the mode self-evident.
 	require.NotContains(t, p.HeaderContent(), "time:",
 		"time mode must NOT take a HeaderContent slot — saves a body row")
 }

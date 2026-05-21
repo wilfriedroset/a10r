@@ -42,8 +42,7 @@ func benchAlerts(n, tenants int) map[string][]backend.Alert {
 }
 
 // BenchmarkAlertsRecompute_1000 measures the full recompute pipeline
-// (flat assembly + filter + sort) on a 1k-alert × 4-tenant set. F3
-// + F6 + F7 wins land here.
+// (flat assembly + filter + sort) on a 1k-alert × 4-tenant set.
 func BenchmarkAlertsRecompute_1000(b *testing.B) {
 	styles := testutil.LoadStylesB(b)
 	p := New(Options{Styles: styles, Now: time.Now})
@@ -57,8 +56,7 @@ func BenchmarkAlertsRecompute_1000(b *testing.B) {
 }
 
 // BenchmarkAlertsRecompute_5000 mirrors the above at storm-time
-// scale: 5k alerts × 10 tenants. The audit assumed 1k; this bench
-// reflects the user's actual ceiling.
+// scale: 5k alerts × 10 tenants.
 func BenchmarkAlertsRecompute_5000(b *testing.B) {
 	styles := testutil.LoadStylesB(b)
 	p := New(Options{Styles: styles, Now: time.Now})
