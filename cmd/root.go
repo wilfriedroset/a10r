@@ -92,9 +92,7 @@ Run with no subcommand to launch the TUI.`,
 }
 
 // persistentPreRun wraps the per-invocation reconcilers that need to
-// run before any RunE — today just the log-level flag reconciliation,
-// but config loading and logger init will compose here as they land
-// in follow-up commits. Returning a closure (rather than inlining one)
+// run before any RunE. Returning a closure (rather than inlining)
 // keeps newRootCmd flat and gives reconcilers a single seam for tests.
 func persistentPreRun(flags *GlobalFlags) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, _ []string) error {

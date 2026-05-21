@@ -40,8 +40,8 @@ import (
 // dependency (clock, browser, clipboard, logger) lands as a new
 // field without touching every test that builds an App.
 type Options struct {
-	// Styles is the compiled theme. Re-rendered on every View call so
-	// a future :theme command can hot-swap by replacing this field.
+	// Styles is the compiled theme. Re-rendered on every View call
+	// so a `:theme` swap could land additively by replacing this field.
 	Styles *theme.Styles
 	// Dispatcher routes key events through the precedence stack. The
 	// app shell pre-populates the global layer in NewApp.

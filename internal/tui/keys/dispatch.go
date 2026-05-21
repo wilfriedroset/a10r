@@ -332,10 +332,8 @@ func (d *Dispatcher) dispatchFresh(key string, now time.Time) (bool, tea.Cmd) {
 
 // HandleChordExpired processes a ChordExpiredMsg. Idempotent:
 // stale ticks (the chord was resolved by a key arrival before the
-// tick fired) are discarded silently. No tea.Cmd is currently
-// fired since the only chord prefix today (`g`) has no single-key
-// binding to fall back to; the contract is preserved so a future
-// single-key fallback can land additively.
+// tick fired) are discarded silently. The only chord prefix (`g`)
+// has no single-key binding to fall back to, so this returns nil.
 func (d *Dispatcher) HandleChordExpired(msg ChordExpiredMsg) tea.Cmd {
 	if d.chordPending == "" {
 		return nil

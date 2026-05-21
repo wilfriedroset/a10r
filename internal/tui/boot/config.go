@@ -12,9 +12,8 @@ import (
 )
 
 // loadConfigForTUI loads the user config; missing config returns a
-// zero Config so the program still starts (the wizard wires from
-// there in a future commit). errOut receives the one-line "no
-// config found" hint so the operator sees the next step.
+// zero Config so the program still starts. errOut receives the
+// one-line "no config found" hint so the operator sees the next step.
 func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*config.Config, error), errOut io.Writer) (*config.Config, error) {
 	cfg, err := load(LoadOptsFromFlags(flags))
 	if err != nil {

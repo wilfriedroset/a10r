@@ -16,9 +16,8 @@ import (
 
 // newInfoCmd returns the `a10r info` subcommand. Diagnostic output
 // for "where is a10r looking for its config" — runs cleanly even
-// when the config file does not exist (the wizard is the long-term
-// answer for that case; info is just for telling the user what state
-// they are in).
+// when the config file does not exist; it just reports the current
+// state.
 func newInfoCmd(flags *GlobalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:     "info",
@@ -115,9 +114,8 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 
 // writer is a small fmt.Fprintf wrapper that captures the first
 // error and short-circuits subsequent calls. Lets the renderers
-// stay flat (no `if err != nil { return err }` after every line)
-// without growing nolint directives that gocritic.whyNoLint would
-// then flag for missing explanations.
+// stay flat instead of `if err != nil { return err }` after every
+// line.
 type writer struct {
 	out io.Writer
 	err error

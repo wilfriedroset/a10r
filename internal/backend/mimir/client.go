@@ -85,10 +85,8 @@ type ClientConfig struct {
 
 // New constructs a *vanilla.Client wrapped with the Mimir-specific
 // transport layers. Returns *vanilla.Client (rather than a dedicated
-// *mimir.Client) because Mimir adds no behaviour over vanilla today
-// — ADR 0028 pins the "one code path per method" choice. A future
-// config editor will introduce a dedicated type that embeds or
-// wraps vanilla.Client and overrides the capability stubs.
+// *mimir.Client) because Mimir adds no behaviour over vanilla
+// — ADR 0028 pins the "one code path per method" choice.
 func New(cfg ClientConfig) (*vanilla.Client, error) {
 	// Capture the configured backend's host so the auth/header
 	// RoundTrippers can refuse to replay credentials (and the

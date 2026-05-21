@@ -111,9 +111,7 @@ func semverLess(a, b string) bool {
 // deliberately absent — the read-only inspector drops them rather
 // than render zero-valued placeholders that the user would read
 // as "every backend is connected with zero alerts" by accident
-// (header.ConnState's zero value is ConnConnected). A future
-// commit can re-attach those columns once the wiring layer
-// publishes a per-(resource, tenant) snapshot map.
+// (header.ConnState's zero value is ConnConnected).
 type Row struct {
 	Name    string
 	URL     string

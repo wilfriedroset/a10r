@@ -130,36 +130,32 @@ type VersionInfo struct {
 
 // MimirConfig is the payload of Mimir's /api/v1/alerts (the *config*
 // endpoint — distinct from vanilla AM's now-removed /api/v1/alerts
-// which served the alerts list). No reads or writes are implemented
-// against this surface today — the Mimir wrapper returns
-// ErrUnsupported for every method that touches it — but the type is
-// locked in so a future config editor can land additively.
+// which served the alerts list). Every backend currently returns
+// ErrUnsupported for the methods that touch it.
 //
-// SemVer note: the stub types in this block (MimirConfig,
-// TenantConfig, Ring, RingInstance) carry no implementation today
-// and may grow fields before a Mimir config editor ships. Treat them
-// as unstable until the editor lands; downstream consumers that
-// import these types should expect non-breaking field additions.
+// Unstable: MimirConfig and its siblings (TenantConfig, Ring,
+// RingInstance) carry no implementation, so downstream consumers
+// should expect non-breaking field additions.
 type MimirConfig struct {
 	AlertmanagerConfig string
 	TemplateFiles      map[string]string
 }
 
 // TenantConfig is one entry in the multi-tenant config listing
-// (Mimir admin). Stub; see MimirConfig SemVer note.
+// (Mimir admin). See MimirConfig for stability notes.
 type TenantConfig struct {
 	Tenant string
 	Config string
 }
 
 // Ring is the response shape of /multitenant_alertmanager/ring.
-// Stub; see MimirConfig SemVer note.
+// See MimirConfig for stability notes.
 type Ring struct {
 	Instances []RingInstance
 }
 
-// RingInstance is one node in the Mimir hash ring. Stub; see
-// MimirConfig SemVer note.
+// RingInstance is one node in the Mimir hash ring. See MimirConfig
+// for stability notes.
 type RingInstance struct {
 	ID     string
 	Addr   string

@@ -135,8 +135,7 @@ func DefaultHistoryDir() (string, error) {
 	return HistoryDir(os.Getenv, os.UserHomeDir)
 }
 
-// Len returns the entry count. Useful for tests and for a future
-// "no history yet" hint in the prompt chrome.
+// Len returns the entry count.
 func (h *History) Len() int {
 	if h == nil {
 		return 0

@@ -53,9 +53,7 @@ const (
 	DefaultBulkConcurrency = 4
 )
 
-// Config is the top-level shape of a10r.yaml. The Keys section is
-// reserved for future user-defined keybinding overrides and is
-// intentionally empty so the schema slot is locked in.
+// Config is the top-level shape of a10r.yaml.
 type Config struct {
 	Backends []Backend     `yaml:"backends,omitempty"`
 	Defaults Defaults      `yaml:"defaults,omitempty"`
@@ -67,14 +65,9 @@ type Config struct {
 }
 
 // PageOverrides carries per-page runtime knobs that a user can
-// tune without touching the per-backend config. Today only the
-// poll-interval override is wired; future fields (default filter,
-// error-band threshold) compose here under the same
-// `pages.<name>.*` shape.
-//
-// An empty PageOverrides leaves every page on its backend-derived
-// default. Each non-zero field overrides the backend's value for
-// that page only.
+// tune without touching the per-backend config. Empty leaves every
+// page on its backend-derived default; non-zero fields override the
+// backend's value for that page only.
 type PageOverrides struct {
 	Alerts    PageConfig `yaml:"alerts,omitempty"`
 	Silences  PageConfig `yaml:"silences,omitempty"`
@@ -265,9 +258,7 @@ func validateHeaders(h map[string]string) error {
 }
 
 // Capabilities are the explicit opt-in flags per ADR 0028 — nothing
-// auto-enabled. The underlying endpoints are not implemented today
-// (the Mimir config editor is future work) but the flags must
-// still gate menu visibility once the action registry lands.
+// auto-enabled.
 type Capabilities struct {
 	ConfigAPI   bool `yaml:"config_api,omitempty"`
 	TenantAdmin bool `yaml:"tenant_admin,omitempty"`
@@ -408,17 +399,13 @@ type Log struct {
 	Level string `yaml:"level,omitempty"`
 }
 
-// Keys is reserved for future user-defined keybinding overrides.
-// The struct is exported empty so the YAML key is part of the
-// schema contract from day one and adding fields later is a non-
-// breaking change.
+// Keys carries user-defined keybinding overrides. Exported empty so
+// the YAML key is part of the schema contract: adding fields later
+// is a non-breaking change.
 type Keys struct{}
 
 // TUI carries TUI-presentation knobs that don't fit on Defaults
 // (which is shared with the per-backend / per-page resolver chain).
-// Today the block hosts the optional rotating hint bar;
-// future TUI-only knobs (e.g. an idle dim threshold, a custom
-// status footer) compose here so the resolver chain stays lean.
 //
 // Tips defaults to false per the project rule that scouted features
 // stay opt-in: the user must explicitly write `tui.tips: true` to

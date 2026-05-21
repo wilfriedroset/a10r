@@ -21,24 +21,14 @@ const DefaultHintBarInterval = 8 * time.Second
 
 // HintBar is the optional rotating tip strip rendered above the
 // crumbs / flash strips when the user opts in via `tui.tips: true`.
-// The component is value-typed and follows the same Update / Render
-// / Owns shape as Flash so the App composes it as a field, not as a
-// nested tea.Model.
+// Value-typed, same Update / Render / Owns shape as Flash so the
+// App composes it as a field, not as a nested tea.Model.
 //
-// The strip defaults OFF to honour the "no scouted features without
-// explicit go" project rule — a zero-value HintBar has enabled=false,
-// fires no tick, and renders the empty string. The wiring layer
-// constructs an enabled HintBar only when the loaded config sets
-// `tui.tips: true`.
-//
-// Rotation is driven by a tea.Tick scheduled from Start (called by
-// the App's Init when enabled) and re-armed on every tick. Each tick
-// advances the rotating index by one and schedules the next tick;
-// the index wraps modulo len(tips) so the strip never runs out.
-//
-// An empty `tips` slice short-circuits identically to the disabled
-// path: no tick, no render. This guards against a future curated-set
-// mistake where Tips() returns nothing.
+// Defaults OFF — a zero-value HintBar has enabled=false, fires no
+// tick, and renders the empty string. Rotation is driven by a
+// tea.Tick scheduled from Start (called from App.Init when enabled)
+// and re-armed on every tick; idx wraps modulo len(tips). An empty
+// `tips` slice short-circuits identically to the disabled path.
 type HintBar struct {
 	tips     []help.Tip
 	interval time.Duration
@@ -49,10 +39,8 @@ type HintBar struct {
 	idx int
 
 	// generation tags every scheduled tick so a stale tick from a
-	// superseded timer round drops silently on arrival. Today it
-	// only increments on construction (always zero), but the same
-	// idiom Flash uses leaves room for a future hot-reload to
-	// invalidate pending ticks without changing the wire shape.
+	// superseded timer round drops silently on arrival. Mirrors
+	// Flash's idiom.
 	generation uint64
 }
 
@@ -64,10 +52,7 @@ type hintBarTickMsg struct {
 	generation uint64
 }
 
-// HintBarOptions bundles the constructor inputs. Pulled out into a
-// struct so a future knob (e.g. theme override, custom tip source
-// for testing without monkey-patching help.Tips) lands as a new
-// field without breaking call sites.
+// HintBarOptions bundles the constructor inputs.
 type HintBarOptions struct {
 	// Enabled flips the entire component on. False (the zero value)
 	// keeps the bar dormant: no tick fires, Render returns "".
@@ -113,8 +98,7 @@ func (h HintBar) Enabled() bool { return h.enabled }
 
 // Interval returns the configured rotation cadence. Always a
 // positive duration once the constructor has run, even on a
-// disabled bar (so a future Start after a hot-reload has a value to
-// schedule against).
+// disabled bar.
 func (h HintBar) Interval() time.Duration { return h.interval }
 
 // Start returns the tea.Cmd that schedules the first rotation tick

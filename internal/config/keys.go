@@ -20,11 +20,9 @@ import (
 // directory inside the resolved <config-dir>. Schema per ADR 0010.
 const KeysDir = "keys"
 
-// DefaultKeysProfile is the auto-loaded profile name. Only
-// `default.yaml` is auto-loaded today; explicit profile selection
-// (e.g. `vim`) is a stretch goal noted in ADR 0010 — the loader
-// already supports the path argument so wiring it through
-// `keys: { profile: ... }` later is purely additive.
+// DefaultKeysProfile is the auto-loaded profile name. The loader
+// takes a profile argument so explicit selection (e.g. `vim`) is
+// a wiring exercise per ADR 0010.
 const DefaultKeysProfile = "default"
 
 // reservedKeys is the closed set of keys the user is NOT allowed
@@ -32,8 +30,7 @@ const DefaultKeysProfile = "default"
 // quick-switch (`<0>` = all, `<1>`-`<9>` = the Nth backend) — the
 // whole point of the quick-switch is muscle memory, so re-purposing
 // any of these keys silently is a worse failure mode than refusing
-// to start. The list is intentionally tiny today; future
-// reservations land here with a corresponding ADR amendment.
+// to start.
 var reservedKeys = map[string]struct{}{
 	"0": {}, "1": {}, "2": {}, "3": {}, "4": {},
 	"5": {}, "6": {}, "7": {}, "8": {}, "9": {},

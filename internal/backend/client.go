@@ -57,9 +57,7 @@ type Client interface {
 	Writer
 
 	// Capability-gated. Implementations return ErrUnsupported when
-	// the corresponding Caps flag is false. Every backend ships with
-	// these flags off today; the methods exist so a future Mimir
-	// config editor can land additively.
+	// the corresponding Caps flag is false.
 
 	GetConfig(ctx context.Context) (MimirConfig, error)
 	SetConfig(ctx context.Context, cfg MimirConfig) error
