@@ -306,6 +306,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,
 		}),
+		Version: d.Version,
 	})
 }
 

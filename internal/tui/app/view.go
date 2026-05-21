@@ -85,7 +85,7 @@ func (a *App) panelState() panel.State {
 		Info: []panel.InfoLine{
 			{Label: "tenants", Value: "—"},
 			{Label: "alerts", Value: "—"},
-			{Label: "version", Value: "v0.1.0"},
+			{Label: "version", Value: a.version},
 		},
 	}
 	if p := a.topPage(); p != nil {

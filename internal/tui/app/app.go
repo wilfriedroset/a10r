@@ -84,6 +84,9 @@ type Options struct {
 	// pass the zero value so the tick scheduling stays out of the
 	// fixture-driven Update loop.
 	HintBar footer.HintBar
+	// Version is the ldflag-injected build version surfaced in the
+	// top-panel info column. Empty falls back to "dev".
+	Version string
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
@@ -103,6 +106,8 @@ type App struct {
 	prompt  footer.Prompt
 	flash   footer.Flash
 	hintbar footer.HintBar
+
+	version string
 
 	// histories backs the per-class recent-submissions rings.
 	// Three classes — `:` always picks cmd, `/`
@@ -236,6 +241,10 @@ func NewApp(opts Options) *App {
 	if resolver == nil {
 		resolver = cmdbar.New()
 	}
+	version := opts.Version
+	if version == "" {
+		version = "dev"
+	}
 	a := &App{
 		styles:      opts.Styles,
 		dispatcher:  opts.Dispatcher,
@@ -247,6 +256,7 @@ func NewApp(opts Options) *App {
 		prompt:      footer.NewPrompt(resolver.Suggest),
 		flash:       footer.NewFlash(),
 		hintbar:     opts.HintBar,
+		version:     version,
 		caches: caches{
 			poll:   map[string]map[string]poll.DataMsg{},
 			status: map[string]poll.BackendStatusMsg{},
