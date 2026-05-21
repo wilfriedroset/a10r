@@ -36,53 +36,28 @@ import (
 )
 
 // Options collects the dependencies the App needs to operate.
-// Exposed as a struct so the constructor stays additive: a future
-// dependency (clock, browser, clipboard, logger) lands as a new
-// field without touching every test that builds an App.
 type Options struct {
-	// Styles is the compiled theme. Re-rendered on every View call
-	// so a `:theme` swap could land additively by replacing this field.
-	Styles *theme.Styles
-	// Dispatcher routes key events through the precedence stack. The
-	// app shell pre-populates the global layer in NewApp.
+	Styles     *theme.Styles
 	Dispatcher *keys.Dispatcher
-	// CmdBar resolves `:` command-bar aliases to tea.Cmds. Optional —
-	// nil falls back to a freshly-constructed empty resolver, in
-	// which case every `:command` flashes "unknown command". Pages
-	// and the wiring layer (cmd/tui.go) populate the resolver before
-	// the program runs.
+	// CmdBar resolves `:` command-bar aliases to tea.Cmds. Nil falls
+	// back to an empty resolver — every `:command` flashes "unknown".
 	CmdBar *cmdbar.Resolver
-	// Tenants is the list of configured backend names. Used by
-	// the top panel to render the `<0> all <1> name <2> name …`
-	// tenant shortcut column k9s-style.
+	// Tenants drives the top panel's `<0> all <1> name …` shortcut
+	// column k9s-style.
 	Tenants []string
-	// Refresh is the handler the App calls when a page emits a
-	// RefreshRequestedMsg. The wiring layer wires it to walk the
-	// (resource, scope) tuple and Refresh() each matching poller.
-	// Optional: nil falls back to a no-op so headless tests don't
-	// need to inject a dummy handler.
+	// Refresh is invoked on a RefreshRequestedMsg with the (resource,
+	// scope) tuple. Nil falls back to a no-op.
 	Refresh func(resource, scope string)
-	// ReadOnly is the resolved defaults.read_only / --read-only /
-	// A10R_READ_ONLY value. When true the help overlay drops every
-	// Dangerous binding from the rendered list and the per-page
-	// hint strip is filtered through action.FilterDangerous before
-	// being rendered. Page-level handlers also flash a hint instead
-	// of dispatching the write — that gate is plumbed in at page
-	// construction (each page's Options.ReadOnly).
+	// ReadOnly mirrors defaults.read_only / --read-only / A10R_READ_ONLY.
+	// True drops Dangerous bindings from help, hints, and the
+	// per-page dispatch; the gate is also threaded into each page's
+	// Options.ReadOnly for page-local flash hints.
 	ReadOnly bool
-	// HistoryDir is the resolved state directory for the prompt
-	// history rings (`$XDG_STATE_HOME/a10r/` by default). Empty
-	// disables persistence — each ring stays in-memory only, which
-	// is what tests and headless flows want. The wiring layer
-	// (cmd/tui.go) calls footer.DefaultHistoryDir to populate this
-	// for the production binary.
+	// HistoryDir is `$XDG_STATE_HOME/a10r/` for production; empty
+	// disables on-disk history (each ring stays in-memory).
 	HistoryDir string
-	// HintBar is the optional rotating tip strip. The
-	// zero value is a disabled bar — no tick fires, the strip
-	// renders empty so the footer collapses. Production turns it
-	// on only when `tui.tips: true` is set in a10r.yaml; tests
-	// pass the zero value so the tick scheduling stays out of the
-	// fixture-driven Update loop.
+	// HintBar is the optional rotating tip strip; zero value is
+	// disabled (no tick, empty render).
 	HintBar footer.HintBar
 	// Version is the ldflag-injected build version surfaced in the
 	// top-panel info column. Empty falls back to "dev".
@@ -91,9 +66,7 @@ type Options struct {
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it
 // owns mutable subcomponent state (prompt, flash, page stack) that
-// mutates across Update calls; bubbletea v2 accepts either value-
-// or pointer-rooted Models, and pointer reads cleaner when the
-// Dispatcher is itself pointer-typed.
+// changes across Update calls.
 type App struct {
 	styles     *theme.Styles
 	dispatcher *keys.Dispatcher

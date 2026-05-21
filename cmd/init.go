@@ -35,37 +35,25 @@ const (
 	kindMimir        = "mimir"
 )
 
-// validInitKinds is the canonical list of accepted `kind=` values.
-// Shared between the wizard's Choice prompt and the one-shot
-// validator so adding a kind is a one-line change.
-var validInitKinds = []string{kindAlertmanager, kindMimir}
+// Canonical accepted-value lists. Shared between the wizard's
+// Choice prompt and the one-shot --kv validator so adding an entry
+// is a one-line change.
+var (
+	validInitKinds     = []string{kindAlertmanager, kindMimir}
+	validInitAuthModes = []string{authModeNone, authModeBearer, authModeBasic}
+	validInitThemes    = []string{
+		"catppuccin-mocha",
+		"catppuccin-latte",
+		"gruvbox-dark",
+	}
+)
 
-// validInitAuthModes is the canonical list of accepted `auth_mode=`
-// values, shared between the wizard prompt and the one-shot
-// validator for the same drift-prevention reason as validInitKinds.
-var validInitAuthModes = []string{authModeNone, authModeBearer, authModeBasic}
-
-// validInitThemes is the bundled-theme allow-list. Same drift
-// rationale as the other validInit* slices.
-var validInitThemes = []string{
-	"catppuccin-mocha",
-	"catppuccin-latte",
-	"gruvbox-dark",
-}
-
-// defaultPollInterval / defaultTheme are the wizard prompt defaults
-// re-used by the one-shot mode when the operator omits the
-// corresponding --kv key. Pinned to the same literals the wizard
-// shows so a wizard run and a one-shot run with the same explicit
-// keys produce byte-identical YAML.
-//
-// defaultPollInterval is intentionally "30s" rather than the
-// package-level config.DefaultPollInterval (1m): the wizard has
-// always offered 30s as the prompt default, and this command builds
-// a starter config — not the runtime resolution chain. Round-trip
-// through config.Load preserves the 30s the user accepted at the
-// prompt; the 1m fallback only kicks in when the resolved value is
-// zero, which init never emits.
+// defaultPollInterval is the wizard's prompt default — kept at
+// "30s" rather than config.DefaultPollInterval (1m) because init
+// writes a starter config and the wizard has always offered 30s.
+// defaultTheme is the bundled theme the prompt suggests. Sharing
+// both with the --kv path means a wizard run and a `--one-shot`
+// run with the same explicit keys produce byte-identical YAML.
 const (
 	defaultPollInterval = "30s"
 	defaultTheme        = "catppuccin-mocha"

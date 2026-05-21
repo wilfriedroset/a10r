@@ -33,54 +33,42 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// Clipboard is the small surface the page needs to copy strings.
-// Production wraps a real OS clipboard binding; tests inject a
-// recorder. Errors flow through to the user as flash messages.
+// Clipboard is the page's copy-to-clipboard seam. Errors surface as
+// flash messages.
 type Clipboard interface {
 	Copy(s string) error
 }
 
-// Browser is the small surface the page needs to open a URL.
-// Production wraps `browser.OpenURL` or similar; tests inject a
-// recorder. Errors flow through to the user as flash messages.
+// Browser is the page's open-URL seam. Errors surface as flash
+// messages.
 type Browser interface {
 	Open(url string) error
 }
 
 // Options bundles the per-page dependencies.
 type Options struct {
-	// Alert is the cached object to render. Required.
-	Alert backend.Alert
-	// Tenant is the source-backend tag for the header strip.
+	Alert  backend.Alert
 	Tenant string
-	// Styles is the compiled theme.
 	Styles *theme.Styles
-	// Clipboard handles the `c` (copy fingerprint) action. nil
-	// disables the binding gracefully — `c` flashes a "no clipboard
-	// integration" hint instead of crashing. `y` is reserved for the
-	// raw-YAML toggle.
+	// Clipboard handles `c` (copy fingerprint); nil disables the
+	// binding — keypress flashes a "no clipboard" hint. `y` is
+	// reserved for the raw-YAML toggle.
 	Clipboard Clipboard
-	// Browser handles the `o` (open generatorURL) action. nil
-	// disables the binding the same way.
+	// Browser handles `o` (open generatorURL); nil disables.
 	Browser Browser
-	// Now injects the clock used by the age line. nil falls back
-	// to time.Now.
+	// Now is the clock for the age line; nil falls back to time.Now.
 	Now func() time.Time
-	// Clients is the per-tenant write surface for `s`. Picked up
-	// by tenant tag (this page knows its source backend); empty /
-	// missing tenant flashes a hint instead of pushing a broken
-	// form. Same shape the alerts list / silences page consume.
+	// Clients is the per-tenant write surface for `s`; empty /
+	// missing tenant flashes a hint instead of pushing a broken form.
 	Clients map[string]silenceform.Client
-	// Creator seeds the silence form's CreatedBy field; usually
-	// $USER. Empty falls back to "a10r" in the form factory.
+	// Creator seeds the silence form's CreatedBy field, usually
+	// $USER; empty falls back to "a10r" in the form factory.
 	Creator string
-	// TimeFormat seeds the page's time-format mode at push time
-	// so the detail body opens in the same mode the parent list
-	// page was already showing.
+	// TimeFormat seeds the page's time-format mode at push so the
+	// detail body opens in the same mode the parent list was showing.
 	TimeFormat timerender.Format
-	// ReadOnly hides the page's Dangerous bindings (`s`) from the
-	// hint strip / help overlay and turns the keystroke into a
-	// flash hint. Wired from defaults.read_only / --read-only.
+	// ReadOnly hides Dangerous bindings (`s`) from the hint strip /
+	// help overlay and turns the keystroke into a flash hint.
 	ReadOnly bool
 }
 

@@ -586,22 +586,11 @@ func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 }
 
 
-// auditSilenceWrite emits the structured "silence write succeeded"
-// log line surfaced on every successful silence mutation so an
-// operator can reconstruct the day's activity from the --log file.
-// Without a success-path entry, a tampered write would leave no
-// trail — the logger plumbing alone is not enough.
-//
-// Routed through slog.Default() — runTUI calls slog.SetDefault on
-// the program's logger before any page is constructed, so every
-// page sees the same sink without each having to thread a pointer.
-//
-// op is the verb ("created", "updated", "expired"); surface
-// records the screen/handler that drove it ("form", "editor",
-// "bulk-expire") so a future correlation against the user's input
-// stays unambiguous. The wire-level key is "surface" (not "source")
-// because slog reserves "source" for the SourceKey caller-info
-// attribute, and sloglint forbids re-using the name.
+// auditSilenceWrite emits the success-path audit record on every
+// silence mutation so an operator can reconstruct the day's
+// activity from the --log file (a tampered write would leave no
+// trail otherwise). The wire key is "surface", not "source":
+// sloglint forbids re-using slog's reserved SourceKey attribute.
 func auditSilenceWrite(op, id, surface string) {
 	slog.Default().Info("silence write succeeded",
 		slog.String("op", op),
