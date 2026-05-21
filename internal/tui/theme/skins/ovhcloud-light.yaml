@@ -35,9 +35,14 @@ k9s:
       keyColor: '#000e9c'
       numKeyColor: '#00185e'
     crumbs:
-      fgColor: '#4d5592'
-      bgColor: '#e6e6e6'    # ods-palette-gray-100 (slight elevation)
-      activeColor: '#000e9c' # brand-masterbrand
+      # Pills: fg is white so the same text reads on both the
+      # inactive pill (twilight, ods-color-text used as bg) and
+      # the active pill (deep-sapphire). activeColor matches
+      # cursor.bgColor — "current focus" is the same
+      # deep-sapphire across cursor and crumbs.
+      fgColor: '#ffffff'    # white text on dark pills
+      bgColor: '#4d5592'    # twilight (inactive pill ribbon)
+      activeColor: '#00185e' # deep-sapphire (matches table cursor)
     status:
       # Severity / silence-state / flash derive from these five
       # (newColor, errorColor, addColor, killColor, highlightColor)

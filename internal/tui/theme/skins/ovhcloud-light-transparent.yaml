@@ -39,9 +39,9 @@ k9s:
       keyColor: '#000e9c'
       numKeyColor: '#00185e'
     crumbs:
-      fgColor: '#4d5592'
+      fgColor: '#ffffff'
       bgColor: default
-      activeColor: '#000e9c'
+      activeColor: '#00185e'
     status:
       newColor: '#0050d7'
       modifyColor: '#157eea'

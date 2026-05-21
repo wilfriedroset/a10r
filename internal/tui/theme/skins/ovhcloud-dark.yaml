@@ -35,9 +35,13 @@ k9s:
       keyColor: '#73e3ff'    # brand-skyblue
       numKeyColor: '#ffd124' # brand-yellow
     crumbs:
-      fgColor: '#cccccc'    # ods-palette-gray-200
-      bgColor: '#333333'    # ods-palette-gray-800 (slight elevation)
-      activeColor: '#a6d64d' # brand-green
+      # Pills: fg is the body bg so the same dark text reads on
+      # both the inactive pill (skyblue) and the active pill
+      # (yellow). activeColor matches cursor.bgColor — "current
+      # focus" is the same brand-yellow across cursor and crumbs.
+      fgColor: '#1a1a1a'    # gray-900 (body.bg, dark text on bright pills)
+      bgColor: '#73e3ff'    # brand-skyblue (inactive pill ribbon)
+      activeColor: '#ffd124' # brand-yellow (matches table cursor)
     status:
       # Severity / silence-state / flash derive from these five
       # (newColor, errorColor, addColor, killColor, highlightColor)

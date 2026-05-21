@@ -144,7 +144,9 @@ system's brand colors rather than its semantic scales. For
 |---|---|---|
 | `body.logoColor` (header accent) | `#73e3ff` (`brand-skyblue`) | `#000e9c` (`brand-masterbrand`) |
 | `frame.border.focusColor` | `#73e3ff` | `#000e9c` |
-| `frame.crumbs.activeColor` | `#a6d64d` (`brand-green`) | `#000e9c` (`brand-masterbrand`) |
+| `frame.crumbs.bgColor` | `#73e3ff` (`brand-skyblue`) | `#4d5592` (`twilight`) |
+| `frame.crumbs.fgColor` | `#1a1a1a` | `#ffffff` |
+| `frame.crumbs.activeColor` | `#ffd124` (`brand-yellow`) | `#00185e` (`deep-sapphire`) |
 | `views.table.header.sorterColor` | `#ed733d` (`brand-orange`) | `#ed733d` |
 | `views.table.cursorBgColor` | `#ffd124` (`brand-yellow`) | `#00185e` (`deep-sapphire`) |
 | `views.table.cursorFgColor` | `#1a1a1a` | `#ffffff` |
@@ -153,6 +155,19 @@ The cursor pair must survive both the opaque body bg *and* an
 arbitrary terminal bg (the `-transparent` sibling inherits the
 cursor hex unchanged). Pick saturated brand colors with high
 contrast against both extremes.
+
+**Breadcrumb pills share one fg.** The renderer
+(`internal/tui/footer/crumbs.go`) paints the inactive crumb as
+`crumbs.fg` text on `crumbs.bg`, and the active crumb as
+`crumbs.fg` text on `crumbs.active`. One foreground colour has to
+contrast against *both* backgrounds, so pick `fg` against the
+*both* pill bgs, not just one. The mistake to avoid: picking a
+midtone `fg` that contrasts against `bg` (the ribbon) and only
+weakly against `active` (the highlight) — the active pill ends
+up illegible. The `ovhcloud-*` family also reuses
+`crumbs.activeColor = views.table.cursorBgColor` so "current
+focus" is the same brand colour on both the breadcrumb pill and
+the selected table row.
 
 ---
 
