@@ -104,6 +104,38 @@ tenant is **connected**. Multi-offender layouts collapse to a count
 plus the alphabetically first offender's detail and **next attempt**.
 _Avoid_: status line, error banner.
 
+### List-page chrome
+
+**Chrome**:
+The border-frame surfaces of a list page — title, header, footer,
+**error band**, and empty-pane wrap. Distinct from the data rows the
+table renders. Chrome stays on the terminal default background
+(fg-only renderers) so the unstyled frame doesn't break the populated
+table's seam.
+_Avoid_: frame (informal name for the lipgloss wrap, not the surface
+set), border (the visual line, not what it bounds).
+
+**Loading affordance**:
+The spinner-led title prefix shown during a loading window —
+`⣷ loading alerts…`. Active when no in-scope tenant has produced a
+DataMsg yet (cold start) or while a manual `r` refresh is in flight.
+Three of six list pages render it (alerts/silences/groups);
+receivers/tenant/status have no spinner.
+_Avoid_: spinner title (the spinner is one part), loading state
+(too generic).
+
+**Refresh countdown**:
+The bottom-border footer that surfaces refresh state for polled list
+pages. Five branches: `""` (pre-poll), `"next refresh Ns"` (single-
+unit **relative time** with `next refresh` as the prefix),
+`"refreshing…"` (manual `r` in flight), `"WATCH OFF"` (paused),
+`"WATCH OFF · refreshing…"` (paused with a pausedRefresh in flight).
+Same three pages as the **loading affordance** render the full
+cycle; receivers shows only the WATCH OFF branch; tenant/status omit
+the footer entirely.
+_Avoid_: refresh footer (surface name, not content), poll status
+(too generic), watch indicator (one branch only).
+
 ### Theming
 
 **Skin**:
@@ -142,6 +174,15 @@ _Avoid_: custom theme, override skin.
   **connected**; the **error band** renders only in-scope entries.
 - **Next attempt** reuses the single-unit **relative time** vocabulary
   with `retrying in` as the prefix instead of bare `in`.
+- A list page's **chrome** comprises title (with optional **loading
+  affordance** prefix), header, footer (with optional **refresh
+  countdown**), **error band**, and the empty-pane wrap.
+- **Loading affordance** and **refresh countdown** are co-present — a
+  page renders both or neither (alerts/silences/groups render both;
+  receivers/tenant/status render neither).
+- **Refresh countdown**'s `"next refresh Ns"` branch reuses the
+  single-unit **relative time** vocabulary with `next refresh` as the
+  prefix instead of bare `in`.
 - A **modal overlay** takes input precedence over a **help overlay**;
   the two never render simultaneously. `?` is shadowed while a modal
   is open so a pending decision is not dismissed off-screen.
