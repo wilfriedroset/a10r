@@ -127,13 +127,13 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 // no-ops at this layer; the App's dispatcher had its turn
 // earlier.
 //
-// State-filter cycling is bound to Shift+F (not `t`) since `t`
-// is the app-global time-format toggle as of #9 — the
-// dispatcher's global `t` consumes the key before the page sees
-// it, so a local `t` handler here would be dead code. bubbletea
-// v2's KeyPressMsg.String() emits the textual form ("F") for
-// shift-modified letters — never "shift+f" — so a single `case
-// "F"` is sufficient.
+// State-filter cycling is bound to Shift+F (not `t`) because `t`
+// is the app-global time-format toggle — the dispatcher's global
+// `t` consumes the key before the page sees it, so a local `t`
+// handler here would be dead code. bubbletea v2's
+// KeyPressMsg.String() emits the textual form ("F") for shift-
+// modified letters — never "shift+f" — so a single `case "F"`
+// is sufficient.
 func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	switch m.String() {
 	case "enter":

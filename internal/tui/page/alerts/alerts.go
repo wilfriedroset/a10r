@@ -17,8 +17,8 @@
 //     and dispatches CreateSilence per marked alert. Read-only
 //     mode hides the binding via the action registry.
 //
-// Polling lives in the wiring layer (cmd/tui.go in #39): a poll
-// loop emits DataMsg{Resource: []backend.Alert} that this page
+// Polling lives in the wiring layer (cmd/tui.go): a poll loop
+// emits DataMsg{Resource: []backend.Alert} that this page
 // consumes via Update.
 package alerts
 

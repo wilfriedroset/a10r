@@ -2,10 +2,10 @@
 
 // Package tenant renders the tenant table: one row per
 // configured backend with NAME / URL / VERSION columns and
-// connection / count metadata. As of #7 the table is read-only
-// — Enter drills into the per-tenant config inspector
-// (tenantconfig package); scope selection lives entirely on the
-// global numeric quick-switch.
+// connection / count metadata. The table is read-only — Enter
+// drills into the per-tenant config inspector (tenantconfig
+// package); scope selection lives entirely on the global numeric
+// quick-switch.
 package tenant
 
 import (
@@ -200,8 +200,8 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("tenants(%s)[%d]", scope, len(p.rows))
 }
 
-// HeaderContent implements app.Page. Tenant table is read-only
-// as of #7; nothing live to surface in the subtitle line.
+// HeaderContent implements app.Page. Tenant table is read-only;
+// nothing live to surface in the subtitle line.
 func (*Page) HeaderContent() string { return "" }
 
 // Footer implements app.Page. Tenant table doesn't surface

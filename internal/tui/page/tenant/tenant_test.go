@@ -374,10 +374,9 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 
 func TestPage_HeaderContentIsAlwaysEmpty(t *testing.T) {
 	t.Parallel()
-	// Tenant table is read-only as of #7; nothing to surface in
-	// the subtitle line. Pinning this contract so a future
-	// regression that re-introduces the legacy mark counter
-	// trips the test.
+	// Tenant table is read-only; nothing to surface in the
+	// subtitle line. Pinning this contract so a future regression
+	// that re-introduces the legacy mark counter trips the test.
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	require.Empty(t, p.HeaderContent())

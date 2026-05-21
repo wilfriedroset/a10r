@@ -15,7 +15,7 @@ import (
 // per keybindings.md §Global. The mode is purely cosmetic at this
 // layer — both display the same way; what differs is the prefix
 // rune the prompt opens with and what the consumer of Submit does
-// with the resulting string. Routing belongs in #26.
+// with the resulting string.
 type PromptMode int
 
 const (
