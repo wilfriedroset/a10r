@@ -26,6 +26,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -397,31 +398,23 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.BodyHeight = height
 	var lines []string
 	if p.rawYAML {
 		lines = p.rawYAMLLines()
 	} else {
 		lines = p.bodyLines(width)
 	}
-	p.ReconcileScroll(len(lines), height)
-	end := min(p.Scroll+height, len(lines))
-	if p.Scroll > end {
-		p.Scroll = end
-	}
-	visible := lines[p.Scroll:end]
+	visible := p.Visible(lines, height)
 	// Apply skin's YAML.Key / .Value / .Punct foreground roles per
 	// line. yamlstyle short-circuits anything that doesn't look
 	// like a real `key: value` row — comment-only lines, blank
 	// separators, "(none)" placeholders, and (crucially) wrap
 	// continuations + \n-split annotation segments whose pre-`:`
-	// portion contains brackets/equals. Width-clamp matches the
-	// other list / detail pages so the bordered body never sees
-	// jagged-width content.
+	// portion contains brackets/equals.
 	for i, line := range visible {
 		visible[i] = yamlstyle.Line(line, p.styles)
 	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
+	return listpage.Wrap(width, strings.Join(visible, "\n"))
 }
 
 // bodyLines builds the full list of rendered lines (one display

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"gopkg.in/yaml.v3"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -24,6 +23,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
@@ -230,12 +230,8 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	p.BodyHeight = height
-	lines := p.bodyLines()
-	p.ReconcileScroll(len(lines), height)
-	end := min(p.Scroll+height, len(lines))
-	visible := lines[p.Scroll:end]
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
+	visible := p.Visible(p.bodyLines(), height)
+	return listpage.Wrap(width, strings.Join(visible, "\n"))
 }
 
 // bodyLines composes the two sections into a flat line list.
