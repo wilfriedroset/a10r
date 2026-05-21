@@ -18,9 +18,8 @@ import (
 // Optional cases (TimeFormatChangedMsg, ClearMarksMsg) treat a
 // nil callback as a fall-through (handled=false) so pages without
 // the corresponding feature — groups and receivers don't render
-// times; groups and receivers don't track marks — preserve their
-// today behaviour without per-page switch scaffolding. See ADR
-// 0018.
+// times; groups and receivers don't track marks — pass through
+// without per-page switch scaffolding. See ADR 0018.
 func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {
 	case app.ScopeChangedMsg:

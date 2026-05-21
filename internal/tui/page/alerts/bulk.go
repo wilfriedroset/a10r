@@ -167,10 +167,8 @@ func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 
 // handleBulkSilenceConfirm consumes a ConfirmResultMsg from the
 // pre-form confirm modal (N≥2 path). Yes pushes the bulk form;
-// No / Cancelled drops the pending state silently. The single-
-// row confirm also lands here when openExpireConfirmUnified-
-// shaped flows ever need it on the alerts page; today there are
-// no such, so the absence of pending state is a plain no-op.
+// No / Cancelled drops the pending state silently. An incoming
+// message with no pending state is a plain no-op.
 func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	pending := p.pendingBulkSilence
 	if len(pending.targets) == 0 {

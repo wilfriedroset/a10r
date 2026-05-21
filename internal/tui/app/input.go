@@ -261,7 +261,7 @@ func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
 }
 
 // handleMouseWheel routes a wheel event. Precedence mirrors
-// handleKey: an open modal (modals ignore the event today), then
+// handleKey: an open modal (modals ignore the event), then
 // an open help overlay (scrolls its content), then prompt /
 // input-capture (suppress so the wheel doesn't grow a phantom
 // motion behind a typing user), then the top page (translate

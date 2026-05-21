@@ -9,21 +9,21 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
-// HandleSidebandMsg consumes the cross-cutting messages every detail
-// page sees today: the universal `app.GoToFirstRowMsg` scroll-home
-// reset, the optional `app.TimeFormatChangedMsg` (only the alert
-// page renders relative times today), and the optional
-// `modal.ResultMsg` (only the alert page opens modals today). Each
+// HandleSidebandMsg consumes the cross-cutting messages every
+// detail page sees: the universal `app.GoToFirstRowMsg` scroll-
+// home reset, the optional `app.TimeFormatChangedMsg` (consumed
+// by pages that render relative times), and the optional
+// `modal.ResultMsg` (consumed by pages that open modals). Each
 // detail page's Update calls this first and short-circuits when
 // handled=true so the main switch stays focused on page-specific
 // routing.
 //
 // Universal cases panic on a nil dependency the same way list
-// pages do — a silently-skipped scroll-home would lose user intent
-// without any observable failure. Optional cases
-// (TimeFormatChangedMsg, ModalResultMsg) treat a nil callback as a
-// fall-through (handled=false) so pages without the corresponding
-// feature preserve their today behaviour without per-page switch
+// pages do — a silently-skipped scroll-home would lose user
+// intent without any observable failure. Optional cases
+// (TimeFormatChangedMsg, ModalResultMsg) treat a nil callback as
+// a fall-through (handled=false) so pages without the
+// corresponding feature pass through without per-page switch
 // scaffolding. See ADR 0022.
 func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {

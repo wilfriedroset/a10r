@@ -6,13 +6,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
-// ApplyDataMsg implements the success-path ritual every polled list
-// page duplicates today. Generic over the resource type R because
-// each page stores a different concrete slice; a free function
-// rather than a method on Base because Go does not allow generic
+// ApplyDataMsg implements the success-path ritual every polled
+// list page shares. Generic over the resource type R because each
+// page stores a different concrete slice; a free function rather
+// than a method on Base because Go does not allow generic
 // methods. Wrong payload type / unknown tenant / paused-without-
-// PausedRefresh leave state unchanged — matching the prior inline
-// `if !ok { return p, nil }` behaviour byte-for-byte. See ADR-0018.
+// PausedRefresh leave state unchanged. See ADR-0018.
 //
 // Panics with a clear message when Base.Recompute is nil — a page
 // that ingests data without re-rendering is a wiring bug.

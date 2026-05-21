@@ -105,13 +105,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.have = true
 		return p, nil
 	case app.ScopeChangedMsg:
-		// The status page polls a single backend today (multi-
-		// backend status is future work), so a global scope switch
-		// only updates the title's `(<scope>)` label — the body
-		// keeps showing whatever the last poll returned. When the
-		// poll plumbing fans out per-backend the existing label
-		// will correctly attribute the body to the new backend
-		// without further changes here.
+		// The status page polls a single backend, so a global
+		// scope switch only updates the title's `(<scope>)`
+		// label — the body keeps showing whatever the last poll
+		// returned.
 		p.tenant = m.Scope
 		return p, nil
 	case app.GoToFirstRowMsg:

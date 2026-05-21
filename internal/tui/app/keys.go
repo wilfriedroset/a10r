@@ -17,10 +17,9 @@ import (
 // rather than baking format choice into the dispatcher.
 //
 // Modifier order is canonical Ctrl > Alt > Shift, e.g.
-// "Ctrl+Shift+S". keybindings.md doesn't ship a binding combining
-// all three today; the order is fixed here so a future combo
-// binding has one true spelling and the dispatcher's Set keys
-// agree with the dispatched names.
+// "Ctrl+Shift+S". The order is fixed here so every binding has
+// one true spelling and the dispatcher's Set keys agree with
+// the dispatched names.
 //
 // The normalizer is intentionally narrow: it handles the keys
 // keybindings.md actually binds. Function keys, mouse, and other
