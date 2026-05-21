@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -87,7 +88,7 @@ func (p *Page) View(width, height int) string {
 		if band != "" {
 			body = band + "\n" + body
 		}
-		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
+		return listpage.Pane(width, height, body)
 	}
 	maxRows := min(height-1-bandLines, len(rows))
 	end := min(p.TopRow()+maxRows, len(rows))
@@ -100,7 +101,7 @@ func (p *Page) View(width, height int) string {
 		r := rows[i]
 		out = append(out, p.renderRow(r, i == p.Index(), width))
 	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+	return listpage.Wrap(width, strings.Join(out, "\n"))
 }
 
 // renderHeader emits the column-title row. NAME / COUNT /

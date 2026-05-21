@@ -15,13 +15,13 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -297,7 +297,7 @@ func (p *Page) View(width, height int) string {
 	if len(p.rows) == 0 {
 		// Render bg-less so the empty pane keeps the terminal
 		// default background that the populated frame uses.
-		return lipgloss.NewStyle().Width(width).Height(height).Render("no backends configured")
+		return listpage.Pane(width, height, "no backends configured")
 	}
 	headerLine := p.renderHeader(width)
 	bodyHeight := max(height-1, 0)
@@ -353,7 +353,7 @@ func (p *Page) View(width, height int) string {
 		}
 		out = append(out, line)
 	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(out, "\n"))
+	return listpage.Wrap(width, strings.Join(out, "\n"))
 }
 
 // renderHeader returns the styled column-title row with active-

@@ -11,12 +11,12 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -165,11 +165,11 @@ func (p *Page) View(width, height int) string {
 	if len(all) == 0 {
 		// Render bg-less so the empty pane keeps the terminal
 		// default background that the populated frame uses.
-		return lipgloss.NewStyle().Width(width).Height(height).Render("status: (no data)")
+		return listpage.Pane(width, height, "status: (no data)")
 	}
 	end := min(p.scroll+height, len(all))
 	visible := all[p.scroll:end]
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(visible, "\n"))
+	return listpage.Wrap(width, strings.Join(visible, "\n"))
 }
 
 // lines returns the rendered status as a flat line slice. The

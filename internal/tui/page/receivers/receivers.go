@@ -372,7 +372,7 @@ func (p *Page) View(width, height int) string {
 		if band != "" {
 			body = band + "\n" + msg
 		}
-		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
+		return listpage.Pane(width, height, body)
 	}
 	maxRows := min(height-1-bandLines, len(p.view))
 	end := min(p.TopRow()+maxRows, len(p.view))
@@ -399,7 +399,7 @@ func (p *Page) View(width, height int) string {
 		}
 		rows = append(rows, row)
 	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(rows, "\n"))
+	return listpage.Wrap(width, strings.Join(rows, "\n"))
 }
 
 // renderHeader emits the column-title strip with the active sort

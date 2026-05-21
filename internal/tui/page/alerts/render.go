@@ -10,6 +10,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -31,7 +32,7 @@ func (p *Page) View(width, height int) string {
 		if band != "" {
 			body = band + "\n" + body
 		}
-		return lipgloss.NewStyle().Width(width).Height(height).Render(body)
+		return listpage.Pane(width, height, body)
 	}
 	headerLine := p.renderHeader(width)
 	rows := p.renderRows(width, height-1-bandLines)
@@ -39,7 +40,7 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		body = band + "\n" + body
 	}
-	return lipgloss.NewStyle().Width(width).Render(body)
+	return listpage.Wrap(width, body)
 }
 
 // emptyState is the body content shown when no alerts match. Two
