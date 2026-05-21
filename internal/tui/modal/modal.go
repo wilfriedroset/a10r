@@ -17,15 +17,8 @@
 // The app shell routes input to whichever modal is open before
 // reaching the dispatcher; this keeps the modal package free of
 // dispatcher coupling and makes each modal trivially unit-testable
-// without booting the keys layer.
-//
-// Why not LayerModal? keybindings.md treats "modals" as the top
-// of the precedence stack. The dispatcher implements that as a
-// real layer (keys.LayerModal), but today the App owns modal
-// routing end-to-end so the layer slot is reserved for a future
-// feature: cross-modal app-level bindings (e.g. a global "panic
-// quit" key the user can press inside any modal). The modal slot
-// is sufficient today; LayerModal stays empty.
+// without booting the keys layer. keys.LayerModal stays empty —
+// the App owns modal routing end-to-end.
 package modal
 
 import (
@@ -38,8 +31,7 @@ import (
 // that the App acts on by setting the field back to nil).
 //
 // View renders into the dimensions the App passes — typically the
-// full body region. Centering / framing is the modal's call so a
-// future picker can claim the full screen if it wants.
+// full body region. Centering / framing is the modal's call.
 type Modal interface {
 	Init() tea.Cmd
 	Update(msg tea.Msg) (Modal, tea.Cmd)
@@ -53,15 +45,14 @@ type Modal interface {
 }
 
 // ResultMsg marks every modal-resolution message. The App-shell's
-// auto-close path switches on this interface so any future modal
-// type whose result implements ResultMsg gets correct routing for
-// free — the App does NOT enumerate the concrete result types
-// directly. Picker, Confirm, and the alert-page silence-picker
-// result types implement it.
+// auto-close path switches on this interface so any modal whose
+// result implements ResultMsg gets correct routing without the App
+// enumerating concrete types. Picker, Confirm, and the alert-page
+// silence-picker result types implement it.
 type ResultMsg interface {
-	// IsModalResult is the marker method. The empty body makes
-	// satisfaction explicit (an unrelated tea.Msg can't accidentally
-	// match) while still letting modals declared in other packages
-	// — like the alert-page silence picker — implement the interface.
+	// IsModalResult marks the type. Explicit method (rather than an
+	// embedded sentinel) lets modals declared in other packages —
+	// like the alert-page silence picker — implement the interface
+	// without importing this one.
 	IsModalResult()
 }

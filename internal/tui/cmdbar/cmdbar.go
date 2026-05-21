@@ -131,25 +131,18 @@ func (r *Resolver) Resolve(input string) (tea.Cmd, error) {
 	}
 }
 
-// Suggest returns the alphabetically-first registered alias that has
-// `prefix` as a prefix, intended for ghost-text completion in the
-// `:` prompt. The empty string signals "no ghost" and is returned
-// when:
+// Suggest returns the alphabetically-first registered alias that
+// has `prefix` as a prefix, for ghost-text completion in the `:`
+// prompt. Returns "" (no ghost) when prefix is empty, no alias
+// starts with prefix, or prefix exactly equals an alias (even
+// when a longer alias shares the prefix — Tab on a typed-in-full
+// alias must not auto-extend past it).
 //
-//  1. prefix is empty (don't pre-fill before the user types).
-//  2. No alias starts with prefix.
-//  3. prefix exactly equals an alias — even when a longer alias
-//     shares the same prefix. A user who deliberately typed a
-//     registered short form shouldn't see Tab-completion auto-
-//     extend past it; pressing Enter resolves the exact alias
-//     as-is.
-//
-// Tie-breaking is alphabetical-first because (a) it's deterministic
-// and trivially testable, (b) it always produces a ghost when any
-// match exists (better discovery than longest-unique-prefix), and
-// (c) it mirrors k9s's "tab accepts first suggestion" affordance the
-// design doc references. Callers compute the visible suffix by
-// trimming the prefix from the returned alias.
+// Alphabetical tie-breaking is deterministic and always yields a
+// ghost when any match exists, unlike longest-unique-prefix.
+// Mirrors k9s's "tab accepts first suggestion" affordance.
+// Callers compute the visible suffix by trimming the prefix from
+// the returned alias.
 func (r *Resolver) Suggest(prefix string) string {
 	if prefix == "" {
 		return ""
