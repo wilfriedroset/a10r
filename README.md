@@ -28,9 +28,17 @@ A modern, fast, intuitive TUI for [Prometheus Alertmanager][am] and
   handling on backspace, fuzzy-matched tenant picker.
 - **External editor** handoff (`Ctrl+E` on a silence) via
   `tea.ExecProcess` honouring `$A10R_EDITOR` / `$EDITOR`.
-- **Three bundled themes**: catppuccin-mocha (default),
-  catppuccin-latte, gruvbox-dark. User skins shadow bundled by
-  basename under `<config-dir>/skins/`.
+- **Twelve bundled skins across two families**: catppuccin
+  (Frappe / Latte / Macchiato / Mocha plus each `-transparent`
+  sibling, synced from `catppuccin/k9s`) and ovhcloud (Dark /
+  Light plus each `-transparent` sibling, authored in-tree from
+  the OVHcloud Design System). Default is `catppuccin-mocha`. Any
+  k9s skin works drop-in; user skins under `<config-dir>/skins/`
+  shadow bundled by basename. See
+  [`docs/design/k9s-skins-dropin.md`](docs/design/k9s-skins-dropin.md)
+  for the schema and
+  [`docs/design/skin-authoring.md`](docs/design/skin-authoring.md)
+  for adding a bundled skin.
 - **Two backends**: vanilla Alertmanager v2 (floor v0.28.1) and
   Grafana Mimir (v2.17+) via prefix + tenant header. Multi-tenant
   fan-out with bounded goroutine pool.

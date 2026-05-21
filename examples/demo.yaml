@@ -32,6 +32,10 @@ theme:
   # Frappe / Latte / Macchiato are the other catppuccin flavours,
   # each with a `-transparent` sibling.
   #
+  # The `ovhcloud-dark` / `ovhcloud-light` family (and their
+  # `-transparent` siblings) is also bundled, derived from the
+  # OVHcloud Design System. a10r is not affiliated with OVHcloud.
+  #
   # Drop any k9s skin into <config-dir>/skins/<name>.yaml and set
   # name: <name> here — a10r consumes k9s skins drop-in. See
   # docs/design/k9s-skins-dropin.md.

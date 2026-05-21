@@ -24,15 +24,19 @@ func isUnsetColor(c color.Color) bool {
 	return c == nil || ok
 }
 
-// bundledNames lists the eight catppuccin variants we ship inside
-// the binary. Test-local because the production code no longer
-// exposes a BundledNames() helper — `make skins-sync` is the
-// system-of-record for what's embedded.
+// bundledNames lists every skin we ship inside the binary: eight
+// catppuccin variants synced from upstream (SOURCES.yaml.sources)
+// plus four ovhcloud variants authored in-tree (SOURCES.yaml.authored).
+// Test-local because the production code no longer exposes a
+// BundledNames() helper — SOURCES.yaml is the system-of-record for
+// what's embedded.
 var bundledNames = []string{
 	"catppuccin-frappe", "catppuccin-frappe-transparent",
 	"catppuccin-latte", "catppuccin-latte-transparent",
 	"catppuccin-macchiato", "catppuccin-macchiato-transparent",
 	"catppuccin-mocha", "catppuccin-mocha-transparent",
+	"ovhcloud-dark", "ovhcloud-dark-transparent",
+	"ovhcloud-light", "ovhcloud-light-transparent",
 }
 
 func TestLoad_EachBundledSkinCompiles(t *testing.T) {
@@ -41,6 +45,10 @@ func TestLoad_EachBundledSkinCompiles(t *testing.T) {
 	for _, name := range bundledNames {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+
+			require.True(t, bundledExists(name),
+				"name %q listed in bundledNames must exist in the embed.FS — "+
+					"add the file under internal/tui/theme/skins/ or remove the entry", name)
 
 			styles, err := (&Loader{}).Load(name)
 			require.NoError(t, err)
@@ -70,14 +78,16 @@ func TestLoad_EachBundledSkinCompiles(t *testing.T) {
 func TestLoad_TransparentVariantsKeepBodyBgUnset(t *testing.T) {
 	t.Parallel()
 
-	// The four `-transparent` variants exist precisely so the
-	// terminal-native bg shows through. If a refactor ever wires
-	// `default` to a real colour, this test catches it.
+	// The `-transparent` variants exist precisely so the terminal-
+	// native bg shows through. If a refactor ever wires `default`
+	// to a real colour, this test catches it.
 	transparent := []string{
 		"catppuccin-frappe-transparent",
 		"catppuccin-latte-transparent",
 		"catppuccin-macchiato-transparent",
 		"catppuccin-mocha-transparent",
+		"ovhcloud-dark-transparent",
+		"ovhcloud-light-transparent",
 	}
 	for _, name := range transparent {
 		t.Run(name, func(t *testing.T) {
