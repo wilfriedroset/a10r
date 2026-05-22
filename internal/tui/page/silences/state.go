@@ -10,21 +10,31 @@ import (
 )
 
 // totalSilences is the unfiltered silence count within the active
-// scope — same role as the alerts page's totalAlerts.
+// scope, capped to restrictIDs when set — same role as the alerts
+// page's totalAlerts.
 func (p *Page) totalSilences() int {
 	n := 0
 	for tenant, sils := range p.byTenant {
 		if !p.ScopeIncludes(tenant) {
 			continue
 		}
-		n += len(sils)
+		if len(p.restrictIDs) == 0 {
+			n += len(sils)
+			continue
+		}
+		for _, s := range sils {
+			if _, ok := p.restrictIDs[s.ID]; ok {
+				n++
+			}
+		}
 	}
 	return n
 }
 
 // recompute rebuilds p.view by walking byTenant, applying the
-// scope and substring filters, then sorting. Cursor is preserved
-// across rebuilds by silence ID when possible — see snapshotFocus.
+// restrictIDs gate (when set), scope, and substring filters, then
+// sorting. Cursor is preserved across rebuilds by silence ID when
+// possible — see snapshotFocus.
 func (p *Page) recompute() {
 	total := 0
 	for tenant, sils := range p.byTenant {
@@ -38,6 +48,11 @@ func (p *Page) recompute() {
 			continue
 		}
 		for _, s := range sils {
+			if len(p.restrictIDs) > 0 {
+				if _, ok := p.restrictIDs[s.ID]; !ok {
+					continue
+				}
+			}
 			flat = append(flat, silenceEntry{
 				s:              s,
 				tenant:         tenant,

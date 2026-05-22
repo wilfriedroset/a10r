@@ -503,7 +503,9 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 // tenant from p.clients in alphabetical order. The user can still
 // change the target via Enter on the Tenant row inside the form.
 // Empty p.clients (no backends configured, or read-only run)
-// flashes a hint instead.
+// flashes a hint instead. When alertLabels is non-empty (restricted
+// silences view) the form's matchers are prefilled from the alert's
+// labels — same prefill as alert-detail `s` (ADR 0035).
 func (p *Page) openNewSilenceForm() tea.Cmd {
 	tenant, _, ok := p.pickWriteTarget()
 	if !ok {
@@ -514,6 +516,10 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	styles := p.styles
 	clients := p.clients
 	submitCtx := p.submitCtx
+	var matchers []backend.Matcher
+	if len(p.alertLabels) > 0 {
+		matchers = silenceform.MatchersFromLabels(p.alertLabels)
+	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
 			Clients:   clients,
@@ -521,6 +527,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 			Styles:    styles,
 			Now:       now,
 			Creator:   creator,
+			Matchers:  matchers,
 			SubmitCtx: submitCtx,
 		})
 	})

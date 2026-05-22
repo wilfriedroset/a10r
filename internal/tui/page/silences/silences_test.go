@@ -2087,3 +2087,140 @@ func TestFilterSilences_EmptyQueryReturnsIndependentSlice(t *testing.T) {
 	require.Equal(t, "a", in[0].s.ID,
 		"mutating filter output must not leak into the caller's slice")
 }
+
+// TestPage_RestrictIDsFiltersView pins that a page built with
+// RestrictIDs only surfaces silences whose ID is in the set.
+func TestPage_RestrictIDsFiltersView(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		RestrictIDs: []string{"sil-b", "sil-c"},
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-b", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-c", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: 3 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	require.Len(t, p.view, 2, "view must contain only the restricted IDs")
+	ids := []string{p.view[0].s.ID, p.view[1].s.ID}
+	require.ElementsMatch(t, []string{"sil-b", "sil-c"}, ids)
+}
+
+// TestPage_RestrictIDsComposedWithFilter pins that the text filter
+// applies within the restricted set, not across the full tenant list.
+func TestPage_RestrictIDsComposedWithFilter(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		RestrictIDs: []string{"sil-b", "sil-c"},
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-b", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-c", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: 3 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	// Filter by creator "bob" within the restricted set.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "bob"})
+	require.Len(t, p.view, 1, "filter within restricted set must narrow further")
+	require.Equal(t, "sil-b", p.view[0].s.ID)
+	// "alice" is not in the restricted set; even though it's in byTenant, filter must not surface it.
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "alice"})
+	require.Empty(t, p.view, "alice is not in RestrictIDs — must not appear even when filter matches")
+}
+
+// TestPage_RestrictIDsTotalSilences pins that totalSilences reflects
+// the restricted count, not the full tenant snapshot.
+func TestPage_RestrictIDsTotalSilences(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		RestrictIDs: []string{"sil-b"},
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-b", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	require.Equal(t, 1, p.totalSilences(), "totalSilences must reflect only the restricted IDs")
+}
+
+// TestPage_AlertNameSubstitutesInTitle pins that Title() shows
+// silences(<alertName>) when AlertName is set alongside RestrictIDs.
+func TestPage_AlertNameSubstitutesInTitle(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		RestrictIDs: []string{"sil-a"},
+		AlertName:   "HighCPU",
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	require.Equal(t, "silences(HighCPU)[1]", p.Title(),
+		"AlertName must substitute for the scope label in Title()")
+}
+
+// TestPage_AlertNameTitleWithFilter pins the [N/M] form when a text
+// filter is active alongside AlertName.
+func TestPage_AlertNameTitleWithFilter(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		RestrictIDs: []string{"sil-a", "sil-b"},
+		AlertName:   "HighCPU",
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-b", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "bob"})
+	require.Equal(t, "silences(HighCPU)[1/2]", p.Title(),
+		"AlertName must substitute with [N/M] form when filter is active")
+}
+
+// TestPage_OpenNewSilenceFormPrefillsMatchersFromAlertLabels pins that
+// `n` on a restricted page seeds the form's matcher list from AlertLabels.
+func TestPage_OpenNewSilenceFormPrefillsMatchersFromAlertLabels(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:      pagetest.Styles(t),
+		Now:         func() time.Time { return fixedNow },
+		Clients:     map[string]silenceform.Client{"prod": fake},
+		Creator:     "wilfried",
+		RestrictIDs: []string{"sil-a"},
+		AlertLabels: map[string]string{"alertname": "HighCPU", "severity": "critical"},
+	})
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	require.NotNil(t, cmd, "n with clients must produce a Cmd")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "n with AlertLabels must push the form, not flash")
+}
+
+// TestPage_RestrictIDsNilPreservesPriorBehaviour confirms that a page
+// without RestrictIDs/AlertName/AlertLabels behaves identically to
+// before the feature was added.
+func TestPage_RestrictIDsNilPreservesPriorBehaviour(t *testing.T) {
+	t.Parallel()
+	p := newPage(t) // no RestrictIDs / AlertName / AlertLabels
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-b", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	require.Len(t, p.view, 2, "no restriction: all silences must appear")
+	require.Equal(t, "silences(all)[2]", p.Title(), "no AlertName: scope label stays")
+}

@@ -182,6 +182,13 @@ type Page struct {
 	// by the silence form and tenantconfig.
 	cancelEditorUpdate context.CancelFunc
 
+	// restrictIDs is the frozen set of silence IDs the page is
+	// allowed to surface. nil when no restriction is active (see
+	// Options.RestrictIDs and ADR 0035).
+	restrictIDs map[string]struct{}
+	alertName   string
+	alertLabels map[string]string
+
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set so the hint strip and help
 	// overlay drop them; handleAction also flashes a hint instead
@@ -262,6 +269,19 @@ type Options struct {
 	// counts toward "is this a multi-tenant fleet?". Empty falls
 	// back to inferring the count from observed DataMsgs.
 	Tenants []string
+	// RestrictIDs, when non-empty, hides every row whose Silence.ID
+	// is not in the set. Frozen at construction time. Used by the
+	// alert-detail S binding to mirror the alert's silenced-by list
+	// — see CONTEXT.md "Restricted silences view" and ADR 0035.
+	RestrictIDs []string
+	// AlertName, when non-empty, substitutes for the scope label in
+	// Title() so the page reads "silences(<alertName>)" instead of
+	// "silences(<scope>)". Only meaningful alongside RestrictIDs.
+	AlertName string
+	// AlertLabels, when non-empty, seeds the silence form's matcher
+	// list on `n` via silenceform.MatchersFromLabels — same prefill
+	// as alert-detail `s`. Only meaningful alongside RestrictIDs.
+	AlertLabels map[string]string
 }
 
 func New(opts Options) *Page {
@@ -303,6 +323,14 @@ func New(opts Options) *Page {
 		editorCtx:       opts.EditorCtx,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
+		alertName:       opts.AlertName,
+		alertLabels:     opts.AlertLabels,
+	}
+	if len(opts.RestrictIDs) > 0 {
+		p.restrictIDs = make(map[string]struct{}, len(opts.RestrictIDs))
+		for _, id := range opts.RestrictIDs {
+			p.restrictIDs[id] = struct{}{}
+		}
 	}
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
@@ -348,15 +376,19 @@ func (p *Page) Close() tea.Cmd {
 func (*Page) Crumb() string { return "silences" }
 
 // Title is k9s-style "silences(<scope>)[<count>]"; flips to the
-// loading affordance during a loading window. Same shape as the
-// alerts page.
+// loading affordance during a loading window. When alertName is set
+// (restricted silences view per ADR 0035) it substitutes for the
+// scope label. Same shape as the alerts page.
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
 		return p.LoadingTitle("silences")
 	}
-	scope := p.Scope
+	scope := p.alertName
 	if scope == "" {
-		scope = scopeAll
+		scope = p.Scope
+		if scope == "" {
+			scope = scopeAll
+		}
 	}
 	total := p.totalSilences()
 	if p.Filter != "" {
