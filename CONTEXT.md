@@ -119,7 +119,47 @@ long as the user looks at it. No decision pending; any non-scroll
 key dismisses. Sole kind: `help.Help`, which does not satisfy
 `modal.Modal` and lives in its own routing slot.
 _Avoid_: help modal (the rejection is the point of ADR 0020),
-keybindings panel.
+keybindings panel (the **hint grid** is the panel zone; this
+overlay is `Help`).
+
+### Top panel
+
+**Top panel**:
+The app-level k9s-style strip rendered above every page. Three
+zones: the **tenant shortcut grid** (left), the **hint grid**
+(middle), and the ASCII logo (right). Stateless: rebuilt every
+frame from the app's tenant list and the top page's `Bindings()`.
+Distinct from the **header** strip (which is a single-line
+three-zone surface used by other pages) and from list-page
+**chrome** (border-frame, page-scoped). Owned by
+`internal/tui/panel/panel.go`'s `RenderTop`.
+_Avoid_: header (different code path, different geometry),
+namespace bar (k9s vocabulary; a10r says tenants).
+
+**Hint grid**:
+The middle zone of the **top panel** — a column-major grid of
+`<key> Description` cells from the active page's `Bindings()`,
+capped at three columns and at logo height (five rows). The
+renderer reflows under width pressure per ADR 0036: drop logo →
+step hint cols down 3 → 2 → 1 → iteratively drop trailing hints
+once 1-col-at-cellW still won't fit, recomputing `cellW` after
+each drop. Pages register hints most-important-first so the
+drop-from-end loses the least-load-bearing verbs; the full
+catalogue stays one `?` away in the **help overlay**.
+_Avoid_: menu (k9s name), key bar (footer vocabulary), hint
+strip (the hint strip is the single-line right-zone of the
+**header** surface, not the grid).
+
+**Tenant shortcut grid**:
+The left zone of the **top panel** — a column-major grid of
+`<N> name` cells, with the synthetic `<0> all` followed by
+`<1>..<9>` for the first nine configured tenants. Renders at
+its natural cols width; the **hint grid** absorbs whatever
+budget is left over (tenants-first priority per ADR 0036)
+because losing a tenant shortcut silently would corrupt the
+operator's multi-tenant model.
+_Avoid_: namespace shortcuts (k9s), tenant picker (the picker
+is the modal kind in **modal overlay**), scope picker.
 
 ### Backend health
 
@@ -215,6 +255,12 @@ _Avoid_: custom theme, override skin.
   **connected**; the **error band** renders only in-scope entries.
 - **Next attempt** reuses the single-unit **relative time** vocabulary
   with `retrying in` as the prefix instead of bare `in`.
+- The **top panel** sits above every list page's **chrome** and
+  reflows under width pressure in this order: drop the ASCII logo
+  → step **hint grid** cols down 3 → 2 → 1 → drop trailing hints
+  from the end. The **tenant shortcut grid** keeps its natural
+  cols width; the **hint grid** absorbs what's left. Panel height
+  is capped at logo height even when the logo itself is dropped.
 - A list page's **chrome** comprises title (with optional **loading
   affordance** prefix), header, footer (with optional **refresh
   countdown**), **error band**, and the empty-pane wrap.

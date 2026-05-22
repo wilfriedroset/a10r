@@ -140,6 +140,153 @@ func TestRenderTop_TenantsExactlyAtCapacity(t *testing.T) {
 		"exactly-full grid must not exceed the logo's row count")
 }
 
+func TestRenderTop_HintGridReflowsCols(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	// Five hints with deliberately wide descriptions so the widest
+	// hint cell is well over 20 cells. With logo dropped and tenants
+	// taking their natural ~14-cell column, choose a width that lets
+	// only 1 hint col fit. Every hint label must still appear (5
+	// hints in 1 col × 5-row rowsBudget == fits exactly).
+	hints := []action.Action{
+		{Key: "s", Description: "silence-this-alert-now"},
+		{Key: "r", Description: "refresh-data-immediately"},
+		{Key: "w", Description: "watch-mode-toggle-live"},
+		{Key: "f", Description: "filter-rows-by-pattern"},
+		{Key: "?", Description: "show-help-overlay-now"},
+	}
+	state := State{
+		Width:   46,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}, {Key: "1", Name: "prod"}},
+		Hints:   hints,
+		Logo:    Logo,
+	}
+	out := RenderTop(state, styles)
+	visible := testutil.StripStyle(out)
+	for _, h := range hints {
+		require.Contains(t, visible, h.Description,
+			"hint %q must remain visible after the reflow drops cols rather than chips",
+			h.Description)
+	}
+	for l := range strings.SplitSeq(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(l), state.Width,
+			"every rendered row must fit within state.Width after width-aware reflow")
+	}
+}
+
+func TestRenderTop_HintGridDropsTrailingWhenWidestOverflows(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	// Three short hints + one freakishly wide trailing hint. The
+	// first three's cells fit at 1 col within availWidth, but the
+	// fourth's cell exceeds availWidth on its own. The reflow must
+	// drop the trailing chip from the end and recompute cellW.
+	hints := []action.Action{
+		{Key: "s", Description: "silence"},
+		{Key: "r", Description: "refresh"},
+		{Key: "w", Description: "watch"},
+		{Key: "?", Description: "ridiculously-long-description-that-cannot-fit"},
+	}
+	state := State{
+		Width:   40,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+		Hints:   hints,
+		Logo:    Logo,
+	}
+	out := RenderTop(state, styles)
+	visible := testutil.StripStyle(out)
+	require.Contains(t, visible, "silence",
+		"the first hint survives the trailing-drop reflow")
+	require.Contains(t, visible, "refresh",
+		"the second hint survives the trailing-drop reflow")
+	require.Contains(t, visible, "watch",
+		"the third hint survives the trailing-drop reflow")
+	require.NotContains(t, visible, "ridiculously-long-description-that-cannot-fit",
+		"the trailing oversize hint must drop entirely rather than overflow")
+	for l := range strings.SplitSeq(out, "\n") {
+		require.LessOrEqual(t, lipgloss.Width(l), state.Width,
+			"every rendered row must fit within state.Width after the trailing drop")
+	}
+}
+
+func TestRenderTop_NeverExceedsStateWidth(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	widths := []int{40, 60, 80, 120, 200}
+	hintCounts := []int{0, 1, 5, 12}
+	tenantCounts := []int{1, 4, 10}
+	for _, w := range widths {
+		for _, hc := range hintCounts {
+			for _, tc := range tenantCounts {
+				hints := make([]action.Action, hc)
+				for i := range hints {
+					hints[i] = action.Action{
+						Key:         fmt.Sprintf("h%d", i),
+						Description: fmt.Sprintf("hint-action-%02d", i),
+					}
+				}
+				tenants := make([]TenantBinding, tc)
+				for i := range tenants {
+					tenants[i] = TenantBinding{
+						Key:  strconv.Itoa(i),
+						Name: fmt.Sprintf("tenant-%02d", i),
+					}
+				}
+				state := State{Width: w, Tenants: tenants, Hints: hints, Logo: Logo}
+				out := RenderTop(state, styles)
+				for l := range strings.SplitSeq(out, "\n") {
+					require.LessOrEqual(t, lipgloss.Width(l), w,
+						"hard-floor invariant: row exceeds state.Width "+
+							"(width=%d hints=%d tenants=%d)", w, hc, tc)
+				}
+			}
+		}
+	}
+}
+
+func TestRenderTop_TenantsKeepNaturalWidth(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	// Four tenants → natural single-col grid of 4 rows. The tenant
+	// cell width must not shrink when hints are squeezed; tenants
+	// take their natural width and hints absorb whatever is left.
+	tenants := []TenantBinding{
+		{Key: "0", Name: "all"},
+		{Key: "1", Name: "production-cluster"},
+		{Key: "2", Name: "staging-cluster"},
+		{Key: "3", Name: "dev-cluster"},
+	}
+	hints := []action.Action{
+		{Key: "s", Description: "silence-this-alert-please"},
+		{Key: "r", Description: "refresh-data-immediately"},
+	}
+	wide := RenderTop(State{Width: 240, Tenants: tenants, Hints: hints, Logo: Logo}, styles)
+	narrow := RenderTop(State{Width: 60, Tenants: tenants, Hints: hints, Logo: Logo}, styles)
+
+	wideTenantW := firstTenantCellWidth(t, wide, tenants[1].Name)
+	narrowTenantW := firstTenantCellWidth(t, narrow, tenants[1].Name)
+	require.Equal(t, wideTenantW, narrowTenantW,
+		"tenant cells must keep their natural width on narrow terminals "+
+			"(hints absorb the squeeze, tenants do not)")
+}
+
+// firstTenantCellWidth scans the rendered top panel for the row that
+// contains needle and returns the visible width up to the gap that
+// follows the tenant column (two consecutive spaces). Used to verify
+// the tenant column keeps its natural width across reflows.
+func firstTenantCellWidth(t *testing.T, rendered, needle string) int {
+	t.Helper()
+	for l := range strings.Lines(testutil.StripStyle(rendered)) {
+		if !strings.Contains(l, needle) {
+			continue
+		}
+		before, _, _ := strings.Cut(l, "  ")
+		return lipgloss.Width(before)
+	}
+	t.Fatalf("rendered output does not contain tenant marker %q", needle)
+	return 0
+}
+
 func TestRenderBody_NarrowSubstitutesPlaceholder(t *testing.T) {
 	t.Parallel()
 

@@ -133,25 +133,33 @@ func RenderTop(state State, styles *theme.Styles) string {
 		rowsBudget = unboundedRows
 	}
 	tenantLines := renderTenantLines(state.Tenants, rowsBudget, styles)
-	hintLines := renderHintLines(state.Hints, rowsBudget, styles)
-
 	tenantW := maxWidth(tenantLines)
-	hintW := maxWidth(hintLines)
 	logoW := maxWidth(logoLines)
 
-	const gap = 2
+	// Hint grid renders against the budget left after tenants and (if
+	// retained) the logo. Logo-drop happens first: if the natural-cols
+	// hint render plus tenants + logo overflows state.Width, the logo
+	// goes. The final hint pass then reflows cols 3→2→1 (and drops
+	// trailing chips as a last resort) to fit availWidth.
+	hintLines := renderHintLines(state.Hints, rowsBudget, unboundedRows, styles)
+	hintW := maxWidth(hintLines)
 	gaps := 0
 	for _, w := range []int{tenantW, hintW, logoW} {
 		if w > 0 {
 			gaps++
 		}
 	}
-	gaps = max(gaps-1, 0) * gap
+	gaps = max(gaps-1, 0) * colGap
 
 	if tenantW+hintW+logoW+gaps > state.Width {
-		// Drop the logo first when the budget is tight.
 		logoLines = nil
 		logoW = 0
+		availWidth := state.Width
+		if tenantW > 0 {
+			availWidth -= tenantW + colGap
+		}
+		hintLines = renderHintLines(state.Hints, rowsBudget, availWidth, styles)
+		hintW = maxWidth(hintLines)
 	}
 
 	rows := max(
@@ -165,49 +173,75 @@ func RenderTop(state State, styles *theme.Styles) string {
 
 	out := make([]string, rows)
 	for i := range rows {
-		tenants := format.PadRight(getLine(tenantLines, i), tenantW)
-		hint := format.PadRight(getLine(hintLines, i), hintW)
-		// Pad every logo line to the SAME logoW so the right-fill
-		// is uniform across rows and the logo block doesn't stagger.
-		// Tint with body.logoColor for k9s parity — the logo lights
-		// up in the skin's accent (mauve in mocha) instead of
-		// rendering as plain body fg.
-		logoLine := getLine(logoLines, i)
-		logoPadded := format.PadRight(logoLine, logoW)
-		logo := logoPadded
-		if logoLine != "" {
-			logo = styles.Body.Logo.Render(logoPadded)
-		}
-
-		// Build left-to-right, inserting a 2-space gap only when
-		// the next column is non-empty.
-		var sb strings.Builder
-		sb.Grow(state.Width + 64)
-		first := true
-		appendCol := func(s string, w int) {
-			if w == 0 {
-				return
-			}
-			if !first {
-				sb.WriteString(strings.Repeat(" ", gap))
-			}
-			sb.WriteString(s)
-			first = false
-		}
-		appendCol(tenants, tenantW)
-		appendCol(hint, hintW)
-		// Logo: right-aligned with whatever fill is left.
-		left := sb.String()
-		var line string
-		if logoW > 0 {
-			rightFill := max(state.Width-lipgloss.Width(left)-logoW, gap)
-			line = left + strings.Repeat(" ", rightFill) + logo
-		} else {
-			line = left
-		}
-		out[i] = format.PadRight(line, state.Width)
+		out[i] = composeRow(rowParts{
+			tenants: getLine(tenantLines, i),
+			hint:    getLine(hintLines, i),
+			logo:    getLine(logoLines, i),
+			tenantW: tenantW,
+			hintW:   hintW,
+			logoW:   logoW,
+			totalW:  state.Width,
+		}, styles)
 	}
 	return strings.Join(out, "\n")
+}
+
+// rowParts bundles the per-row inputs composeRow walks. Grouped
+// in a struct so the signature stays small as the panel grows.
+type rowParts struct {
+	tenants, hint, logo           string
+	tenantW, hintW, logoW, totalW int
+}
+
+// composeRow assembles one panel row: tenants + gap + hint with
+// the logo right-aligned to totalW. The two left columns each
+// get padded to their natural width so multi-row content stays
+// aligned; the logo lines get tinted with body.logoColor for k9s
+// parity. SGRTruncate-then-PadRight is the belt-and-braces hard
+// floor — the width-aware reflow should already keep rows within
+// totalW, but a future regression would otherwise smear an active
+// SGR style into the body chrome.
+func composeRow(p rowParts, styles *theme.Styles) string {
+	tenants := format.PadRight(p.tenants, p.tenantW)
+	hint := format.PadRight(p.hint, p.hintW)
+	logoPadded := format.PadRight(p.logo, p.logoW)
+	logo := logoPadded
+	if p.logo != "" {
+		logo = styles.Body.Logo.Render(logoPadded)
+	}
+	left := joinCols(colGap, colPart{tenants, p.tenantW}, colPart{hint, p.hintW})
+	line := left
+	if p.logoW > 0 {
+		rightFill := max(p.totalW-lipgloss.Width(left)-p.logoW, colGap)
+		line = left + strings.Repeat(" ", rightFill) + logo
+	}
+	return format.PadRight(format.SGRTruncate(line, p.totalW), p.totalW)
+}
+
+// colPart is the (rendered, width) pair joinCols walks. width=0
+// hides the column (no content, no leading gap).
+type colPart struct {
+	s string
+	w int
+}
+
+// joinCols concatenates parts left-to-right with a `gap`-wide
+// inter-column spacer, skipping any zero-width column. Pulled
+// out of composeRow so the per-row builder stays linear.
+func joinCols(gap int, parts ...colPart) string {
+	var sb strings.Builder
+	first := true
+	for _, p := range parts {
+		if p.w == 0 {
+			continue
+		}
+		if !first {
+			sb.WriteString(strings.Repeat(" ", gap))
+		}
+		sb.WriteString(p.s)
+		first = false
+	}
+	return sb.String()
 }
 
 // renderTenantLines formats the tenant-shortcut column as a
@@ -239,6 +273,12 @@ func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.St
 	return gridLines(cells, rowsBudget)
 }
 
+// colGap is the inter-cell spacing inside a grid AND the inter-
+// zone spacing between the three top-panel zones — one source of
+// truth so a future tweak (e.g. dropping to single-space chrome)
+// stays uniform.
+const colGap = 2
+
 // gridLines lays cells out in a column-major grid of up to
 // gridCols columns and rowsBudget rows, padding each cell to the
 // widest cell so the columns line up. Items past the cap are
@@ -249,6 +289,10 @@ func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.St
 // single-column (one item per row, top-down). Otherwise cols is
 // the smallest count that fits (capped at gridCols) and the rows
 // budget fills entirely; remaining items past the capacity drop.
+//
+// Used for the tenant grid (cell-count-driven cols). The hint
+// grid uses gridLinesWithWidth instead so it can reflow under
+// width pressure.
 func gridLines(cells []string, rowsBudget int) []string {
 	if len(cells) == 0 || rowsBudget <= 0 {
 		return nil
@@ -261,13 +305,72 @@ func gridLines(cells []string, rowsBudget int) []string {
 	if capacity := cols * rows; len(cells) > capacity {
 		cells = cells[:capacity]
 	}
-	cellW := 0
-	for _, c := range cells {
-		if w := lipgloss.Width(c); w > cellW {
-			cellW = w
+	return renderGrid(cells, cols, rows, widestCell(cells))
+}
+
+// gridLinesWithWidth picks the largest cols ∈ {1, 2, 3} where
+// `cols*cellW + (cols-1)*colGap ≤ availWidth`, with cellW the
+// widest cell. If even 1 col at cellW won't fit, the trailing
+// cell drops and cellW is recomputed against the remainder —
+// repeated until the residual fits or no cells remain. Capacity
+// past `cols*rowsBudget` clips from the tail the same way
+// gridLines does.
+//
+// Drop-from-end matches the registration-order contract from
+// ADR 0036: pages list bindings most-important-first, so the
+// trailing chip is by construction the most expendable.
+func gridLinesWithWidth(cells []string, rowsBudget, availWidth int) []string {
+	if len(cells) == 0 || rowsBudget <= 0 {
+		return nil
+	}
+	cellW := widestCell(cells)
+	for len(cells) > 0 && cellW > availWidth {
+		cells = cells[:len(cells)-1]
+		cellW = widestCell(cells)
+	}
+	if len(cells) == 0 {
+		return nil
+	}
+	cols := 1
+	for c := gridCols; c > 1; c-- {
+		if c*cellW+(c-1)*colGap <= availWidth {
+			cols = c
+			break
 		}
 	}
-	const colGap = 2
+	rows := rowsBudget
+	if len(cells) <= rowsBudget {
+		// Few enough cells to stack in one column under rowsBudget;
+		// keep them column-major in a single column regardless of the
+		// width-driven cols pick. Mirrors gridLines's "≤ rowsBudget
+		// stays single-col" rule so hint registration order reads top-
+		// down on terminals with room to spare.
+		cols = 1
+		rows = len(cells)
+	}
+	if capacity := cols * rows; len(cells) > capacity {
+		cells = cells[:capacity]
+	}
+	return renderGrid(cells, cols, rows, cellW)
+}
+
+// widestCell returns the maximum lipgloss.Width across cells. 0
+// for an empty slice.
+func widestCell(cells []string) int {
+	w := 0
+	for _, c := range cells {
+		if x := lipgloss.Width(c); x > w {
+			w = x
+		}
+	}
+	return w
+}
+
+// renderGrid lays cells column-major into `cols × rows`, padding
+// each visible cell to cellW so columns line up. Both gridLines
+// and gridLinesWithWidth share this row builder once they've
+// settled on a (cols, rows, cellW) triple.
+func renderGrid(cells []string, cols, rows, cellW int) []string {
 	out := make([]string, rows)
 	rowCap := cols*cellW + (cols-1)*colGap
 	for r := range rows {
@@ -291,9 +394,12 @@ func gridLines(cells []string, rowsBudget int) []string {
 }
 
 // renderHintLines formats the hint column as a k9s-style column-
-// major grid of `<key> Description` cells, capped the same way
-// the tenant shortcuts are. Mirrors k9s's frame.menu zone.
-func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles) []string {
+// major grid of `<key> Description` cells. Mirrors k9s's frame.menu
+// zone. Unlike tenants, hints reflow under width pressure: cols
+// shrink 3 → 2 → 1, and the trailing chip drops once 1-col still
+// won't fit. Pass `unboundedRows` for availWidth to opt out of the
+// width-aware reflow (used for the pre-logo-drop pass).
+func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *theme.Styles) []string {
 	if len(hints) == 0 {
 		return nil
 	}
@@ -315,7 +421,10 @@ func renderHintLines(hints []action.Action, rowsBudget int, styles *theme.Styles
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
 		cells[i] = key + pad + descStyle.Render(a.Description)
 	}
-	return gridLines(cells, rowsBudget)
+	if availWidth >= unboundedRows {
+		return gridLines(cells, rowsBudget)
+	}
+	return gridLinesWithWidth(cells, rowsBudget, availWidth)
 }
 
 // splitNonEmpty splits s on \n, returning nil for empty input.
