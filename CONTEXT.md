@@ -40,6 +40,21 @@ the future → rendered as `in X`.
 A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 → rendered as `X ago`.
 
+**Restricted silences view**:
+The silences list page pushed from the alert-detail `S` binding,
+scoped to the alert's silenced-by IDs (frozen at push time). Same
+chrome, sort, filter, marks, and write verbs as the regular
+silences page; the title substitutes the alert name for the scope
+label (`silences(<alertname>)`) so the operator knows which alert
+they drilled in from. `n` (new) prefills the silence form's
+matchers from the alert's labels, matching alert-detail `s` rather
+than the global silences page's blank `n`. Replaces the retired
+alert-page silence picker (modal) so the multi-silence path lands
+in the same shape the operator already knows.
+_Avoid_: silence picker (retired modal kind), suppression view
+(suppression is the alert-detail body section, not a separate
+page), silenced-by modal (no longer a modal).
+
 ### Label matcher
 
 **Label matcher**:
@@ -93,8 +108,9 @@ _Avoid_: popup, dialog (Western GUI vocabulary), panel (page-level).
 An async-result overlay — the user makes a decision and the result
 returns as a typed message (`ConfirmResultMsg`,
 `PickerResultMsg`, ...). Concrete kinds today: tenant picker,
-yes/no confirm, alert-page silence picker. All satisfy
-`modal.Modal`.
+yes/no confirm. All satisfy `modal.Modal`. The alert-page silence
+picker was retired in favour of the **restricted silences view**
+(see Silence lifecycle).
 _Avoid_: modal dialog, prompt (prompts live in the footer command bar).
 
 **Help overlay**:

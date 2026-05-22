@@ -4,13 +4,12 @@
 implements: `Init`, `Update`, `View`, `Title`, plus a result type
 that satisfies `modal.ResultMsg`. The App shell routes input to
 whichever `modal.Modal` is open before the dispatcher fires, then
-auto-closes on any `ResultMsg`. Three of the four current impls —
-`confirm.Confirm`, `modal.Picker`, and the alert-page
-`silencepicker.SilencePicker` — fit cleanly: each carries a
-`Cancelled` / `Submitted` / `Yes/No` payload that the caller acts
-on. `help.Help` is the fourth, and the only one whose `ResultMsg`
-payload is the empty `HelpClosedMsg{}` marker — there is no
-decision in flight, only a viewer dismissing. The
+auto-closes on any `ResultMsg`. The async-result impls
+(`confirm.Confirm` and `modal.Picker`) fit cleanly: each carries
+a `Cancelled` / `Submitted` / `Yes/No` payload that the caller
+acts on. `help.Help` is the outlier: the only impl whose
+`ResultMsg` payload is the empty `HelpClosedMsg{}` marker — there
+is no decision in flight, only a viewer dismissing. The
 cross-package-coupling cost surfaced as a comment on
 `modal.HelpClosedMsg`: *"Lives in this package (rather than
 internal/tui/help) so that other modals don't need to reach across
@@ -46,13 +45,15 @@ help.Options{...})` instead of the nested `OpenModal(func()
 modal.Modal { return help.New(...) })`.
 
 `modal.Modal` shrinks back to "async result-returning overlay" —
-matching its package doc, which already names only the tenant
-picker and the confirm dialog. The fourth case (silencepicker)
-arrived after the package was written and is consistent with that
-shape. Future overlay decisions have a categorising rule: a
-surface that returns a typed payload satisfies `modal.Modal`; a
-surface that only shows information for as long as the user looks
-at it owns its own slot like `help.Help`.
+matching its package doc, which names the tenant picker and the
+confirm dialog. Future overlay decisions have a categorising
+rule: a surface that returns a typed payload satisfies
+`modal.Modal`; a surface that only shows information for as long
+as the user looks at it owns its own slot like `help.Help`.
+(Historical note: a third impl, `silencepicker.SilencePicker`,
+existed at the time this ADR was written; it was retired in ADR
+0035 once the alert-detail `S` binding moved to pushing the
+silences list page directly.)
 
 Considered and rejected: (a) collapse the help slot into `app.Model`
 state with a `ToggleHelpMsg` and an `App.HandleKey`-style scroll
@@ -61,9 +62,9 @@ slot at the cost of pulling Help's scroll-vs-dismiss key parsing
 into the app shell; trades one interface lie for one fewer slot,
 and the lie is the load-bearing smell; (b) keep Help as a
 `modal.Modal` impl and rename the interface to `Overlay` — papers
-over the asymmetry rather than naming it; `confirm` / `picker` /
-`silencepicker` genuinely *are* async-result surfaces and want
-their `ResultMsg` machinery, `help` genuinely is not; (c) mutually
+over the asymmetry rather than naming it; the async-result impls
+genuinely *are* async-result surfaces and want their `ResultMsg`
+machinery, `help` genuinely is not; (c) mutually
 exclusive at open-time (opening one closes the other) — lets
 `Ctrl+X` over open help silently nuke the overlay, a quiet UX
 regression; (d) `Help > Modal` precedence (help can open over a
