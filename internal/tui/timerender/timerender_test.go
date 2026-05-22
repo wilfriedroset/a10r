@@ -125,6 +125,63 @@ func TestRemaining(t *testing.T) {
 	}
 }
 
+func TestParse(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		in      string
+		want    time.Duration
+		wantErr string
+	}{
+		{name: "7d", in: "7d", want: 7 * 24 * time.Hour},
+		{name: "2w", in: "2w", want: 14 * 24 * time.Hour},
+		{name: "12h", in: "12h", want: 12 * time.Hour},
+		{name: "45m", in: "45m", want: 45 * time.Minute},
+		{name: "2h", in: "2h", want: 2 * time.Hour},
+		{name: "2h30m", in: "2h30m", want: 2*time.Hour + 30*time.Minute},
+		{name: "1w2d3h", in: "1w2d3h", want: 9*24*time.Hour + 3*time.Hour},
+		{name: "1.5h", in: "1.5h", want: 90 * time.Minute},
+		{name: "0.5d", in: "0.5d", want: 12 * time.Hour},
+		{name: "spaces between terms", in: "1w 2d", want: 9 * 24 * time.Hour},
+		{name: "30s", in: "30s", want: 30 * time.Second},
+		{name: "all five units largest-first", in: "1w1d1h1m1s", want: 8*24*time.Hour + time.Hour + time.Minute + time.Second},
+		{name: "leading and trailing whitespace tolerated", in: "  2h  ", want: 2 * time.Hour},
+		{name: "float rounds to nearest second", in: "0.3333h", want: 1200 * time.Second},
+		{name: "sub-second rounds to zero", in: "0.0001s", want: 0},
+
+		{name: "empty", in: "", wantErr: "empty duration"},
+		{name: "whitespace-only", in: "   ", wantErr: "empty duration"},
+		{name: "capital M", in: "1M", wantErr: "M is not a unit; m means minute (1m=60s); use 30d if you meant ~month"},
+		{name: "capital W", in: "1W", wantErr: "W is not a unit; w means week (1w=7d)"},
+		{name: "capital Y", in: "1Y", wantErr: "Y is not a unit; years are not supported; use 365d"},
+		{name: "unknown unit days", in: "7days", wantErr: `unknown unit "days" (use s m h d w)`},
+		{name: "unknown unit x", in: "7x", wantErr: `unknown unit "x" (use s m h d w)`},
+		{name: "unknown unit xyz", in: "7xyz", wantErr: `unknown unit "xyz" (use s m h d w)`},
+		{name: "out of order 2h7d", in: "2h7d", wantErr: "units must be ordered largest-first; rewrite as 7d2h"},
+		{name: "out of order 5m30s2h", in: "5m30s2h", wantErr: "units must be ordered largest-first; rewrite as 2h5m30s"},
+		{name: "repeated unit", in: "1d1d", wantErr: `unit "d" appears more than once`},
+		{name: "no unit number only", in: "7", wantErr: "missing unit; use s m h d w"},
+		{name: "no number before unit dx", in: "dx", wantErr: `expected number before unit "d"`},
+		{name: "no number before unit xh", in: "xh", wantErr: `expected number before unit "x"`},
+		{name: "no number leading h", in: "h", wantErr: `expected number before unit "h"`},
+		{name: "garbage hello", in: "hello", wantErr: "not a duration (try 7d, 2h30m, 1w2d)"},
+		{name: "garbage symbols", in: "@@@", wantErr: "not a duration (try 7d, 2h30m, 1w2d)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := Parse(tc.in)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestNextAttempt(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)

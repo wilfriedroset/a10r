@@ -12,7 +12,11 @@
 package timerender
 
 import (
+	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -121,6 +125,237 @@ func Duration(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
 	}
+}
+
+// parseUnit is one entry in the units table. Each row carries the
+// rank (higher = larger unit) so the ordering check and the
+// largest-first re-render share a single source of truth.
+type parseUnit struct {
+	letter byte
+	rank   int
+	d      time.Duration
+}
+
+// parseUnits lists the Duration shorthand units largest-first so
+// the suggested rewrite for an out-of-order input is composed by
+// re-emitting parsed terms in this order.
+var parseUnits = []parseUnit{
+	{'w', 5, 7 * 24 * time.Hour},
+	{'d', 4, 24 * time.Hour},
+	{'h', 3, time.Hour},
+	{'m', 2, time.Minute},
+	{'s', 1, time.Second},
+}
+
+// Parse decodes a Duration shorthand string (e.g. `7d`, `1w2d3h`,
+// `1.5h`) into a time.Duration. The grammar accepts one or more
+// `<float><unit>` terms with units `s m h d w` largest-first, each
+// unit at most once, with optional whitespace between terms. The
+// returned duration is rounded to the nearest second so the
+// silence backend never sees sub-second junk. See ADR 0034 and
+// CONTEXT.md "Duration shorthand" for the canonical grammar.
+//
+// Errors are tailored: capital `M`/`W`/`Y` get a named rejection
+// (a single-letter `m` for "month" is the documented footgun);
+// an out-of-order input gets a "rewrite as <largest-first>" hint;
+// a unit-less digit gets "missing unit". Callers wrap the message
+// with whatever field prefix is appropriate (the silence form
+// prepends `ends: `).
+func Parse(in string) (time.Duration, error) {
+	s := strings.TrimSpace(in)
+	if s == "" {
+		return 0, errors.New("empty duration")
+	}
+	var terms []parseTerm
+	pos := 0
+	for pos < len(s) {
+		if isSpace(s[pos]) {
+			pos++
+			continue
+		}
+		t, next, err := parseOneTerm(s, pos, terms)
+		if err != nil {
+			return 0, err
+		}
+		terms = append(terms, t)
+		pos = next
+	}
+	if len(terms) == 0 {
+		return 0, garbageError()
+	}
+	if err := checkOrder(terms); err != nil {
+		return 0, err
+	}
+	var total time.Duration
+	for _, t := range terms {
+		total += t.ns
+	}
+	return total.Round(time.Second), nil
+}
+
+// parseTerm is one `<float><unit>` pair the term parser produces.
+// `ratio` survives alongside `ns` so the out-of-order rewrite hint
+// can re-emit the term in its source form (integer or decimal).
+type parseTerm struct {
+	unit  parseUnit
+	ns    time.Duration
+	ratio float64
+}
+
+// parseOneTerm extracts the next `<float><unit>` term from s
+// starting at pos. Returns the parsed term, the position the outer
+// loop should continue from, and any tailored error. The seen
+// slice is consulted so a repeated unit fails before the float
+// parses.
+func parseOneTerm(s string, pos int, seen []parseTerm) (parseTerm, int, error) {
+	numStr, alphaRun, next, err := splitTerm(s, pos)
+	if err != nil {
+		return parseTerm{}, 0, err
+	}
+	unit, err := resolveUnit(numStr, alphaRun)
+	if err != nil {
+		return parseTerm{}, 0, err
+	}
+	for _, t := range seen {
+		if t.unit.letter == unit.letter {
+			return parseTerm{}, 0, fmt.Errorf("unit %q appears more than once", string(unit.letter))
+		}
+	}
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return parseTerm{}, 0, fmt.Errorf("expected number before unit %q", string(unit.letter))
+	}
+	return parseTerm{
+		unit:  unit,
+		ns:    time.Duration(val * float64(unit.d)),
+		ratio: val,
+	}, next, nil
+}
+
+// splitTerm walks the next `<digits-and-dot><alpha>` slice out of
+// s starting at pos. Returns the numeric prefix (possibly empty),
+// the alphabetic run, the new position, and any structural error
+// (no-unit-after-digits, garbage with no recognisable shape).
+func splitTerm(s string, pos int) (numStr, alphaRun string, next int, err error) {
+	numStart := pos
+	for pos < len(s) && (isDigit(s[pos]) || s[pos] == '.') {
+		pos++
+	}
+	numStr = s[numStart:pos]
+	if pos >= len(s) {
+		if numStr == "" {
+			return "", "", 0, garbageError()
+		}
+		return "", "", 0, errors.New("missing unit; use s m h d w")
+	}
+	alphaStart := pos
+	for pos < len(s) && isAlpha(s[pos]) {
+		pos++
+	}
+	alphaRun = s[alphaStart:pos]
+	if alphaRun == "" {
+		return "", "", 0, garbageError()
+	}
+	return numStr, alphaRun, pos, nil
+}
+
+// resolveUnit maps the alphabetic run to a unit, dispatching the
+// tailored capital / unknown-unit / missing-number errors. The
+// number prefix is read here because the missing-number branch
+// shares its remediation message with the unknown-unit branch
+// only for short alphabetic runs (`dx`, `xh`); longer runs read
+// as English garbage and short-circuit through garbageError.
+func resolveUnit(numStr, alphaRun string) (parseUnit, error) {
+	if msg, ok := capitalErr(alphaRun[0]); ok {
+		return parseUnit{}, errors.New(msg)
+	}
+	if numStr == "" {
+		if len(alphaRun) > 2 {
+			return parseUnit{}, garbageError()
+		}
+		return parseUnit{}, fmt.Errorf("expected number before unit %q", string(alphaRun[0]))
+	}
+	if len(alphaRun) != 1 {
+		return parseUnit{}, fmt.Errorf("unknown unit %q (use s m h d w)", alphaRun)
+	}
+	unit, ok := lookupUnit(alphaRun[0])
+	if !ok {
+		return parseUnit{}, fmt.Errorf("unknown unit %q (use s m h d w)", alphaRun)
+	}
+	return unit, nil
+}
+
+// checkOrder reports an out-of-order term sequence by composing the
+// suggested rewrite — terms re-sorted largest-first and rendered
+// back to shorthand. Repeated-unit inputs are caught earlier in
+// parseOneTerm, so any non-strictly-decreasing rank here is order
+// alone.
+func checkOrder(terms []parseTerm) error {
+	for i := 1; i < len(terms); i++ {
+		if terms[i].unit.rank < terms[i-1].unit.rank {
+			continue
+		}
+		sorted := append([]parseTerm(nil), terms...)
+		sort.SliceStable(sorted, func(a, b int) bool {
+			return sorted[a].unit.rank > sorted[b].unit.rank
+		})
+		var b strings.Builder
+		for _, t := range sorted {
+			b.WriteString(formatRatio(t.ratio))
+			b.WriteByte(t.unit.letter)
+		}
+		return fmt.Errorf("units must be ordered largest-first; rewrite as %s", b.String())
+	}
+	return nil
+}
+
+func isSpace(b byte) bool { return b == ' ' || b == '\t' }
+
+// formatRatio renders a parsed term's float coefficient back into
+// its source form for the out-of-order rewrite hint. Integer values
+// render without a trailing `.0`; fractions render with the minimum
+// decimals strconv can manage.
+func formatRatio(v float64) string {
+	if v == float64(int64(v)) {
+		return strconv.FormatInt(int64(v), 10)
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+func isAlpha(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// capitalErr names the three capitals operators most commonly
+// confuse with units. `M` is the documented footgun (cron / human
+// English "month" vs. the `m`-as-minute grammar); `W` and `Y` are
+// covered by symmetry so the rejection is uniform across the
+// "obvious" capital attempts.
+func capitalErr(b byte) (string, bool) {
+	switch b {
+	case 'M':
+		return "M is not a unit; m means minute (1m=60s); use 30d if you meant ~month", true
+	case 'W':
+		return "W is not a unit; w means week (1w=7d)", true
+	case 'Y':
+		return "Y is not a unit; years are not supported; use 365d", true
+	}
+	return "", false
+}
+
+func lookupUnit(b byte) (parseUnit, bool) {
+	for _, u := range parseUnits {
+		if u.letter == b {
+			return u, true
+		}
+	}
+	return parseUnit{}, false
+}
+
+func garbageError() error {
+	return errors.New("not a duration (try 7d, 2h30m, 1w2d)")
 }
 
 // relative renders the duration between now and ts as a compact
