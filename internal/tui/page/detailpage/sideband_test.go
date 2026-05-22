@@ -67,9 +67,8 @@ func TestBase_HandleSidebandMsg_TimeFormatUnwiredFallsThrough(t *testing.T) {
 }
 
 // fakeModalResult is a stand-in modal.ResultMsg for the sideband
-// dispatch test — concrete results (ConfirmResultMsg, alert's
-// SilenceSelectedMsg) all satisfy modal.ResultMsg via a single
-// marker method.
+// dispatch test — concrete results (e.g. ConfirmResultMsg) all
+// satisfy modal.ResultMsg via a single marker method.
 type fakeModalResult struct{}
 
 func (fakeModalResult) IsModalResult() {}

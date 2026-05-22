@@ -250,6 +250,9 @@ func (p *Page) toggleMarkAtCursor() {
 // Clients / Creator are threaded so the detail page's `s` push
 // hits the same backend the alerts list `s` would. Same map by
 // reference — pages share the wiring layer's authoritative copy.
+// EditorResolver / EditorCtx and the bulk / submit ctx fields are
+// forwarded so the restricted silences page pushed by `S` (N>1
+// silenced-by IDs, ADR 0035) has the full write surface.
 func (p *Page) drillToDetail() tea.Cmd {
 	if p.Index() >= len(p.view) {
 		return footer.ShowFlash(footer.FlashInfo, "no alert under the cursor")
@@ -261,16 +264,28 @@ func (p *Page) drillToDetail() tea.Cmd {
 	creator := p.creator
 	tf := p.timeFormat
 	readOnly := p.readOnly
+	bulkConcurrency := p.bulkConcurrency
+	logger := p.logger
+	bulkCtx := p.bulkCtx
+	submitCtx := p.submitCtx
+	editorResolver := p.editorResolver
+	editorCtx := p.editorCtx
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:      entry.a,
-			Tenant:     entry.tenant,
-			Styles:     styles,
-			Now:        now,
-			Clients:    clients,
-			Creator:    creator,
-			TimeFormat: tf,
-			ReadOnly:   readOnly,
+			Alert:           entry.a,
+			Tenant:          entry.tenant,
+			Styles:          styles,
+			Now:             now,
+			Clients:         clients,
+			Creator:         creator,
+			TimeFormat:      tf,
+			ReadOnly:        readOnly,
+			BulkConcurrency: bulkConcurrency,
+			Logger:          logger,
+			BulkCtx:         bulkCtx,
+			SubmitCtx:       submitCtx,
+			EditorResolver:  editorResolver,
+			EditorCtx:       editorCtx,
 		})
 	})
 }

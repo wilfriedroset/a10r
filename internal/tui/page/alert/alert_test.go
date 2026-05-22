@@ -780,14 +780,15 @@ func TestPage_OpenSilenceCacheMissFlashesInfo(t *testing.T) {
 		"hint must point the user at the silences page so the affordance reads consistently with the rendered degraded row")
 }
 
-func TestPage_OpenSilenceN2OpensModal(t *testing.T) {
+// TestPage_OpenSilenceN2PushesRestrictedSilencesPage pins the ADR 0035
+// decision: when the alert has two or more silenced-by IDs, `S` must
+// push the silences list page restricted to those IDs — not open the
+// retired modal picker. pushPageMsg is unexported, so we assert on the
+// type name. The stronger type-name assertion catches a regression that
+// would swap branches: "openModalMsg" here would mean the retired modal
+// path re-emerged; a flash would mean the N>1 path silently became a no-op.
+func TestPage_OpenSilenceN2PushesRestrictedSilencesPage(t *testing.T) {
 	t.Parallel()
-	// Two silenced-by entries: `S` opens the disambiguation modal
-	// (app.OpenModal emits an openModalMsg the App handles).
-	// openModalMsg is unexported, so we assert on the type name.
-	// Pinning the exact emitter type catches a regression that
-	// swaps the N=1 / N>1 branches — the looser "not flash" check
-	// would have happily accepted a misrouted pushPageMsg.
 	a := suppressedSample([]string{"sil-1", "sil-2"}, nil, nil)
 	p := New(Options{
 		Alert:  a,
@@ -801,8 +802,10 @@ func TestPage_OpenSilenceN2OpensModal(t *testing.T) {
 	}))
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
 	require.NotNil(t, cmd)
-	require.Contains(t, fmt.Sprintf("%T", cmd()), "openModalMsg",
-		"N>1 must open the disambiguation modal, not push or flash")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "N>1 must not flash")
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "pushPageMsg",
+		"N>1 must push the restricted silences page (ADR 0035), not open a modal")
 }
 
 func TestPage_SilencedByNarrowWidthDropsEmDashSeparator(t *testing.T) {

@@ -36,6 +36,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -143,6 +144,14 @@ type Options struct {
 	// page-pop / Close cascade. nil falls back to
 	// context.Background() inside the form.
 	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+	// EditorResolver handles the `Ctrl+E` round-trip on the
+	// restricted silences page pushed by `S` from the alert-detail
+	// page drilled into from this page. Matches silences.Options.EditorResolver.
+	EditorResolver edit.Resolver
+	// EditorCtx is the parent ctx the editor subprocess and bulk-
+	// expire fanout inherit on the restricted silences page pushed
+	// by `S` from alert-detail. Matches silences.Options.EditorCtx.
+	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
 	// InitialStateFilter pre-seeds the `t` cycle's state filter so a
 	// `:alerts --state suppressed` (typed at the prompt or via a user
 	// alias's expansion) lands on the suppressed-only view. Empty
@@ -258,6 +267,12 @@ type Page struct {
 	// submitCtx parents the silence form's submit ctx. See
 	// Options.SubmitCtx for the rationale.
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+
+	// editorResolver and editorCtx are forwarded to the alert-detail
+	// page so it can pass them to the restricted silences page pushed
+	// by `S` when the alert has N>1 silenced-by IDs (ADR 0035).
+	editorResolver edit.Resolver
+	editorCtx      context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
 }
 
 func New(opts Options) *Page {
@@ -299,6 +314,8 @@ func New(opts Options) *Page {
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
 		stateFilter:     opts.InitialStateFilter,
+		editorResolver:  opts.EditorResolver,
+		editorCtx:       opts.EditorCtx,
 	}
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }

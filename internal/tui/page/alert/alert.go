@@ -8,6 +8,7 @@ package alert
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -22,12 +23,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
+	silencespage "github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -71,6 +73,29 @@ type Options struct {
 	// ReadOnly hides Dangerous bindings (`s`) from the hint strip /
 	// help overlay and turns the keystroke into a flash hint.
 	ReadOnly bool
+	// EditorResolver handles the `Ctrl+E` round-trip on the restricted
+	// silences page pushed by `S` (N>1). Zero value flashes a hint.
+	// Matches silences.Options.EditorResolver.
+	EditorResolver edit.Resolver
+	// EditorCtx is the parent ctx the editor subprocess and bulk-
+	// expire fanout inherit on the pushed silences page.
+	// nil falls back to context.Background(). Matches silences.Options.EditorCtx.
+	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
+	// BulkConcurrency caps the per-tenant worker pool for bulk
+	// operations on the restricted silences page. Zero resolves to
+	// the config default inside silences.New. Matches silences.Options.BulkConcurrency.
+	BulkConcurrency int
+	// Logger receives per-failure detail from bulk operations on the
+	// pushed silences page. Nil suppresses logging. Matches silences.Options.Logger.
+	Logger *slog.Logger
+	// BulkCtx is the parent ctx the bulk-expire fanout inherits on
+	// the pushed silences page. nil falls back to context.Background().
+	// Matches silences.Options.BulkCtx.
+	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	// SubmitCtx is the parent ctx the silence form's submit ctx
+	// derives from on the pushed silences page. nil falls back to
+	// context.Background(). Matches silences.Options.SubmitCtx.
+	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 // Page is the alert-detail view. Implements app.Page.
@@ -122,6 +147,16 @@ type Page struct {
 	// across pushes) so a fresh drill-in always opens structured —
 	// the structured view is the more legible default for triage.
 	rawYAML bool
+
+	// editorResolver, editorCtx, bulkConcurrency, logger, bulkCtx,
+	// submitCtx are forwarded to the restricted silences page pushed
+	// by `S` when the alert has N>1 silenced-by IDs (ADR 0035).
+	editorResolver  edit.Resolver
+	editorCtx       context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
+	bulkConcurrency int
+	logger          *slog.Logger
+	bulkCtx         context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	submitCtx       context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 func New(opts Options) *Page {
@@ -130,22 +165,27 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	p := &Page{
-		Base:       &detailpage.Base{},
-		a:          opts.Alert,
-		silencedBy: dedupStrings(opts.Alert.SilencedBy),
-		tenant:     opts.Tenant,
-		styles:     opts.Styles,
-		clip:       opts.Clipboard,
-		browser:    opts.Browser,
-		now:        now,
-		clients:    opts.Clients,
-		creator:    opts.Creator,
-		timeFormat: opts.TimeFormat,
-		silences:   map[string]backend.Silence{},
-		readOnly:   opts.ReadOnly,
+		Base:            &detailpage.Base{},
+		a:               opts.Alert,
+		silencedBy:      dedupStrings(opts.Alert.SilencedBy),
+		tenant:          opts.Tenant,
+		styles:          opts.Styles,
+		clip:            opts.Clipboard,
+		browser:         opts.Browser,
+		now:             now,
+		clients:         opts.Clients,
+		creator:         opts.Creator,
+		timeFormat:      opts.TimeFormat,
+		silences:        map[string]backend.Silence{},
+		readOnly:        opts.ReadOnly,
+		editorResolver:  opts.EditorResolver,
+		editorCtx:       opts.EditorCtx,
+		bulkConcurrency: opts.BulkConcurrency,
+		logger:          opts.Logger,
+		bulkCtx:         opts.BulkCtx,
+		submitCtx:       opts.SubmitCtx,
 	}
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
-	p.OnModalResult = p.handleModalResult
 	return p
 }
 
@@ -180,7 +220,7 @@ func (p *Page) Title() string {
 func (p *Page) Bindings() []action.Action {
 	out := []action.Action{
 		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
-		{Key: "S", Description: "open silence", View: "alert"},
+		{Key: "S", Description: "open silences", View: "alert"},
 		{Key: "y", Description: "yaml", View: "alert"},
 		{Key: "c", Description: "copy fp", View: "alert"},
 		{Key: "o", Description: "open URL", View: "alert"},
@@ -247,22 +287,6 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	}
 	p.HandleScrollKey(key)
 	return p, nil
-}
-
-// handleModalResult is the OnModalResult callback wired into
-// Base.OnModalResult at construction. The silence-picker modal
-// returns SilenceSelectedMsg / SilenceCancelledMsg via the typed
-// wrapper in silencepicker.go; everything else falls through to
-// the page's main switch (handled=false) so a sibling page's modal
-// result that incidentally reached us cannot be silently swallowed.
-func (p *Page) handleModalResult(m modal.ResultMsg) (bool, tea.Cmd) {
-	switch v := m.(type) {
-	case SilenceSelectedMsg:
-		return true, p.openSilenceDetail(v.ID)
-	case SilenceCancelledMsg:
-		return true, nil
-	}
-	return false, nil
 }
 
 // ingestSilences caches the silences poll snapshot for p.tenant.
@@ -570,26 +594,6 @@ func (p *Page) silencedByRow(id string, width int) string {
 	return prefix + sep + clip
 }
 
-// silencePickerLine renders the unclipped per-silence summary used
-// by the disambiguation modal. The modal's own width handling
-// truncates if needed; we deliberately don't clip here so the
-// picker shows the full comment when there's room. Whitespace-
-// only comments drop the "  — " separator for the same reason
-// silencedByRow does — a row that ends in a dangling em-dash
-// reads as a render bug.
-func (p *Page) silencePickerLine(id string) string {
-	s, ok := p.silences[id]
-	if !ok {
-		return id + "  (silence not in snapshot)"
-	}
-	line := id + "  " + p.expiryField(s.EndsAt) + "  by " + s.CreatedBy
-	comment := strings.TrimSpace(collapseFirstLine(s.Comment))
-	if comment != "" {
-		line += "  — " + comment
-	}
-	return line
-}
-
 // expiryField renders the "<label> <value>" middle column. Label
 // flips with the app-global TimeFormat — "expires in" reads as a
 // duration, "ends" reads as a wall-clock — so the row stays
@@ -639,25 +643,12 @@ func clipComment(s string, budget int) string {
 	return s[:cut] + "…"
 }
 
-// collapseFirstLine returns the substring of s up to the first
-// newline. Used by the picker line where width clipping is the
-// modal's responsibility but the multi-line collapse is still ours
-// (literal "\n" runs would render as box-drawing artefacts inside
-// the picker's plain-text body).
-func collapseFirstLine(s string) string {
-	first, _, _ := strings.Cut(s, "\n")
-	return first
-}
-
-// openSilencedByDetail handles the `S` binding. No silenced-by
-// entries (defensive: an active alert with `S` pressed, or a
-// non-conforming proxy) flashes a soft Info hint so the binding
-// reads as "no-op with explanation" rather than dead. One entry
-// drills directly into silence detail; many open the typed-wrapper
-// modal so the user picks one. Cache miss on direct push falls
-// through to a flash via openSilenceDetail. The list walked here
-// is the constructor-deduped p.silencedBy so the picker matches
-// what the body shows.
+// openSilencedByDetail handles the `S` binding. Zero silenced-by
+// entries flashes a soft Info hint. One entry pushes silence-detail
+// directly. Two or more push the silences list page restricted to
+// the alert's silenced-by IDs (ADR 0035): same chrome, sort, filter,
+// marks, and write verbs as the regular silences page, with the title
+// reading silences(<alertname>) to signal the restriction scope.
 func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no silences attached to this alert")
@@ -665,15 +656,41 @@ func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 1 {
 		return p.openSilenceDetail(p.silencedBy[0])
 	}
-	rows := make([]silencePickerRow, 0, len(p.silencedBy))
-	for _, id := range p.silencedBy {
-		rows = append(rows, silencePickerRow{
-			id:   id,
-			line: p.silencePickerLine(id),
+	silencedBy := p.silencedBy
+	styles := p.styles
+	now := p.now
+	clients := p.clients
+	creator := p.creator
+	editorResolver := p.editorResolver
+	timeFormat := p.timeFormat
+	bulkConcurrency := p.bulkConcurrency
+	logger := p.logger
+	readOnly := p.readOnly
+	editorCtx := p.editorCtx
+	bulkCtx := p.bulkCtx
+	submitCtx := p.submitCtx
+	tenant := p.tenant
+	alertName := p.a.Labels["alertname"]
+	labels := p.a.Labels
+	return app.PushPage(func() app.Page {
+		return silencespage.New(silencespage.Options{
+			Styles:          styles,
+			Now:             now,
+			Clients:         clients,
+			Creator:         creator,
+			EditorResolver:  editorResolver,
+			TimeFormat:      timeFormat,
+			BulkConcurrency: bulkConcurrency,
+			Logger:          logger,
+			ReadOnly:        readOnly,
+			EditorCtx:       editorCtx,
+			BulkCtx:         bulkCtx,
+			SubmitCtx:       submitCtx,
+			Tenants:         []string{tenant},
+			RestrictIDs:     silencedBy,
+			AlertName:       alertName,
+			AlertLabels:     labels,
 		})
-	}
-	return app.OpenModal(func() modal.Modal {
-		return newSilencePicker(rows)
 	})
 }
 

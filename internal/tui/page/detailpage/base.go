@@ -54,10 +54,10 @@ type Base struct {
 	// OnModalResult is invoked when a modal.ResultMsg arrives. The
 	// callback returns handled+cmd in the same shape as
 	// HandleSidebandMsg so a page that consumes a typed result (e.g.
-	// alert's SilencedBy picker emits SilenceSelectedMsg) can route
-	// it without re-implementing the marker-interface check. Nil on
-	// detail pages that never open modals (silence, tenantconfig);
-	// HandleSidebandMsg returns handled=false in that case. See ADR-0022.
+	// a future page that opens a yes/no confirm) can route it without
+	// re-implementing the marker-interface check. Nil on detail pages
+	// that never open modals; HandleSidebandMsg returns handled=false
+	// in that case. See ADR-0022.
 	OnModalResult func(modal.ResultMsg) (handled bool, cmd tea.Cmd)
 
 	// InitCmd is the optional periodic-refresh / lazy-fetch Cmd a
