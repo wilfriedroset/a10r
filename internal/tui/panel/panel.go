@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package panel renders the k9s-style top panel and bordered
-// body. The top panel is a 3-column row: labelled info on the
-// left, action shortcuts in the middle, ASCII logo on the right.
-// The body wrapper draws a single-line border with the page
-// title centred in the top edge.
+// body. The top panel is a 3-column row: tenant shortcuts on the
+// left, page action shortcuts in the middle, ASCII logo on the
+// right. The body wrapper draws a single-line border with the
+// page title centred in the top edge.
 package panel
 
 import (
@@ -65,14 +65,6 @@ func styleTitle(raw string, styles *theme.Styles) string {
 	return b.String()
 }
 
-// InfoLine is one labelled row in the panel's info column. K9s
-// uses these for context / cluster / user / version / cpu / mem;
-// a10r uses tenant / backend / version / count.
-type InfoLine struct {
-	Label string
-	Value string
-}
-
 // TenantBinding is one entry in the panel's tenant-shortcut
 // column. K9s shows numeric shortcuts for the configured
 // namespaces (`<0> all`, `<1> ns-1`, …); a10r mirrors the
@@ -88,10 +80,8 @@ type TenantBinding struct {
 // active page's metadata.
 type State struct {
 	Width int
-	// Info is the labelled column on the left.
-	Info []InfoLine
-	// Tenants are the numeric tenant shortcuts surfaced in their
-	// own column. Empty hides the column.
+	// Tenants are the numeric tenant shortcuts surfaced in the
+	// leftmost column. Empty hides the column.
 	Tenants []TenantBinding
 	// Hints are the page's bindings rendered as a `<key> Action`
 	// table in the middle. Auto-built from the active page's
@@ -117,9 +107,9 @@ const unboundedRows = 1 << 30
 // row-by-row so multi-line columns (the logo in particular)
 // align consistently across every row. Layout:
 //
-//	┌─────────┬──────────────┬───────────────┬──────────┐
-//	│ info    │ tenants      │ hints         │ logo     │
-//	└─────────┴──────────────┴───────────────┴──────────┘
+//	┌──────────────┬───────────────┬──────────┐
+//	│ tenants      │ hints         │ logo     │
+//	└──────────────┴───────────────┴──────────┘
 //
 // The tenants column appears only when state.Tenants is non-
 // empty; the logo drops first when the width budget is tight.
@@ -142,32 +132,29 @@ func RenderTop(state State, styles *theme.Styles) string {
 		// passes Logo == "".
 		rowsBudget = unboundedRows
 	}
-	infoLines := clipLines(renderInfoLines(state.Info, styles), rowsBudget)
 	tenantLines := renderTenantLines(state.Tenants, rowsBudget, styles)
 	hintLines := renderHintLines(state.Hints, rowsBudget, styles)
 
-	infoW := maxWidth(infoLines)
 	tenantW := maxWidth(tenantLines)
 	hintW := maxWidth(hintLines)
 	logoW := maxWidth(logoLines)
 
 	const gap = 2
 	gaps := 0
-	for _, w := range []int{infoW, tenantW, hintW, logoW} {
+	for _, w := range []int{tenantW, hintW, logoW} {
 		if w > 0 {
 			gaps++
 		}
 	}
 	gaps = max(gaps-1, 0) * gap
 
-	if infoW+tenantW+hintW+logoW+gaps > state.Width {
+	if tenantW+hintW+logoW+gaps > state.Width {
 		// Drop the logo first when the budget is tight.
 		logoLines = nil
 		logoW = 0
 	}
 
 	rows := max(
-		len(infoLines),
 		len(tenantLines),
 		len(hintLines),
 		len(logoLines),
@@ -178,7 +165,6 @@ func RenderTop(state State, styles *theme.Styles) string {
 
 	out := make([]string, rows)
 	for i := range rows {
-		info := format.PadRight(getLine(infoLines, i), infoW)
 		tenants := format.PadRight(getLine(tenantLines, i), tenantW)
 		hint := format.PadRight(getLine(hintLines, i), hintW)
 		// Pad every logo line to the SAME logoW so the right-fill
@@ -208,7 +194,6 @@ func RenderTop(state State, styles *theme.Styles) string {
 			sb.WriteString(s)
 			first = false
 		}
-		appendCol(info, infoW)
 		appendCol(tenants, tenantW)
 		appendCol(hint, hintW)
 		// Logo: right-aligned with whatever fill is left.
@@ -301,43 +286,6 @@ func gridLines(cells []string, rowsBudget int) []string {
 			sb.WriteString(strings.Repeat(" ", cellW-lipgloss.Width(cell)))
 		}
 		out[r] = sb.String()
-	}
-	return out
-}
-
-// clipLines returns lines truncated to at most maxRows entries.
-// Used to keep the labelled info column from pushing the panel
-// past the logo's height. nil-safe.
-func clipLines(lines []string, maxRows int) []string {
-	if len(lines) <= maxRows {
-		return lines
-	}
-	return lines[:maxRows]
-}
-
-// renderInfoLines splits the info column into per-row lines, with
-// labels right-aligned to a common width so the values line up.
-func renderInfoLines(lines []InfoLine, styles *theme.Styles) []string {
-	if len(lines) == 0 {
-		return nil
-	}
-	maxLabel := 0
-	for _, l := range lines {
-		if w := lipgloss.Width(l.Label); w > maxLabel {
-			maxLabel = w
-		}
-	}
-	out := make([]string, len(lines))
-	labelStyle := styles.Hint.DefaultFg
-	// Values use the body's foreground only — same fg-only
-	// treatment the labels get above. Calling Body.Default would
-	// paint the body's bg behind the value, which renders as a
-	// stripe of mismatched colour against the surrounding empty
-	// cells in the panel zone.
-	valueStyle := styles.Body.DefaultFg
-	for i, l := range lines {
-		pad := strings.Repeat(" ", maxLabel-lipgloss.Width(l.Label))
-		out[i] = labelStyle.Render(l.Label+":") + pad + " " + valueStyle.Render(l.Value)
 	}
 	return out
 }

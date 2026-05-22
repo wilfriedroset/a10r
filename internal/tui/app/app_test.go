@@ -88,8 +88,12 @@ func TestApp_ResizePropagates(t *testing.T) {
 	require.NotEmpty(t, v.Content)
 
 	visible := testutil.StripStyle(v.Content)
-	require.Contains(t, visible, "tenants:",
-		"header must render after resize")
+	require.Contains(t, visible, "<0>",
+		"panel chrome (tenant shortcut column) must render after resize")
+	for _, label := range []string{"tenants:", "alerts:", "version:"} {
+		require.NotContains(t, visible, label,
+			"panel chrome must not duplicate body-title data with %q label", label)
+	}
 }
 
 func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {

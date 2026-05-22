@@ -28,11 +28,8 @@ func TestRenderTop_AllColumnsAppear(t *testing.T) {
 	t.Parallel()
 	styles := testutil.LoadStyles(t)
 	out := RenderTop(State{
-		Width: 120,
-		Info: []InfoLine{
-			{Label: "tenants", Value: "prod"},
-			{Label: "version", Value: "v0.1.0"},
-		},
+		Width:   120,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}, {Key: "1", Name: "prod"}},
 		Hints: []action.Action{
 			{Key: "s", Description: "silence"},
 			{Key: "?", Description: "help"},
@@ -40,12 +37,32 @@ func TestRenderTop_AllColumnsAppear(t *testing.T) {
 		Logo: Logo,
 	}, styles)
 	visible := testutil.StripStyle(out)
-	require.Contains(t, visible, "tenants:")
+	require.Contains(t, visible, "<0>")
+	require.Contains(t, visible, "<1>")
 	require.Contains(t, visible, "prod")
 	require.Contains(t, visible, "<s>")
 	require.Contains(t, visible, "silence")
 	require.Contains(t, visible, "<?>")
 	require.Contains(t, visible, "a") // logo art has 'a'-shaped runes
+}
+
+func TestRenderTop_NoInfoColumn(t *testing.T) {
+	t.Parallel()
+	// The body title already carries `alerts(scope)[N]` etc.; the
+	// panel chrome stays free of `tenants:` / `alerts:` / `version:`
+	// labels to keep the strip uncluttered.
+	styles := testutil.LoadStyles(t)
+	out := RenderTop(State{
+		Width:   120,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}, {Key: "1", Name: "prod"}},
+		Hints:   []action.Action{{Key: "s", Description: "silence"}, {Key: "?", Description: "help"}},
+		Logo:    Logo,
+	}, styles)
+	visible := testutil.StripStyle(out)
+	for _, label := range []string{"tenants:", "alerts:", "version:"} {
+		require.NotContains(t, visible, label,
+			"panel chrome must not duplicate body-title data with %q label", label)
+	}
 }
 
 func TestRenderTop_NarrowDropsLogo(t *testing.T) {
@@ -54,10 +71,10 @@ func TestRenderTop_NarrowDropsLogo(t *testing.T) {
 	// Width too tight for the logo: the renderer must drop it
 	// rather than overflow.
 	out := RenderTop(State{
-		Width: 50,
-		Info:  []InfoLine{{Label: "tenants", Value: "prod"}},
-		Hints: []action.Action{{Key: "s", Description: "silence"}},
-		Logo:  Logo,
+		Width:   50,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}, {Key: "1", Name: "prod"}},
+		Hints:   []action.Action{{Key: "s", Description: "silence"}},
+		Logo:    Logo,
 	}, styles)
 	require.NotContains(t, testutil.StripStyle(out), "a10r-logo-marker",
 		"logo column must drop when width is tight (no specific glyph required)")

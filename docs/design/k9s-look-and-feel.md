@@ -369,7 +369,7 @@ Direct analogs we expect to build:
 
 These rules emerged after the first wave of user testing against the Prometheus public demo and a 2-tenant production config. They're listed here (and in `keybindings.md` for the parts that touch input) so the next contributor doesn't relearn them by stumbling on the same regressions:
 
-- **Top panel is k9s 4-column.** Left: `tenants:`/`alerts:`/`version:` info block. Middle-left: tenant numeric quick-switch listing. Middle-right: page-specific verbs (Bindings()). Right: ASCII A10r logo. Each row has its own gap-elision logic so a narrow terminal degrades gracefully rather than overlapping columns.
+- **Top panel is k9s 3-column.** Left: tenant numeric quick-switch listing. Middle: page-specific verbs (Bindings()). Right: ASCII A10r logo. The labelled info block (`tenants:`/`alerts:`/`version:`) k9s carries was dropped — the body title already renders `alerts(scope)[count]`, so a parallel block in the chrome was duplicate noise. Each row has its own gap-elision logic so a narrow terminal degrades gracefully rather than overlapping columns.
 - **ASCII logo is figlet "standard" for `A10r`** (mixed case, not lowercase). Multi-line; pad each line to the longest line's width before composition so per-row right-alignment doesn't stagger.
 - **Body sits inside a bordered panel.** `┌── <Title> ──┐ … └────┘`. The title carries `<resource>(<scope>)[<count>]`. Subtitle (if any) sits one line below the title before the body proper.
 - **Breadcrumbs are bold and wrapped: `<crumb>`.** Top-of-stack is bolded the same as the rest; what differentiates the active crumb is its position, not extra emphasis.

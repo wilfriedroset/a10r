@@ -73,20 +73,14 @@ func (a *App) renderPromptPanel() string {
 }
 
 // panelState builds the top-panel state from the app shell's
-// view of the world plus the active page's metadata. Info column
-// shows tenant + version; tenants column shows the numeric
-// shortcuts; hints column comes from the top page's Bindings;
-// logo is the package-level constant.
+// view of the world plus the active page's metadata. Tenants
+// column shows the numeric shortcuts; hints column comes from the
+// top page's Bindings; logo is the package-level constant.
 func (a *App) panelState() panel.State {
 	state := panel.State{
 		Width:   a.width,
 		Logo:    panel.Logo,
 		Tenants: tenantBindings(a.tenants),
-		Info: []panel.InfoLine{
-			{Label: "tenants", Value: "—"},
-			{Label: "alerts", Value: "—"},
-			{Label: "version", Value: a.version},
-		},
 	}
 	if p := a.topPage(); p != nil {
 		state.Hints = p.Bindings()

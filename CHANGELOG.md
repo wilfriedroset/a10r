@@ -215,8 +215,12 @@ shell.
   skipping the per-cell colour.
 - Top panel caps at logo height: tenants and per-page hints lay
   out as up-to-3-column k9s-style grids (column-major fill),
-  items past the budget silently clip. The labelled info column
-  inherits the same height clip.
+  items past the budget silently clip. Panel chrome is tenant
+  shortcuts + page hints + logo only — the labelled info block
+  k9s carries (context/cluster/user/version/cpu/mem) was dropped
+  because the body title already renders `<resource>(<scope>)
+  [<count>]`, so a parallel `tenants:`/`alerts:`/`version:` block
+  in the chrome was duplicate noise.
 - Spinner cold-start and manual `r` refresh on the alerts and
   groups pages, mirroring the silences page: title flips to
   "<spinner> loading…" while a load is in flight, footer reads
