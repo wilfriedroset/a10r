@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package modal hosts the async-result overlay surfaces that take
-// precedence over the page stack: the tenant picker (Ctrl+T),
+// precedence over the page stack: the tenant picker (Ctrl+T) and
 // the generic yes/no confirm dialog used by destructive flows like
-// silence expire, and the alert-page silence picker. Each carries
-// a typed result (`PickerSubmittedMsg`, `ConfirmResultMsg`,
-// `SilenceSelectedMsg`, ...) the caller acts on.
+// silence expire. Each carries a typed result
+// (`PickerSubmittedMsg`, `ConfirmResultMsg`, ...) the caller acts
+// on.
 //
 // Viewer overlays (a surface that only renders information for as
 // long as the user looks at it) live in their own packages with
@@ -47,12 +47,11 @@ type Modal interface {
 // ResultMsg marks every modal-resolution message. The App-shell's
 // auto-close path switches on this interface so any modal whose
 // result implements ResultMsg gets correct routing without the App
-// enumerating concrete types. Picker, Confirm, and the alert-page
-// silence-picker result types implement it.
+// enumerating concrete types. Picker and Confirm result types
+// implement it.
 type ResultMsg interface {
 	// IsModalResult marks the type. Explicit method (rather than an
-	// embedded sentinel) lets modals declared in other packages —
-	// like the alert-page silence picker — implement the interface
-	// without importing this one.
+	// embedded sentinel) lets modals declared in other packages
+	// implement the interface without importing this one.
 	IsModalResult()
 }
