@@ -56,6 +56,31 @@ _Avoid_: filter (the user-facing `--matcher` flag is a filter, but
 the underlying value is a matcher), selector (PromQL term), label
 predicate.
 
+### Duration shorthand
+
+**Duration shorthand**:
+The free-text grammar accepted by the silence form's `Ends` field
+alongside RFC3339. Grammar: one or more `<float><unit>` terms with
+units `s`, `m`, `h`, `d`, `w` (`m` is **minute**, never month;
+capital `M`/`W`/`Y` are rejected with a tailored error). Terms must
+appear largest-first (`7d2h`, not `2h7d`); each unit appears at
+most once. AM's silence form accepts the same units but isolates
+the grammar in a separate `duration` field bidirectionally linked
+to a RFC3339 `endsAt`; a10r overloads a single `Ends` field
+instead, trading the live cross-field recompute for fewer focus
+stops. The input grammar accepts `w` even though the **relative
+time** and `Duration` output ladders cap at `d` — the asymmetry is
+deliberate: operators type `1w` for a week and read `7d` for the
+same span. Parsed by `internal/tui/timerender.Parse`. A no-number
+alpha-run is classified by length: ≤2 letters reads as an attempted
+unit (`dx`, `xh` → `expected number before unit %q`); ≥3 letters
+reads as English garbage (`hello` → `not a duration`). The cutoff
+is load-bearing for the unified error: every unit symbol is a
+single letter, so a longer run cannot be a unit attempt.
+_Avoid_: duration (unqualified — collides with stdlib
+`time.Duration` and with the `timerender.Duration` renderer), ttl,
+expiry, length.
+
 ### Overlays
 
 **Overlay**:
@@ -190,6 +215,10 @@ _Avoid_: custom theme, override skin.
   **bundled skin** is either **synced** (mirrored from upstream) or
   **authored** (in-tree). The loader resolves user skins ahead of
   bundled.
+- **Duration shorthand** and the **Remaining** / **Relative time**
+  output ladders share `internal/tui/timerender` and the `s/m/h/d`
+  vocabulary; the input grammar adds `w` at the top, the output
+  ladders cap at `d`.
 
 ## Example dialogue
 

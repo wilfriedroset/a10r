@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -84,6 +85,97 @@ func TestForm_TenantRowHintAdvertisesEnter(t *testing.T) {
 	// well below "prod" (4) + "  [Enter to change]" (21).
 	require.NotContains(t, multi.View(30, 24), hintToken,
 		"narrow-width Tenant row must elide the hint to keep the grid aligned")
+}
+
+// TestForm_EndsRowAdvertisesDurationShorthand pins the
+// discoverability affordance for the Duration shorthand grammar:
+// the Ends row carries a faint inline suffix (`7d · 1w2d · m=min`)
+// that survives the entire edit so the `m`-as-minute disambiguation
+// cue stays visible exactly when the operator is at risk of typing
+// `1m` thinking month. Mirrors the tenant row's
+// `[Enter to change]` pattern.
+func TestForm_EndsRowAdvertisesDurationShorthand(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	view := f.View(120, 24)
+	require.Contains(t, view, endsHintSuffix,
+		"wide-width Ends row must surface the Duration shorthand hint suffix")
+}
+
+// TestForm_EndsRowHintElidesOnNarrowWidth pins the grid-integrity
+// contract for the narrow case: the suffix is dropped when the
+// Ends row would otherwise wrap and break fieldRow's continuation
+// padding. The row itself must still render. Width 30 leaves
+// ~17 cols for the input — below the suffix's elision floor.
+func TestForm_EndsRowHintElidesOnNarrowWidth(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	view := f.View(30, 24)
+	require.NotContains(t, view, endsHintSuffix,
+		"narrow-width Ends row must elide the hint to keep the grid aligned")
+	require.Contains(t, view, "Ends:",
+		"narrow-width Ends row must still render the label")
+}
+
+// TestForm_EndsHintNeverAppearsOnOtherRows guards against the
+// suffix leaking into Starts/Creator/Comment via a copy-paste
+// regression. The literal is unique enough that a single occurrence
+// in the wide view is the source of truth for the Ends row alone.
+func TestForm_EndsHintNeverAppearsOnOtherRows(t *testing.T) {
+	t.Parallel()
+	f := newForm(t, &fakeClient{})
+	view := f.View(120, 24)
+	require.Equal(t, 1, strings.Count(view, endsHintSuffix),
+		"the Ends hint suffix must appear exactly once — only on the Ends row")
+}
+
+// TestForm_EndsHintFloatsRightOfContent pins the UX contract that
+// the hint suffix sits close to the visible content (placeholder
+// or typed value) rather than at the row's far right. The contract
+// has two halves: (1) with the default short value the suffix
+// renders left of half-width on a wide form, and (2) when the
+// content grows the suffix's column position grows with it so the
+// cue stays paired with the typed text instead of being detached.
+//
+// We measure column position by stripping ANSI from the Ends row
+// and computing the visible byte offset of the suffix literal —
+// lipgloss output mixes SGR sequences into the row, so byte index
+// in the raw view is not the visible column. ansi.Strip produces
+// the printable-only string whose byte length equals the visible
+// width (lipgloss / bubbles emit only ASCII glyphs in this row).
+func TestForm_EndsHintFloatsRightOfContent(t *testing.T) {
+	t.Parallel()
+	const width = 120
+
+	short := newForm(t, &fakeClient{})
+	posShort := endsSuffixCol(t, short.View(width, 24))
+	require.Less(t, posShort, width/2,
+		"with the default short value the suffix must sit in the left half of the row, not pinned right")
+
+	long := newForm(t, &fakeClient{})
+	long.ends.SetValue("1w2d3h4m5s")
+	posLong := endsSuffixCol(t, long.View(width, 24))
+	require.Greater(t, posLong, posShort,
+		"the suffix column must grow with the content's width so the cue stays paired with typed text")
+}
+
+// endsSuffixCol returns the visible column at which the Ends row's
+// hint suffix starts. Strips ANSI so the index lines up with what
+// the operator actually sees.
+func endsSuffixCol(t *testing.T, view string) int {
+	t.Helper()
+	for line := range strings.SplitSeq(view, "\n") {
+		plain := ansi.Strip(line)
+		if !strings.Contains(plain, "Ends:") {
+			continue
+		}
+		idx := strings.Index(plain, endsHintSuffix)
+		require.NotEqual(t, -1, idx,
+			"Ends row must carry the suffix at wide widths; got line %q", plain)
+		return idx
+	}
+	t.Fatalf("no Ends: row found in view: %q", view)
+	return -1
 }
 
 // TestForm_BulkModeNoTenantRow asserts that bulk mode omits the

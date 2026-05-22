@@ -22,6 +22,23 @@ const labelWidth = 11
 // rename can't leave one stale.
 const enterToChangeHint = "[Enter to change]"
 
+// endsHintSuffix is the Duration shorthand cue appended to the
+// Ends row's input. The `m=min` half names the documented footgun
+// (single-letter `m` is minute, never month — see ADR 0034) so
+// the disambiguation cue stays on screen for the whole edit, not
+// just the placeholder slot. Mirrors the tenant row's inline
+// affordance pattern.
+const endsHintSuffix = "7d · 1w2d · m=min"
+
+// endsHintGap is the column gap between the visible content
+// (placeholder when empty, typed value otherwise) and the leading
+// edge of the hint suffix. Three cols cover the cursor slot plus
+// two cols of breathing room so the hint never butts up against
+// typed text. The suffix floats with the content's right edge as
+// the operator types, keeping the cue close rather than pinned to
+// the row's far right.
+const endsHintGap = 3
+
 // renderView is the body of Form.View. Lives on render.go so the
 // view helpers (tenantRow / disabledRow / fieldRow / …) sit next
 // to it; Form.View itself stays in form.go as a thin delegate
@@ -55,7 +72,7 @@ func (f *Form) renderView(width, height int) string {
 	rows = append(rows,
 		f.matcherSlotRow(),
 		f.fieldRow("Starts", fieldStarts, f.starts.View()),
-		f.fieldRow("Ends", fieldEnds, f.ends.View()),
+		f.endsRow(inputWidth),
 		f.fieldRow("Creator", fieldCreator, f.creator.View()),
 		f.fieldRow("Comment", fieldComment, f.comment.View()),
 	)
@@ -106,6 +123,37 @@ func (f *Form) tenantRow(inputWidth int) string {
 	}
 	hint := lipgloss.NewStyle().Faint(true).Render("  " + hintBody)
 	return f.fieldRow("Tenant", fieldTenant, value+hint)
+}
+
+// endsRow renders the Ends row with the Duration shorthand hint
+// suffix floating to the right of the visible content. The anchor
+// is the typed value when non-empty, the placeholder otherwise, so
+// the suffix sits a small gap past whatever the operator is
+// reading — close enough to feel paired with the input, not pinned
+// to the row's far right. As the operator types, the anchor's
+// width grows and the suffix slides right correspondingly until
+// inputWidth can no longer hold both; at that point the suffix
+// elides and the input takes the full width so the fieldRow grid
+// stays aligned. Only the Ends row uses this treatment — the cue
+// is load-bearing for the `1m`-thinking-month footgun and
+// irrelevant to Starts / Creator / Comment.
+func (f *Form) endsRow(inputWidth int) string {
+	anchor := f.ends.Value()
+	if anchor == "" {
+		anchor = f.ends.Placeholder
+	}
+	suffixStart := lipgloss.Width(anchor) + endsHintGap
+	if suffixStart+lipgloss.Width(endsHintSuffix) > inputWidth {
+		return f.fieldRow("Ends", fieldEnds, f.ends.View())
+	}
+	// Bubbles' textinput reserves one extra column past SetWidth
+	// for the cursor slot, so rendered width is one wider than
+	// what we pass. Shrink to suffixStart-1 so the rendered input
+	// lands at exactly suffixStart cols and the suffix concatenates
+	// at the intended position.
+	f.ends.SetWidth(suffixStart - 1)
+	hint := lipgloss.NewStyle().Faint(true).Render(endsHintSuffix)
+	return f.fieldRow("Ends", fieldEnds, f.ends.View()+hint)
 }
 
 // disabledRow renders a read-only row with the value dimmed via

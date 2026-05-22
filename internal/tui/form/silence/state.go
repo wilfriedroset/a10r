@@ -10,6 +10,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // parseSpec converts the form's field buffers into a
@@ -63,21 +64,55 @@ func parseTimeOrNow(in string, now time.Time) (time.Time, error) {
 	return time.Parse(time.RFC3339, in)
 }
 
-// parseEndsAt accepts either a duration shorthand ("2h", "30m")
-// relative to base, or an RFC3339 timestamp. Empty input is a
-// validation error so the BlankEnds entry point (recreate-expired)
-// can't be Ctrl+S'd through with no duration typed — the field's
-// "2h" placeholder is a hint, not a default. The `n` and `e` flows
-// pre-fill a non-empty value so they never hit the empty branch.
+// parseEndsAt accepts either a Duration shorthand ("2h", "7d",
+// "1w2d3h") relative to base, or an RFC3339 timestamp. Empty input
+// is a validation error so the BlankEnds entry point
+// (recreate-expired) can't be Ctrl+S'd through with no duration
+// typed — the field's "2h" placeholder is a hint, not a default.
+// The `n` and `e` flows pre-fill a non-empty value so they never
+// hit the empty branch.
+//
+// Disambiguation: when the duration parse fails AND the input
+// carries a letter that could be a unit attempt, the duration
+// error wins so a `7days`-shaped typo surfaces the Duration
+// shorthand grammar rather than the misleading RFC3339 layout
+// error stdlib emits.
 func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
 		return time.Time{}, errors.New("ends is required")
 	}
-	if d, err := time.ParseDuration(in); err == nil {
+	d, durErr := timerender.Parse(in)
+	if durErr == nil {
 		return base.Add(d), nil
 	}
+	if containsUnitLetter(in) {
+		return time.Time{}, durErr
+	}
 	return time.Parse(time.RFC3339, in)
+}
+
+// containsUnitLetter reports whether s carries any letter the
+// Duration shorthand grammar (or its rejected capitals) would
+// recognise as a unit attempt. Drives the parseEndsAt
+// disambiguation: a letter-bearing input means the operator was
+// reaching for a duration, not an RFC3339 timestamp.
+//
+// The capital set is broader than the three the parser names in
+// its tailored messages (M/W/Y). `D/H/S` aren't load-bearing for
+// the friendly capital errors but a caps-locked operator typing
+// `1D` should still see the duration error, not the RFC3339
+// layout error — RFC3339 has no `D/H/S` letter anywhere, so any
+// letter at all is enough to disambiguate the intent.
+func containsUnitLetter(s string) bool {
+	for i := range len(s) {
+		switch s[i] {
+		case 'w', 'd', 'h', 'm', 's', 'y',
+			'W', 'D', 'H', 'M', 'S', 'Y':
+			return true
+		}
+	}
+	return false
 }
 
 // MatchersFromLabels turns a label-set into equality matchers,
