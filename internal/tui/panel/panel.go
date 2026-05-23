@@ -331,6 +331,14 @@ func gridLinesWithWidth(cells []string, rowsBudget, availWidth int) []string {
 	if len(cells) == 0 {
 		return nil
 	}
+	// Few enough cells to stack in one column under rowsBudget: keep
+	// them column-major in a single column so hint registration order
+	// reads top-down on terminals with room to spare. Mirrors
+	// gridLines's "≤ rowsBudget stays single-col" rule and short-
+	// circuits the width-driven cols pick below.
+	if len(cells) <= rowsBudget {
+		return renderGrid(cells, 1, len(cells), cellW)
+	}
 	cols := 1
 	for c := gridCols; c > 1; c-- {
 		if c*cellW+(c-1)*colGap <= availWidth {
@@ -338,24 +346,12 @@ func gridLinesWithWidth(cells []string, rowsBudget, availWidth int) []string {
 			break
 		}
 	}
-	rows := rowsBudget
-	if len(cells) <= rowsBudget {
-		// Few enough cells to stack in one column under rowsBudget;
-		// keep them column-major in a single column regardless of the
-		// width-driven cols pick. Mirrors gridLines's "≤ rowsBudget
-		// stays single-col" rule so hint registration order reads top-
-		// down on terminals with room to spare.
-		cols = 1
-		rows = len(cells)
-	}
-	if capacity := cols * rows; len(cells) > capacity {
+	if capacity := cols * rowsBudget; len(cells) > capacity {
 		cells = cells[:capacity]
 	}
-	return renderGrid(cells, cols, rows, cellW)
+	return renderGrid(cells, cols, rowsBudget, cellW)
 }
 
-// widestCell returns the maximum lipgloss.Width across cells. 0
-// for an empty slice.
 func widestCell(cells []string) int {
 	w := 0
 	for _, c := range cells {

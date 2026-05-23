@@ -102,7 +102,8 @@ expiry, length.
 A UI surface that takes precedence over the page stack and captures
 keyboard input while visible. Two kinds: **modal overlay** and
 **help overlay**. Only one is open at any moment.
-_Avoid_: popup, dialog (Western GUI vocabulary), panel (page-level).
+_Avoid_: popup, dialog (Western GUI vocabulary), panel (unqualified
+"panel" is the **top panel** app-chrome surface; say "overlay").
 
 **Modal overlay**:
 An async-result overlay — the user makes a decision and the result

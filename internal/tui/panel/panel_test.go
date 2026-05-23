@@ -263,28 +263,32 @@ func TestRenderTop_TenantsKeepNaturalWidth(t *testing.T) {
 	wide := RenderTop(State{Width: 240, Tenants: tenants, Hints: hints, Logo: Logo}, styles)
 	narrow := RenderTop(State{Width: 60, Tenants: tenants, Hints: hints, Logo: Logo}, styles)
 
-	wideTenantW := firstTenantCellWidth(t, wide, tenants[1].Name)
-	narrowTenantW := firstTenantCellWidth(t, narrow, tenants[1].Name)
-	require.Equal(t, wideTenantW, narrowTenantW,
+	require.Equal(t, tenantCellWidth(t, wide), tenantCellWidth(t, narrow),
 		"tenant cells must keep their natural width on narrow terminals "+
 			"(hints absorb the squeeze, tenants do not)")
 }
 
-// firstTenantCellWidth scans the rendered top panel for the row that
-// contains needle and returns the visible width up to the gap that
-// follows the tenant column (two consecutive spaces). Used to verify
-// the tenant column keeps its natural width across reflows.
-func firstTenantCellWidth(t *testing.T, rendered, needle string) int {
+// tenantCellWidth returns the natural width of the tenant column
+// in the rendered top panel — the widest tenant cell, derived as
+// the maximum across rows of `lipgloss.Width(line up to the first
+// inter-zone gap)`. The widest tenant's row has zero internal
+// right-pad so its split lands at the real inter-zone gap; shorter
+// rows split earlier (inside their own right-pad) but contribute a
+// smaller value to the max, so the result is the column's natural
+// cell width regardless of which tenant is the widest.
+func tenantCellWidth(t *testing.T, rendered string) int {
 	t.Helper()
+	w := 0
 	for l := range strings.Lines(testutil.StripStyle(rendered)) {
-		if !strings.Contains(l, needle) {
+		if !strings.HasPrefix(l, "<") {
 			continue
 		}
 		before, _, _ := strings.Cut(l, "  ")
-		return lipgloss.Width(before)
+		if cw := lipgloss.Width(before); cw > w {
+			w = cw
+		}
 	}
-	t.Fatalf("rendered output does not contain tenant marker %q", needle)
-	return 0
+	return w
 }
 
 func TestRenderBody_NarrowSubstitutesPlaceholder(t *testing.T) {

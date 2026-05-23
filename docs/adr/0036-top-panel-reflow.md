@@ -35,7 +35,15 @@ This ADR records the priority order for width-driven reflow:
 5. **Drop trailing hints** once 1-col-at-`cellW` still won't fit,
    recomputing `cellW` after each drop so the widest survivor
    keeps shrinking the residual. Same drop-from-end semantics
-   `header.renderHintsWithBudget` already uses.
+   `header.renderHintsWithBudget` already uses, deliberately
+   re-implemented here rather than shared: `header` lays out a
+   single-line right-aligned strip, the panel lays out a
+   column-major grid bounded by a logo-height row cap. The two
+   diverge on what "drop" returns (text vs grid cell list) and
+   on whether cellW matters (only the grid pads to cellW), so a
+   shared helper would either leak the grid shape into the
+   header strip or vice-versa. Reassessment is welcome when a
+   third caller appears.
 
 The contract this creates: **pages register hints most-important-
 first**. Every page already does this implicitly (`Enter`,
