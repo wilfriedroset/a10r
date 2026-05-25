@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,11 +14,21 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
-func readGolden(t *testing.T, name string) string {
+// Run `go test ./cmd -update -run TestRenderInfo` to regenerate
+// every cmd/testdata/*.golden when the renderer's expected output
+// changes. Without the flag, assertGolden reads and compares.
+var updateGolden = flag.Bool("update", false, "regenerate golden files under testdata/")
+
+func assertGolden(t *testing.T, name, got string) {
 	t.Helper()
-	body, err := os.ReadFile(filepath.Join("testdata", name))
+	path := filepath.Join("testdata", name)
+	if *updateGolden {
+		require.NoError(t, os.WriteFile(path, []byte(got), 0o600))
+		return
+	}
+	body, err := os.ReadFile(path)
 	require.NoError(t, err)
-	return string(body)
+	require.Equal(t, string(body), got)
 }
 
 func TestRenderInfo_FullConfig(t *testing.T) {
@@ -51,7 +62,7 @@ func TestRenderInfo_FullConfig(t *testing.T) {
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		Config:    cfg,
 	}))
-	require.Equal(t, readGolden(t, "info_full.golden"), buf.String())
+	assertGolden(t, "info_full.golden", buf.String())
 }
 
 func TestRenderInfo_EmptyBackendsList(t *testing.T) {
@@ -66,7 +77,7 @@ func TestRenderInfo_EmptyBackendsList(t *testing.T) {
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		Config:    &config.Config{},
 	}))
-	require.Equal(t, readGolden(t, "info_empty.golden"), buf.String())
+	assertGolden(t, "info_empty.golden", buf.String())
 }
 
 func TestRenderInfo_NotFound(t *testing.T) {
@@ -81,7 +92,7 @@ func TestRenderInfo_NotFound(t *testing.T) {
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		NotFound:  true,
 	}))
-	require.Equal(t, readGolden(t, "info_notfound.golden"), buf.String())
+	assertGolden(t, "info_notfound.golden", buf.String())
 }
 
 func TestRenderInfo_NonZeroAliases(t *testing.T) {
@@ -100,7 +111,7 @@ func TestRenderInfo_NonZeroAliases(t *testing.T) {
 		Config:     &config.Config{},
 		AliasCount: 3,
 	}))
-	require.Equal(t, readGolden(t, "info_aliases.golden"), buf.String())
+	assertGolden(t, "info_aliases.golden", buf.String())
 }
 
 func TestAuthLabel(t *testing.T) {
