@@ -298,7 +298,7 @@ func (p *Page) Bindings() []action.Action {
 	out = append(out, sortBindings...)
 	out = append(out,
 		action.Action{Key: "r", Description: "refresh", View: "groups"},
-		action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "groups"},
+		action.Action{Key: "w", Description: "toggle watch", View: "groups"},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

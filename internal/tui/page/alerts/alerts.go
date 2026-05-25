@@ -431,7 +431,7 @@ func (p *Page) Bindings() []action.Action {
 	// page-specific verbs. Same shape as silences.
 	out = append(out,
 		action.Action{Key: "r", Description: "refresh", View: "alerts"},
-		action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "alerts"},
+		action.Action{Key: "w", Description: "toggle watch", View: "alerts"},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

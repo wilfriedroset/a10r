@@ -202,7 +202,7 @@ func (p *Page) Bindings() []action.Action {
 	out := make([]action.Action, 0, 2+len(sortBindings))
 	out = append(out, action.Action{Key: "Enter", Description: "drill", View: "receivers"})
 	out = append(out, sortBindings...)
-	out = append(out, action.Action{Key: "w", Description: "toggle watch (pause poll)", View: "receivers"})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: "receivers"})
 	return out
 }
 
