@@ -11,7 +11,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // TestModal_NonScopePickerForwardsToTopPage is the integration-shape
@@ -32,8 +32,7 @@ import (
 func TestModal_NonScopePickerForwardsToTopPage(t *testing.T) {
 	t.Parallel()
 
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -95,8 +94,7 @@ func TestModal_NonScopePickerForwardsToTopPage(t *testing.T) {
 func TestModal_NonScopePickerCancelForwardsToTopPage(t *testing.T) {
 	t.Parallel()
 
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -135,8 +133,7 @@ func TestModal_NonScopePickerCancelForwardsToTopPage(t *testing.T) {
 func TestModal_ScopePickerStillTranslates(t *testing.T) {
 	t.Parallel()
 
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),

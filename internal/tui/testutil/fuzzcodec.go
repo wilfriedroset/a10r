@@ -4,7 +4,6 @@ package testutil
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -160,30 +159,9 @@ func FuzzFrameResize(wIdx, hIdx byte) [FuzzFrameSize]byte {
 	return [FuzzFrameSize]byte{fuzzKindResize, wIdx, hIdx}
 }
 
-// LoadFuzzStyles returns the cached default skin so each fuzz
-// iteration doesn't reload the YAML + recompile every lipgloss
-// style. The first call performs the load; subsequent calls
-// return the cached copy. If the load fails, every caller (not
-// just the first) sees t.Fatalf — sync.Once would otherwise let
-// later iterations run with a zero-value Styles.
+// LoadFuzzStyles returns the cached default skin. Thin wrapper kept
+// for fuzz-call-site clarity; the cache lives in styles.go.
 func LoadFuzzStyles(t *testing.T) *theme.Styles {
 	t.Helper()
-	fuzzStylesOnce.Do(func() {
-		s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-		if err != nil {
-			errFuzzStyles = err
-			return
-		}
-		fuzzStyles = s
-	})
-	if errFuzzStyles != nil {
-		t.Fatalf("LoadFuzzStyles: %v", errFuzzStyles)
-	}
-	return fuzzStyles
+	return LoadStyles(t)
 }
-
-var (
-	fuzzStylesOnce sync.Once
-	fuzzStyles     *theme.Styles
-	errFuzzStyles  error
-)

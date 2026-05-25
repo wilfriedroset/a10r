@@ -39,7 +39,7 @@ func benchSilences(n, tenants int) map[string][]backend.Silence {
 // load-bearing optimisation here; without it the loop runs
 // strings.ToLower on every searchable field per row per keystroke.
 func BenchmarkSilenceMatches_500(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchSilences(500, 4)
 	p.recompute()
@@ -57,7 +57,7 @@ func BenchmarkSilenceMatches_500(b *testing.B) {
 // at storm-scale silence counts (5 long-running silences per alert
 // across 10 tenants).
 func BenchmarkSilencesRecompute_2000(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchSilences(2000, 10)
 

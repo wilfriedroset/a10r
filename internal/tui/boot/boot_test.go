@@ -22,6 +22,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -31,8 +32,7 @@ import (
 // override individual fields to drive specific behaviour.
 func testDeps(t *testing.T) Deps {
 	t.Helper()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 
 	return Deps{
 		LoadConfig: func(_ config.LoadOpts) (*config.Config, error) {

@@ -13,7 +13,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 func TestModal_KeysCapturedBeforeDispatcher(t *testing.T) {
@@ -59,8 +58,7 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 	// page reacts the same way as for the `<0>` / `<1>`-`<9>`
 	// numeric quick-switch — pages never see the raw picker
 	// result.
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),

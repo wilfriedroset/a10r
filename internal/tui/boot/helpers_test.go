@@ -20,7 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins the
@@ -498,8 +498,7 @@ func TestApplyUserKeyOverrides_SameFileConflictFailsClosed(t *testing.T) {
 // quit-filter tests.
 func newTestAppForFilter(t *testing.T) *app.App {
 	t.Helper()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	return app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),

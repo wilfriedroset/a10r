@@ -20,9 +20,7 @@ import (
 // Styles to render through.
 func loadDefaultStyles(t *testing.T) *theme.Styles {
 	t.Helper()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return styles
+	return testutil.LoadStyles(t)
 }
 
 func TestRender_AllZonesAppear(t *testing.T) {

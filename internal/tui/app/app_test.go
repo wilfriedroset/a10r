@@ -15,7 +15,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -24,8 +23,7 @@ import (
 // Options.
 func newTestApp(t *testing.T) *App {
 	t.Helper()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	return NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -49,8 +47,7 @@ func TestApp_InitSchedulesHintBarTickWhenEnabled(t *testing.T) {
 	// the wiring contract: a disabled bar (the default) returns
 	// nil — exercised by TestApp_InitNoCmd above; an enabled bar
 	// returns the tea.Tick command.
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -105,8 +102,7 @@ func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
 	// no-config / no-poller paths don't crash.
 	type call struct{ resource, scope string }
 	var got []call
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -196,8 +192,7 @@ func TestApp_UnknownKeyIsNoOp(t *testing.T) {
 
 func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
 	t.Parallel()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -238,8 +233,7 @@ func TestPickerSelectionsToScope(t *testing.T) {
 func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 	t.Parallel()
 
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -273,8 +267,7 @@ func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 // digits) instead of having the dispatcher consume them.
 func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 	t.Parallel()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -325,8 +318,7 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 // dispatcher.
 func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
 	t.Parallel()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	a := NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),

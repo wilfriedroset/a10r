@@ -3,6 +3,7 @@
 package testutil
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,25 +11,33 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// LoadStyles loads the default theme skin and returns the resolved
-// styles, failing the test on any loader error. Page tests use it
-// to seed a Page with the production palette without each test
-// file owning its own loader boilerplate. Most page-test assertions
-// strip styles before comparing, so the exact skin doesn't matter
-// — what matters is that a non-zero Styles is plumbed through.
-func LoadStyles(t *testing.T) *theme.Styles {
-	t.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
-	return s
+// LoadStyles returns the default theme skin, lazily parsing the
+// embedded YAML once per test binary. Safe to share across parallel
+// tests: lipgloss.Style values inside the struct are immutable from
+// the outside (Render returns new strings, the struct itself is
+// never written to). If the first load fails, every subsequent
+// caller sees tb.Fatalf rather than a zero-value Styles — sync.Once
+// would otherwise let later callers run with a nil cache.
+func LoadStyles(tb testing.TB) *theme.Styles {
+	tb.Helper()
+	stylesOnce.Do(func() {
+		s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+		if err != nil {
+			errStyles = err
+			return
+		}
+		cachedStyles = s
+	})
+	if errStyles != nil {
+		tb.Fatalf("LoadStyles: %v", errStyles)
+	}
+	require.NotNil(tb, cachedStyles,
+		"cached styles must be populated — sync.Once initialiser failed")
+	return cachedStyles
 }
 
-// LoadStylesB is the *testing.B counterpart to LoadStyles for
-// benchmarks. Same behaviour; separate signature keeps the benches
-// from shadowing testing.T idioms.
-func LoadStylesB(b *testing.B) *theme.Styles {
-	b.Helper()
-	s, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(b, err)
-	return s
-}
+var (
+	stylesOnce   sync.Once
+	cachedStyles *theme.Styles
+	errStyles    error
+)

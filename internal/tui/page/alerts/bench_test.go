@@ -44,7 +44,7 @@ func benchAlerts(n, tenants int) map[string][]backend.Alert {
 // BenchmarkAlertsRecompute_1000 measures the full recompute pipeline
 // (flat assembly + filter + sort) on a 1k-alert × 4-tenant set.
 func BenchmarkAlertsRecompute_1000(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(1000, 4)
 
@@ -58,7 +58,7 @@ func BenchmarkAlertsRecompute_1000(b *testing.B) {
 // BenchmarkAlertsRecompute_5000 mirrors the above at storm-time
 // scale: 5k alerts × 10 tenants.
 func BenchmarkAlertsRecompute_5000(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(5000, 10)
 
@@ -74,7 +74,7 @@ func BenchmarkAlertsRecompute_5000(b *testing.B) {
 // case-folded cache on each alertEntry is the load-bearing
 // optimisation; any regression there surfaces here first.
 func BenchmarkAlertsFilterTyping(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(2000, 10)
 	queries := []string{"a", "al", "ale", "alert", "alert4", "alert42"}
@@ -93,7 +93,7 @@ func BenchmarkAlertsFilterTyping(b *testing.B) {
 // path runs at full width and any per-row allocation regression
 // surfaces here first.
 func BenchmarkAlertsRenderRows_1000(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(1000, 4)
 	p.recompute()
@@ -111,7 +111,7 @@ func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 // runs, the user sees fresh rows. Approximates the 15 s × 10 tenants
 // = 40 ingests/min steady-state pressure on a busy fleet.
 func BenchmarkAlertsDataMsgIngest(b *testing.B) {
-	styles := testutil.LoadStylesB(b)
+	styles := testutil.LoadStyles(b)
 	p := New(Options{Styles: styles, Now: time.Now})
 	payload := benchAlerts(500, 1)["t0"]
 

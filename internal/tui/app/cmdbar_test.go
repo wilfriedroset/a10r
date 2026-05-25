@@ -12,7 +12,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // newAppWithCmdbar builds an App wired to a populated resolver.
@@ -20,8 +20,7 @@ import (
 // observe the round-trip through the program loop.
 func newAppWithCmdbar(t *testing.T) (*App, *fakePage) {
 	t.Helper()
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	page := newFakePage("alerts")
 	resolver := cmdbar.New()
 	resolver.Register("alerts", func(_ []string) tea.Cmd {
@@ -121,8 +120,7 @@ func TestCmdBar_UnknownAliasFlashesWarn(t *testing.T) {
 func TestCmdBar_AmbiguousAliasFlashesWarn(t *testing.T) {
 	t.Parallel()
 	// Build a resolver where two aliases share a prefix.
-	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
-	require.NoError(t, err)
+	styles := testutil.LoadStyles(t)
 	resolver := cmdbar.New()
 	resolver.Register("status", func(_ []string) tea.Cmd { return nil })
 	resolver.Register("silences", func(_ []string) tea.Cmd { return nil })
