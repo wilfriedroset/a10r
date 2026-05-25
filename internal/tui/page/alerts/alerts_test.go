@@ -448,13 +448,14 @@ func TestPage_SilenceFormSubmittedFlashesSuccess(t *testing.T) {
 	require.Contains(t, msg.Text, "silence created: sil-99")
 }
 
-// fakeSilenceClient is the smallest silenceform.Client a test
-// needs. The single-row tests only assert `s` produces a non-
-// flash Cmd; CreateSilence is never called from within the page
-// in those flows. The bulk-silence tests do call CreateSilence
-// from the page's fanout, so the implementation is concurrent-
-// safe and records every spec seen for assertion.
+// fakeSilenceClient extends the package-shared testutil stub with
+// the tracing the bulk-silence fanout tests need: every spec is
+// captured under a mutex, optional failure injection per
+// alertname, and concurrency observation (in-flight / peak). The
+// single-row tests don't call CreateSilence and rely on the
+// inherited no-op UpdateSilence/ExpireSilence from the embed.
 type fakeSilenceClient struct {
+	testutil.FakeSilenceClient
 	mu       sync.Mutex
 	tenant   string
 	calls    []backend.SilenceSpec
@@ -500,12 +501,6 @@ func (f *fakeSilenceClient) CreateSilence(_ context.Context, spec backend.Silenc
 	}
 	return "fake-silence-id", nil
 }
-
-func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
-	return nil
-}
-
-func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
 
 func (f *fakeSilenceClient) callCount() int {
 	f.mu.Lock()

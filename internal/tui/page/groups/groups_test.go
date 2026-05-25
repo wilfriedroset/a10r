@@ -3,7 +3,6 @@
 package groups
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -206,7 +205,7 @@ func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
 		Styles:  pagetest.Styles(t),
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &testutil.FakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: sampleGroups(), Tenant: "prod"})
@@ -235,7 +234,7 @@ func TestPage_SilenceOnGroupWithNoMatchersFlashesError(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
 		Styles:  pagetest.Styles(t),
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &testutil.FakeSilenceClient{}},
 		Creator: "wilfried",
 	})
 	emptyGroup := []backend.AlertGroup{
@@ -257,7 +256,7 @@ func TestPage_SilenceOnEmptyViewIsNoop(t *testing.T) {
 	// No DataMsg → empty rows → `s` flashes "no group under cursor".
 	p := New(Options{
 		Styles:  pagetest.Styles(t),
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Clients: map[string]silenceform.Client{"prod": &testutil.FakeSilenceClient{}},
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -269,7 +268,7 @@ func TestPage_ReadOnlySilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 	p := New(Options{
 		Styles:   pagetest.Styles(t),
-		Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Clients:  map[string]silenceform.Client{"prod": &testutil.FakeSilenceClient{}},
 		Creator:  "wilfried",
 		ReadOnly: true,
 	})
@@ -305,21 +304,6 @@ func TestPage_RefreshKeyEmitsRequestAndFlipsRefreshing(t *testing.T) {
 	}
 	require.True(t, sawRefresh)
 }
-
-// fakeSilenceClient satisfies silenceform.Client; the groups
-// page never calls its methods in tests (the `s` push test
-// asserts only that a non-flash Cmd is produced).
-type fakeSilenceClient struct{}
-
-func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
-	return "fake-silence-id", nil
-}
-
-func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
-	return nil
-}
-
-func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
 
 // TestPage_VimMotions is the wiring smoke for the cursor module:
 // pressing `j` in Update must route into Window.MoveCursor with
