@@ -13,143 +13,169 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
-func TestBase_HandleSidebandMsg_ScopeChange(t *testing.T) {
-	t.Parallel()
-
-	calls := 0
-	b := &listpage.Base{
-		Scope:     "all",
-		Recompute: func() { calls++ },
-	}
-
-	handled, cmd := b.HandleSidebandMsg(app.ScopeChangedMsg{Scope: "prod"})
-
-	require.True(t, handled, "ScopeChangedMsg must be claimed by the sideband router")
-	require.Nil(t, cmd, "ScopeChangedMsg has no follow-up Cmd")
-	require.Equal(t, "prod", b.Scope)
-	require.Equal(t, 1, calls, "recompute must fire exactly once")
-}
-
-func TestBase_HandleSidebandMsg_UnknownMessageFallsThrough(t *testing.T) {
+func TestBase_HandleSidebandMsg(t *testing.T) {
 	t.Parallel()
 
 	type unrelatedMsg struct{}
 
-	b := &listpage.Base{
-		Recompute:     func() {},
-		RowCount:      func() int { return 0 },
-		SnapshotFocus: func() {},
-		SetTimeFormat: func(timerender.Format) {},
-		ClearMarks:    func() tea.Cmd { return nil },
-	}
-
-	handled, cmd := b.HandleSidebandMsg(unrelatedMsg{})
-
-	require.False(t, handled, "messages outside the sideband set must fall through")
-	require.Nil(t, cmd)
-}
-
-func TestBase_HandleSidebandMsg_ClearMarksWired(t *testing.T) {
-	t.Parallel()
-
 	sentinel := tea.Msg("marks-cleared")
-	cmdFn := func() tea.Msg { return sentinel }
-	b := &listpage.Base{
-		ClearMarks: func() tea.Cmd { return cmdFn },
-	}
-
-	handled, cmd := b.HandleSidebandMsg(app.ClearMarksMsg{})
-
-	require.True(t, handled, "ClearMarksMsg must be claimed when ClearMarks is wired")
-	require.NotNil(t, cmd, "ClearMarks cmd must propagate to the caller")
-	require.Equal(t, sentinel, cmd())
-}
-
-func TestBase_HandleSidebandMsg_ClearMarksUnwiredFallsThrough(t *testing.T) {
-	t.Parallel()
-
-	b := &listpage.Base{}
-
-	handled, cmd := b.HandleSidebandMsg(app.ClearMarksMsg{})
-
-	require.False(t, handled, "ClearMarksMsg without ClearMarks must fall through")
-	require.Nil(t, cmd)
-}
-
-func TestBase_HandleSidebandMsg_TimeFormatWired(t *testing.T) {
-	t.Parallel()
-
-	var got timerender.Format = -1
-	b := &listpage.Base{
-		SetTimeFormat: func(f timerender.Format) { got = f },
-	}
-
-	handled, cmd := b.HandleSidebandMsg(app.TimeFormatChangedMsg{Format: timerender.Absolute})
-
-	require.True(t, handled, "TimeFormatChangedMsg must be claimed when SetTimeFormat is wired")
-	require.Nil(t, cmd)
-	require.Equal(t, timerender.Absolute, got, "callback must receive the new format")
-}
-
-func TestBase_HandleSidebandMsg_TimeFormatUnwiredFallsThrough(t *testing.T) {
-	t.Parallel()
-
-	b := &listpage.Base{}
-
-	handled, cmd := b.HandleSidebandMsg(app.TimeFormatChangedMsg{Format: timerender.Absolute})
-
-	require.False(t, handled, "TimeFormatChangedMsg without SetTimeFormat must fall through")
-	require.Nil(t, cmd)
-}
-
-func TestBase_HandleSidebandMsg_GoToFirstRowPanicsWithoutCallbacks(t *testing.T) {
-	t.Parallel()
 
 	cases := []struct {
-		name string
-		base *listpage.Base
-		want string
+		name        string
+		baseFactory func(t *testing.T) (*listpage.Base, func(t *testing.T))
+		msg         tea.Msg
+		wantPanic   string
+		wantHandled bool
+		wantCmdMsg  tea.Msg
 	}{
 		{
-			name: "RowCount nil",
-			base: &listpage.Base{
-				SnapshotFocus: func() {},
+			name: "scope change",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				calls := 0
+				b := &listpage.Base{
+					Scope:     "all",
+					Recompute: func() { calls++ },
+				}
+				return b, func(t *testing.T) {
+					t.Helper()
+					require.Equal(t, "prod", b.Scope)
+					require.Equal(t, 1, calls, "recompute must fire exactly once")
+				}
 			},
-			want: "listpage.Base.HandleSidebandMsg: RowCount callback not wired by page constructor",
+			msg:         app.ScopeChangedMsg{Scope: "prod"},
+			wantHandled: true,
 		},
 		{
-			name: "SnapshotFocus nil",
-			base: &listpage.Base{
-				RowCount: func() int { return 0 },
+			// Anything outside the sideband set must fall through so
+			// the page's main switch can claim it (or not).
+			name: "unknown message falls through",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				b := &listpage.Base{
+					Recompute:     func() {},
+					RowCount:      func() int { return 0 },
+					SnapshotFocus: func() {},
+					SetTimeFormat: func(timerender.Format) {},
+					ClearMarks:    func() tea.Cmd { return nil },
+				}
+				return b, nil
 			},
-			want: "listpage.Base.HandleSidebandMsg: SnapshotFocus callback not wired by page constructor",
+			msg: unrelatedMsg{},
+		},
+		{
+			name: "clear marks wired",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				cmdFn := func() tea.Msg { return sentinel }
+				b := &listpage.Base{
+					ClearMarks: func() tea.Cmd { return cmdFn },
+				}
+				return b, nil
+			},
+			msg:         app.ClearMarksMsg{},
+			wantHandled: true,
+			wantCmdMsg:  sentinel,
+		},
+		{
+			// A page without ClearMarks wired (groups, receivers) must
+			// not claim the message — it has no marks to clear.
+			name: "clear marks unwired falls through",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{}, nil
+			},
+			msg: app.ClearMarksMsg{},
+		},
+		{
+			name: "time format wired",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				var got timerender.Format = -1
+				b := &listpage.Base{
+					SetTimeFormat: func(f timerender.Format) { got = f },
+				}
+				return b, func(t *testing.T) {
+					t.Helper()
+					require.Equal(t, timerender.Absolute, got, "callback must receive the new format")
+				}
+			},
+			msg:         app.TimeFormatChangedMsg{Format: timerender.Absolute},
+			wantHandled: true,
+		},
+		{
+			// Pages without time columns (groups, receivers) don't wire
+			// SetTimeFormat — the message must fall through cleanly.
+			name: "time format unwired falls through",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{}, nil
+			},
+			msg: app.TimeFormatChangedMsg{Format: timerender.Absolute},
+		},
+		{
+			// GoToFirstRow needs both callbacks; missing either is a
+			// page-constructor bug, not a runtime fall-through.
+			name: "goto first row panics without RowCount",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{SnapshotFocus: func() {}}, nil
+			},
+			msg:       app.GoToFirstRowMsg{},
+			wantPanic: "listpage.Base.HandleSidebandMsg: RowCount callback not wired by page constructor",
+		},
+		{
+			name: "goto first row panics without SnapshotFocus",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{RowCount: func() int { return 0 }}, nil
+			},
+			msg:       app.GoToFirstRowMsg{},
+			wantPanic: "listpage.Base.HandleSidebandMsg: SnapshotFocus callback not wired by page constructor",
+		},
+		{
+			name: "goto first row",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				snapshots := 0
+				b := &listpage.Base{
+					Recompute:     func() {},
+					RowCount:      func() int { return 42 },
+					SnapshotFocus: func() { snapshots++ },
+				}
+				b.SetIndex(7, 42)
+				return b, func(t *testing.T) {
+					t.Helper()
+					require.Equal(t, 0, b.Index(), "cursor must land on row 0")
+					require.Equal(t, 1, snapshots, "snapshotFocus must fire exactly once")
+				}
+			},
+			msg:         app.GoToFirstRowMsg{},
+			wantHandled: true,
 		},
 	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.PanicsWithValue(t, tc.want, func() {
-				tc.base.HandleSidebandMsg(app.GoToFirstRowMsg{})
-			})
+			base, verify := tc.baseFactory(t)
+			if tc.wantPanic != "" {
+				require.PanicsWithValue(t, tc.wantPanic, func() {
+					base.HandleSidebandMsg(tc.msg)
+				})
+				return
+			}
+			handled, cmd := base.HandleSidebandMsg(tc.msg)
+			require.Equal(t, tc.wantHandled, handled, "handled disposition for %s", tc.name)
+			if tc.wantCmdMsg == nil {
+				require.Nil(t, cmd, "%s must not return a follow-up Cmd", tc.name)
+			} else {
+				require.NotNil(t, cmd, "%s must propagate the wired Cmd", tc.name)
+				require.Equal(t, tc.wantCmdMsg, cmd())
+			}
+			if verify != nil {
+				verify(t)
+			}
 		})
 	}
-}
-
-func TestBase_HandleSidebandMsg_GoToFirstRow(t *testing.T) {
-	t.Parallel()
-
-	snapshots := 0
-	b := &listpage.Base{
-		Recompute:     func() {},
-		RowCount:      func() int { return 42 },
-		SnapshotFocus: func() { snapshots++ },
-	}
-	b.SetIndex(7, 42)
-
-	handled, cmd := b.HandleSidebandMsg(app.GoToFirstRowMsg{})
-
-	require.True(t, handled, "GoToFirstRowMsg must be claimed by the sideband router")
-	require.Nil(t, cmd, "GoToFirstRowMsg has no follow-up Cmd")
-	require.Equal(t, 0, b.Index(), "cursor must land on row 0")
-	require.Equal(t, 1, snapshots, "snapshotFocus must fire exactly once")
 }
