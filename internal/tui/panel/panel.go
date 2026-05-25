@@ -248,9 +248,9 @@ func joinCols(gap int, parts ...colPart) string {
 // k9s-style column-major grid of `<key> name` cells. Width is
 // capped at gridCols columns and rowsBudget rows; items past the
 // cap silently drop so the panel never grows taller than the
-// logo. Each cell is styled with the hint key colour and bolded
-// to distinguish tenant / namespace shortcuts from regular action
-// shortcuts.
+// logo. The key chip is bold to distinguish tenant / namespace
+// shortcuts from regular action shortcuts; the name renders in
+// the menu foreground at normal weight to literally match k9s.
 func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.Styles) []string {
 	if len(tenants) == 0 {
 		return nil
@@ -263,7 +263,7 @@ func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.St
 		}
 	}
 	keyStyle := styles.Hint.HelpKeyBold
-	nameStyle := styles.Hint.DefaultFgBold
+	nameStyle := styles.Hint.DefaultFg
 	cells := make([]string, len(tenants))
 	for i, t := range tenants {
 		key := keyStyle.Render("<" + t.Key + ">")
