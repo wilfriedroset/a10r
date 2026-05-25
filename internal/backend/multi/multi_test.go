@@ -107,28 +107,44 @@ func TestClient_EmptyTenantList(t *testing.T) {
 func TestClient_ResultsOrderMatchesTenantOrder(t *testing.T) {
 	t.Parallel()
 
-	// 5 tenants, fast and slow mixed; order of Result entries must
-	// match input order even if completion order is different.
-	mkTenant := func(name string, delay time.Duration) TenantClient {
+	// 5 tenants, each parked on its gate; gates closed in reverse so
+	// completion order is e,d,c,b,a. Result order must still match
+	// input order.
+	names := []string{"a", "b", "c", "d", "e"}
+	gates := map[string]chan struct{}{}
+	for _, n := range names {
+		gates[n] = make(chan struct{})
+	}
+	started := make(chan struct{}, len(names))
+	mkTenant := func(name string) TenantClient {
 		return TenantClient{
 			Name: name,
 			Client: &fakeClient{listAlertsFn: func(_ context.Context) ([]backend.Alert, error) {
-				time.Sleep(delay)
+				started <- struct{}{}
+				<-gates[name]
 				return []backend.Alert{{Fingerprint: name}}, nil
 			}},
 		}
 	}
-	tenants := []TenantClient{
-		mkTenant("a", 30*time.Millisecond),
-		mkTenant("b", 5*time.Millisecond),
-		mkTenant("c", 20*time.Millisecond),
-		mkTenant("d", 10*time.Millisecond),
-		mkTenant("e", 1*time.Millisecond),
+	tenants := make([]TenantClient, 0, len(names))
+	for _, n := range names {
+		tenants = append(tenants, mkTenant(n))
 	}
 
-	results := New(tenants, 5).ListAlerts(t.Context(), backend.AlertFilter{})
+	resCh := make(chan []Result[[]backend.Alert], 1)
+	go func() {
+		resCh <- New(tenants, len(names)).ListAlerts(t.Context(), backend.AlertFilter{})
+	}()
+	for range names {
+		<-started
+	}
+	for _, n := range []string{"e", "d", "c", "b", "a"} {
+		close(gates[n])
+	}
+	results := <-resCh
+
 	require.Len(t, results, 5)
-	for i, want := range []string{"a", "b", "c", "d", "e"} {
+	for i, want := range names {
 		require.Equal(t, want, results[i].Tenant)
 		require.NoError(t, results[i].Err)
 		require.Len(t, results[i].Value, 1)
@@ -143,18 +159,20 @@ func TestClient_PoolSizeBoundsParallelism(t *testing.T) {
 	const tenantCount = 20
 	const poolSize = 4
 
+	started := make(chan struct{}, tenantCount)
+	release := make(chan struct{})
 	mkClient := func() backend.Client {
 		return &fakeClient{listAlertsFn: func(context.Context) ([]backend.Alert, error) {
 			n := inFlight.Add(1)
 			defer inFlight.Add(-1)
-			// Update peak (CAS loop, race-detector clean).
 			for {
 				p := peak.Load()
 				if n <= p || peak.CompareAndSwap(p, n) {
 					break
 				}
 			}
-			time.Sleep(20 * time.Millisecond)
+			started <- struct{}{}
+			<-release
 			return nil, nil
 		}}
 	}
@@ -163,10 +181,19 @@ func TestClient_PoolSizeBoundsParallelism(t *testing.T) {
 		tenants[i] = TenantClient{Name: "t", Client: mkClient()}
 	}
 
-	results := New(tenants, poolSize).ListAlerts(t.Context(), backend.AlertFilter{})
+	resCh := make(chan []Result[[]backend.Alert], 1)
+	go func() {
+		resCh <- New(tenants, poolSize).ListAlerts(t.Context(), backend.AlertFilter{})
+	}()
+	for range poolSize {
+		<-started
+	}
+	require.Equal(t, int32(poolSize), peak.Load(),
+		"exactly poolSize workers must be active before release")
+	close(release)
+	results := <-resCh
+
 	require.Len(t, results, tenantCount)
-	require.LessOrEqual(t, peak.Load(), int32(poolSize),
-		"peak in-flight (%d) must not exceed pool size (%d)", peak.Load(), poolSize)
 }
 
 func TestClient_ZeroPoolSizeUsesDefault(t *testing.T) {

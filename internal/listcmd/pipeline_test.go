@@ -10,9 +10,7 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -141,23 +139,20 @@ func TestRun_AllBackendsFailed_ReturnsCanonicalError(t *testing.T) {
 func TestRun_StderrSorted_EvenWhenFetcherCompletesOutOfOrder(t *testing.T) {
 	t.Parallel()
 
-	// "zeta" sleeps so it would naturally print second, but the
-	// sort must place it after "alpha" deterministically. The
-	// inverse ordering (zeta finishes first if it slept negative
-	// time — impossible) is the actual property under test: we
-	// don't rely on scheduler timing, we rely on the sort.
+	// Gate the fakes so "zeta" completes BEFORE "alpha": alpha
+	// blocks until zeta has returned its error. The sort is then
+	// the only thing that can place alpha-then-zeta on stderr — if
+	// the sort were missing, output would be in completion order
+	// (zeta first) and the assertion would fail.
+	zetaSent := make(chan struct{})
 	var errBuf bytes.Buffer
-	var counter atomic.Int32
 	spec := newSpec(t, []config.Backend{{Name: "zeta"}, {Name: "alpha"}},
 		func(_ context.Context, name string, _ backend.Client) ([]fakeRow, error) {
 			if name == "zeta" {
-				// Force zeta to land later than alpha by yielding.
-				for counter.Load() < 1 {
-					time.Sleep(time.Millisecond)
-				}
+				close(zetaSent)
 				return nil, errors.New("zeta-err")
 			}
-			counter.Add(1)
+			<-zetaSent
 			return nil, errors.New("alpha-err")
 		},
 	)

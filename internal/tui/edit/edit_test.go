@@ -4,6 +4,7 @@ package edit
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -278,8 +279,15 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	}
 	cache := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
+
+	dir := t.TempDir()
+	started := filepath.Join(dir, "started")
+	script := filepath.Join(dir, "fake-editor")
+	body := fmt.Sprintf("#!/bin/sh\ntouch %q\nsleep 3\n", started)
+	require.NoError(t, os.WriteFile(script, []byte(body), 0o755))
+
 	r := Resolver{
-		DefaultEditor: "/bin/sleep 60", // hangs until killed
+		DefaultEditor: script,
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    syncRunner,
@@ -289,8 +297,11 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	// observes ctx.Done. syncRunner waits on cmd.Run(), which
 	// returns once the SIGKILL lands.
 	go func() {
-		// Give exec a moment to start the child.
-		time.Sleep(50 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(started)
+			return err == nil
+		}, 2*time.Second, time.Millisecond,
+			"editor must reach touch step before cancel")
 		cancel()
 	}()
 	fin := cmd().(FinishedMsg)

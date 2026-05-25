@@ -367,19 +367,19 @@ func TestClient_RefusedConnectionIsUnreachable(t *testing.T) {
 func TestClient_ContextCancelStopsRequest(t *testing.T) {
 	t.Parallel()
 
-	// Server hangs forever; cancelling the context must abort the
-	// in-flight request quickly so the polling loop doesn't stall.
-	hold := make(chan struct{})
+	// Cancelling the context must abort the in-flight request so the
+	// polling loop doesn't stall on a hung backend.
+	arrived := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(arrived)
 		<-r.Context().Done()
-		close(hold)
 	}))
 	t.Cleanup(srv.Close)
 
 	c := newTestClient(t, srv)
 	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		<-arrived
 		cancel()
 	}()
 

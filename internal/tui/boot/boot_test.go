@@ -305,10 +305,8 @@ func TestResult_PushHomeShortCircuitsCancelledCtx(t *testing.T) {
 	send := func(_ tea.Msg) { called.Add(1) }
 	res.PushHome(ctx, send)
 
-	// Allow the goroutine to settle. The ctx is already cancelled
-	// so the short-circuit must fire before send runs.
-	time.Sleep(20 * time.Millisecond)
-	require.Zero(t, called.Load(),
+	require.Never(t, func() bool { return called.Load() > 0 },
+		100*time.Millisecond, 5*time.Millisecond,
 		"cancelled ctx must short-circuit the home-push send so a Ctrl+C "+
 			"between Build and Run does not crash the disposed program")
 }
