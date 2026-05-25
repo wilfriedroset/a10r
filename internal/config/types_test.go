@@ -3,6 +3,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,8 +123,11 @@ func TestDefaults_BulkConcurrencyExplicitValuePreserved(t *testing.T) {
 
 	cases := []int{1, 2, 4, 8, 32}
 	for _, n := range cases {
-		d := Defaults{BulkConcurrency: n}
-		require.Equal(t, n, d.BulkConcurrencyOrDefault(), "explicit %d must round-trip through the helper", n)
+		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
+			t.Parallel()
+			d := Defaults{BulkConcurrency: n}
+			require.Equal(t, n, d.BulkConcurrencyOrDefault(), "explicit %d must round-trip through the helper", n)
+		})
 	}
 }
 
@@ -248,24 +252,22 @@ authorization:
 func TestBackend_BasicAuthRequiresBothFields(t *testing.T) {
 	t.Parallel()
 
-	cases := []string{
-		`name: x
-url: http://x
-basic_auth:
-  username: u
-`,
-		`name: x
-url: http://x
-basic_auth:
-  password: p
-`,
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{name: "username only", yaml: "name: x\nurl: http://x\nbasic_auth:\n  username: u\n"},
+		{name: "password only", yaml: "name: x\nurl: http://x\nbasic_auth:\n  password: p\n"},
 	}
-	for _, src := range cases {
-		var be Backend
-		require.NoError(t, yaml.Unmarshal([]byte(src), &be))
-		err := be.Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "basic_auth requires both username and password")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var be Backend
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &be))
+			err := be.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "basic_auth requires both username and password")
+		})
 	}
 }
 
@@ -317,16 +319,22 @@ func TestBackend_HeadersRejectsReservedKeys(t *testing.T) {
 func TestBackend_TenantSugarRequiresBothFields(t *testing.T) {
 	t.Parallel()
 
-	cases := []string{
-		"name: x\nurl: http://x\ntenant: foo\n",
-		"name: x\nurl: http://x\ntenant_header: X-Scope-OrgID\n",
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{name: "tenant only", yaml: "name: x\nurl: http://x\ntenant: foo\n"},
+		{name: "tenant_header only", yaml: "name: x\nurl: http://x\ntenant_header: X-Scope-OrgID\n"},
 	}
-	for _, src := range cases {
-		var be Backend
-		require.NoError(t, yaml.Unmarshal([]byte(src), &be))
-		err := be.Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "tenant_header and tenant must be set together")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var be Backend
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &be))
+			err := be.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "tenant_header and tenant must be set together")
+		})
 	}
 }
 
@@ -442,16 +450,22 @@ func TestTLSConfig_VersionStringValidation(t *testing.T) {
 func TestTLSConfig_CertKeyReservedForMTLS(t *testing.T) {
 	t.Parallel()
 
-	cases := []string{
-		"cert: |\n  -----BEGIN CERT-----\n",
-		"key: |\n  -----BEGIN KEY-----\n",
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{name: "cert only", yaml: "cert: |\n  -----BEGIN CERT-----\n"},
+		{name: "key only", yaml: "key: |\n  -----BEGIN KEY-----\n"},
 	}
-	for _, src := range cases {
-		var tls TLSConfig
-		require.NoError(t, yaml.Unmarshal([]byte(src), &tls))
-		err := tls.Validate()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "mTLS")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var tls TLSConfig
+			require.NoError(t, yaml.Unmarshal([]byte(tc.yaml), &tls))
+			err := tls.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "mTLS")
+		})
 	}
 }
 

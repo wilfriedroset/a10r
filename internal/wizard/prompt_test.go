@@ -88,27 +88,31 @@ func TestPrompter_ChoiceRejectsUnknown(t *testing.T) {
 	require.Contains(t, out.String(), "invalid:")
 }
 
-func TestPrompter_BoolYes(t *testing.T) {
+func TestPrompter_BoolParses(t *testing.T) {
 	t.Parallel()
 
-	cases := []string{"y\n", "yes\n", "Y\n", "YES\n"}
-	for _, c := range cases {
-		p := New(strings.NewReader(c), &bytes.Buffer{})
-		got, err := p.Bool("ok", false)
-		require.NoError(t, err)
-		require.True(t, got, "input %q must parse as yes", c)
+	cases := []struct {
+		name string
+		in   string
+		def  bool // default if input were empty — never reached because every case is a real answer
+		want bool
+	}{
+		{name: "y", in: "y\n", want: true},
+		{name: "yes", in: "yes\n", want: true},
+		{name: "Y", in: "Y\n", want: true},
+		{name: "YES", in: "YES\n", want: true},
+		{name: "n", in: "n\n", def: true, want: false},
+		{name: "no", in: "no\n", def: true, want: false},
+		{name: "N", in: "N\n", def: true, want: false},
 	}
-}
-
-func TestPrompter_BoolNo(t *testing.T) {
-	t.Parallel()
-
-	cases := []string{"n\n", "no\n", "N\n"}
-	for _, c := range cases {
-		p := New(strings.NewReader(c), &bytes.Buffer{})
-		got, err := p.Bool("ok", true)
-		require.NoError(t, err)
-		require.False(t, got, "input %q must parse as no", c)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(strings.NewReader(tc.in), &bytes.Buffer{})
+			got, err := p.Bool("ok", tc.def)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got, "input %q must parse to %v", tc.in, tc.want)
+		})
 	}
 }
 
