@@ -69,15 +69,16 @@ func TestResolve_LogFormatPrecedence(t *testing.T) {
 	}
 }
 
-func TestResolve_ReadOnlyAnyTrueSourceWins(t *testing.T) {
+func TestResolve_ReadOnly(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name string
-		cli  bool
-		env  map[string]string
-		file bool
-		want bool
+		name    string
+		cli     bool
+		env     map[string]string
+		file    bool
+		want    bool
+		wantErr error
 	}{
 		{name: "no source false", want: false},
 		{name: "cli only true", cli: true, want: true},
@@ -101,59 +102,45 @@ func TestResolve_ReadOnlyAnyTrueSourceWins(t *testing.T) {
 			env:  map[string]string{envReadOnly: "false"},
 			want: true,
 		},
+		{
+			// ADR 0027: loud-over-silent. Typoed A10R_READ_ONLY must
+			// surface, not be ignored.
+			name:    "garbage env errors",
+			env:     map[string]string{envReadOnly: "tru"},
+			wantErr: ErrInvalidReadOnlyEnv,
+		},
+		{
+			// ADR 0027: cli||file short-circuits BEFORE the env parse,
+			// so a typoed A10R_READ_ONLY does not block an explicitly
+			// requested read-only session.
+			name: "cli true short-circuits garbage env",
+			cli:  true,
+			env:  map[string]string{envReadOnly: "tru"},
+			want: true,
+		},
+		{
+			// Same short-circuit applies to the file source. Pins the
+			// branch order so a future reshuffle of cli/file/env
+			// inspection fails this test.
+			name: "file true short-circuits garbage env",
+			file: true,
+			env:  map[string]string{envReadOnly: "tru"},
+			want: true,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			eff, err := Resolve(CLIFlags{ReadOnly: tc.cli}, envFromMap(tc.env), Config{Defaults: Defaults{ReadOnly: tc.file}})
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, tc.want, eff.Config.Defaults.ReadOnly)
 		})
 	}
-}
-
-func TestResolve_ReadOnlyGarbageEnvErrors(t *testing.T) {
-	t.Parallel()
-
-	// Pinning ADR 0027's "loud over silent" stance: a typoed
-	// A10R_READ_ONLY=tru must surface, not be ignored. Asserting via
-	// errors.Is keeps the contract independent of the exact wrapper
-	// message format.
-	_, err := Resolve(CLIFlags{}, envFromMap(map[string]string{envReadOnly: "tru"}), Config{})
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrInvalidReadOnlyEnv)
-}
-
-func TestResolve_ReadOnlyCLIShortCircuitsGarbageEnv(t *testing.T) {
-	t.Parallel()
-
-	// When --read-only is true, the resolver must never reach the env
-	// parse branch, so a typoed A10R_READ_ONLY does not block an
-	// explicitly-requested read-only session.
-	eff, err := Resolve(
-		CLIFlags{ReadOnly: true},
-		envFromMap(map[string]string{envReadOnly: "tru"}),
-		Config{},
-	)
-	require.NoError(t, err)
-	require.True(t, eff.Config.Defaults.ReadOnly)
-}
-
-func TestResolve_ReadOnlyFileShortCircuitsGarbageEnv(t *testing.T) {
-	t.Parallel()
-
-	// Same short-circuit guarantee for the file source. Tightens the
-	// contract that the resolver branches on cli||file BEFORE
-	// inspecting env, so re-ordering the branches in the future would
-	// fail this test.
-	eff, err := Resolve(
-		CLIFlags{},
-		envFromMap(map[string]string{envReadOnly: "tru"}),
-		Config{Defaults: Defaults{ReadOnly: true}},
-	)
-	require.NoError(t, err)
-	require.True(t, eff.Config.Defaults.ReadOnly)
 }
 
 func TestResolve_PollIntervalCLIWinsOnlyOverDefault(t *testing.T) {
