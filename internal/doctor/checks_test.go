@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/backendtest"
 	a10rtls "github.com/wilfriedroset/a10r/internal/backend/tls"
 	"github.com/wilfriedroset/a10r/internal/config"
 )
@@ -19,12 +20,12 @@ import (
 // fakeClient is a small stand-in for backend.Client used across
 // the per-check tests. Only the methods doctor exercises today
 // (Status, ProbeReady, ProbeReadyAt) carry behaviour; the rest
-// return zero values so the type satisfies the full backend.Client
-// interface.
+// come from the embedded ClientStub.
 //
 // Field names mirror what each method returns; setting them per
 // test pins the relevant scenario without growing a builder.
 type fakeClient struct {
+	backendtest.ClientStub
 	statusOut   backend.Status
 	statusErr   error
 	probeErr    error
@@ -41,62 +42,6 @@ func (f *fakeClient) ProbeReady(context.Context) error { return f.probeErr }
 func (f *fakeClient) ProbeReadyAt(context.Context) (time.Time, error) {
 	return f.probeAtTime, f.probeAtErr
 }
-
-// Stubs for the rest of backend.Client — these methods are not
-// exercised by any check in this commit. Returning ErrUnsupported
-// is consistent with vanilla.stubs.go's contract.
-func (*fakeClient) ListAlerts(context.Context, backend.AlertFilter) ([]backend.Alert, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) ListAlertGroups(context.Context, backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) ListSilences(context.Context, backend.SilenceFilter) ([]backend.Silence, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) GetSilence(context.Context, string) (backend.Silence, error) {
-	return backend.Silence{}, backend.ErrUnsupported
-}
-
-func (*fakeClient) ListReceivers(context.Context) ([]backend.Receiver, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
-	return "", backend.ErrUnsupported
-}
-
-func (*fakeClient) UpdateSilence(context.Context, string, backend.SilenceSpec) error {
-	return backend.ErrUnsupported
-}
-
-func (*fakeClient) ExpireSilence(context.Context, string) error {
-	return backend.ErrUnsupported
-}
-
-func (*fakeClient) GetConfig(context.Context) (backend.MimirConfig, error) {
-	return backend.MimirConfig{}, backend.ErrUnsupported
-}
-
-func (*fakeClient) SetConfig(context.Context, backend.MimirConfig) error {
-	return backend.ErrUnsupported
-}
-
-func (*fakeClient) DeleteConfig(context.Context) error {
-	return backend.ErrUnsupported
-}
-
-func (*fakeClient) ListTenantConfigs(context.Context) ([]backend.TenantConfig, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) RingStatus(context.Context) (backend.Ring, error) {
-	return backend.Ring{}, backend.ErrUnsupported
-}
-func (*fakeClient) Capabilities() backend.Caps { return backend.Caps{} }
 
 // Compile-time assertions — fakeClient must satisfy both the full
 // Client interface and the smaller Prober interface so the test
@@ -496,53 +441,7 @@ func TestClockSkewChecker(t *testing.T) {
 // would panic at runtime.
 func TestClockSkewChecker_NoProberInterface(t *testing.T) {
 	t.Parallel()
-	got := ClockSkewChecker{}.Run(t.Context(), config.Backend{Name: "x"}, nonProberClient{})
+	got := ClockSkewChecker{}.Run(t.Context(), config.Backend{Name: "x"}, backendtest.ClientStub{})
 	require.Equal(t, SeverityWarning, got.Severity)
 	require.Contains(t, got.Message, "Prober")
 }
-
-// nonProberClient implements backend.Client without the Prober
-// methods (well, it's a stub: the real backend.Client surface needs
-// every method, so we satisfy it via embedded compositional zero —
-// see assertion below). Used only to drive the "client doesn't
-// satisfy Prober" branch in ClockSkewChecker.
-type nonProberClient struct{}
-
-func (nonProberClient) Status(context.Context) (backend.Status, error) {
-	return backend.Status{}, nil
-}
-
-func (nonProberClient) ListAlerts(context.Context, backend.AlertFilter) ([]backend.Alert, error) {
-	return nil, nil
-}
-
-func (nonProberClient) ListAlertGroups(context.Context, backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return nil, nil
-}
-
-func (nonProberClient) ListSilences(context.Context, backend.SilenceFilter) ([]backend.Silence, error) {
-	return nil, nil
-}
-
-func (nonProberClient) GetSilence(context.Context, string) (backend.Silence, error) {
-	return backend.Silence{}, nil
-}
-
-func (nonProberClient) ListReceivers(context.Context) ([]backend.Receiver, error) { return nil, nil }
-func (nonProberClient) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
-	return "", nil
-}
-func (nonProberClient) UpdateSilence(context.Context, string, backend.SilenceSpec) error { return nil }
-func (nonProberClient) ExpireSilence(context.Context, string) error                      { return nil }
-func (nonProberClient) GetConfig(context.Context) (backend.MimirConfig, error) {
-	return backend.MimirConfig{}, nil
-}
-func (nonProberClient) SetConfig(context.Context, backend.MimirConfig) error { return nil }
-func (nonProberClient) DeleteConfig(context.Context) error                   { return nil }
-func (nonProberClient) ListTenantConfigs(context.Context) ([]backend.TenantConfig, error) {
-	return nil, nil
-}
-func (nonProberClient) RingStatus(context.Context) (backend.Ring, error) { return backend.Ring{}, nil }
-func (nonProberClient) Capabilities() backend.Caps                       { return backend.Caps{} }
-
-var _ backend.Client = nonProberClient{}

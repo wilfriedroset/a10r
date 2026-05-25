@@ -12,13 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/backendtest"
 )
 
 // fakeClient satisfies backend.Client for fan-out tests. The
 // hookable ListAlerts override lets each test inject behaviour
 // (succeed, fail, observe in-flight count) without per-test mock
-// scaffolding.
+// scaffolding. Other Client methods come from the embedded stub
+// and return ErrUnsupported — none of these tests touch them.
 type fakeClient struct {
+	backendtest.ClientStub
 	listAlertsFn func(ctx context.Context) ([]backend.Alert, error)
 }
 
@@ -32,48 +35,6 @@ func (f *fakeClient) ListAlerts(ctx context.Context, _ backend.AlertFilter) ([]b
 	}
 	return nil, nil
 }
-
-func (*fakeClient) ListAlertGroups(context.Context, backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return nil, nil
-}
-
-func (*fakeClient) ListSilences(context.Context, backend.SilenceFilter) ([]backend.Silence, error) {
-	return nil, nil
-}
-
-func (*fakeClient) GetSilence(context.Context, string) (backend.Silence, error) {
-	return backend.Silence{}, nil
-}
-
-func (*fakeClient) ListReceivers(context.Context) ([]backend.Receiver, error) {
-	return nil, nil
-}
-
-func (*fakeClient) Status(context.Context) (backend.Status, error) {
-	return backend.Status{}, nil
-}
-
-func (*fakeClient) CreateSilence(context.Context, backend.SilenceSpec) (string, error) {
-	return "", nil
-}
-func (*fakeClient) UpdateSilence(context.Context, string, backend.SilenceSpec) error { return nil }
-func (*fakeClient) ExpireSilence(context.Context, string) error                      { return nil }
-func (*fakeClient) GetConfig(context.Context) (backend.MimirConfig, error) {
-	return backend.MimirConfig{}, backend.ErrUnsupported
-}
-
-func (*fakeClient) SetConfig(context.Context, backend.MimirConfig) error {
-	return backend.ErrUnsupported
-}
-func (*fakeClient) DeleteConfig(context.Context) error { return backend.ErrUnsupported }
-func (*fakeClient) ListTenantConfigs(context.Context) ([]backend.TenantConfig, error) {
-	return nil, backend.ErrUnsupported
-}
-
-func (*fakeClient) RingStatus(context.Context) (backend.Ring, error) {
-	return backend.Ring{}, backend.ErrUnsupported
-}
-func (*fakeClient) Capabilities() backend.Caps { return backend.Caps{} }
 
 func TestClient_OneFailsOthersSucceed(t *testing.T) {
 	t.Parallel()

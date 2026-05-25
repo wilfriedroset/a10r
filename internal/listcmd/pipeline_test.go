@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/backendtest"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
@@ -29,13 +30,15 @@ type fakeRow struct {
 }
 
 // fakeClient is a sentinel backend.Client the test fetcher reads to
-// confirm the pipeline routes the matching builder output. The full
-// interface surface is implemented as no-ops so the test does not
-// have to grow a method for every backend.Client capability.
+// confirm the pipeline routes the matching builder output. Embedding
+// ClientStub means any unintended method call surfaces as
+// ErrUnsupported instead of a nil-interface panic.
 type fakeClient struct {
-	backend.Client
+	backendtest.ClientStub
 	name string
 }
+
+var _ backend.Client = fakeClient{}
 
 func newSpec(t *testing.T, backends []config.Backend, fetcher listcmd.Fetcher[fakeRow]) listcmd.Spec[fakeRow] {
 	t.Helper()
