@@ -140,16 +140,22 @@ namespace bar (k9s vocabulary; a10r says tenants).
 **Hint grid**:
 The middle zone of the **top panel** — a column-major grid of
 `<key> Description` cells from the active page's `Bindings()`,
-capped at three columns and at logo height (five rows). The
-renderer reflows under width pressure per ADR 0036: drop logo →
-step hint cols down 3 → 2 → 1 → iteratively drop trailing hints
-once 1-col-at-cellW still won't fit, recomputing `cellW` after
-each drop. Pages register hints most-important-first so the
-drop-from-end loses the least-load-bearing verbs; the full
+capped at three columns and at logo height (five rows). Chips
+render k9s-style lowercase via `help.ChipText` (`<shift-s>`,
+`<ctrl-e>`, `<enter>`, `</>`); a bare uppercase single-letter
+binding (alert detail's `S`) expands to `<shift-<letter>>` so
+it stays distinct from its lowercase sibling (`s` silence vs
+`S` open silences) in the same hint grid. See ADR 0037. The
+renderer reflows under width pressure per ADR 0036: drop logo
+→ step hint cols down 3 → 2 → 1 → iteratively drop trailing
+hints once 1-col-at-cellW still won't fit, recomputing `cellW`
+after each drop. Pages register hints most-important-first so
+the drop-from-end loses the least-load-bearing verbs; the full
 catalogue stays one `?` away in the **help overlay**.
 _Avoid_: menu (k9s name), key bar (footer vocabulary), hint
 strip (the hint strip is the single-line right-zone of the
-**header** surface, not the grid).
+**header** surface, not the grid), `<Shift+S>` / `<Enter>`
+(chips are k9s-style lowercase per ADR 0037).
 
 **Tenant shortcut grid**:
 The left zone of the **top panel** — a column-major grid of

@@ -68,9 +68,9 @@ func TestHelp_ResourceColumnListsTenantsAndPageVerbs(t *testing.T) {
 	require.Contains(t, out, "secondary")
 
 	// Page-specific verbs follow.
-	require.Contains(t, out, "<Enter>")
+	require.Contains(t, out, "<enter>")
 	require.Contains(t, out, "detail")
-	require.Contains(t, out, "<Space>")
+	require.Contains(t, out, "<space>")
 	require.Contains(t, out, "mark")
 }
 
@@ -92,13 +92,13 @@ func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
 	h := New(sampleOpts(t))
 	out := testutil.StripStyle(h.View(160, 30))
 
-	for _, want := range []string{"<:>", "command", "<?>", "help", "<Esc>", "back"} {
+	for _, want := range []string{"<:>", "command", "<?>", "help", "<esc>", "back"} {
 		require.Containsf(t, out, want, "GENERAL column must surface %q", want)
 	}
-	for _, want := range []string{"<j>", "down", "<gg>", "top", "<G>", "bottom"} {
+	for _, want := range []string{"<j>", "down", "<gg>", "top", "<shift-g>", "bottom"} {
 		require.Containsf(t, out, want, "NAVIGATION column must surface %q", want)
 	}
-	for _, want := range []string{"<Shift+S>", "sort severity"} {
+	for _, want := range []string{"<shift-s>", "sort severity"} {
 		require.Containsf(t, out, want, "HOTKEYS column must surface %q", want)
 	}
 }
@@ -348,4 +348,29 @@ func TestHelp_NoTenantsDropsNumericBlock(t *testing.T) {
 			"otherwise `<0> all` reads as a no-op key")
 	require.Contains(t, out, "RESOURCE",
 		"the column heading still renders so the page verbs have a banner")
+}
+
+func TestChipText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, key, want string
+	}{
+		{"lowercase letter", "s", "<s>"},
+		{"bare uppercase letter expands to shift", "S", "<shift-s>"},
+		{"shift chord", "Shift+F", "<shift-f>"},
+		{"ctrl chord", "Ctrl+E", "<ctrl-e>"},
+		{"word key", "Enter", "<enter>"},
+		{"slash symbol", "/", "</>"},
+		{"question mark", "?", "<?>"},
+		{"digit", "0", "<0>"},
+		{"vim chord stays lowercase", "gg", "<gg>"},
+		{"ligature-prone dash keeps square brackets", "-", "[-]"},
+		{"ligature-prone less-than keeps square brackets", "<", "[<]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, ChipText(tc.key))
+		})
+	}
 }

@@ -357,8 +357,6 @@ func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []stri
 // the actual key. Bindings using these keys are rendered with
 // square brackets (`[-]`) instead of the angle-bracket chip;
 // `[ ]` does not form a ligature in any common programming font.
-// Every other key keeps its `<key>` rendering so existing test
-// assertions on `<0>`, `<Enter>`, etc. stay literal.
 var ligatureProneKeys = map[string]struct{}{
 	"-": {},
 	"=": {},
@@ -366,17 +364,20 @@ var ligatureProneKeys = map[string]struct{}{
 	">": {},
 }
 
-// ChipText returns the bracketed form of key, swapping to square
-// brackets for ligature-prone single-character keys so programming-
-// ligature fonts don't mangle them. Exported because the footer hint
-// bar and the top panel's action chips render the same shape; a
-// single rule keeps every binding chrome consistent on a future
-// ligature addition.
+// ChipText is shared by the footer hint bar and the top-panel hint
+// grid so chip shape stays uniform across chrome. Square brackets
+// replace angle brackets for ligature-prone keys to prevent
+// programming-font collisions (see ligatureProneKeys). Bare uppercase
+// single letters expand to shift-letter so `s` and `S` stay visually
+// distinct when a view binds both (see ADR 0037).
 func ChipText(key string) string {
 	if _, prone := ligatureProneKeys[key]; prone {
 		return "[" + key + "]"
 	}
-	return "<" + key + ">"
+	if len(key) == 1 && key[0] >= 'A' && key[0] <= 'Z' {
+		key = "Shift+" + string(key[0]-'A'+'a')
+	}
+	return "<" + strings.ReplaceAll(strings.ToLower(key), "+", "-") + ">"
 }
 
 // entry renders one binding as "<key>  description" (or "[-]
