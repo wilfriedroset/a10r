@@ -388,31 +388,6 @@ func TestParseKVAnswers_MalformedFailsClosed(t *testing.T) {
 	}
 }
 
-func TestBuildInitConfig_RejectsMissingRequired(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		kvs  []string
-		want string // substring expected in the missing-keys error
-	}{
-		{name: "all missing", kvs: nil, want: "name, url, kind"},
-		{name: "name missing", kvs: []string{"url=https://x", "kind=alertmanager"}, want: "name"},
-		{name: "url missing", kvs: []string{"name=p", "kind=alertmanager"}, want: "url"},
-		{name: "kind missing", kvs: []string{"name=p", "url=https://x"}, want: "kind"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			ans, err := parseKVAnswers(tc.kvs)
-			require.NoError(t, err)
-			_, err = buildInitConfig(ans)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), tc.want)
-		})
-	}
-}
-
 func TestBuildInitConfig_OneShotMatchesWizard(t *testing.T) {
 	t.Parallel()
 
@@ -443,177 +418,147 @@ func TestBuildInitConfig_OneShotMatchesWizard(t *testing.T) {
 		"one-shot output must match wizard output for identical inputs")
 }
 
-func TestBuildInitConfig_MimirDefaultsPrefix(t *testing.T) {
+func TestBuildInitConfig(t *testing.T) {
 	t.Parallel()
 
-	// kind=mimir without an explicit prefix mirrors the wizard's
-	// suggested-prefix behaviour: bare host gets /alertmanager.
-	ans, err := parseKVAnswers([]string{
-		"name=mimir", "url=https://mimir.example", "kind=mimir",
-	})
-	require.NoError(t, err)
-	cfg, err := buildInitConfig(ans)
-	require.NoError(t, err)
-	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
-}
-
-func TestBuildInitConfig_MimirExplicitTenantSetsHeader(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers([]string{
-		"name=mimir", "url=https://mimir.example", "kind=mimir",
-		"tenant=tenant-a",
-	})
-	require.NoError(t, err)
-	cfg, err := buildInitConfig(ans)
-	require.NoError(t, err)
-	require.Equal(t, "X-Scope-OrgID", cfg.Backends[0].TenantHeader)
-	require.Equal(t, "tenant-a", cfg.Backends[0].Tenant)
-}
-
-func TestBuildInitConfig_MimirEmptyTenantOmitsHeader(t *testing.T) {
-	t.Parallel()
-
-	// Explicit empty tenant is the single-tenant Mimir case — the
-	// header must NOT be injected, otherwise Mimir would 400 on
-	// every request.
-	ans, err := parseKVAnswers([]string{
-		"name=mimir", "url=https://mimir.example", "kind=mimir",
-		"tenant=",
-	})
-	require.NoError(t, err)
-	cfg, err := buildInitConfig(ans)
-	require.NoError(t, err)
-	require.Empty(t, cfg.Backends[0].TenantHeader)
-	require.Empty(t, cfg.Backends[0].Tenant)
-}
-
-func TestBuildInitConfig_RejectsPrefixWithAlertmanager(t *testing.T) {
-	t.Parallel()
-
-	// prefix is a mimir-only knob in the wizard; one-shot mirrors.
-	ans, err := parseKVAnswers(append(minKVs(), "prefix=/alertmanager"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "prefix is only valid with kind=mimir")
-}
-
-func TestBuildInitConfig_RejectsTenantWithAlertmanager(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers(append(minKVs(), "tenant=tenant-a"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant is only valid with kind=mimir")
-}
-
-func TestBuildInitConfig_RejectsBadKind(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers([]string{
-		"name=p", "url=https://x", "kind=loki",
-	})
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `kind "loki"`)
-}
-
-func TestBuildInitConfig_BearerRequiresToken(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers(append(minKVs(), "auth_mode=bearer"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "auth_mode=bearer requires bearer_token")
-}
-
-func TestBuildInitConfig_BasicRequiresBoth(t *testing.T) {
-	t.Parallel()
-
-	// user-only and password-only together pin "both required" — a
-	// regression to "only user required" fails user_only, a regression
-	// to "only password required" fails password_only. The both-empty
-	// case adds no catching power (every regression that breaks one
-	// leg keeps both-empty erroring) so it stays cut.
 	cases := []struct {
-		name string
-		kvs  []string
+		name          string
+		kvs           []string
+		wantErrSubstr string                                // non-empty → error case
+		check         func(t *testing.T, cfg config.Config) // non-nil → success-case extra assertions
 	}{
-		{name: "user only", kvs: []string{"auth_mode=basic", "basic_user=alice"}},
-		{name: "password only", kvs: []string{"auth_mode=basic", "basic_password=hunter2"}},
+		{name: "missing all", kvs: nil, wantErrSubstr: "name, url, kind"},
+		{name: "missing name", kvs: []string{"url=https://x", "kind=alertmanager"}, wantErrSubstr: "name"},
+		{name: "missing url", kvs: []string{"name=p", "kind=alertmanager"}, wantErrSubstr: "url"},
+		{name: "missing kind", kvs: []string{"name=p", "url=https://x"}, wantErrSubstr: "kind"},
+		{
+			// kind=mimir without an explicit prefix mirrors the wizard's
+			// suggested-prefix behaviour: bare host gets /alertmanager.
+			name: "mimir defaults prefix",
+			kvs:  []string{"name=mimir", "url=https://mimir.example", "kind=mimir"},
+			check: func(t *testing.T, cfg config.Config) {
+				t.Helper()
+				require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
+			},
+		},
+		{
+			name: "mimir explicit tenant sets header",
+			kvs: []string{
+				"name=mimir", "url=https://mimir.example", "kind=mimir",
+				"tenant=tenant-a",
+			},
+			check: func(t *testing.T, cfg config.Config) {
+				t.Helper()
+				require.Equal(t, "X-Scope-OrgID", cfg.Backends[0].TenantHeader)
+				require.Equal(t, "tenant-a", cfg.Backends[0].Tenant)
+			},
+		},
+		{
+			// Explicit empty tenant is the single-tenant Mimir case — the
+			// header must NOT be injected, otherwise Mimir would 400 on
+			// every request.
+			name: "mimir empty tenant omits header",
+			kvs: []string{
+				"name=mimir", "url=https://mimir.example", "kind=mimir",
+				"tenant=",
+			},
+			check: func(t *testing.T, cfg config.Config) {
+				t.Helper()
+				require.Empty(t, cfg.Backends[0].TenantHeader)
+				require.Empty(t, cfg.Backends[0].Tenant)
+			},
+		},
+		{
+			// prefix is a mimir-only knob in the wizard; one-shot mirrors.
+			name:          "rejects prefix with alertmanager",
+			kvs:           append(minKVs(), "prefix=/alertmanager"),
+			wantErrSubstr: "prefix is only valid with kind=mimir",
+		},
+		{
+			name:          "rejects tenant with alertmanager",
+			kvs:           append(minKVs(), "tenant=tenant-a"),
+			wantErrSubstr: "tenant is only valid with kind=mimir",
+		},
+		{
+			name:          "rejects bad kind",
+			kvs:           []string{"name=p", "url=https://x", "kind=loki"},
+			wantErrSubstr: `kind "loki"`,
+		},
+		{
+			name:          "bearer requires token",
+			kvs:           append(minKVs(), "auth_mode=bearer"),
+			wantErrSubstr: "auth_mode=bearer requires bearer_token",
+		},
+		// user-only and password-only together pin "both required" — a
+		// regression to "only user required" fails basic-missing-password,
+		// a regression to "only password required" fails basic-missing-user.
+		// The both-empty case adds no catching power (every regression that
+		// breaks one leg keeps both-empty erroring) so it stays cut.
+		{
+			name:          "basic missing password",
+			kvs:           append(minKVs(), "auth_mode=basic", "basic_user=alice"),
+			wantErrSubstr: "auth_mode=basic requires both basic_user and basic_password",
+		},
+		{
+			name:          "basic missing user",
+			kvs:           append(minKVs(), "auth_mode=basic", "basic_password=hunter2"),
+			wantErrSubstr: "auth_mode=basic requires both basic_user and basic_password",
+		},
+		{
+			// Default (unset) auth_mode is none. Setting bearer_token then
+			// must surface the contradiction rather than silently dropping
+			// the token on the floor.
+			name:          "none rejects credentials",
+			kvs:           append(minKVs(), "bearer_token=secret"),
+			wantErrSubstr: "auth_mode=none forbids",
+		},
+		{
+			name:          "bad auth mode",
+			kvs:           append(minKVs(), "auth_mode=oauth"),
+			wantErrSubstr: `auth_mode "oauth"`,
+		},
+		{
+			name:          "bad theme",
+			kvs:           append(minKVs(), "theme=solarized"),
+			wantErrSubstr: `theme "solarized"`,
+		},
+		{
+			name:          "bad poll interval",
+			kvs:           append(minKVs(), "poll_interval=forever"),
+			wantErrSubstr: "duration",
+		},
+		{
+			// poll_interval omitted → 30s default (matches wizard prompt
+			// default). Prevents a one-shot run from emitting a Config with
+			// PollInterval zero, which would resolve to the package floor
+			// rather than the user's expected 30s.
+			name: "poll default when omitted",
+			kvs:  minKVs(),
+			check: func(t *testing.T, cfg config.Config) {
+				t.Helper()
+				require.Equal(t, 30*time.Second, cfg.Defaults.PollInterval)
+				require.Equal(t, "catppuccin-mocha", cfg.Theme.Name)
+			},
+		},
 	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			ans, err := parseKVAnswers(append(minKVs(), tc.kvs...))
+			ans, err := parseKVAnswers(tc.kvs)
 			require.NoError(t, err)
-			_, err = buildInitConfig(ans)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "auth_mode=basic requires both basic_user and basic_password")
+			cfg, err := buildInitConfig(ans)
+			if tc.wantErrSubstr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErrSubstr)
+				return
+			}
+			require.NoError(t, err)
+			if tc.check != nil {
+				tc.check(t, cfg)
+			}
 		})
 	}
-}
-
-func TestBuildInitConfig_NoneRejectsCredentials(t *testing.T) {
-	t.Parallel()
-
-	// Default (unset) auth_mode is none. Setting bearer_token then
-	// must surface the contradiction rather than silently dropping
-	// the token on the floor.
-	ans, err := parseKVAnswers(append(minKVs(), "bearer_token=secret"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "auth_mode=none forbids")
-}
-
-func TestBuildInitConfig_BadAuthMode(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers(append(minKVs(), "auth_mode=oauth"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `auth_mode "oauth"`)
-}
-
-func TestBuildInitConfig_BadTheme(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers(append(minKVs(), "theme=solarized"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `theme "solarized"`)
-}
-
-func TestBuildInitConfig_BadPollInterval(t *testing.T) {
-	t.Parallel()
-
-	ans, err := parseKVAnswers(append(minKVs(), "poll_interval=forever"))
-	require.NoError(t, err)
-	_, err = buildInitConfig(ans)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "duration")
-}
-
-func TestBuildInitConfig_PollDefaultWhenOmitted(t *testing.T) {
-	t.Parallel()
-
-	// poll_interval omitted → 30s default (matches wizard prompt
-	// default). Prevents a one-shot run from emitting a Config with
-	// PollInterval zero, which would resolve to the package floor
-	// rather than the user's expected 30s.
-	ans, err := parseKVAnswers(minKVs())
-	require.NoError(t, err)
-	cfg, err := buildInitConfig(ans)
-	require.NoError(t, err)
-	require.Equal(t, 30*time.Second, cfg.Defaults.PollInterval)
-	require.Equal(t, "catppuccin-mocha", cfg.Theme.Name)
 }
 
 func TestRunInit_OneShotWritesAndRoundTrips(t *testing.T) {
