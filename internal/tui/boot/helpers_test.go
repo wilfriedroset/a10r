@@ -23,141 +23,143 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// TestLogTransportSurprises_TLS10MinVersionEmitsWarn pins the
-// deprecated-TLS warning: TLS 1.0/1.1 stay in the schema as a
-// connectivity escape hatch for legacy backends, but every
-// selection must emit a WARN at startup so the operator sees the
-// deprecation on every run.
-func TestLogTransportSurprises_TLS10MinVersionEmitsWarn(t *testing.T) {
-	t.Parallel()
-	buf := &strings.Builder{}
-	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+// TestLogTransportSurprises pins the startup transport-warning
+// log surface. Sequential (no t.Parallel) because the proxy row
+// mutates process-wide env via t.Setenv.
+func TestLogTransportSurprises(t *testing.T) {
+	cases := []struct {
+		name       string
+		env        map[string]string
+		backends   []config.Backend
+		wantSubstr []string
+		wantEmpty  bool
+	}{
+		{
+			// TLS 1.0/1.1 stay in the schema as a connectivity escape
+			// hatch for legacy backends, but every selection must emit
+			// a WARN at startup so the operator sees the deprecation on
+			// every run.
+			name: "TLS10 min version emits warn",
+			backends: []config.Backend{
+				{Name: "legacy", TLSConfig: &config.TLSConfig{MinVersion: "TLS10"}},
+			},
+			wantSubstr: []string{"level=WARN", "min_version=TLS10", "backend=legacy"},
+		},
+		{
+			// Keep the Prometheus-parity replace semantics but log INFO
+			// once per backend so the operator sees that the inline CA
+			// pinning is in effect (and the system root pool is bypassed).
+			name: "inline CA emits info",
+			backends: []config.Backend{
+				{Name: "self-signed", TLSConfig: &config.TLSConfig{CA: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"}},
+			},
+			wantSubstr: []string{"level=INFO", "system CA roots not used", "backend=self-signed"},
+		},
+		{
+			// A backend that opts into proxy_from_environment logs
+			// which proxy URL the OS env actually resolves to, so the
+			// operator can spot a HTTPS_PROXY hijack chain on startup.
+			name: "proxy from environment logs resolved",
+			env: map[string]string{
+				"HTTPS_PROXY": "http://proxy.internal:3128",
+				"HTTP_PROXY":  "http://proxy.internal:3128",
+			},
+			backends: []config.Backend{
+				{Name: "via-proxy", URL: "https://am.example", ProxyFromEnvironment: true},
+			},
+			wantSubstr: []string{
+				"level=INFO",
+				"proxy_from_environment active",
+				"backend=via-proxy",
+				"proxy=http://proxy.internal:3128",
+			},
+		},
+		{
+			// Guards against noise creep: a backend without a TLS block
+			// must not emit any log line.
+			name: "no TLS stays silent",
+			backends: []config.Backend{
+				{Name: "plain"},
+				{Name: "modern", TLSConfig: &config.TLSConfig{MinVersion: "TLS12"}},
+			},
+			wantEmpty: true,
+		},
+	}
 
-	logTransportSurprises(logger, []config.Backend{
-		{Name: "legacy", TLSConfig: &config.TLSConfig{MinVersion: "TLS10"}},
-	})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			buf := &strings.Builder{}
+			logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	out := buf.String()
-	require.Contains(t, out, "level=WARN", "deprecated TLS version must surface as WARN")
-	require.Contains(t, out, "min_version=TLS10")
-	require.Contains(t, out, "backend=legacy")
+			logTransportSurprises(logger, tc.backends)
+
+			if tc.wantEmpty {
+				require.Empty(t, buf.String(), "no surprises in scope must produce no log lines")
+				return
+			}
+			out := buf.String()
+			for _, s := range tc.wantSubstr {
+				require.Contains(t, out, s, "expected %q in log output", s)
+			}
+		})
+	}
 }
 
-// TestLogTransportSurprises_InlineCAEmitsInfo pins the inline-CA
-// notice: keep the Prometheus-parity replace semantics but log
-// INFO once per backend so the operator sees that the inline CA
-// pinning is in effect (and the system root pool is bypassed).
-func TestLogTransportSurprises_InlineCAEmitsInfo(t *testing.T) {
-	t.Parallel()
-	buf := &strings.Builder{}
-	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	logTransportSurprises(logger, []config.Backend{
-		{Name: "self-signed", TLSConfig: &config.TLSConfig{CA: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----"}},
-	})
-
-	out := buf.String()
-	require.Contains(t, out, "level=INFO", "inline CA pinning must surface as INFO")
-	require.Contains(t, out, "system CA roots not used")
-	require.Contains(t, out, "backend=self-signed")
-}
-
-// TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved
-// pins the resolved-proxy log line: a backend that opts into
-// proxy_from_environment logs which proxy URL the OS env actually
-// resolves to, so the operator can spot a HTTPS_PROXY hijack
-// chain on startup.
-func TestLogTransportSurprises_ProxyFromEnvironmentLogsResolved(t *testing.T) {
-	// Sequential because env mutation is process-wide.
-	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
-	t.Setenv("HTTP_PROXY", "http://proxy.internal:3128")
-
-	buf := &strings.Builder{}
-	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	logTransportSurprises(logger, []config.Backend{
-		{Name: "via-proxy", URL: "https://am.example", ProxyFromEnvironment: true},
-	})
-
-	out := buf.String()
-	require.Contains(t, out, "level=INFO")
-	require.Contains(t, out, "proxy_from_environment active")
-	require.Contains(t, out, "backend=via-proxy")
-	require.Contains(t, out, "proxy=http://proxy.internal:3128")
-}
-
-// TestLogTransportSurprises_NoTLSStaysSilent guards against
-// noise creep: a backend without a TLS block must not emit any
-// log line.
-func TestLogTransportSurprises_NoTLSStaysSilent(t *testing.T) {
-	t.Parallel()
-	buf := &strings.Builder{}
-	logger := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	logTransportSurprises(logger, []config.Backend{
-		{Name: "plain"},
-		{Name: "modern", TLSConfig: &config.TLSConfig{MinVersion: "TLS12"}},
-	})
-
-	require.Empty(t, buf.String(), "no surprises in scope must produce no log lines")
-}
-
-// TestLevelFor_DefaultIsInfo asserts the CLI flag fold: neither
-// --debug nor --quiet → Info.
-func TestLevelFor_DefaultIsInfo(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, slog.LevelInfo, LevelFor(false, false))
-}
-
-// TestLevelFor_DebugWins asserts that --debug raises level to
-// Debug. Previously slog.Default() (stderr) was used regardless;
+// TestLevelFor pins the CLI flag fold. The debug-wins rows matter
+// because previously slog.Default() (stderr) was used regardless;
 // a plumbed --debug must reach the file logger so debug records
 // survive into the persistent audit trail.
-func TestLevelFor_DebugWins(t *testing.T) {
+func TestLevelFor(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, slog.LevelDebug, LevelFor(true, false))
+	cases := []struct {
+		name         string
+		debug, quiet bool
+		want         slog.Level
+	}{
+		{name: "default is info", debug: false, quiet: false, want: slog.LevelInfo},
+		{name: "debug wins", debug: true, quiet: false, want: slog.LevelDebug},
+		{name: "quiet drops to warn", debug: false, quiet: true, want: slog.LevelWarn},
+		{name: "debug and quiet prefers debug", debug: true, quiet: true, want: slog.LevelDebug},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, LevelFor(tc.debug, tc.quiet))
+		})
+	}
 }
 
-// TestLevelFor_QuietDropsToWarn asserts that --quiet drops level
-// to Warn so info-noise vanishes from operator logs.
-func TestLevelFor_QuietDropsToWarn(t *testing.T) {
+// TestUserAgent pins the User-Agent header surface across the
+// build variants a10r ships through.
+func TestUserAgent(t *testing.T) {
 	t.Parallel()
-	require.Equal(t, slog.LevelWarn, LevelFor(false, true))
-}
-
-// TestLevelFor_DebugAndQuietPrefersDebug pins the both-set
-// behaviour: debug wins, mirroring reconcileLogLevelFlags's
-// "--debug overrides --quiet" warning.
-func TestLevelFor_DebugAndQuietPrefersDebug(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, slog.LevelDebug, LevelFor(true, true))
-}
-
-// TestUserAgent_DevBuild covers the goreleaser-skipped local
-// build (`go build` with no -X ldflags). The output should be a
-// bare `a10r/dev` — no parenthesised commit suffix when commit is
-// the sentinel "none".
-func TestUserAgent_DevBuild(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, "a10r/dev", UserAgent("dev", "none"))
-}
-
-// TestUserAgent_ReleaseBuild covers the goreleaser path: a
-// non-default commit appears as a parenthesised RFC 9110 comment
-// suffix so backend operators can grep one access-log line back
-// to the exact build.
-func TestUserAgent_ReleaseBuild(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, "a10r/1.2.3 (abc1234)", UserAgent("1.2.3", "abc1234"))
-}
-
-// TestUserAgent_EmptyCommitTreatedAsNone pins the defensive
-// branch: an unset commit (empty string) folds into the same
-// branch as the sentinel "none" so neither variant produces a
-// stray "()" suffix.
-func TestUserAgent_EmptyCommitTreatedAsNone(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, "a10r/1.2.3", UserAgent("1.2.3", ""))
+	cases := []struct {
+		name            string
+		version, commit string
+		want            string
+	}{
+		// goreleaser-skipped local build (`go build` with no -X ldflags):
+		// bare `a10r/dev`, no parenthesised commit suffix when commit is
+		// the sentinel "none".
+		{name: "dev build", version: "dev", commit: "none", want: "a10r/dev"},
+		// goreleaser path: a non-default commit appears as a parenthesised
+		// RFC 9110 comment suffix so backend operators can grep one
+		// access-log line back to the exact build.
+		{name: "release build", version: "1.2.3", commit: "abc1234", want: "a10r/1.2.3 (abc1234)"},
+		// Defensive branch: an unset commit (empty string) folds into the
+		// same branch as the sentinel "none" so neither variant produces
+		// a stray "()" suffix.
+		{name: "empty commit treated as none", version: "1.2.3", commit: "", want: "a10r/1.2.3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, UserAgent(tc.version, tc.commit))
+		})
+	}
 }
 
 // TestBuildTenantRows_PicksUpVersionsByName covers the join
@@ -438,60 +440,60 @@ func TestApplyUserKeyOverrides_EndToEnd(t *testing.T) {
 	require.EqualValues(t, 2, fired.Load())
 }
 
-// TestApplyUserKeyOverrides_MissingFileIsNoError pins the
-// "operators who don't curate keys see no mention of the feature"
-// contract.
-func TestApplyUserKeyOverrides_MissingFileIsNoError(t *testing.T) {
+// TestApplyUserKeyOverrides pins the boot-layer key-override
+// surface: missing files are silent, and every fail-closed branch
+// surfaces a precise error message.
+func TestApplyUserKeyOverrides(t *testing.T) {
 	t.Parallel()
+	type extraAction struct{ id, key string }
+	cases := []struct {
+		name         string
+		yaml         string
+		extraActions []extraAction
+		wantErr      string
+	}{
+		// Operators who don't curate keys see no mention of the feature.
+		{name: "missing file is no error", yaml: ""},
+		// C3 muscle-memory carve-out: a user file binding 0-9 must
+		// refuse to start with the precise reserved-keys error.
+		{name: "reserved key fails closed", yaml: "quit: ['3']\n", wantErr: "0-9 are reserved for tenant quick-switch"},
+		// Typo'd action name fails closed.
+		{name: "unknown action fails closed", yaml: "quitt: ['Q']\n", wantErr: `unknown action "quitt"`},
+		{
+			// Loader's conflict check via the boot-layer entry point.
+			name:         "same-file conflict fails closed",
+			yaml:         "quit: ['Q']\nrefresh: ['Q']\n",
+			extraActions: []extraAction{{id: "refresh", key: "r"}},
+			wantErr:      `key "Shift+Q" is also bound to action "quit"`,
+		},
+	}
 
-	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.NoError(t, applyUserKeyOverrides(d, t.TempDir(), config.LoadKeys))
-}
+			d := keys.New(nil)
+			d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
+			for _, ea := range tc.extraActions {
+				d.SetAction(keys.LayerGlobal, ea.id, ea.id, ea.key, func() tea.Cmd { return nil })
+			}
 
-// TestApplyUserKeyOverrides_ReservedKeyFailsClosed pins the C3
-// muscle-memory carve-out: a user file binding 0-9 must refuse
-// to start with the precise reserved-keys error.
-func TestApplyUserKeyOverrides_ReservedKeyFailsClosed(t *testing.T) {
-	t.Parallel()
+			var dir string
+			if tc.yaml == "" {
+				dir = t.TempDir()
+			} else {
+				dir = writeDefaultKeys(t, tc.yaml)
+			}
 
-	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
-
-	dir := writeDefaultKeys(t, "quit: ['3']\n")
-	err := applyUserKeyOverrides(d, dir, config.LoadKeys)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "0-9 are reserved for tenant quick-switch")
-}
-
-// TestApplyUserKeyOverrides_UnknownActionFailsClosed pins the
-// "typo'd action name fails closed" contract.
-func TestApplyUserKeyOverrides_UnknownActionFailsClosed(t *testing.T) {
-	t.Parallel()
-
-	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
-
-	dir := writeDefaultKeys(t, "quitt: ['Q']\n")
-	err := applyUserKeyOverrides(d, dir, config.LoadKeys)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `unknown action "quitt"`)
-}
-
-// TestApplyUserKeyOverrides_SameFileConflictFailsClosed pins the
-// loader's conflict check via the boot-layer entry point.
-func TestApplyUserKeyOverrides_SameFileConflictFailsClosed(t *testing.T) {
-	t.Parallel()
-
-	d := keys.New(nil)
-	d.SetAction(keys.LayerGlobal, "quit", "quit", "q", func() tea.Cmd { return nil })
-	d.SetAction(keys.LayerGlobal, "refresh", "refresh", "r", func() tea.Cmd { return nil })
-
-	dir := writeDefaultKeys(t, "quit: ['Q']\nrefresh: ['Q']\n")
-	err := applyUserKeyOverrides(d, dir, config.LoadKeys)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), `key "Shift+Q" is also bound to action "quit"`)
+			err := applyUserKeyOverrides(d, dir, config.LoadKeys)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }
 
 // newTestAppForFilter builds a minimal app.App for the
@@ -505,29 +507,45 @@ func newTestAppForFilter(t *testing.T) *app.App {
 	})
 }
 
-// TestQuitFilter_TranslatesQuitMsgWhenAppNotQuitting pins Fix 1's
-// SIGTERM-cascade contract.
-func TestQuitFilter_TranslatesQuitMsgWhenAppNotQuitting(t *testing.T) {
+// TestQuitFilter pins the pre-authorisation surface of the
+// bubbletea quit filter: raw QuitMsg/InterruptMsg get translated
+// to QuitRequestedMsg so the page-stack Close cascade runs, while
+// unrelated messages pass through untouched.
+func TestQuitFilter(t *testing.T) {
 	t.Parallel()
-	a := newTestAppForFilter(t)
-	filter := QuitFilter(a)
+	cases := []struct {
+		name   string
+		msg    tea.Msg
+		wantIs tea.Msg
+	}{
+		// SIGTERM-cascade contract: raw tea.QuitMsg must translate to
+		// QuitRequestedMsg so the page-stack Close cascade runs before
+		// bubbletea exits.
+		{name: "translates QuitMsg when app not quitting", msg: tea.QuitMsg{}},
+		// SIGINT companion to the SIGTERM path above.
+		{name: "translates InterruptMsg when app not quitting", msg: tea.InterruptMsg{}},
+		// Pass-through scope: the filter only intercepts QuitMsg /
+		// InterruptMsg; everything else flows untouched.
+		{
+			name:   "passes non-quit msgs through",
+			msg:    tea.WindowSizeMsg{Width: 100, Height: 30},
+			wantIs: tea.WindowSizeMsg{Width: 100, Height: 30},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := newTestAppForFilter(t)
+			filter := QuitFilter(a)
 
-	out := filter(a, tea.QuitMsg{})
-	require.IsType(t, app.QuitRequestedMsg{}, out,
-		"raw tea.QuitMsg (SIGTERM path) must translate to QuitRequestedMsg "+
-			"so the page-stack Close cascade runs before bubbletea exits")
-}
-
-// TestQuitFilter_TranslatesInterruptMsgWhenAppNotQuitting pins
-// the SIGINT companion.
-func TestQuitFilter_TranslatesInterruptMsgWhenAppNotQuitting(t *testing.T) {
-	t.Parallel()
-	a := newTestAppForFilter(t)
-	filter := QuitFilter(a)
-
-	out := filter(a, tea.InterruptMsg{})
-	require.IsType(t, app.QuitRequestedMsg{}, out,
-		"raw tea.InterruptMsg (SIGINT path) must translate to QuitRequestedMsg")
+			out := filter(a, tc.msg)
+			if tc.wantIs == nil {
+				require.IsType(t, app.QuitRequestedMsg{}, out)
+				return
+			}
+			require.Equal(t, tc.wantIs, out)
+		})
+	}
 }
 
 // TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised drives
@@ -549,17 +567,4 @@ func TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised(t *testing.T) {
 	require.IsType(t, tea.QuitMsg{}, out,
 		"once quitWithCleanup has authorised the quit, the filter must "+
 			"let tea.QuitMsg through so bubbletea's eventLoop exits")
-}
-
-// TestQuitFilter_PassesNonQuitMsgsThrough verifies the filter
-// only intercepts QuitMsg / InterruptMsg.
-func TestQuitFilter_PassesNonQuitMsgsThrough(t *testing.T) {
-	t.Parallel()
-	a := newTestAppForFilter(t)
-	filter := QuitFilter(a)
-
-	resize := tea.WindowSizeMsg{Width: 100, Height: 30}
-	out := filter(a, resize)
-	require.Equal(t, resize, out,
-		"non-quit messages must pass through the filter unchanged")
 }
