@@ -109,7 +109,18 @@ linters:
               desc: "Use stdlib maps (Go 1.21+)"
 
     forbidigo:
-      forbid: []
+      # TUI chrome renders inside an unstyled, transparent frame
+      # (panel.RenderFrame / RenderBody). The skin's bg-carrying role
+      # styles paint a palette stripe when one fragment is rendered
+      # there; every chrome fragment must use the fg-only *Fg sibling
+      # (theme.FgOnly). Only Cursor and Crumbs.*Pill carry a distinct
+      # chip bg by design (cursorBg / pill colour) and are not listed;
+      # Marked's bg is bodyBg, so it belongs here despite the name.
+      forbid:
+        - pattern: 'styles\.(Body|Header)\.Default\.Render'
+          msg: "chrome is transparent: render the .DefaultFg sibling, not the bg-carrying Default"
+        - pattern: 'styles\.Table\.(Header|HeaderActive|Row|Marked|Dimmed)\.Render'
+          msg: "chrome is transparent: render the *Fg sibling (HeaderFg/MarkedFg/...), not the bg-carrying parent"
 
     staticcheck:
       checks:
