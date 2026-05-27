@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package receivers renders the receivers list — a trivial single-
-// column table. Receivers carry only a Name on the AM side, so the
-// page's value is mostly the drill-down: an Enter on a row pushes
-// the alerts page filtered by `receiver=…`.
+// Package receivers renders the receivers list. Receivers carry
+// only a Name on the AM side, so each row is mostly the drill-down:
+// an Enter on a row pushes the alerts page filtered by `receiver=…`.
+// In an all-tenant scope across a multi-backend fleet a leading
+// TENANT column tags which backend each receiver came from —
+// mirroring the alerts / silences / groups pages.
 package receivers
 
 import (
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
@@ -47,14 +48,40 @@ const sortKeyName = "name"
 // helper still applies the same "press the active column to flip
 // direction" idiom — flipping ASC↔DESC is the only state change
 // possible on a single-axis page.
-func receiverSortColumns() []tablesort.Column[string] {
-	return []tablesort.Column[string]{
+//
+// Tenant is the comparator's tiebreaker, not a sortable axis of its
+// own: flatten walks byTenant in Go's random map order, so the same
+// receiver name shared across two backends would otherwise jitter
+// between renders. Sorting by name then tenant pins a stable row
+// order the cursor can track.
+func receiverSortColumns() []tablesort.Column[receiverEntry] {
+	return []tablesort.Column[receiverEntry]{
 		{
 			Key: sortKeyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true,
-			Less: func(a, b *string) bool { return *a < *b },
+			Less: func(a, b *receiverEntry) bool {
+				if a.name != b.name {
+					return a.name < b.name
+				}
+				return a.tenant < b.tenant
+			},
 		},
 	}
 }
+
+// receiverEntry is a single receiver tagged with the backend it came
+// from. Mirrors alertEntry / silenceEntry / groupEntry: the page
+// flattens byTenant into these so a receiver name shared across
+// tenants renders one row per tenant rather than a de-duplicated
+// union.
+type receiverEntry struct {
+	name   string
+	tenant string
+}
+
+// receiverTenantW is the fixed width of the leading TENANT column
+// when shown. Matches the tenant floor on the alerts / silences
+// pages so the column lines up across views.
+const receiverTenantW = 16
 
 // Options bundles the per-page constructor inputs. Mirrors the
 // shape of the alerts / silences / groups pages so the wiring
@@ -75,12 +102,13 @@ type Options struct {
 
 // Page is the receivers list view.
 //
-// Receivers are flat strings on the AM side; the only multi-
-// backend shaping the page does is union snapshots so the user
-// can quickly see which receivers exist across the active scope.
-// The drill-down keeps the behaviour the user expects (Enter on
-// a row → DrillRequestMsg with the receiver name) since the
-// receiver name is unique per backend in practice.
+// Receivers are flat strings on the AM side; the page flattens the
+// per-backend snapshots into one row per (tenant, receiver) so a
+// name shared across backends stays distinguishable under the
+// TENANT column rather than collapsing into a union. The drill-down
+// keeps the behaviour the user expects (Enter on a row →
+// DrillRequestMsg with the receiver name) since the receiver name is
+// unique per backend in practice.
 type Page struct {
 	listpage.Base
 
@@ -89,19 +117,22 @@ type Page struct {
 	// byTenant holds the most recent snapshot per backend, keyed
 	// by the poll.DataMsg.Tenant tag.
 	byTenant map[string][]string
-	view     []string // filtered + scoped + de-duplicated subset
+	view     []receiverEntry // filtered + scoped + sorted subset
 
 	// sorter owns the active sort state. Receivers expose a single
 	// sortable axis (Name) so the helper's degenerate single-column
 	// path handles h/l as no-op; Shift+N flips ASC↔DESC.
-	sorter *tablesort.Sorter[string]
+	sorter *tablesort.Sorter[receiverEntry]
 
-	// focusName is the name of the row the cursor was on before
-	// the most recent recompute — used to restore the cursor onto
-	// the same receiver after a re-sort, scope change, or poll
-	// refresh. Mirrors focusFingerprint / focusID / focusKey on
-	// the alerts / silences / groups pages.
-	focusName string
+	// focusName / focusTenant identify the row the cursor was on
+	// before the most recent recompute — used to restore the cursor
+	// onto the same receiver after a re-sort, scope change, or poll
+	// refresh. Both are needed because a receiver name is unique
+	// only within a tenant, so the cross-tenant view can hold two
+	// rows sharing a name. Mirrors focusFingerprint / focusID /
+	// focusKey on the alerts / silences / groups pages.
+	focusName   string
+	focusTenant string
 }
 
 // scopeAll is the canonical "every configured tenant" label.
@@ -139,32 +170,45 @@ func (p *Page) Title() string {
 	if scope == "" {
 		scope = scopeAll
 	}
-	total := len(p.unionScoped())
+	total := p.totalReceivers()
 	if p.Filter != "" {
 		return fmt.Sprintf("receivers(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
 }
 
-// unionScoped returns the de-duplicated set of receiver names
-// across every in-scope tenant, sorted alphabetically. Used by
-// Title and recompute.
-func (p *Page) unionScoped() []string {
-	seen := map[string]struct{}{}
+// totalReceivers is the unfiltered per-tenant receiver count within
+// the current scope. Used by Title (for the [N] suffix) and by the
+// empty-state hint to tell "nothing polled yet" apart from "filter
+// hides everything". Counts one per (tenant, receiver) — matching
+// the per-tenant rows the table renders — rather than the
+// de-duplicated union.
+func (p *Page) totalReceivers() int {
+	n := 0
+	for tenant, names := range p.byTenant {
+		if !p.ScopeIncludes(tenant) {
+			continue
+		}
+		n += len(names)
+	}
+	return n
+}
+
+// flatten builds the receiverEntry slice for in-scope tenants, one
+// entry per (tenant, receiver). A receiver name shared across
+// backends yields one row per tenant rather than collapsing into a
+// single de-duplicated entry — the TENANT column disambiguates.
+func (p *Page) flatten() []receiverEntry {
+	flat := make([]receiverEntry, 0, p.totalReceivers())
 	for tenant, names := range p.byTenant {
 		if !p.ScopeIncludes(tenant) {
 			continue
 		}
 		for _, n := range names {
-			seen[n] = struct{}{}
+			flat = append(flat, receiverEntry{name: n, tenant: tenant})
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for n := range seen {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return flat
 }
 
 // HeaderContent implements app.Page. Surfaces the active filter
@@ -257,30 +301,30 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // the user's toggle. The /-prompt filter is auto-classified
 // (substring / fuzzy / literal / regex) by footer.NewMatcher.
 func (p *Page) recompute() {
-	scoped := p.unionScoped()
+	flat := p.flatten()
 	matcher := footer.NewMatcher(p.Filter)
 	if matcher.MatchAll() {
-		p.view = scoped
+		p.view = flat
 	} else {
-		p.view = p.view[:0]
-		for _, name := range scoped {
-			if matcher.Match(strings.ToLower(name)) {
-				p.view = append(p.view, name)
+		p.view = make([]receiverEntry, 0, len(flat))
+		for _, e := range flat {
+			if matcher.Match(strings.ToLower(e.name)) {
+				p.view = append(p.view, e)
 			}
 		}
 	}
 	// Apply through the helper so all list pages use the same sort
-	// machinery. unionScoped already emits names in ASC order, so
-	// the ASC case is a no-op stable resort; the DESC case reverses
-	// per the helper's flipped-arg comparator.
+	// machinery. The comparator's name-then-tenant order pins a
+	// stable layout over flatten's random map-iteration order; the
+	// DESC case reverses per the helper's flipped-arg comparator.
 	p.sorter.Apply(p.view)
-	// Resolve cursor by focusName when we have one to follow so
-	// the user stays on the same receiver across re-sort / scope /
-	// poll. Falls through to the clamp + re-snapshot path when
-	// focus is empty or the focused name vanished.
+	// Resolve cursor by (name, tenant) when we have a focus to
+	// follow so the user stays on the same receiver across re-sort /
+	// scope / poll. Falls through to the clamp + re-snapshot path
+	// when focus is empty or the focused row vanished.
 	if p.focusName != "" {
-		for i, name := range p.view {
-			if name == p.focusName {
+		for i, e := range p.view {
+			if e.name == p.focusName && e.tenant == p.focusTenant {
 				p.SetIndex(i, len(p.view))
 				return
 			}
@@ -296,9 +340,12 @@ func (p *Page) recompute() {
 func (p *Page) snapshotFocus() {
 	if p.Index() < 0 || p.Index() >= len(p.view) {
 		p.focusName = ""
+		p.focusTenant = ""
 		return
 	}
-	p.focusName = p.view[p.Index()]
+	e := p.view[p.Index()]
+	p.focusName = e.name
+	p.focusTenant = e.tenant
 }
 
 // handleSort processes sort-axis shortcuts. The tablesort helper's
@@ -318,7 +365,7 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	return cursor.HandleSort(
 		m.String(),
 		p.sorter,
-		func() { p.focusName = "" },
+		func() { p.focusName, p.focusTenant = "", "" },
 		p.recompute,
 	)
 }
@@ -334,7 +381,7 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		return p, nil
 	}
 	if m.String() == "enter" && p.Index() < len(p.view) {
-		rec := p.view[p.Index()]
+		rec := p.view[p.Index()].name
 		return p, func() tea.Msg { return DrillRequestMsg{Receiver: rec} }
 	}
 	if m.String() == "w" {
@@ -363,7 +410,7 @@ func (p *Page) View(width, height int) string {
 	p.SetViewport(height-1-bandLines, len(p.view))
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
-		if len(p.unionScoped()) > 0 && p.Filter != "" {
+		if p.totalReceivers() > 0 && p.Filter != "" {
 			msg = "no receivers match the active filter — Esc clears the prompt"
 		}
 		// Render bg-less so the empty pane keeps the terminal
@@ -380,16 +427,25 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		rows = append(rows, band)
 	}
-	rows = append(rows, p.renderHeader(width))
+	rows = append(rows, p.renderHeader())
+	showTenant := p.ShowTenantColumn(len(p.byTenant))
 	for i := p.TopRow(); i < end; i++ {
-		text := p.view[i]
+		e := p.view[i]
 		prefix := "  "
 		if i == p.Index() {
 			prefix = "▸ "
 		}
+		var b strings.Builder
+		b.WriteString(prefix)
+		if showTenant {
+			b.WriteString(format.PadRight(e.tenant, receiverTenantW))
+		}
+		b.WriteString(e.name)
 		// Pad to width before applying the cursor style so the
-		// background extends across the whole row k9s-style.
-		row := format.PadRight(prefix+text, width)
+		// background extends across the whole row k9s-style. The
+		// assembled line is still plain text here, so PadRight's
+		// overflow-truncation walks runes safely (no ANSI to split).
+		row := format.PadRight(b.String(), width)
 		if i == p.Index() {
 			// k9s parity: cursor bg tracks the row's semantic
 			// colour. Receiver rows have no severity / state, so
@@ -403,22 +459,25 @@ func (p *Page) View(width, height int) string {
 }
 
 // renderHeader emits the column-title strip with the active sort
-// arrow. Receivers carry a single sortable axis (Name) so the
-// header always shows one label; the arrow flips ASC↔DESC on
-// Shift+N. Active-column foreground (theme.Table.HeaderActive)
-// applies because the sole column is by definition the active one
-// — mirrors the multi-axis pages so the convention is uniform.
+// arrow. NAME is the sole sortable axis so it always carries the
+// active-column foreground and the ASC↔DESC arrow; a leading TENANT
+// column (display-only) is prepended when the all-tenant scope spans
+// a multi-backend fleet, mirroring the alerts / silences / groups
+// pages.
 //
-// fg-only render so the header keeps the terminal default
-// background — painted palette bg in the unstyled body frame
-// creates a coloured stripe.
-func (p *Page) renderHeader(width int) string {
+// fg-only renders (HeaderFg / HeaderActiveFg) so the header keeps
+// the terminal default background — painted palette bg in the
+// unstyled body frame creates a coloured stripe.
+func (p *Page) renderHeader() string {
 	label := strings.ToUpper("name")
 	if arrow := p.sorter.ArrowFor(sortKeyName); arrow != "" {
 		label = label + " " + arrow
 	}
-	body := format.PadRight("  "+label, width)
-	return lipgloss.NewStyle().
-		Foreground(p.styles.Table.HeaderActive.GetForeground()).
-		Render(body)
+	var b strings.Builder
+	b.WriteString("  ")
+	if p.ShowTenantColumn(len(p.byTenant)) {
+		b.WriteString(p.styles.Table.HeaderFg.Render(format.PadRight("TENANT", receiverTenantW)))
+	}
+	b.WriteString(p.styles.Table.HeaderActiveFg.Render(label))
+	return b.String()
 }

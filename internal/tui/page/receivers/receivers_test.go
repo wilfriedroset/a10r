@@ -78,15 +78,15 @@ func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
-	require.Equal(t, []string{"default", "ops", "web"}, p.view)
+	require.Equal(t, []string{"default", "ops", "web"}, viewNames(p))
 	// Walk the cursor onto "ops" then flip to DESC. After the flip
 	// the order is web, ops, default — the cursor must follow ops
 	// to row 1, not stay on whatever row 1 contained before.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "ops", p.view[p.Index()])
+	require.Equal(t, "ops", p.view[p.Index()].name)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
-	require.Equal(t, []string{"web", "ops", "default"}, p.view)
-	require.Equal(t, "ops", p.view[p.Index()],
+	require.Equal(t, []string{"web", "ops", "default"}, viewNames(p))
+	require.Equal(t, "ops", p.view[p.Index()].name,
 		"DESC must keep the cursor on the same receiver, not the same index")
 }
 
@@ -134,7 +134,7 @@ func TestPage_FilterNarrowsView(t *testing.T) {
 	require.Len(t, p.view, 3)
 
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "ef"})
-	require.Equal(t, []string{"default"}, p.view,
+	require.Equal(t, []string{"default"}, viewNames(p),
 		"submitted filter must trim the view to the matching row")
 	require.Equal(t, "receivers(all)[1/3]", p.Title())
 }
@@ -223,4 +223,90 @@ func TestPage_DropsDataMsgFromUnknownTenant(t *testing.T) {
 	_, _ = p.Update(poll.BackendStatusMsg{Tenant: "ghost", Detail: "unreachable"})
 	require.NotContains(t, p.BackendHealth, "ghost",
 		"unknown tenant must not populate BackendHealth")
+}
+
+// TestPage_TenantColumnAppearsForAllScope mirrors the alerts /
+// silences contract: when the active scope is "all" and the
+// configured fleet spans more than one backend, a leading TENANT
+// column surfaces so the user knows which backend each receiver
+// came from. Canonical predicate coverage lives in
+// internal/tui/page/listpage/show_tenant_column_test.go; this proves
+// the receivers page wires it into the header and rows.
+func TestPage_TenantColumnAppearsForAllScope(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Tenants: []string{"prod", "staging"},
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}},
+		Tenant:   "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "web"}},
+		Tenant:   "staging",
+	})
+
+	out := testutil.StripStyle(p.View(80, 20))
+	require.Contains(t, out, "TENANT", "all-scope multi-tenant fleet must show the TENANT column")
+	require.Contains(t, out, "prod")
+	require.Contains(t, out, "staging")
+	require.Contains(t, out, "ops")
+	require.Contains(t, out, "web")
+}
+
+// TestPage_TenantColumnHiddenForSingleBackend pins that a single-
+// backend fleet keeps the trivial single-column layout — the TENANT
+// column would be dead chrome with nothing to disambiguate.
+func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Tenants: []string{"prod"},
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "ops"}},
+		Tenant:   "prod",
+	})
+
+	out := testutil.StripStyle(p.View(80, 20))
+	require.NotContains(t, out, "TENANT",
+		"single-backend setups must NOT show the tenant column")
+}
+
+// TestPage_PerTenantRowsNotDeduplicated is the behaviour change: a
+// receiver name shared across two backends renders one row per
+// tenant (tagged by the TENANT column) rather than collapsing into
+// a single de-duplicated entry — matching how alerts / silences /
+// groups present cross-tenant data.
+func TestPage_PerTenantRowsNotDeduplicated(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:  testutil.LoadStyles(t),
+		Tenants: []string{"prod", "staging"},
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "default"}},
+		Tenant:   "prod",
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Receiver{{Name: "default"}},
+		Tenant:   "staging",
+	})
+
+	require.Equal(t, []string{"default", "default"}, viewNames(p),
+		"a receiver shared across tenants must yield one row per tenant")
+	require.Equal(t, "receivers(all)[2]", p.Title(),
+		"the count reflects per-tenant rows, not the de-duplicated union")
+}
+
+// viewNames projects the page's view onto receiver names so the
+// table-shape assertions stay readable now that the view holds
+// per-tenant entries rather than bare strings.
+func viewNames(p *Page) []string {
+	out := make([]string, len(p.view))
+	for i, e := range p.view {
+		out[i] = e.name
+	}
+	return out
 }
