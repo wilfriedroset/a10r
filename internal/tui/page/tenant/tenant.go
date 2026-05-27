@@ -323,7 +323,7 @@ func (p *Page) View(width, height int) string {
 		// digit a backend is reachable by without counting rows.
 		// Always 4 cols wide ("[N] " or "    ") so row alignment
 		// is stable whether or not a digit is shown.
-		digitGlyph := p.styles.Table.Dimmed.Render(canonical[row.Name])
+		digitGlyph := p.styles.Table.DimmedFg.Render(canonical[row.Name])
 		version := row.Version
 		if version == "" {
 			version = "—"

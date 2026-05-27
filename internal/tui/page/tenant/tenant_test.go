@@ -368,8 +368,24 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	p.SetRows(sampleRows())
 	headerLine, _, _ := strings.Cut(p.View(120, 10), "\n")
-	require.NotContains(t, headerLine, "\x1b[48",
+	require.False(t, testutil.HasBackground(headerLine),
 		"header must not paint a palette background — chrome stays on terminal default bg")
+}
+
+func TestPage_DigitGlyphRendersForegroundOnly(t *testing.T) {
+	t.Parallel()
+	// The canonical-digit annotation renders inside the transparent
+	// body frame, so like every chrome fragment it must tint
+	// foreground-only — no painted palette bg.
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p.SetRows([]Row{{Name: "alpha"}, {Name: "bravo"}})
+	require.Zero(t, p.window.Index(), "cursor must default to row 0 for lines[2] to be cursor-free")
+	lines := strings.Split(p.View(120, 10), "\n")
+	// [0] header, [1] cursor row (legitimate cursor bg), [2] a plain
+	// non-cursor row whose only ever-painted fragment is the digit.
+	require.GreaterOrEqual(t, len(lines), 3)
+	require.False(t, testutil.HasBackground(lines[2]),
+		"the canonical-digit glyph must tint fg-only — no palette stripe on a transparent row")
 }
 
 func TestPage_HeaderContentIsAlwaysEmpty(t *testing.T) {
