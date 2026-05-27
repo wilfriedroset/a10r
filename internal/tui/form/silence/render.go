@@ -30,14 +30,25 @@ const enterToChangeHint = "[Enter to change]"
 // affordance pattern.
 const endsHintSuffix = "7d · 1w2d · m=min"
 
-// endsHintGap is the column gap between the visible content
-// (placeholder when empty, typed value otherwise) and the leading
-// edge of the hint suffix. Three cols cover the cursor slot plus
-// two cols of breathing room so the hint never butts up against
-// typed text. The suffix floats with the content's right edge as
-// the operator types, keeping the cue close rather than pinned to
-// the row's far right.
+// endsHintGap is the column gap between the value's fixed column
+// slot (endsValueReserve) and the leading edge of the hint suffix.
+// Three cols cover the cursor slot plus two cols of breathing room
+// so the hint never butts up against typed text. The gap is added
+// to a FIXED anchor, not the live value width, so the suffix holds
+// its column as the operator types (see endsRow for the jitter
+// rationale).
 const endsHintGap = 3
+
+// endsValueReserve is the fixed column slot held for the value
+// while the duration cue is shown. Eight cols hold the longest
+// realistic duration shorthand (`1w2d3h4m` = 8 cols), so the cue
+// stays put across a normal duration edit instead of sliding right
+// per keystroke. It also sits comfortably below the ~20-col
+// RFC3339 timestamp floor, so a timestamp value trips the elision
+// branch and reclaims the full input width — correct, not a
+// regression, since the duration cue is meaningless once the
+// operator is typing a timestamp.
+const endsValueReserve = 8
 
 // renderView is the body of Form.View. Lives on render.go so the
 // view helpers (tenantRow / disabledRow / fieldRow / …) sit next
@@ -126,23 +137,33 @@ func (f *Form) tenantRow(inputWidth int) string {
 }
 
 // endsRow renders the Ends row with the Duration shorthand hint
-// suffix floating to the right of the visible content. The anchor
-// is the typed value when non-empty, the placeholder otherwise, so
-// the suffix sits a small gap past whatever the operator is
-// reading — close enough to feel paired with the input, not pinned
-// to the row's far right. As the operator types, the anchor's
-// width grows and the suffix slides right correspondingly until
-// inputWidth can no longer hold both; at that point the suffix
-// elides and the input takes the full width so the fieldRow grid
-// stays aligned. Only the Ends row uses this treatment — the cue
-// is load-bearing for the `1m`-thinking-month footgun and
-// irrelevant to Starts / Creator / Comment.
+// suffix anchored at a FIXED column. The suffix starts at
+// endsValueReserve+endsHintGap regardless of the live value width,
+// so it holds its column as the operator types — fixing a reported
+// per-keystroke jitter where anchoring on the value's right edge
+// slid the cue right on every key. The trade is a small detached
+// gap on a short value in exchange for a stable column; for a cue
+// the eye learns to ignore once read, a still column beats a close
+// one.
+//
+// Once the value outgrows the shorthand range (width >
+// endsValueReserve) the operator is no longer typing a duration —
+// in practice they're entering an RFC3339 timestamp, for which the
+// duration cue is meaningless. Eliding it there and handing the
+// input the full width (renderView already sized it to inputWidth)
+// is correct, not a regression: it lets the ~25-col timestamp show
+// in full.
+//
+// The narrow-width guard stays: if the fixed anchor plus the suffix
+// can't fit inputWidth, drop the cue so fieldRow's grid alignment
+// holds. Only the Ends row uses this treatment — the cue is
+// load-bearing for the `1m`-thinking-month footgun and irrelevant
+// to Starts / Creator / Comment.
 func (f *Form) endsRow(inputWidth int) string {
-	anchor := f.ends.Value()
-	if anchor == "" {
-		anchor = f.ends.Placeholder
+	if lipgloss.Width(f.ends.Value()) > endsValueReserve {
+		return f.fieldRow("Ends", fieldEnds, f.ends.View())
 	}
-	suffixStart := lipgloss.Width(anchor) + endsHintGap
+	suffixStart := endsValueReserve + endsHintGap
 	if suffixStart+lipgloss.Width(endsHintSuffix) > inputWidth {
 		return f.fieldRow("Ends", fieldEnds, f.ends.View())
 	}

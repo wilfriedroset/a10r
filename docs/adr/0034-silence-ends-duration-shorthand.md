@@ -34,19 +34,25 @@ notice that 1m only delayed expiry by a minute. AM rejects the same
 inputs with a flat `Wrong duration format` — a10r's tailored
 messages are strictly more helpful at no parser cost.
 
-A faint inline suffix `7d · 1w2d · m=min` floats a small gap past
-the Ends field's visible content (the placeholder when empty, the
-typed value otherwise) so the cue reads as paired with the input
-rather than pinned to the row's far right. As the operator types,
-the anchor's width grows and the suffix slides right; once
-`inputWidth` can no longer carry both, the suffix elides and the
-input takes the full width. The placeholder (`2h`) vanishes on
-first keystroke, but the suffix survives the whole edit so the
-disambiguation cue stays on screen at the moment the operator is
-at risk of typing `1m` thinking month. The tenant row's
-`[Enter to change]` hint (`render.go:81-109`) is the precedent for
-inline affordances + elision; the float-vs-right-pin positioning
-is the deliberate divergence.
+A faint inline suffix `7d · 1w2d · m=min` is anchored at a FIXED
+column (sized to the longest plausible duration shorthand,
+`1w2d3h4m` = 8 cols) so it does NOT slide as the operator types —
+the original float-past-the-value design was reverted in response
+to a reported per-keystroke horizontal jitter where the cue moved
+right on every key. The trade is a small detached gap on a short
+value in exchange for a column that stays put; for a cue the eye
+ignores once read, a still column beats a close one. Once the value
+outgrows the shorthand range (an RFC3339 timestamp is being
+entered, ~20-25 cols) the suffix elides and the input reclaims the
+full width to show the timestamp — correct, not a regression, since
+the duration cue is meaningless during timestamp entry. The
+placeholder (`2h`) vanishes on first keystroke, but the suffix
+survives the whole duration edit so the disambiguation cue stays on
+screen at the moment the operator is at risk of typing `1m`
+thinking month. The tenant row's `[Enter to change]` hint
+(`tenantRow` in `render.go`) is the precedent for inline
+affordances + elision; the fixed-column anchor is the deliberate
+divergence.
 
 Considered and rejected: (a) **stdlib + Prometheus `model.Duration`
 dep** — adds `y` and `ms` we don't render anywhere and silently

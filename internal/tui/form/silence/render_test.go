@@ -129,13 +129,17 @@ func TestForm_EndsHintNeverAppearsOnOtherRows(t *testing.T) {
 		"the Ends hint suffix must appear exactly once — only on the Ends row")
 }
 
-// TestForm_EndsHintFloatsRightOfContent pins the UX contract that
-// the hint suffix sits close to the visible content (placeholder
-// or typed value) rather than at the row's far right. The contract
-// has two halves: (1) with the default short value the suffix
-// renders left of half-width on a wide form, and (2) when the
-// content grows the suffix's column position grows with it so the
-// cue stays paired with the typed text instead of being detached.
+// TestForm_EndsHintStaysFixedAsDurationGrows pins the UX contract
+// that the hint suffix is anchored at a FIXED column while the
+// operator types a duration, fixing the reported per-keystroke
+// jitter where the cue slid right with the value's right edge.
+// Three halves: (a) with the default short value the suffix sits
+// in the left half of a wide form (not pinned to the far right);
+// (b) ANTI-JITTER — growing the value within the shorthand range
+// (`2h30m`, 5 cols ≤ reserve) does NOT move the suffix column;
+// (c) ELISION — a full RFC3339 timestamp (20 cols > reserve)
+// outgrows the shorthand range, so the cue is dropped and the
+// input reclaims the full width to show the timestamp.
 //
 // We measure column position by stripping ANSI from the Ends row
 // and computing the visible byte offset of the suffix literal —
@@ -143,7 +147,7 @@ func TestForm_EndsHintNeverAppearsOnOtherRows(t *testing.T) {
 // in the raw view is not the visible column. ansi.Strip produces
 // the printable-only string whose byte length equals the visible
 // width (lipgloss / bubbles emit only ASCII glyphs in this row).
-func TestForm_EndsHintFloatsRightOfContent(t *testing.T) {
+func TestForm_EndsHintStaysFixedAsDurationGrows(t *testing.T) {
 	t.Parallel()
 	const width = 120
 
@@ -152,11 +156,27 @@ func TestForm_EndsHintFloatsRightOfContent(t *testing.T) {
 	require.Less(t, posShort, width/2,
 		"with the default short value the suffix must sit in the left half of the row, not pinned right")
 
-	long := newForm(t, &fakeClient{})
-	long.ends.SetValue("1w2d3h4m5s")
-	posLong := endsSuffixCol(t, long.View(width, 24))
-	require.Greater(t, posLong, posShort,
-		"the suffix column must grow with the content's width so the cue stays paired with typed text")
+	typed := newForm(t, &fakeClient{})
+	typed.ends.SetValue("2h30m")
+	posTyped := endsSuffixCol(t, typed.View(width, 24))
+	require.Equal(t, posShort, posTyped,
+		"growing the value within the shorthand range must NOT move the suffix column (anti-jitter regression guard)")
+
+	ts := newForm(t, &fakeClient{})
+	ts.ends.SetValue("2026-05-27T15:04:05Z")
+	view := ts.View(width, 24)
+	for line := range strings.SplitSeq(view, "\n") {
+		plain := ansi.Strip(line)
+		if !strings.Contains(plain, "Ends:") {
+			continue
+		}
+		require.NotContains(t, plain, endsHintSuffix,
+			"a timestamp value outgrows the shorthand range, so the cue must elide")
+		require.Contains(t, plain, "2026-05-27T15:04:05Z",
+			"eliding the cue must hand the input full width so the timestamp is visible")
+		return
+	}
+	t.Fatalf("no Ends: row found in view: %q", view)
 }
 
 // endsSuffixCol returns the visible column at which the Ends row's
