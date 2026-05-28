@@ -69,11 +69,17 @@ follow-up PRs.
 ## Per-commit review process
 
 The project applies a subagent code review to every non-trivial
-commit before it lands on `main`. The review is conducted by
-spawning a dedicated review agent that classifies findings as
-need-work / nice-to-have / nits across maintainability /
-testability / scalability / golang-idiomatic. need-work items are
-addressed before merging.
+commit before it lands on `main`. The reviewer classifies findings
+as need-work / nice-to-have / nits across maintainability /
+testability / scalability / golang-idiomatic / comment-hygiene.
+need-work items are addressed before merging.
+
+The exact prompt the reviewer runs is in
+[`docs/contributor/review-prompt.md`](docs/contributor/review-prompt.md);
+copy it verbatim to reproduce the review with any tool. Claude
+Code users spawn it via the `code-reviewer` agent
+(`.claude/agents/code-reviewer.md`), which delegates to the same
+prompt under a read-only tool restriction.
 
 Pure-doc / config-only commits skip the review but still pass
 `prek -a`.
@@ -91,6 +97,41 @@ Pure-doc / config-only commits skip the review but still pass
   identifies the case.
 - **Structured logs.** `log/slog` only. Never bare `log` or
   `fmt.Printf` in production paths.
+
+## Comments
+
+Default to no comment. Code should be self-explanatory through
+naming and structure.
+
+Only write a comment when it answers *why*, never *what*. If the
+comment restates what the code does, delete it and improve the
+code instead.
+
+**Forbidden:**
+
+- Restating the code in English (`// increment counter` above
+  `counter++`).
+- Section banners (`// --- HELPERS ---`).
+- Narrating obvious control flow (`// loop through users`).
+- TODOs without a ticket reference or owner.
+- Docstrings that just list parameters already visible in the
+  signature.
+- Preamble explaining what the code is about to do.
+- Marking what changed in this edit (`// updated to handle null`)
+  — that's what the diff is for.
+
+**Acceptable, when truly needed:**
+
+- Non-obvious *why*: business rule, spec reference, workaround for
+  an external bug, performance trade-off, intentional deviation
+  from the obvious approach.
+- Warnings about non-local consequences ("called by X under Y
+  condition").
+- Links to issues, ADRs, RFCs, or external docs.
+
+One line is the target. If the explanation needs more lines than
+the code, refactor instead. Re-read nearby comments when editing;
+delete or update any that no longer match.
 
 ## Areas where help is welcome
 

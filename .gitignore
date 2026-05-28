@@ -19,3 +19,7 @@ go.work.sum
 # OS
 .DS_Store
 Thumbs.db
+
+# Per-user Claude Code overrides (the team-shared bits under
+# .claude/ — settings.json, agents/ — are tracked).
+.claude/settings.local.json
