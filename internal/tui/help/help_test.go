@@ -54,6 +54,74 @@ func TestHelp_ColumnsRender(t *testing.T) {
 	}
 }
 
+// TestHelp_ChipsAlignWithinColumn pins the k9s layout rule:
+// descriptions inside one column start at the same horizontal
+// position regardless of chip width. The chip of a row whose key
+// is `<j>` gets padded out to match `<ctrl-d>`'s width so both
+// descriptions ("down", "half page down") line up under one
+// invisible left edge.
+func TestHelp_ChipsAlignWithinColumn(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.PageBindings = nil
+	// NAVIGATION mixes a 3-cell chip (<j>) with an 8-cell chip
+	// (<ctrl-d>), the canonical width spread in this column.
+	opts.TableMotions = []action.Action{
+		{Key: "j", Description: "down"},
+		{Key: "Ctrl+D", Description: "half page down"},
+	}
+	out := testutil.StripStyle(New(opts).View(160, 20))
+
+	rows := strings.Split(out, "\n")
+	var jRow, ctrlDRow string
+	for _, r := range rows {
+		switch {
+		case strings.Contains(r, "<j>") && strings.Contains(r, "down") && !strings.Contains(r, "half"):
+			jRow = r
+		case strings.Contains(r, "<ctrl-d>"):
+			ctrlDRow = r
+		}
+	}
+	require.NotEmpty(t, jRow, "j row must render")
+	require.NotEmpty(t, ctrlDRow, "ctrl-d row must render")
+	require.Equal(t,
+		strings.Index(jRow, "down"),
+		strings.Index(ctrlDRow, "half page down"),
+		"descriptions inside one column must line up regardless of chip width")
+}
+
+// TestHelp_ColumnsDoNotCollide pins the inter-column gap: when a
+// row's content is exactly the column width (e.g. a long
+// description got SGR-truncated), the next column's content must
+// not touch it. Reproduces the user-reported collision where a
+// `[-]  reset sort to defau` cell butted directly against
+// `<r>  refresh` in the next column.
+func TestHelp_ColumnsDoNotCollide(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.PageBindings = []action.Action{
+		{Key: "-", Description: "reset sort to default ordering plus padding"},
+	}
+	// Narrow the overlay so the description ends up clamped to the
+	// column width — that's the case where the collision shows up.
+	out := testutil.StripStyle(New(opts).View(80, 20))
+
+	// Walk every `<` in every rendered row. A `<` not preceded by a
+	// space means a chip butted directly against another column's
+	// content — the collision shape the user reported. Skipping
+	// position 0 covers the legitimate case of a row starting with
+	// a chip in column 0.
+	for r := range strings.SplitSeq(out, "\n") {
+		for i := range len(r) {
+			if r[i] != '<' || i == 0 {
+				continue
+			}
+			require.Equal(t, byte(' '), r[i-1],
+				"chip `<` must be preceded by whitespace, never by a content glyph; row=%q", r)
+		}
+	}
+}
+
 // TestHelp_CommandsColumnFoldsSynonyms pins the ADR 0038 row shape:
 // canonical+synonym aliases collapse onto one line (`silences, sil`)
 // so the column reads as a flat catalogue of resources, not a

@@ -274,6 +274,12 @@ func maxScrollOffset(cols [][]string, height int) int {
 	return overflow
 }
 
+// colGap is the inter-column spacing the row joiner reserves so a
+// cell whose content fills the column doesn't touch the next
+// column's chip. Two spaces matches the panel-side colGap so chrome
+// gap math stays uniform across the TUI.
+const colGap = 2
+
 // columns builds the five column bodies (heading + entry list each)
 // in display order. Each entry is already styled so the row joiner
 // can pad without re-measuring.
@@ -329,24 +335,22 @@ func (h *Help) commandsColumn() []string {
 // resourceColumn lists the tenant numeric quick-switch (`<0>` all,
 // `<1>` … `<9>` per configured backend) followed by the active
 // page's non-sort verbs. Empty backends just drop the numeric block.
+// Chip alignment is handled inside alignedColumn.
 func (h *Help) resourceColumn(verbs []action.Action) []string {
-	heading := h.headingLabel("RESOURCE")
-	out := []string{heading}
-
+	parts := make([]rowParts, 0, 1+len(h.opts.Tenants)+len(verbs))
 	if len(h.opts.Tenants) > 0 {
-		out = append(out, h.entry("0", "all"))
+		parts = append(parts, rowParts{key: "0", desc: "all"})
 		for i, name := range h.opts.Tenants {
 			if i >= 9 {
 				break
 			}
-			out = append(out, h.entry(itoa(i+1), name))
+			parts = append(parts, rowParts{key: itoa(i + 1), desc: name})
 		}
 	}
-
 	for _, a := range verbs {
-		out = append(out, h.entry(a.ChipKey(), a.Description))
+		parts = append(parts, rowParts{key: a.ChipKey(), desc: a.Description})
 	}
-	return out
+	return h.alignedColumn("RESOURCE", parts)
 }
 
 // splitVerbsHotkeys partitions the page's bindings into RESOURCE-
@@ -364,24 +368,27 @@ func splitVerbsHotkeys(in []action.Action, readOnly bool) (verbs, hotkeys []acti
 	return verbs, hotkeys
 }
 
-// staticColumn renders a heading + a list of pre-curated actions.
-// Globals / table motions / page hotkeys all flow through here.
+// staticColumn renders a heading + a list of pre-curated actions
+// with chips padded to the column's widest entry so descriptions
+// line up. Globals / table motions / page hotkeys all flow through
+// here.
 func (h *Help) staticColumn(name string, entries []action.Action) []string {
 	filtered := filterDangerous(entries, h.opts.ReadOnly)
-	out := make([]string, 0, len(filtered)+1)
-	out = append(out, h.headingLabel(name))
-	for _, a := range filtered {
-		out = append(out, h.entry(a.ChipKey(), a.Description))
+	parts := make([]rowParts, len(filtered))
+	for i, a := range filtered {
+		parts[i] = rowParts{key: a.ChipKey(), desc: a.Description}
 	}
-	return out
+	return h.alignedColumn(name, parts)
 }
 
-// composeRows zips columns into rows. Short columns are right-
-// padded so the cell alignment stays clean across the visible
-// rectangle. Each row is exactly colWidth*len(cols) columns wide;
-// the App panel takes care of side borders. scroll shifts the
-// starting row so a help payload that overflows the overlay's
-// height can be walked downward by mouse-wheel ticks.
+// composeRows zips columns into rows. Each cell renders into the
+// leftmost colWidth-colGap cells of its colWidth slot — the trailing
+// colGap stays blank so neighbouring columns never touch even when
+// a truncated description filled the visible budget. Each row is
+// exactly colWidth*len(cols) columns wide; the App panel takes care
+// of side borders. scroll shifts the starting row so a help payload
+// that overflows the overlay's height can be walked downward by
+// mouse-wheel ticks.
 func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []string {
 	maxLen := 0
 	for _, c := range cols {
@@ -391,15 +398,24 @@ func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []stri
 	}
 	end := min(scroll+height, maxLen)
 
+	contentWidth := max(colWidth-colGap, 1)
+	gap := strings.Repeat(" ", colWidth-contentWidth)
 	rows := make([]string, 0, end-scroll)
 	for r := scroll; r < end; r++ {
 		var b strings.Builder
-		for _, col := range cols {
+		for i, col := range cols {
 			cell := ""
 			if r < len(col) {
 				cell = col[r]
 			}
-			b.WriteString(padRight(cell, colWidth))
+			if i == len(cols)-1 {
+				// Last column carries no trailing gap — nothing to
+				// separate from.
+				b.WriteString(padRight(cell, colWidth))
+				continue
+			}
+			b.WriteString(padRight(cell, contentWidth))
+			b.WriteString(gap)
 		}
 		rows = append(rows, b.String())
 	}
@@ -438,12 +454,40 @@ func ChipText(key string) string {
 	return "<" + strings.ReplaceAll(strings.ToLower(key), "+", "-") + ">"
 }
 
-// entry renders one binding as "<key>  description" (or "[-]
-// reset" for ligature-prone keys) with the key chip styled as a
-// hint helper key (theme.Hint.HelpKey).
-func (h *Help) entry(key, desc string) string {
-	chip := h.opts.Styles.Hint.HelpKey.Render(ChipText(key))
-	return chip + "  " + desc
+// rowParts is the (chip-key, description) pair feeding
+// alignedColumn. Bundled so the per-column widest-chip pass walks
+// one slice instead of two.
+type rowParts struct {
+	key  string
+	desc string
+}
+
+// alignedColumn renders a heading + every entry row, with chips
+// padded to the column's widest visible chip so descriptions line
+// up under one invisible left edge — the k9s layout rule. A single
+// gap of two cells separates chip from description; the column
+// joiner reserves another colGap cells of right-edge whitespace so
+// neighbouring columns never touch.
+func (h *Help) alignedColumn(heading string, parts []rowParts) []string {
+	widest := 0
+	chips := make([]string, len(parts))
+	chipWidths := make([]int, len(parts))
+	for i, p := range parts {
+		chip := h.opts.Styles.Hint.HelpKey.Render(ChipText(p.key))
+		w := lipgloss.Width(chip)
+		chips[i] = chip
+		chipWidths[i] = w
+		if w > widest {
+			widest = w
+		}
+	}
+	out := make([]string, 0, len(parts)+1)
+	out = append(out, h.headingLabel(heading))
+	for i, p := range parts {
+		pad := strings.Repeat(" ", widest-chipWidths[i])
+		out = append(out, chips[i]+pad+"  "+p.desc)
+	}
+	return out
 }
 
 // headingLabel renders a column heading in the table-header colour
