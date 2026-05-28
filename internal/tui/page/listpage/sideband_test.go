@@ -10,6 +10,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -112,6 +113,33 @@ func TestBase_HandleSidebandMsg(t *testing.T) {
 				return &listpage.Base{}, nil
 			},
 			msg: app.TimeFormatChangedMsg{Format: timerender.Absolute},
+		},
+		{
+			name: "state format wired",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				got := stateformat.Format(-1)
+				b := &listpage.Base{
+					SetStateFormat: func(f stateformat.Format) { got = f },
+				}
+				return b, func(t *testing.T) {
+					t.Helper()
+					require.Equal(t, stateformat.Compact, got, "callback must receive the new density")
+				}
+			},
+			msg:         app.StateFormatChangedMsg{Format: stateformat.Compact},
+			wantHandled: true,
+		},
+		{
+			// Pages without a state breakdown (silences, groups,
+			// receivers) don't wire SetStateFormat — the message must
+			// fall through cleanly.
+			name: "state format unwired falls through",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{}, nil
+			},
+			msg: app.StateFormatChangedMsg{Format: stateformat.Compact},
 		},
 		{
 			// GoToFirstRow needs both callbacks; missing either is a

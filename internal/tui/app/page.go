@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -159,6 +160,25 @@ type PollAwarePage interface {
 // format vocabulary itself lives in timerender.
 type TimeFormatChangedMsg struct {
 	Format timerender.Format
+}
+
+// StateFormatToggleMsg is a page-emitted request to flip the
+// app-global state-breakdown density (full ↔ compact). Unlike the
+// `t` time toggle — a dispatcher-owned global — the state toggle's
+// key (`Shift+T`) is a page binding on the alerts list and group
+// detail, so the page can't reach the canonical value to flip it.
+// It asks the App to flip instead (mirroring RefreshRequestedMsg's
+// page→App shape): the App owns the truth, so a page that was below
+// the stack during an earlier toggle still flips from the current
+// value rather than its own possibly-stale copy.
+type StateFormatToggleMsg struct{}
+
+// StateFormatChangedMsg announces a flip of the app-global state-
+// breakdown density so the alerts list and group-detail instance
+// list render the same way. Emitted by the App in response to a
+// StateFormatToggleMsg; the format vocabulary lives in stateformat.
+type StateFormatChangedMsg struct {
+	Format stateformat.Format
 }
 
 // pushPageMsg requests a push of the page produced by Factory.

@@ -14,6 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -153,6 +154,40 @@ func TestApp_TKeyTogglesTimeFormat(t *testing.T) {
 	// Second press flips back.
 	_, _ = a.Update(tea.KeyPressMsg{Code: 't', Text: "t"})
 	require.Equal(t, timerender.Relative, a.timeFormat)
+}
+
+func TestApp_StateFormatToggleMsgFlipsAndBroadcasts(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	require.Equal(t, stateformat.Full, a.stateFormat,
+		"app starts in full state-breakdown mode")
+
+	_, cmd := a.Update(StateFormatToggleMsg{})
+	require.Equal(t, stateformat.Compact, a.stateFormat,
+		"first toggle flips to compact")
+	require.NotNil(t, cmd)
+
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok, "Cmd must produce a BatchMsg")
+	var sawAnnounce, sawFlash bool
+	for _, c := range batch {
+		switch m := c().(type) {
+		case StateFormatChangedMsg:
+			require.Equal(t, stateformat.Compact, m.Format)
+			sawAnnounce = true
+		case footer.FlashShowMsg:
+			require.Contains(t, m.Text, "compact")
+			sawFlash = true
+		}
+	}
+	require.True(t, sawAnnounce, "must announce the new density")
+	require.True(t, sawFlash, "must flash so the user sees the toggle took effect")
+
+	_, _ = a.Update(StateFormatToggleMsg{})
+	require.Equal(t, stateformat.Full, a.stateFormat, "second toggle flips back")
 }
 
 func TestApp_CtrlCQuits(t *testing.T) {

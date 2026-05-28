@@ -113,6 +113,13 @@ func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 		return a.quitWithCleanup(), true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
+	case StateFormatToggleMsg:
+		// Page-emitted (Shift+T on alerts / group detail). The App
+		// owns the canonical density and broadcasts the flip so a page
+		// that was below the stack during an earlier toggle still
+		// flips from the current value. Parallels the `t` time toggle,
+		// which is dispatcher-owned because its key is a global.
+		return a.toggleStateFormatCmd(), true
 	case RefreshRequestedMsg:
 		// Translate page-level refresh requests into poller nudges
 		// via the wiring-layer handler. Nil-handler runs (headless

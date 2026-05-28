@@ -31,6 +31,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -104,6 +105,13 @@ type App struct {
 	// to relative — matches the pre-toggle UX every page shipped
 	// with.
 	timeFormat timerender.Format
+
+	// stateFormat is the app-global toggle between the full
+	// (`9 active · 3 suppressed`) and compact (`9ac 3su`) renderings
+	// of the alerts page's state breakdown. The alerts list and
+	// group-detail instance list observe StateFormatChangedMsg and
+	// re-render. Defaults to Full — the legible pre-toggle default.
+	stateFormat stateformat.Format
 
 	// caches holds the App's per-tenant poll-data and per-tenant
 	// backend-status snapshots, replayed into a freshly-pushed page
@@ -236,6 +244,12 @@ func NewApp(opts Options) *App {
 // time so a page opened *after* the user toggled `t` doesn't open
 // in relative mode while the rest of the app reads absolute.
 func (a *App) TimeFormat() timerender.Format { return a.timeFormat }
+
+// StateFormat returns the app-global state-breakdown density's
+// current value. Page factories close over the App and read this at
+// push time so a group detail opened *after* the user toggled
+// `Shift+T` opens in the same density the alerts list is showing.
+func (a *App) StateFormat() stateformat.Format { return a.stateFormat }
 
 // Quitting reports whether the App has already authorised the quit
 // (it set the flag when the QuitRequestedMsg cascade ran and

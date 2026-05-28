@@ -16,6 +16,7 @@ package listpage
 
 import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 
 	tea "charm.land/bubbletea/v2"
@@ -63,6 +64,13 @@ type Base struct {
 	// HandleSidebandMsg returns handled=false in that case so the
 	// page's main switch sees the message unchanged — see ADR-0018.
 	SetTimeFormat func(timerender.Format)
+	// SetStateFormat applies the new density on a
+	// StateFormatChangedMsg. Nil on pages that do not render the
+	// state breakdown (only the alerts list and group detail do);
+	// HandleSidebandMsg returns handled=false in that case so the
+	// message passes through unchanged — same nil-as-fall-through
+	// contract as SetTimeFormat (ADR-0018).
+	SetStateFormat func(stateformat.Format)
 	// ClearMarks runs the page's mark-clearing routine on a
 	// ClearMarksMsg and returns any follow-up flash command. Nil
 	// on pages without marks (groups, receivers); HandleSidebandMsg

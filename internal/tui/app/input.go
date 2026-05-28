@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -35,6 +36,30 @@ func (a *App) toggleTimeFormatCmd() tea.Cmd {
 			return footer.FlashShowMsg{
 				Level: footer.FlashInfo,
 				Text:  "time: " + captured.String(),
+			}
+		},
+	)
+}
+
+// toggleStateFormatCmd flips the app's StateFormat and emits the
+// announcement message + a flash. Driven by a StateFormatToggleMsg
+// a page emits on `Shift+T` (not a dispatcher global like the time
+// toggle), so the flip reads the canonical app value rather than the
+// emitting page's possibly-stale copy. Pages that don't observe the
+// announcement ignore it.
+func (a *App) toggleStateFormatCmd() tea.Cmd {
+	if a.stateFormat == stateformat.Full {
+		a.stateFormat = stateformat.Compact
+	} else {
+		a.stateFormat = stateformat.Full
+	}
+	captured := a.stateFormat
+	return tea.Batch(
+		func() tea.Msg { return StateFormatChangedMsg{Format: captured} },
+		func() tea.Msg {
+			return footer.FlashShowMsg{
+				Level: footer.FlashInfo,
+				Text:  "state: " + captured.String(),
 			}
 		},
 	)
