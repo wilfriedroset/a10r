@@ -80,6 +80,18 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 // surfaces as Error; transport-layer failures (already covered by
 // ReachabilityChecker) surface as Warning to avoid double-reporting
 // the same root cause.
+//
+// Per ADR 0039, two enrichments layer on top:
+//   - 401/403 with no `tenant_header:` configured appends a Mimir
+//     multi-tenancy hint so the operator sees the most common
+//     remediation without leaving the doctor table.
+//   - A non-auth error (typically the `HTTP 404` Mimir returns when
+//     the alertmanager mount lives at `/alertmanager/api/v2/...`
+//     rather than `/api/v2/...`) triggers one `ProbeAlertmanagerMount`
+//     verification probe. Only a 2xx retry downgrades the Result to
+//     Warning with a verified-fix message; every other retry outcome
+//     leaves the original error intact so doctor never claims a fix
+//     it cannot prove end-to-end.
 type AuthChecker struct{}
 
 func (AuthChecker) Name() string { return "auth" }
@@ -96,11 +108,15 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 	if _, err := c.Status(ctx); err != nil {
 		switch {
 		case errors.Is(err, backend.ErrUnauthorized):
+			msg := fmt.Sprintf("authentication rejected: %s", err)
+			if b.TenantHeader == "" {
+				msg += " — if backend is multi-tenant Mimir, set tenant_header: X-Scope-OrgID and tenant: <org> in a10r.yaml"
+			}
 			return Result{
 				Backend:  b.Name,
 				Check:    "auth",
 				Severity: SeverityError,
-				Message:  fmt.Sprintf("authentication rejected: %s", err),
+				Message:  msg,
 			}
 		case errors.Is(err, backend.ErrUnreachable):
 			return Result{
@@ -110,6 +126,15 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 				Message:  "backend unreachable; auth not exercised",
 			}
 		default:
+			if prober, ok := c.(backend.Prober); ok && prober.ProbeAlertmanagerMount(ctx) == nil {
+				return Result{
+					Backend:  b.Name,
+					Check:    "auth",
+					Severity: SeverityWarning,
+					Message: "Status() failed but /alertmanager/api/v2/status returned 200 — " +
+						"set prefix: /alertmanager in a10r.yaml",
+				}
+			}
 			return Result{
 				Backend:  b.Name,
 				Check:    "auth",

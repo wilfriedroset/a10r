@@ -84,25 +84,74 @@ func TestAuthChecker(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name    string
-		client  backend.Client
-		wantSev Severity
-		wantMsg string
+		name        string
+		backend     config.Backend
+		client      backend.Client
+		wantSev     Severity
+		wantMsg     string   // substring; "" skips
+		wantMsgs    []string // every substring must appear
+		wantNotMsgs []string // every substring must be absent
 	}{
-		{name: "nil client", client: nil, wantSev: SeverityError},
-		{name: "ok", client: &fakeClient{}, wantSev: SeverityOK},
-		{name: "401 unauthorised", client: &fakeClient{statusErr: backend.ErrUnauthorized}, wantSev: SeverityError, wantMsg: "authentication rejected"},
-		{name: "transport unreachable", client: &fakeClient{statusErr: backend.ErrUnreachable}, wantSev: SeverityWarning, wantMsg: "backend unreachable"},
-		{name: "other error", client: &fakeClient{statusErr: errors.New("decode failure")}, wantSev: SeverityError, wantMsg: "decode failure"},
+		{name: "nil client", backend: config.Backend{Name: "x"}, client: nil, wantSev: SeverityError},
+		{name: "ok", backend: config.Backend{Name: "x"}, client: &fakeClient{}, wantSev: SeverityOK},
+		{
+			name:    "401 unauthorised — tenant hint appended when no TenantHeader",
+			backend: config.Backend{Name: "x"},
+			client:  &fakeClient{statusErr: backend.ErrUnauthorized},
+			wantSev: SeverityError,
+			wantMsgs: []string{
+				"authentication rejected",
+				"tenant_header: X-Scope-OrgID",
+			},
+		},
+		{
+			name:        "401 unauthorised — no tenant hint when TenantHeader configured",
+			backend:     config.Backend{Name: "x", TenantHeader: "X-Scope-OrgID", Tenant: "team-a"},
+			client:      &fakeClient{statusErr: backend.ErrUnauthorized},
+			wantSev:     SeverityError,
+			wantMsg:     "authentication rejected",
+			wantNotMsgs: []string{"tenant_header:"},
+		},
+		{name: "transport unreachable", backend: config.Backend{Name: "x"}, client: &fakeClient{statusErr: backend.ErrUnreachable}, wantSev: SeverityWarning, wantMsg: "backend unreachable"},
+		{
+			name:    "other error, mount probe also fails — original error preserved",
+			backend: config.Backend{Name: "x"},
+			client: &fakeClient{
+				statusErr:     errors.New("decode failure"),
+				probeMountErr: errors.New("probe alertmanager mount: HTTP 404"),
+			},
+			wantSev:     SeverityError,
+			wantMsg:     "decode failure",
+			wantNotMsgs: []string{"set prefix:", "/alertmanager/api/v2/status returned 200"},
+		},
+		{
+			name:    "other error, mount probe succeeds — downgrade to warning with verified prefix hint",
+			backend: config.Backend{Name: "x"},
+			client: &fakeClient{
+				statusErr:     errors.New("HTTP 404"),
+				probeMountErr: nil,
+			},
+			wantSev: SeverityWarning,
+			wantMsgs: []string{
+				"/alertmanager/api/v2/status returned 200",
+				"set prefix: /alertmanager",
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := AuthChecker{}.Run(t.Context(), config.Backend{Name: "x"}, tc.client)
+			got := AuthChecker{}.Run(t.Context(), tc.backend, tc.client)
 			require.Equal(t, tc.wantSev, got.Severity)
 			if tc.wantMsg != "" {
 				require.Contains(t, got.Message, tc.wantMsg)
+			}
+			for _, want := range tc.wantMsgs {
+				require.Contains(t, got.Message, want)
+			}
+			for _, notWant := range tc.wantNotMsgs {
+				require.NotContains(t, got.Message, notWant)
 			}
 		})
 	}
