@@ -200,10 +200,7 @@ func runInit(env initIO) error {
 // already ends with `/alertmanager` — the operator clearly engaged
 // with the path themselves — so the hint does not contradict their
 // explicit choice. The tenant half always prints because tenancy
-// cannot be encoded in the URL. Empty string when the prefix half
-// is suppressed AND no other lines remain (currently impossible
-// since the tenant line is unconditional, kept as a guard for
-// future toggles).
+// cannot be encoded in the URL.
 func mimirSetupHint(urlStr string) string {
 	var lines []string
 	if !urlPathHasAlertmanagerSuffix(urlStr) {
@@ -214,9 +211,6 @@ func mimirSetupHint(urlStr string) string {
 	lines = append(lines,
 		"For multi-tenant Mimir, also set tenant_header: X-Scope-OrgID and tenant: <your-org>.",
 		"See docs/end-users/configuration.md.")
-	if len(lines) == 0 {
-		return ""
-	}
 	return strings.Join(lines, "\n")
 }
 

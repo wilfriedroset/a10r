@@ -134,6 +134,10 @@ ranked against each other.
   poll interval, theme. Writes
   `$XDG_CONFIG_HOME/a10r/config.yaml`. Add a `--one-shot` flag for
   CI/CD provisioning that takes a flat KV input.
+  *(Superseded — the backend-kind question and its tenant/prefix
+  sub-prompts were dropped by ADR 0039; the shipped wizard asks
+  name, URL, auth, poll, and theme, with a post-write footer for
+  Mimir discoverability.)*
 
 #### A4. Distinct exit codes for CI integration
 - **Source:** trufflehog `main.go` (`os.Exit(183)` when results found

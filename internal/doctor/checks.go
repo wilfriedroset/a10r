@@ -81,17 +81,13 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 // ReachabilityChecker) surface as Warning to avoid double-reporting
 // the same root cause.
 //
-// Per ADR 0039, two enrichments layer on top:
-//   - 401/403 with no `tenant_header:` configured appends a Mimir
-//     multi-tenancy hint so the operator sees the most common
-//     remediation without leaving the doctor table.
-//   - A non-auth error (typically the `HTTP 404` Mimir returns when
-//     the alertmanager mount lives at `/alertmanager/api/v2/...`
-//     rather than `/api/v2/...`) triggers one `ProbeAlertmanagerMount`
-//     verification probe. Only a 2xx retry downgrades the Result to
-//     Warning with a verified-fix message; every other retry outcome
-//     leaves the original error intact so doctor never claims a fix
-//     it cannot prove end-to-end.
+// Per ADR 0039 the 401/403 message picks up a tenant-hint when
+// the operator has no `tenant_header:` configured (most common
+// remediation; surfacing it on the doctor table itself saves a
+// round-trip to docs), and a 404 on Status() triggers one
+// alertmanager-mount probe — only a 2xx retry downgrades to
+// Warning so doctor never claims a fix it cannot prove
+// end-to-end.
 type AuthChecker struct{}
 
 func (AuthChecker) Name() string { return "auth" }

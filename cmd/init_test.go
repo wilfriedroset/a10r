@@ -228,6 +228,19 @@ func TestMimirSetupHint(t *testing.T) {
 			},
 		},
 		{
+			// Pinned because the heuristic is suffix-based, not
+			// equality-based: a deeper path that nonetheless ends in
+			// /alertmanager (e.g. an inverse-proxy mount serving Mimir
+			// behind /api/alertmanager) must still suppress the prefix
+			// half — the operator has already routed the segment.
+			name: "deeper path with alertmanager suffix suppresses prefix half",
+			url:  "https://mimir.example/api/alertmanager",
+			wantMsgs: []string{
+				"tenant_header: X-Scope-OrgID",
+			},
+			wantNotMsgs: []string{"set prefix:"},
+		},
+		{
 			name: "garbage URL falls through, prints both halves",
 			url:  "://broken",
 			wantMsgs: []string{
