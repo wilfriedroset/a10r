@@ -62,3 +62,22 @@ func TestFilterDangerous_ReturnsFreshSlice(t *testing.T) {
 	require.Equal(t, "?", in[0].Key,
 		"FilterDangerous must not share storage with its input")
 }
+
+func TestAction_ChipKey(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		in   Action
+		want string
+	}{
+		{"unset DisplayKey falls back to Key", Action{Key: ":"}, ":"},
+		{"non-empty DisplayKey wins over Key", Action{Key: ":", DisplayKey: ":cmd"}, ":cmd"},
+		{"explicit empty DisplayKey still falls back", Action{Key: "?", DisplayKey: ""}, "?"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, tc.in.ChipKey())
+		})
+	}
+}

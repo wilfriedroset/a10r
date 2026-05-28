@@ -401,7 +401,7 @@ func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *
 	}
 	maxKey := 0
 	for _, a := range hints {
-		w := lipgloss.Width(help.ChipText(a.Key))
+		w := lipgloss.Width(help.ChipText(a.ChipKey()))
 		if w > maxKey {
 			maxKey = w
 		}
@@ -413,7 +413,7 @@ func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *
 		if a.Key == "?" {
 			keyStyle = styles.Hint.HelpKeyBold
 		}
-		key := keyStyle.Render(help.ChipText(a.Key))
+		key := keyStyle.Render(help.ChipText(a.ChipKey()))
 		pad := strings.Repeat(" ", maxKey-lipgloss.Width(key)+1)
 		cells[i] = key + pad + descStyle.Render(a.Description)
 	}

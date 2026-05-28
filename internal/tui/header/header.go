@@ -230,7 +230,7 @@ func renderHints(hints []action.Action, styles *theme.Styles) string {
 		if a.Key == "?" {
 			keyStyle = styles.Hint.HelpKey
 		}
-		b.WriteString(keyStyle.Render("[" + a.Key + "]"))
+		b.WriteString(keyStyle.Render("[" + a.ChipKey() + "]"))
 		if a.Description != "" {
 			b.WriteString(" ")
 			b.WriteString(descStyle.Render(a.Description))

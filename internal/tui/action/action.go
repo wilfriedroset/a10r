@@ -19,8 +19,18 @@ package action
 // metadata the help overlay and the header hint strip read.
 type Action struct {
 	// Key is the wire-level binding string from keybindings.md
-	// (e.g. "s", "Ctrl+S", "Shift+E", "gg" for the chord).
+	// (e.g. "s", "Ctrl+S", "Shift+E", "gg" for the chord). This is
+	// what the dispatcher matches against incoming key events.
 	Key string
+
+	// DisplayKey overrides the chip label every renderer paints
+	// when set; empty (the common case) falls back to Key. Used
+	// for bindings whose affordance label disagrees with the
+	// dispatched key — e.g. `:` triggering command mode renders
+	// as `:cmd` so the operator reads "type colon, then a command
+	// name". Callers must read via ChipKey rather than touch the
+	// fields directly so the precedence stays in one place.
+	DisplayKey string
 
 	// Description is shown in the header hint strip and the help
 	// overlay. Short imperative phrases ("silence alert", "expire
@@ -42,6 +52,16 @@ type Action struct {
 	// The dispatcher surfaces a flash hint when a Bulk action
 	// fires with no rows marked rather than silently no-oping.
 	Bulk bool
+}
+
+// ChipKey is the precedence point for chip rendering: DisplayKey
+// when set, Key otherwise. Single source so a future renderer can
+// not forget the fallback.
+func (a Action) ChipKey() string {
+	if a.DisplayKey != "" {
+		return a.DisplayKey
+	}
+	return a.Key
 }
 
 // FilterDangerous returns a fresh slice containing every entry of

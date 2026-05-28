@@ -286,7 +286,7 @@ func (h *Help) resourceColumn(verbs []action.Action) []string {
 	}
 
 	for _, a := range verbs {
-		out = append(out, h.entry(a.Key, a.Description))
+		out = append(out, h.entry(a.ChipKey(), a.Description))
 	}
 	return out
 }
@@ -313,7 +313,7 @@ func (h *Help) staticColumn(name string, entries []action.Action) []string {
 	out := make([]string, 0, len(filtered)+1)
 	out = append(out, h.headingLabel(name))
 	for _, a := range filtered {
-		out = append(out, h.entry(a.Key, a.Description))
+		out = append(out, h.entry(a.ChipKey(), a.Description))
 	}
 	return out
 }
