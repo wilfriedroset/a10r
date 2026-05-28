@@ -60,6 +60,13 @@ Conventional Commits: `type(scope): subject`. The accepted types:
 - `test` — test-only changes.
 - `chore` — tooling / build / CI.
 
+When a bug report drives a change that splits across two commits
+for bisect-safety (e.g. add dead-code plumbing in commit 1, wire
+it up in commit 2), label **both** as `feat:`. The shape is "add
+a capability," not "fix a regression in commit 1." Reserve `fix:`
+for repairs to previously-shipped behaviour; the motivating bug
+report goes in the commit body, not the leading verb.
+
 The body explains the *why*, not the *what*. The diff is the
 what.
 
