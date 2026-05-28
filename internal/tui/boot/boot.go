@@ -40,6 +40,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -264,6 +265,12 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		}
 		return (*appPtr).TimeFormat()
 	}
+	stateFormat := func() stateformat.Format {
+		if *appPtr == nil {
+			return stateformat.Full
+		}
+		return (*appPtr).StateFormat()
+	}
 	env := &pageEnv{
 		EditorCtx:          ctx,
 		Styles:             styles,
@@ -274,6 +281,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		Config:             effCfg,
 		Clients:            clients,
 		TimeFormat:         timeFormat,
+		StateFormat:        stateFormat,
 		ReadOnly:           effCfg.Defaults.ReadOnly,
 		TenantNames:        backendNames(effCfg),
 		TenantConfigByName: tenantConfigIndex(effCfg),

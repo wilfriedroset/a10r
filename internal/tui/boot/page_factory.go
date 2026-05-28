@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -40,6 +41,7 @@ type pageEnv struct {
 	Config             *config.Config
 	Clients            map[string]backend.Client
 	TimeFormat         func() timerender.Format
+	StateFormat        func() stateformat.Format
 	ReadOnly           bool
 	TenantNames        []string
 	TenantConfigByName map[string]config.Backend
@@ -55,6 +57,7 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 		Creator:            env.Creator,
 		EditorResolver:     env.EditorResolver,
 		TimeFormat:         env.TimeFormat(),
+		StateFormat:        env.StateFormat(),
 		BulkConcurrency:    env.Config.Defaults.BulkConcurrencyOrDefault(),
 		Logger:             slog.Default(),
 		ReadOnly:           env.ReadOnly,
