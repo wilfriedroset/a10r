@@ -13,6 +13,7 @@
 | `q` | Quit (confirm if a form is dirty). |
 | `Ctrl+C` | Hard quit, no confirm. |
 | `r` | Refresh the current view (bypass the poll tick). |
+| `t` | Toggle timestamps between relative (`5m ago`) and absolute (ISO local) — app-wide. |
 | `Ctrl+T` | Tenant picker modal (fuzzy search). |
 | `Ctrl+\` | Clear every mark on the focused page (alerts / silences). Silent no-op when nothing is marked. |
 | `0` | Scope: all configured tenants. |
@@ -74,20 +75,44 @@ Switching to a new column resets to that column's *default* direction. Severity 
 
 ### Alerts list
 
-| Key | What |
-| --- | --- |
-| `s` | Silence. With no marks: silences the cursor alert (single form). With one or more marks (toggled via `Space`): bulk silence — the form opens once, then `a10r` fans out one CreateSilence per marked alert (per-alert labels, uniform comment / start / end). |
-| `t` | Cycle state filter: active → silenced → inhibited → all |
-| `Shift+S` | Sort by severity |
-| `Shift+N` | Sort by alertname |
-| `Shift+T` | Sort by state |
-| `Shift+A` | Sort by age |
-
-### Alert detail
+Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT of instances and a per-state breakdown (active / suppressed / unprocessed). `Enter` drills by size: a single-instance alert (flagged with a trailing `→` in the COUNT column) opens the instance detail directly; a multi-instance alert opens the group-detail instance list. Filters narrow the underlying instances and then regroup, so COUNT / STATE / AGE always describe what's on screen.
 
 | Key | What |
 | --- | --- |
-| `s` | Silence this alert |
+| `Enter` | Drill: single-instance alert → instance detail; multi-instance alert → group detail. |
+| `s` | Silence the whole alert (`alertname=` matcher only). No marks: prefilled form — a confirm guards alerts with more than one instance, and a scope note warns that any active filter is *not* applied. With marks (`Space`): bulk — one silence per marked alert. |
+| `/` | Substring filter over the instances. |
+| `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all. |
+| `Shift+T` | Toggle the STATE breakdown between full (`9 active · 3 suppressed`) and compact (`9ac 3su`) — app-wide. |
+| `Shift+S` | Sort by severity (worst in the group). |
+| `Shift+N` | Sort by alertname. |
+| `Shift+C` | Sort by instance count. |
+| `Shift+A` | Sort by age (oldest instance). |
+
+### Group detail
+
+The instance list for one alert, reached by `Enter` on a multi-instance row. Rows are individual **alert instances**; each shows only the labels that distinguish it, while the labels every instance shares appear once in a common-labels strip above the table. `h`/`l` walk the sort columns; severity is the default sort (it has no `Shift+S` shortcut here — that would collide with `S`).
+
+| Key | What |
+| --- | --- |
+| `Enter` | Drill into the cursor instance (instance detail). |
+| `s` | Silence the cursor instance (full labels). With marks: bulk — one silence per marked instance; at 10+ marks a warning suggests silencing the whole alert instead. |
+| `S` | Open the silences suppressing this alert's instances. |
+| `Shift+C` | Show / hide the common-labels strip. |
+| `/` | Substring filter. |
+| `Shift+F` | Cycle the state filter. |
+| `Shift+T` | Toggle the STATE rendering (full / compact). |
+| `Shift+N` | Sort by instance labels. |
+| `Shift+A` | Sort by age. |
+
+### Alert detail (instance detail)
+
+One fully-expanded instance — its labels, annotations, generator URL, and suppression block. Reached from the alerts list (single-instance alert) or from the group detail.
+
+| Key | What |
+| --- | --- |
+| `s` | Silence this instance (full labels). |
+| `S` | Open the silences suppressing this instance. |
 | `y` | Toggle raw alert payload as YAML (k9s-style escape hatch). The title appends ` [raw yaml]` while raw mode is active so the two views are visually distinguishable at a glance. |
 | `c` | Copy fingerprint to clipboard |
 | `o` | Open `generatorURL` in the default browser |
@@ -165,4 +190,4 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 - **Cursor row** keeps the body background and brightens the foreground.
 - **Marked rows** (after `Space`) tint the foreground only — different colour from the cursor so you can tell them apart at a glance.
 - **`TENANT` column** appears on alerts when more than one tenant is in scope. Switching to a single-tenant scope hides it.
-- **Bold breadcrumbs** in the footer trace the page stack: `<alerts> <detail> <silence>`. `Esc` pops one frame.
+- **Bold breadcrumbs** in the footer trace the page stack: `<alerts> <instances> <detail>` (a single-instance alert skips straight to `<detail>`). `Esc` pops one frame.
