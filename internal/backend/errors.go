@@ -28,13 +28,13 @@ var (
 
 	// ErrNotFound signals that the server returned 404 on the
 	// requested resource. The vanilla classifier wraps every
-	// non-auth, non-transient 404 with this sentinel so callers
-	// can branch on `errors.Is` rather than substring-matching
-	// status codes. The doctor AuthChecker's prefix-probe downgrade
-	// (ADR 0039) gates on this so a 422/400/etc. semantic error
-	// cannot accidentally trigger a "set prefix:" claim doctor
-	// did not verify.
-	ErrNotFound = errors.New("backend resource not found")
+	// non-transient 404 with this sentinel so callers can branch on
+	// `errors.Is` rather than substring-matching status codes —
+	// e.g. the doctor AuthChecker's prefix-probe downgrade gates on
+	// this so a 422/400/etc. semantic error cannot accidentally
+	// trigger a "set prefix:" claim doctor did not verify
+	// (ADR 0039).
+	ErrNotFound = errors.New("not found")
 
 	// ErrNoDateHeader is returned by Prober.ProbeReadyAt when the
 	// response carries no `Date` header (or the header value fails

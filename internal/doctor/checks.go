@@ -122,12 +122,9 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 				Message:  "backend unreachable; auth not exercised",
 			}
 		default:
-			// Probe only on a 404 — adding `prefix: /alertmanager`
-			// cannot fix a 422 / 400 / decode failure, so a coincidentally-
-			// working mount probe alongside one of those errors must not
-			// downgrade. Without this gate doctor would claim a verified
-			// fix it did not actually verify against the original error
-			// (ADR 0039 honesty bar).
+			// Adding `prefix: /alertmanager` cannot fix a 422 / 400 /
+			// decode failure, so a coincidentally-working mount probe
+			// must not downgrade non-404 errors (ADR 0039 honesty bar).
 			if errors.Is(err, backend.ErrNotFound) {
 				if prober, ok := c.(backend.Prober); ok && prober.ProbeAlertmanagerMount(ctx) == nil {
 					return Result{

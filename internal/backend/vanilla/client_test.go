@@ -636,11 +636,14 @@ func TestClient_ProbeAlertmanagerMount_404(t *testing.T) {
 }
 
 // TestClient_classifyStatus_404WrapsErrNotFound pins the sentinel
-// contract every 404-shaped failure in the vanilla pipeline carries.
-// The doctor AuthChecker's mount-probe downgrade hangs off
-// errors.Is(err, backend.ErrNotFound) (ADR 0039 honesty bar), and a
-// silent regression to plain `HTTP 404` text would break the gate
-// without breaking compilation.
+// contract every 404-shaped failure in the vanilla pipeline carries
+// AND the operator-facing rendering. The doctor AuthChecker's
+// mount-probe downgrade hangs off errors.Is(err, backend.ErrNotFound)
+// (ADR 0039 honesty bar) — a silent regression to plain `HTTP 404`
+// text would break the gate without breaking compilation. The
+// sentinel-first rendering matches the 401 idiom (sentinel leads,
+// HTTP code follows, optional body trailing) so a future drift
+// trailing the sentinel back to the tail trips the assertion.
 func TestClient_classifyStatus_404WrapsErrNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -653,6 +656,9 @@ func TestClient_classifyStatus_404WrapsErrNotFound(t *testing.T) {
 	_, err := c.Status(t.Context())
 	require.Error(t, err)
 	require.ErrorIs(t, err, backend.ErrNotFound)
+	// Sentinel leads, HTTP code follows, body trails — same shape as
+	// the 401 path ("authentication failed: HTTP 401").
+	require.Contains(t, err.Error(), "not found: HTTP 404: no such silence")
 }
 
 // TestClient_ProbeAlertmanagerMount_Unauthorized pins that auth

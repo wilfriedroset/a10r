@@ -320,10 +320,13 @@ func (c *Client) classifyStatus(resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, c.maxBodyBytes))
 	msg := cleanErrorBody(body)
 	if resp.StatusCode == http.StatusNotFound {
+		// Sentinel-first rendering matches the 401 idiom above, so
+		// operators read "not found: HTTP 404[: body]" rather than
+		// a trailing sentinel tail that adds no information.
 		if msg == "" {
-			return fmt.Errorf("HTTP 404: %w", backend.ErrNotFound)
+			return fmt.Errorf("%w: HTTP 404", backend.ErrNotFound)
 		}
-		return fmt.Errorf("HTTP 404: %s: %w", msg, backend.ErrNotFound)
+		return fmt.Errorf("%w: HTTP 404: %s", backend.ErrNotFound, msg)
 	}
 	if msg == "" {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
