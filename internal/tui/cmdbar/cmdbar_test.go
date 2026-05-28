@@ -289,3 +289,202 @@ func TestResolver_RegisterUserAppearsInAliasesAndSuggest(t *testing.T) {
 	require.Equal(t, "prod", r.Suggest("pr"),
 		"user aliases must participate in ghost-text completion")
 }
+
+func TestResolver_RegisterGroupBindsEveryName(t *testing.T) {
+	t.Parallel()
+
+	r := New()
+	r.RegisterGroup([]string{"silences", "sil"}, func(args []string) tea.Cmd {
+		return func() tea.Msg { return markerMsg{Alias: "silences", Args: args} }
+	})
+
+	for _, name := range []string{"silences", "sil"} {
+		cmd, err := r.Resolve(name)
+		require.NoError(t, err)
+		require.Equal(t, "silences", cmd().(markerMsg).Alias,
+			"every name in the group routes to the same handler")
+	}
+}
+
+func TestResolver_GroupsReturnsCanonicalFirst(t *testing.T) {
+	t.Parallel()
+
+	r := New()
+	r.RegisterGroup([]string{"silences", "sil"}, func(_ []string) tea.Cmd { return nil })
+	r.RegisterGroup([]string{"groups", "gr"}, func(_ []string) tea.Cmd { return nil })
+	r.Register("alerts", func(_ []string) tea.Cmd { return nil })
+
+	got := r.Groups()
+	require.Equal(t,
+		[]AliasGroup{
+			{Names: []string{"alerts"}},
+			{Names: []string{"groups", "gr"}},
+			{Names: []string{"silences", "sil"}},
+		},
+		got,
+		"groups sort by canonical (first name); singletons from Register live alongside multi-name groups")
+}
+
+func TestResolver_GroupsExcludesUserAliases(t *testing.T) {
+	t.Parallel()
+
+	// User aliases chain into a built-in with possibly bound args
+	// (e.g. `prod -> tenant prod`). They are a specialisation, not
+	// a synonym, so Groups() must not fold them onto the built-in's
+	// row. The help overlay renders them in their own USER section.
+	r := New()
+	r.RegisterGroup([]string{"tenant", "tenants"}, func(_ []string) tea.Cmd { return nil })
+	require.NoError(t, r.RegisterUser("prod", "tenant prod"))
+
+	got := r.Groups()
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"tenant", "tenants"}}},
+		got,
+		"Groups() reflects built-in registrations only; user aliases live in UserAliases()")
+}
+
+func TestResolver_RegisterGroupPanicsOnEmptyNames(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		New().RegisterGroup(nil, func(_ []string) tea.Cmd { return nil })
+	})
+	require.Panics(t, func() {
+		New().RegisterGroup([]string{}, func(_ []string) tea.Cmd { return nil })
+	})
+}
+
+func TestResolver_RegisterGroupPanicsOnEmptyName(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		New().RegisterGroup([]string{"silences", ""}, func(_ []string) tea.Cmd { return nil })
+	})
+}
+
+func TestResolver_RegisterGroupPanicsOnNilHandler(t *testing.T) {
+	t.Parallel()
+
+	require.Panics(t, func() {
+		New().RegisterGroup([]string{"silences"}, nil)
+	})
+}
+
+func TestResolver_RegisterGroupPanicsOnDuplicateName(t *testing.T) {
+	t.Parallel()
+
+	// Duplicate names within a single RegisterGroup call would render
+	// as `sil, sil` in the help overlay — a clear programmer error
+	// rather than a runtime condition. Panic fast at the seam.
+	require.Panics(t, func() {
+		New().RegisterGroup([]string{"sil", "sil"}, func(_ []string) tea.Cmd { return nil })
+	})
+}
+
+func TestResolver_RegisterDedupsPriorGroup(t *testing.T) {
+	t.Parallel()
+
+	// Register's existing contract is "silent overwrite": calling it
+	// twice for the same alias must leave Groups() with exactly one
+	// row for that alias, pointing at the latest handler. Otherwise
+	// the help overlay would surface a stale singleton next to the
+	// fresh one.
+	r := New()
+	r.Register("alerts", func(_ []string) tea.Cmd {
+		return func() tea.Msg { return markerMsg{Alias: "first"} }
+	})
+	r.Register("alerts", func(_ []string) tea.Cmd {
+		return func() tea.Msg { return markerMsg{Alias: "second"} }
+	})
+
+	require.Equal(t, []AliasGroup{{Names: []string{"alerts"}}}, r.Groups(),
+		"re-Register must leave exactly one Groups() row")
+	cmd, err := r.Resolve("alerts")
+	require.NoError(t, err)
+	require.Equal(t, "second", cmd().(markerMsg).Alias,
+		"re-Register handler must be the latest")
+}
+
+func TestResolver_RegisterGroupSupersedesPriorRegister(t *testing.T) {
+	t.Parallel()
+
+	// Common boot ordering quirk: a one-name Register is later
+	// replaced by a RegisterGroup that folds the same alias under a
+	// canonical. The earlier singleton row must NOT linger.
+	r := New()
+	r.Register("sil", func(_ []string) tea.Cmd { return nil })
+	r.RegisterGroup([]string{"silences", "sil"}, func(_ []string) tea.Cmd { return nil })
+
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"silences", "sil"}}},
+		r.Groups(),
+		"RegisterGroup must prune any prior singleton row that mentions any of its names")
+}
+
+func TestResolver_RegisterGroupSupersedesPriorGroup(t *testing.T) {
+	t.Parallel()
+
+	// Re-registering a group must drop any prior group row that
+	// shared even one name — last-write-wins applies at the row
+	// level, not per name, because two rows for overlapping names
+	// would mislead the help overlay reader.
+	r := New()
+	r.RegisterGroup([]string{"silences", "sil"}, func(_ []string) tea.Cmd { return nil })
+	r.RegisterGroup([]string{"sil", "silencer"}, func(_ []string) tea.Cmd { return nil })
+
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"sil", "silencer"}}},
+		r.Groups(),
+		"second RegisterGroup must prune the first because they overlap on `sil`")
+}
+
+func TestResolver_GroupsResistsInputMutation(t *testing.T) {
+	t.Parallel()
+
+	// The names slice the caller passes is defensively copied at
+	// registration time so a later mutation of the source slice can
+	// not rewrite the group's recorded order in the help overlay.
+	r := New()
+	names := []string{"silences", "sil"}
+	r.RegisterGroup(names, func(_ []string) tea.Cmd { return nil })
+	names[0] = "MUTATED"
+	names[1] = "ALSO-MUTATED"
+
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"silences", "sil"}}},
+		r.Groups(),
+		"Groups() must be insulated from post-call input-slice mutation")
+}
+
+func TestResolver_GroupsResistsOutputMutation(t *testing.T) {
+	t.Parallel()
+
+	// Symmetric to the input-mutation defence: Groups() must return
+	// a deep copy so a caller mutating any Names entry post-call
+	// can not rewrite the resolver's internal state.
+	r := New()
+	r.RegisterGroup([]string{"silences", "sil"}, func(_ []string) tea.Cmd { return nil })
+
+	out := r.Groups()
+	out[0].Names[0] = "MUTATED"
+
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"silences", "sil"}}},
+		r.Groups(),
+		"resolver state must survive caller mutation of a previous Groups() return")
+}
+
+func TestResolver_RegisterAndRegisterGroupSingletonAreEquivalent(t *testing.T) {
+	t.Parallel()
+
+	// Register(alias, h) and RegisterGroup([]string{alias}, h) must
+	// produce identical Groups() rows so the help overlay never sees
+	// a shape difference between the two registration paths.
+	r1 := New()
+	r1.Register("alerts", func(_ []string) tea.Cmd { return nil })
+	r2 := New()
+	r2.RegisterGroup([]string{"alerts"}, func(_ []string) tea.Cmd { return nil })
+
+	require.Equal(t, r1.Groups(), r2.Groups(),
+		"Register and single-element RegisterGroup must produce equivalent Groups() output")
+}

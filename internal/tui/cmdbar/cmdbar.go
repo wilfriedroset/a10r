@@ -14,6 +14,7 @@ package cmdbar
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -52,6 +53,15 @@ var (
 // slice when the user supplied no arguments.
 type Handler func(args []string) tea.Cmd
 
+// AliasGroup is the set of names sharing one handler. Singleton
+// groups come from Register; multi-name groups from RegisterGroup.
+// The first entry in Names is the canonical name and is what the
+// help overlay surfaces as the row header (the remaining names are
+// folded onto the same row as `canonical, short` per ADR 0038).
+type AliasGroup struct {
+	Names []string
+}
+
 // Resolver stores alias → Handler mappings. Construct via New —
 // the zero value is NOT usable because Register would attempt to
 // write to a nil map.
@@ -62,6 +72,14 @@ type Handler func(args []string) tea.Cmd
 // onto each other in a registration-order-dependent way.
 type Resolver struct {
 	handlers map[string]Handler
+	// groups is the help-overlay-facing registration ledger. Each
+	// Register call appends a singleton; each RegisterGroup call
+	// appends a multi-name entry. Re-registering an alias prunes any
+	// prior entry that mentions that alias before appending the new
+	// row — last-write-wins, so Groups() never surfaces a stale row
+	// next to a fresh one. Independent of `handlers` so the help
+	// overlay can fold synonyms without poking at Go function values.
+	groups   []AliasGroup
 	builtins map[string]struct{}
 }
 
@@ -75,6 +93,12 @@ func New() *Resolver {
 // configuration time, the resolver is the source of truth at
 // runtime. Empty aliases panic because they indicate programmer
 // error rather than a runtime condition.
+//
+// Each Register call appends a singleton AliasGroup so Groups()
+// surfaces every built-in row to the help overlay regardless of
+// whether the caller used Register or RegisterGroup. Any prior
+// group row that mentioned this alias is dropped — Groups() must
+// never surface a stale singleton next to the fresh registration.
 func (r *Resolver) Register(alias string, h Handler) {
 	if alias == "" {
 		panic("cmdbar: alias must not be empty")
@@ -83,6 +107,86 @@ func (r *Resolver) Register(alias string, h Handler) {
 		panic("cmdbar: handler must not be nil")
 	}
 	r.handlers[alias] = h
+	r.dropGroupsContaining(alias)
+	r.groups = append(r.groups, AliasGroup{Names: []string{alias}})
+}
+
+// RegisterGroup binds every name in `names` to the same handler.
+// The first entry is canonical (what the help overlay shows as the
+// row header); remaining entries fold onto that row as synonyms
+// per ADR 0038. Use Register for singleton aliases — RegisterGroup
+// is reserved for genuine synonyms (silences/sil, groups/gr, ...).
+//
+// Empty names slice / empty individual name / nil handler / a name
+// repeated within `names` all panic because each indicates
+// programmer error in the caller.
+//
+// Re-registering any name in `names` prunes prior group rows that
+// mentioned it (mirroring Register's silent-overwrite contract),
+// so a Register("sil", ...) followed by RegisterGroup(["silences",
+// "sil"], ...) leaves Groups() with one row — the multi-name group.
+func (r *Resolver) RegisterGroup(names []string, h Handler) {
+	if len(names) == 0 {
+		panic("cmdbar: alias group must not be empty")
+	}
+	if h == nil {
+		panic("cmdbar: handler must not be nil")
+	}
+	seen := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		if n == "" {
+			panic("cmdbar: alias must not be empty")
+		}
+		if _, dup := seen[n]; dup {
+			panic("cmdbar: duplicate alias in group: " + n)
+		}
+		seen[n] = struct{}{}
+	}
+	for _, n := range names {
+		r.handlers[n] = h
+		r.dropGroupsContaining(n)
+	}
+	// Copy so a later caller mutation of the input slice can't
+	// rewrite the group's recorded order.
+	copied := make([]string, len(names))
+	copy(copied, names)
+	r.groups = append(r.groups, AliasGroup{Names: copied})
+}
+
+// Groups returns built-in alias groups sorted alphabetically by
+// canonical name (first entry of each group). User aliases live in
+// UserAliases() — folding them here would mislead the help overlay
+// reader, since a user alias may bind extra args its target does
+// not.
+//
+// Deep-copies every group's Names slice so a caller can't mutate
+// the resolver's internal state through the returned value.
+func (r *Resolver) Groups() []AliasGroup {
+	out := make([]AliasGroup, len(r.groups))
+	for i, g := range r.groups {
+		names := make([]string, len(g.Names))
+		copy(names, g.Names)
+		out[i] = AliasGroup{Names: names}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Names[0] < out[j].Names[0]
+	})
+	return out
+}
+
+// dropGroupsContaining prunes every group row that mentions
+// `alias`. Linear in the registration count; the catalogue stays
+// small (single-digit groups) so a smarter index is not worth the
+// complexity.
+func (r *Resolver) dropGroupsContaining(alias string) {
+	kept := r.groups[:0]
+	for _, g := range r.groups {
+		if slices.Contains(g.Names, alias) {
+			continue
+		}
+		kept = append(kept, g)
+	}
+	r.groups = kept
 }
 
 // Aliases returns the registered alias names sorted alphabetically.
