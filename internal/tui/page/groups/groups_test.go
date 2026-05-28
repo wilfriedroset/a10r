@@ -395,7 +395,7 @@ func TestPage_GroupHeaderColoursLabelKVPairs(t *testing.T) {
 func TestPage_LeafRowsColourLabelsAndState(t *testing.T) {
 	t.Parallel()
 	// Leaves render the labels that differ between siblings (the
-	// inverse of commonLabels) so each row identifies the actual
+	// inverse of backend.CommonLabels) so each row identifies the actual
 	// instance, not the labels already in the group header. The
 	// per-cell colouring follows the YAML viewer's palette so a
 	// k=v pair reads consistently across the TUI.
@@ -441,7 +441,7 @@ func TestPage_LeafRowsShowDistinguishingLabels(t *testing.T) {
 	out := testutil.StripStyle(p.View(160, 10))
 	require.Contains(t, out, "instance=host-a")
 	require.Contains(t, out, "instance=host-b")
-	// The alertname is in commonLabels → the leaf must not echo it.
+	// The alertname is in backend.CommonLabels → the leaf must not echo it.
 	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "instance=") {
 			require.NotContains(t, line, "alertname=DiskFull",
@@ -496,7 +496,7 @@ func TestDistinguishingLabels_KeepsDivergent(t *testing.T) {
 	require.Equal(t, map[string]string{
 		"instance": "host-a",
 		"severity": "critical",
-	}, distinguishingLabels(a, common))
+	}, backend.DistinguishingLabels(a, common))
 }
 
 // The TENANT-column visibility contract (multi-tenant scope shows
@@ -523,7 +523,7 @@ func TestCommonLabels_KeepsSharedDropsDivergent(t *testing.T) {
 		{Labels: map[string]string{"alertname": "A", "team": "platform", "severity": "critical"}},
 		{Labels: map[string]string{"alertname": "B", "team": "platform", "severity": "warning"}},
 	}
-	got := commonLabels(alerts)
+	got := backend.CommonLabels(alerts)
 	require.Equal(t, map[string]string{"team": "platform"}, got)
 }
 

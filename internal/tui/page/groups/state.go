@@ -41,7 +41,7 @@ func (p *Page) recompute() {
 				g:            g,
 				tenant:       tenant,
 				severityRank: groupSeverityRank(g),
-				common:       commonLabels(g.Alerts),
+				common:       backend.CommonLabels(g.Alerts),
 				lowerSummary: strings.ToLower(labelSummary(g.Labels)),
 			})
 		}

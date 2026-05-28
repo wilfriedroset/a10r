@@ -173,7 +173,7 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return p, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
 	}
-	matchers := silenceform.MatchersFromLabels(commonLabels(entry.g.Alerts))
+	matchers := silenceform.MatchersFromLabels(backend.CommonLabels(entry.g.Alerts))
 	if len(matchers) == 0 {
 		// An empty matcher list submitted to alertmanager silences
 		// EVERY alert. Refuse to push the form rather than let the

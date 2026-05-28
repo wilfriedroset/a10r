@@ -3,7 +3,6 @@
 package groups
 
 import (
-	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,44 +29,6 @@ func (p *Page) emptyState() string {
 		return "no groups match the active filter — Esc clears the prompt"
 	}
 	return "no groups (yet)"
-}
-
-// distinguishingLabels returns the labels in a that aren't shared
-// across every sibling — i.e. the keys whose value diverges from
-// the group's commonLabels intersection. Renders on leaf rows so
-// each leaf identifies the actual instance (instance / pod /
-// host / …) rather than echoing the labels already painted in the
-// group header.
-func distinguishingLabels(a backend.Alert, common map[string]string) map[string]string {
-	out := make(map[string]string, len(a.Labels))
-	for k, v := range a.Labels {
-		if cv, ok := common[k]; ok && cv == v {
-			continue
-		}
-		out[k] = v
-	}
-	return out
-}
-
-// commonLabels returns the labels that appear with the same value
-// in every alert. Used by the group-silence flow so the silence
-// form opens with matchers covering exactly the alerts in this
-// group.
-func commonLabels(alerts []backend.Alert) map[string]string {
-	if len(alerts) == 0 {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(alerts[0].Labels))
-	maps.Copy(out, alerts[0].Labels)
-	for _, a := range alerts[1:] {
-		for k, v := range out {
-			other, ok := a.Labels[k]
-			if !ok || other != v {
-				delete(out, k)
-			}
-		}
-	}
-	return out
 }
 
 func (p *Page) View(width, height int) string {
@@ -199,7 +160,7 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 		// so the row never reads as blank.
 		b.WriteString(strings.Repeat(" ", treeColWidth))
 		a := entry.g.Alerts[r.alertIdx]
-		diff := distinguishingLabels(a, entry.common)
+		diff := backend.DistinguishingLabels(a, entry.common)
 		var labelText string
 		if len(diff) > 0 {
 			if focused {
