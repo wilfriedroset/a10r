@@ -5,6 +5,110 @@ multi-tenant scopes.
 
 ## Language
 
+### Alert aggregation
+
+**Alert**:
+The named aggregate the alerts list rows on — every **alert
+instance** sharing the same `(tenant, alertname)`. One row per
+distinct alertname per tenant; the COUNT column carries the
+instance tally, AGE the oldest instance `StartsAt`, SEVERITY the
+max (worst) instance severity, STATE the **state breakdown**. A
+TUI-layer concept (no backend type) synthesised by rolling up
+`backend.Alert` values by alertname. Grouping is on the `alertname`
+label alone, so two distinct upstream rules emitting the same
+alertname within one tenant merge into one Alert — over-merge only,
+never over-split (a single rule sets one alertname), and AM exposes
+no rule identity to do better. Distinct from the route-based **alert
+group** of the `groups` page.
+_Avoid_: alert group (route / `group_by` grouping — the `groups`
+page and `backend.AlertGroup`), rule (AM has no rule concept; we
+group on the alertname label, not a rule).
+
+**Alert instance**:
+One firing series — a single `backend.Alert` (one fingerprint, one
+host/target). What the wire layer calls an Alert; the unit the
+group-detail instance list rows on and the unit a single-instance
+silence matches. Carries its own state, labels, annotations,
+generatorURL, and `StartsAt`.
+_Avoid_: alert (unqualified "alert" is now the **aggregate**),
+series (Prometheus term), sample.
+
+**State breakdown**:
+The **Alert** row's STATE column — a per-state tally of the group's
+instances across AM's `active` / `suppressed` / `unprocessed`
+buckets, non-zero buckets only, fixed order active → suppressed →
+unprocessed; the three counts sum to COUNT. Two render modes toggled
+app-globally, parallel to the **absolute/relative time** toggle:
+**full** (`9 active · 3 suppressed`, the default) and **compact**
+(`9ac 3su` — count + two-letter state abbreviation, chosen to avoid
+colliding visually with the `s` / `S` silence verbs and to stay
+legible without color). Suppression sub-reasons (silenced / inhibited / muted) stay
+off the list and surface only on the instance view.
+_Avoid_: status (AM wire field name), firing / pending (Grafana
+ruler vocabulary — AM has no pending state).
+
+### Alert drill-down
+
+**Group detail**:
+The L2 list page reached by Enter on a multi-instance **alert** at
+L1. Rows on **alert instances** (one per fingerprint); columns
+`SEVERITY <specific-labels> STATE AGE` — the L1 order minus
+TENANT/COUNT, with the flex column holding each instance's
+instance-specific labels (those outside the common set) — the
+`instance` label pinned first so truncation never eats the primary
+identifier, the rest ellipsized to one line. Live: polls the alerts
+feed scoped to its `(tenant, alertname)`. A one-line **common
+labels** strip renders above the table by default (the shared
+cluster / job / datacenter is usually the first triage question);
+a toggle collapses it for row density. A plain list page with that
+optional strip, not a detail surface.
+_Avoid_: alert detail (that name now means L3 / **instance
+detail**), expanded row (L2 pushes a page, it does not inline-expand
+the way Grafana's web table does).
+
+**Instance detail**:
+The L3 page — the existing alert-detail surface
+(`internal/tui/page/alert`): one fully-expanded **alert instance**
+with full labels, annotations, generatorURL, and suppression block.
+Reached by Enter on an L2 instance row, or directly from L1 when an
+alert has COUNT==1 (the single-instance shortcut skips L2).
+_Avoid_: group detail (L2).
+
+### Silence scope
+
+**Silence-all**:
+Silence every instance of an **alert**, prefilled with a single
+`alertname=<name>` equality matcher — the alert's identity —
+editable before submit. Reached by `s` on an L1 alert row (no
+marks); from L2 via `Esc` to L1 (the cursor is already on the
+aggregate). A single-cursor silence-all of a COUNT>1 alert is gated
+by the confirm modal — blast radius, not mark count, decides the
+gate. The form carries a **scope note** stating the
+real scope and, when the source view was filtered, that the active
+filter is NOT applied. Distinct from the `groups` page's group
+silence (which prefills the route group's common-label
+intersection): both follow "prefill the matchers that define the
+group's identity", but an alertname aggregate's identity is the
+alertname alone.
+_Avoid_: bulk silence (that is the marks fan-out — a different
+verb).
+
+**Silence-one**:
+Silence a single **alert instance**, prefilled with that instance's
+full non-private label set (`MatchersFromLabels`, drops `__name__`).
+Reached by `s` on an L2 instance row (no marks) or on L3. Bulk
+silence-one (marks fan-out) at L2 warns when the marked count is
+large — N full-label silences are a very different artefact from one
+`alertname=X` **silence-all** for nearly the same intent.
+_Avoid_: silence-all.
+
+**Scope note**:
+The caller-supplied banner above the silence form's matchers,
+populated for **silence-all** to state the true scope and flag that
+any active list filter is not applied. Empty for **silence-one**.
+_Avoid_: flash (the note is persistent in the form, not a transient
+footer flash).
+
 ### Time rendering
 
 **Relative time**:
@@ -251,6 +355,32 @@ _Avoid_: custom theme, override skin.
 
 ## Relationships
 
+- An **Alert** rolls up one or more **alert instances** sharing the
+  same `(tenant, alertname)`. COUNT is the instance tally, AGE the
+  oldest instance `StartsAt`, SEVERITY the max instance severity,
+  STATE the **state breakdown**. The route-based **alert group**
+  (`groups` page) is a different rollup of the same instances.
+- The substring (`/`) and state (`Shift+F`) filters narrow **alert
+  instances** first; **Alerts** are then rebuilt from the survivors
+  and an Alert with no surviving instance drops from the page, so
+  COUNT / STATE / AGE always describe the post-filter reality.
+- Drill-down ladder: L1 alerts list → (Enter) → L2 **group detail**
+  → (Enter) → L3 **instance detail**; Esc pops one level. Enter on a
+  COUNT==1 alert at L1 skips L2 and lands on L3 directly — such rows
+  carry a trailing `→` marker so the drill destination is
+  predictable from the row, and L2 / L3 share a consistent keymap so
+  the skip is benign. L1 cursor / marks are keyed by group
+  `(tenant, alertname)`; L2 by instance fingerprint; marks are
+  per-page and do not cross levels.
+- `s` silences the unit under the cursor — an L1 **alert** →
+  **silence-all** (gated by the confirm modal when COUNT>1), an
+  L2 / L3 **alert instance** → **silence-one**; marks escalate `s`
+  to a bulk fan-out (one silence per marked unit, ≥2 marks gated by
+  the confirm modal). `S` = open silences consistently at every
+  level — the **restricted silences view** scoped to the silences
+  suppressing the cursor instance (L3) or any instance of the alert
+  (L2, the union of silenced-by IDs). **Silence-all** has no L2 key;
+  it is reached by `Esc` to L1.
 - A **silence** is exactly one of **active**, **pending**, **expired**
   at any given moment (backend-decided, client renders what it sees).
 - **Relative time** and **absolute time** are two render modes for the
