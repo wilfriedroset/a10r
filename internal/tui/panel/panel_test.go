@@ -209,6 +209,67 @@ func TestRenderTop_HintGridDropsTrailingWhenWidestOverflows(t *testing.T) {
 	}
 }
 
+func TestRenderTop_HintGridPrependsHelpAffordance(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+
+	// The hint grid's contract widens to "curated global prelude +
+	// page bindings" — today the prelude is just `?` so a reader on
+	// any page can spot the discovery gateway without opening it.
+	// ADR 0038.
+	out := RenderTop(State{
+		Width:   120,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+		Hints:   []action.Action{{Key: "s", Description: "silence"}},
+		Logo:    Logo,
+	}, styles)
+	visible := testutil.StripStyle(out)
+	require.Contains(t, visible, "<?>",
+		"hint grid must always surface `<?>` regardless of page bindings")
+	require.Contains(t, visible, "help",
+		"the `?` chip carries the `help` description so it reads at a glance")
+	require.Less(t, strings.Index(visible, "<?>"), strings.Index(visible, "<s>"),
+		"the curated prelude renders before the page bindings (top-left of column-major grid)")
+}
+
+func TestRenderTop_HintGridSurfacesHelpEvenWithEmptyPageBindings(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+
+	// A page that returns nil Bindings (boot placeholder, empty
+	// modal frame) still gets the discovery affordance — the
+	// prelude is owned by the panel, not by any individual page.
+	out := RenderTop(State{
+		Width:   120,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+		Hints:   nil,
+		Logo:    Logo,
+	}, styles)
+	require.Contains(t, testutil.StripStyle(out), "<?>",
+		"empty page bindings must still surface the help chip")
+}
+
+func TestRenderTop_HintGridDoesNotDuplicateHelpWhenPageBindsIt(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+
+	// Defensive: pages must not bind `?` (it's a LayerGlobal verb
+	// per ADR 0019), but if a future page accidentally returns it,
+	// the panel must not paint `<?>` twice.
+	out := RenderTop(State{
+		Width:   120,
+		Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+		Hints: []action.Action{
+			{Key: "?", Description: "help"},
+			{Key: "s", Description: "silence"},
+		},
+		Logo: Logo,
+	}, styles)
+	visible := testutil.StripStyle(out)
+	require.Equal(t, 1, strings.Count(visible, "<?>"),
+		"the curated prelude must dedupe against a page that re-emits `?`")
+}
+
 func TestRenderTop_NeverExceedsStateWidth(t *testing.T) {
 	t.Parallel()
 	styles := testutil.LoadStyles(t)

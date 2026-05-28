@@ -85,7 +85,10 @@ type State struct {
 	Tenants []TenantBinding
 	// Hints are the page's bindings rendered as a `<key> Action`
 	// table in the middle. Auto-built from the active page's
-	// Bindings() so adding a binding there shows up here.
+	// Bindings() so adding a binding there shows up here. The
+	// panel prepends a curated global prelude (today: `?`) per
+	// ADR 0038, so the hint zone is never empty even when the
+	// page returns nil Bindings.
 	Hints []action.Action
 	// Logo is the ASCII art on the right. Empty hides the column.
 	Logo string
@@ -389,13 +392,45 @@ func renderGrid(cells []string, cols, rows, cellW int) []string {
 	return out
 }
 
+// helpHint is the curated discoverability prelude prepended to
+// every page's Bindings() before the hint grid renders (ADR 0038).
+// `?` is a LayerGlobal verb owned by the dispatcher; surfacing it
+// in the chrome means a first-time operator sees the discovery
+// gateway without having to know it exists.
+var helpHint = action.Action{Key: "?", Description: "help"}
+
+// prependHelpHint returns `hints` with helpHint inserted at index 0
+// unless a `?`-keyed binding is already present (defensive against
+// a future page that misroutes the global). The input is never
+// mutated; on the non-dedup path the output is a fresh slice so
+// callers can keep passing the page's Bindings() result through
+// unchanged.
+func prependHelpHint(hints []action.Action) []action.Action {
+	for _, h := range hints {
+		if h.Key == "?" {
+			return hints
+		}
+	}
+	out := make([]action.Action, 0, len(hints)+1)
+	out = append(out, helpHint)
+	out = append(out, hints...)
+	return out
+}
+
 // renderHintLines formats the hint column as a k9s-style column-
 // major grid of `<key> Description` cells. Mirrors k9s's frame.menu
 // zone. Unlike tenants, hints reflow under width pressure: cols
 // shrink 3 → 2 → 1, and the trailing chip drops once 1-col still
 // won't fit. Pass `unboundedRows` for availWidth to opt out of the
 // width-aware reflow (used for the pre-logo-drop pass).
+//
+// `?` is always present as the first cell — the panel widens the
+// page's Bindings() with a curated global prelude so the help
+// affordance survives even an empty page binding set. A page that
+// (against ADR 0019) re-emits `?` is silently deduped to avoid
+// painting the chip twice.
 func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *theme.Styles) []string {
+	hints = prependHelpHint(hints)
 	if len(hints) == 0 {
 		return nil
 	}
