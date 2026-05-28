@@ -289,6 +289,31 @@ credentials live in env vars referenced via `${VAR}`); pasted
 Prometheus configs that use file-based secrets surface a
 strict-mode error naming the offending key.
 
+### Discoverability prelude and COMMANDS column
+
+- Top-panel hint grid now prepends a curated global prelude — today
+  one entry, `?` — before each page's bindings, so a first-time
+  operator can spot the help affordance on every view without
+  having to know the binding. Dedupes defensively if a page ever
+  re-emits `?`.
+- Help overlay grows a 5th column on the right: COMMANDS. Lists the
+  `:`-bar built-in aliases folded by synonym
+  (`silences, sil` on one row) plus a `USER` sub-heading + each
+  user-registered alias formatted as `short → expanded`. Empty
+  catalogues drop the sub-heading entirely; the column heading
+  stays for layout stability.
+- `:` chip relabels in the help overlay and hint strip as
+  `<:cmd>  Command mode` so the colon-then-command shape reads at a
+  glance. The dispatcher still matches a bare colon — only the
+  visible affordance changes. New `action.Action.DisplayKey` field
+  + `Action.ChipKey()` precedence point + dispatcher
+  `SetActionDisplayKey(name, displayKey)` make a single wire-up
+  flip every chip renderer.
+- `cmdbar.Resolver` gains `RegisterGroup(names, handler)` so
+  synonyms are an explicit declaration; `Groups()` /
+  `UserAliases()` expose the resulting catalogue to the help
+  overlay.
+
 ### Documentation
 
 - README with feature list, install, quickstart, keybindings.

@@ -90,9 +90,9 @@ Apply everywhere except inside a modal or prompt.
 
 | Key | Action | Notes |
 | --- | --- | --- |
-| `:` | Open command bar | Resolves aliases (`:alerts`, `:sil`, `:tenant`, …) |
+| `:` | Open command bar | Resolves aliases (`:alerts`, `:sil`, `:tenant`, …). Renders as `<:cmd>  Command mode` in the help overlay and hint strip (ADR 0038). |
 | `/` | Open filter | Substring + matcher syntax per E1 |
-| `?` | Help overlay | Lists the active view's bindings + globals |
+| `?` | Help overlay | Lists the active view's bindings + globals. Always painted as the first chip in every page's hint grid so a first-time operator sees the discovery affordance without already knowing the binding (ADR 0038). |
 | `r` | Refresh current view | Bypass the poll tick (per C5) |
 | `t` | Toggle relative ↔ absolute time | App-global; flips ages / timestamps on alerts, silences, alert detail |
 | `Esc` | Pop stack | Dismiss modal/prompt first; otherwise pop the page stack |
@@ -221,7 +221,7 @@ Return to the flat alerts list via the command bar (`:al` / `:alerts`) — no si
 
 ## Command bar aliases
 
-Typed after `:`. The shortest form jumps to the view; the longer forms work too for users who prefer typing the full noun.
+Typed after `:`. The shortest form jumps to the view; the longer forms work too for users who prefer typing the full noun. The help overlay's COMMANDS column lists every built-in alias folded by synonym (`silences, sil` on one row) plus a `USER` sub-section showing `short → expanded` for any aliases the operator has registered (ADR 0038).
 
 | View | Aliases |
 | --- | --- |
