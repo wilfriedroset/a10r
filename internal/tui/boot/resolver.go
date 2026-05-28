@@ -29,27 +29,23 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newSilencesPage(env) })
 	}
-	r.Register("silences", silencesFactory)
-	r.Register("sil", silencesFactory)
+	r.RegisterGroup([]string{"silences", "sil"}, silencesFactory)
 	r.Register("status", func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newStatusPage(env) })
 	})
 	receiversFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newReceiversPage(env) })
 	}
-	r.Register("receivers", receiversFactory)
-	r.Register("rec", receiversFactory)
+	r.RegisterGroup([]string{"receivers", "rec"}, receiversFactory)
 	groupsFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newGroupsPage(env) })
 	}
-	r.Register("groups", groupsFactory)
-	r.Register("gr", groupsFactory)
+	r.RegisterGroup([]string{"groups", "gr"}, groupsFactory)
 	drill := func(name string) (app.Page, error) { return newTenantConfigPage(env, name) }
 	tenantFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
-	r.Register("tenant", tenantFactory)
-	r.Register("tenants", tenantFactory)
+	r.RegisterGroup([]string{"tenant", "tenants"}, tenantFactory)
 	// `:q` mirrors the `q` / Ctrl+C bindings — emits the quit-
 	// precursor so the App can Close() every page on the stack
 	// (cancelling in-flight bulk fanouts, silence-form writes,
