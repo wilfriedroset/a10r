@@ -62,6 +62,20 @@ type AliasGroup struct {
 	Names []string
 }
 
+// UserAlias is one user-defined shorthand registered via
+// RegisterUser. The help overlay renders these in a dedicated USER
+// subsection as `short → expanded` so a reader can tell at a glance
+// which aliases come from their own config and what each maps to.
+//
+// Expanded is the user-typed expansion with leading/trailing
+// whitespace trimmed so the help overlay never paints stray
+// padding; runs of internal whitespace are preserved verbatim so
+// `prod   staging` reads back exactly as the operator wrote it.
+type UserAlias struct {
+	Short    string
+	Expanded string
+}
+
 // Resolver stores alias → Handler mappings. Construct via New —
 // the zero value is NOT usable because Register would attempt to
 // write to a nil map.
@@ -79,8 +93,13 @@ type Resolver struct {
 	// row — last-write-wins, so Groups() never surfaces a stale row
 	// next to a fresh one. Independent of `handlers` so the help
 	// overlay can fold synonyms without poking at Go function values.
-	groups   []AliasGroup
-	builtins map[string]struct{}
+	groups []AliasGroup
+	// userAliases keeps the raw (short, expanded) pairs captured by
+	// RegisterUser so the help overlay's USER subsection can render
+	// them. Separate from `groups` because user aliases bind extra
+	// args and folding them onto a built-in row would mislead.
+	userAliases []UserAlias
+	builtins    map[string]struct{}
 }
 
 // New constructs an empty Resolver.
@@ -315,7 +334,21 @@ func (r *Resolver) RegisterUser(short, expanded string) error {
 		merged = append(merged, args...)
 		return base(merged)
 	}
+	r.userAliases = append(r.userAliases, UserAlias{Short: short, Expanded: strings.TrimSpace(expanded)})
 	return nil
+}
+
+// UserAliases returns the user-registered aliases sorted
+// alphabetically by Short. The returned slice is a fresh allocation
+// so a caller can append / overwrite freely without touching
+// resolver state.
+func (r *Resolver) UserAliases() []UserAlias {
+	out := make([]UserAlias, len(r.userAliases))
+	copy(out, r.userAliases)
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Short < out[j].Short
+	})
+	return out
 }
 
 // prefixMatches returns every registered alias that starts with

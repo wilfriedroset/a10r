@@ -474,6 +474,86 @@ func TestResolver_GroupsResistsOutputMutation(t *testing.T) {
 		"resolver state must survive caller mutation of a previous Groups() return")
 }
 
+func TestResolver_UserAliasesEmptyByDefault(t *testing.T) {
+	t.Parallel()
+
+	require.Empty(t, build().UserAliases(),
+		"a resolver with only built-ins must report zero user aliases")
+}
+
+func TestResolver_UserAliasesOrderedAlphabetically(t *testing.T) {
+	t.Parallel()
+
+	r := build()
+	require.NoError(t, r.RegisterUser("stage", "tenant staging"))
+	require.NoError(t, r.RegisterUser("prod", "tenant prod"))
+	require.NoError(t, r.RegisterUser("ack", "silences"))
+
+	require.Equal(t,
+		[]UserAlias{
+			{Short: "ack", Expanded: "silences"},
+			{Short: "prod", Expanded: "tenant prod"},
+			{Short: "stage", Expanded: "tenant staging"},
+		},
+		r.UserAliases(),
+		"UserAliases() must sort by Short so the help overlay renders deterministically")
+}
+
+func TestResolver_UserAliasesNormalisesExpanded(t *testing.T) {
+	t.Parallel()
+
+	// Leading/trailing whitespace is trimmed at registration time so
+	// the help overlay never paints stray padding around the `→`
+	// arrow. Runs of internal whitespace stay verbatim so a tidy
+	// `tenant   prod` reads back as the operator wrote it.
+	r := build()
+	require.NoError(t, r.RegisterUser("prod", "  tenant   prod  "))
+
+	require.Equal(t,
+		[]UserAlias{{Short: "prod", Expanded: "tenant   prod"}},
+		r.UserAliases())
+}
+
+func TestResolver_UserAliasesExcludedFromGroups(t *testing.T) {
+	t.Parallel()
+
+	// A user alias chaining onto a built-in must not appear as a
+	// synonym row in Groups() — it would mislead a help-overlay
+	// reader since the user alias binds extra args its target does
+	// not. UserAliases() is the only channel they flow through.
+	r := New()
+	r.RegisterGroup([]string{"tenant", "tenants"}, func(_ []string) tea.Cmd { return nil })
+	require.NoError(t, r.RegisterUser("prod", "tenant prod"))
+
+	require.Equal(t,
+		[]AliasGroup{{Names: []string{"tenant", "tenants"}}},
+		r.Groups(),
+		"Groups() must not surface user aliases")
+	require.Equal(t,
+		[]UserAlias{{Short: "prod", Expanded: "tenant prod"}},
+		r.UserAliases())
+}
+
+func TestResolver_UserAliasesResistsMutation(t *testing.T) {
+	t.Parallel()
+
+	// Symmetric to Groups(): a caller mutating the returned slice
+	// must not rewrite the resolver's internal state. Using
+	// `append(out[:0], ...)` catches a leak where UserAliases()
+	// returned the internal backing array directly — `out[:0]` would
+	// share that backing and the append would clobber the first
+	// element.
+	r := build()
+	require.NoError(t, r.RegisterUser("prod", "tenant prod"))
+
+	out := r.UserAliases()
+	_ = append(out[:0], UserAlias{Short: "MUTATED", Expanded: "junk"})
+
+	require.Equal(t,
+		[]UserAlias{{Short: "prod", Expanded: "tenant prod"}},
+		r.UserAliases())
+}
+
 func TestResolver_RegisterAndRegisterGroupSingletonAreEquivalent(t *testing.T) {
 	t.Parallel()
 
