@@ -3,6 +3,7 @@
 package help
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -47,9 +49,96 @@ func TestHelp_ColumnsRender(t *testing.T) {
 	t.Parallel()
 	h := New(sampleOpts(t))
 	out := testutil.StripStyle(h.View(160, 30))
-	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "HOTKEYS"} {
+	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "HOTKEYS", "COMMANDS"} {
 		require.Containsf(t, out, col, "column heading %q must appear", col)
 	}
+}
+
+// TestHelp_CommandsColumnFoldsSynonyms pins the ADR 0038 row shape:
+// canonical+synonym aliases collapse onto one line (`silences, sil`)
+// so the column reads as a flat catalogue of resources, not a
+// duplicated list. Singleton groups render bare (`alerts`).
+func TestHelp_CommandsColumnFoldsSynonyms(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Commands = []cmdbar.AliasGroup{
+		{Names: []string{"alerts"}},
+		{Names: []string{"groups", "gr"}},
+		{Names: []string{"silences", "sil"}},
+		{Names: []string{"tenant", "tenants"}},
+	}
+	out := testutil.StripStyle(New(opts).View(160, 40))
+
+	for _, want := range []string{
+		"COMMANDS",
+		"alerts",
+		"groups, gr",
+		"silences, sil",
+		"tenant, tenants",
+	} {
+		require.Containsf(t, out, want, "COMMANDS column must surface %q", want)
+	}
+}
+
+// TestHelp_CommandsColumnRendersUserSubsection pins the USER
+// subsection: built-ins first, then a `USER` heading row, then user
+// aliases formatted as `short → expanded`. User aliases never fold
+// into a built-in row because they bind extra args their target
+// does not.
+func TestHelp_CommandsColumnRendersUserSubsection(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Commands = []cmdbar.AliasGroup{
+		{Names: []string{"tenant", "tenants"}},
+	}
+	opts.UserCommands = []cmdbar.UserAlias{
+		{Short: "prod", Expanded: "tenant prod"},
+		{Short: "stage", Expanded: "tenant staging"},
+	}
+	out := testutil.StripStyle(New(opts).View(160, 40))
+
+	require.Contains(t, out, "tenant, tenants",
+		"built-in row still renders before the USER subsection")
+	require.Contains(t, out, "USER",
+		"USER subheading must appear when at least one user alias is registered")
+	require.Contains(t, out, "prod → tenant prod",
+		"user aliases render as `short → expanded` so the binding is self-documenting")
+	require.Contains(t, out, "stage → tenant staging")
+	require.Less(t, strings.Index(out, "tenant, tenants"), strings.Index(out, "USER"),
+		"built-ins precede the USER subheading")
+	require.Less(t, strings.Index(out, "USER"), strings.Index(out, "prod → tenant prod"),
+		"USER subheading precedes the user-alias rows")
+}
+
+// TestHelp_CommandsColumnOmitsUserSubsectionWhenEmpty pins the
+// conditional: with no user aliases registered, the USER subheading
+// must NOT appear so the column doesn't grow a hollow section.
+func TestHelp_CommandsColumnOmitsUserSubsectionWhenEmpty(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Commands = []cmdbar.AliasGroup{{Names: []string{"alerts"}}}
+	opts.UserCommands = nil
+	out := testutil.StripStyle(New(opts).View(160, 40))
+
+	require.Contains(t, out, "COMMANDS")
+	require.Contains(t, out, "alerts")
+	require.NotContains(t, out, "USER",
+		"USER subheading must drop when no user aliases are registered")
+}
+
+// TestHelp_CommandsColumnEmptyStillRendersHeading covers the
+// boot-time / wizard run where the resolver hands the overlay an
+// empty Commands slice (no built-ins wired yet). The heading must
+// still appear so the column shape stays uniform across views.
+func TestHelp_CommandsColumnEmptyStillRendersHeading(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Commands = nil
+	opts.UserCommands = nil
+	out := testutil.StripStyle(New(opts).View(160, 40))
+
+	require.Contains(t, out, "COMMANDS",
+		"COMMANDS heading must always appear so the 5-column layout is stable")
 }
 
 func TestHelp_ResourceColumnListsTenantsAndPageVerbs(t *testing.T) {

@@ -95,6 +95,8 @@ func (a *App) registerGlobalBindings() {
 			Globals:      a.globalsCatalog(),
 			TableMotions: tableMotionsCatalog(),
 			Tenants:      a.tenants,
+			Commands:     a.cmdbar.Groups(),
+			UserCommands: a.cmdbar.UserAliases(),
 			ReadOnly:     a.readOnly,
 			Styles:       a.styles,
 		})

@@ -1,20 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package help renders the k9s-style help overlay opened by `?`.
-// The view is a bordered box titled "Help" hosting four columns:
+// The view is a bordered box titled "Help" hosting five columns:
 //
-//		RESOURCE   |  GENERAL   |  NAVIGATION  |  HOTKEYS
+//		RESOURCE  |  GENERAL  |  NAVIGATION  |  HOTKEYS  |  COMMANDS
 //
 //	  - RESOURCE lists the active page's verbs plus the global
 //	    numeric tenant quick-switch (`<0>` all, `<1>`-`<9>` per
 //	    configured backend) — the one column that actually depends
 //	    on what the user is looking at.
-//	  - GENERAL is the curated globals catalogue (`:` `/` `?` `Esc`
-//	    `q` `Ctrl+C` `Ctrl+T` `r`).
+//	  - GENERAL is the curated globals catalogue (`:cmd` `/` `?`
+//	    `Esc` `q` `Ctrl+C` `Ctrl+T` `r`).
 //	  - NAVIGATION is the table-context vim motions (`j` `k` `gg`
 //	    `G` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` `h` `l`).
 //	  - HOTKEYS holds page-specific sort and filter shortcuts when
 //	    the active page exposes them; empty when the page doesn't.
+//	  - COMMANDS lists the `:`-bar built-in aliases folded by synonym
+//	    (`silences, sil`) plus a `USER` sub-section showing
+//	    `short → expanded` rows when the operator has registered any
+//	    custom aliases (ADR 0038).
 //
 // Read-only mode hides every Dangerous binding from RESOURCE.
 package help
@@ -26,6 +30,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -67,6 +72,20 @@ type Options struct {
 	// order) so the RESOURCE column can render `<1> primary`,
 	// `<2> secondary`, ... alongside the global numeric handlers.
 	Tenants []string
+
+	// Commands is the resolver's built-in alias catalogue (ADR
+	// 0038): one AliasGroup per registration, canonical name
+	// first. The COMMANDS column folds each group onto a single
+	// row (`silences, sil`) so the catalogue reads as a flat
+	// resource list. Empty / nil renders just the heading so the
+	// 5-column layout stays uniform across boot states.
+	Commands []cmdbar.AliasGroup
+
+	// UserCommands is the user-registered alias catalogue. Rendered
+	// under a `USER` sub-heading in the COMMANDS column as
+	// `short → expanded` rows. Nil / empty drops the sub-heading
+	// entirely so the column doesn't grow a hollow section.
+	UserCommands []cmdbar.UserAlias
 
 	// ReadOnly hides every Dangerous binding from the rendered
 	// RESOURCE column.
@@ -207,7 +226,7 @@ func (h *Help) clampScroll() {
 	}
 }
 
-// View renders the four columns into the rectangle the app shell
+// View renders the five columns into the rectangle the app shell
 // hands over. The outer frame is drawn by the app, not by this view.
 func (h *Help) View(width, height int) string {
 	if width <= 0 || height <= 0 {
@@ -255,7 +274,7 @@ func maxScrollOffset(cols [][]string, height int) int {
 	return overflow
 }
 
-// columns builds the four column bodies (heading + entry list each)
+// columns builds the five column bodies (heading + entry list each)
 // in display order. Each entry is already styled so the row joiner
 // can pad without re-measuring.
 func (h *Help) columns() [][]string {
@@ -265,7 +284,46 @@ func (h *Help) columns() [][]string {
 		h.staticColumn("GENERAL", h.opts.Globals),
 		h.staticColumn("NAVIGATION", h.opts.TableMotions),
 		h.staticColumn("HOTKEYS", hotkeys),
+		h.commandsColumn(),
 	}
+}
+
+// synonymJoiner separates the canonical and short names on a
+// folded COMMANDS row (`silences, sil`). userAliasArrow is the
+// arrow between a user alias and its expansion. Lifted out of the
+// render path so the ADR 0038 formatting contract has a single
+// source.
+const (
+	synonymJoiner  = ", "
+	userAliasArrow = " → "
+)
+
+// commandsColumn renders the ADR 0038 catalogue. The heading stays
+// in place even when every catalogue is empty so the 5-column
+// layout is stable across boot states (no commands wired yet) and
+// shell states (no user aliases configured).
+func (h *Help) commandsColumn() []string {
+	rowCount := 1 + len(h.opts.Commands)
+	if n := len(h.opts.UserCommands); n > 0 {
+		rowCount += 2 + n // blank gap + USER subheading + n rows
+	}
+	out := make([]string, 0, rowCount)
+	out = append(out, h.headingLabel("COMMANDS"))
+	for _, g := range h.opts.Commands {
+		out = append(out, h.opts.Styles.Hint.DefaultFg.Render(strings.Join(g.Names, synonymJoiner)))
+	}
+	if len(h.opts.UserCommands) > 0 {
+		// Visual gap before the USER subheading so a reader's eye
+		// stops at the section break rather than scanning past it.
+		// The subheading is intentionally rendered weaker than a
+		// column heading so it reads as a nested section, not a
+		// sixth column.
+		out = append(out, "", h.subheadingLabel("USER"))
+		for _, a := range h.opts.UserCommands {
+			out = append(out, h.opts.Styles.Hint.DefaultFg.Render(a.Short+userAliasArrow+a.Expanded))
+		}
+	}
+	return out
 }
 
 // resourceColumn lists the tenant numeric quick-switch (`<0>` all,
@@ -394,6 +452,16 @@ func (h *Help) headingLabel(name string) string {
 	st := lipgloss.NewStyle().
 		Foreground(h.opts.Styles.Table.Header.GetForeground()).
 		Bold(true)
+	return st.Render(name)
+}
+
+// subheadingLabel renders an in-column sub-section divider (today
+// only the USER block inside COMMANDS). Same colour as a column
+// heading so the visual family is consistent, but unbold so a
+// reader's eye registers it as nested rather than as a peer column.
+func (h *Help) subheadingLabel(name string) string {
+	st := lipgloss.NewStyle().
+		Foreground(h.opts.Styles.Table.Header.GetForeground())
 	return st.Render(name)
 }
 
