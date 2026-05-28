@@ -615,9 +615,11 @@ func TestClient_ProbeAlertmanagerMount_Success(t *testing.T) {
 }
 
 // TestClient_ProbeAlertmanagerMount_404 pins the "mount really isn't
-// there" path. A 404 surfaces as a non-nil error that does NOT carry
-// the auth sentinel — the doctor caller uses this to keep the
-// original SeverityError unchanged rather than claim a verified fix.
+// there" path. A 404 surfaces as a non-nil error carrying
+// backend.ErrNotFound (the sentinel AuthChecker uses to gate the
+// downgrade probe) but NOT backend.ErrUnauthorized — the doctor
+// caller uses this to keep the original SeverityError unchanged
+// rather than claim a verified fix.
 func TestClient_ProbeAlertmanagerMount_404(t *testing.T) {
 	t.Parallel()
 
@@ -629,7 +631,28 @@ func TestClient_ProbeAlertmanagerMount_404(t *testing.T) {
 	c := newTestClient(t, srv)
 	err := c.ProbeAlertmanagerMount(t.Context())
 	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrNotFound)
 	require.NotErrorIs(t, err, backend.ErrUnauthorized)
+}
+
+// TestClient_classifyStatus_404WrapsErrNotFound pins the sentinel
+// contract every 404-shaped failure in the vanilla pipeline carries.
+// The doctor AuthChecker's mount-probe downgrade hangs off
+// errors.Is(err, backend.ErrNotFound) (ADR 0039 honesty bar), and a
+// silent regression to plain `HTTP 404` text would break the gate
+// without breaking compilation.
+func TestClient_classifyStatus_404WrapsErrNotFound(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no such silence", http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	_, err := c.Status(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrNotFound)
 }
 
 // TestClient_ProbeAlertmanagerMount_Unauthorized pins that auth

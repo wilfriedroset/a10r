@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -114,21 +115,21 @@ func TestAuthChecker(t *testing.T) {
 		},
 		{name: "transport unreachable", backend: config.Backend{Name: "x"}, client: &fakeClient{statusErr: backend.ErrUnreachable}, wantSev: SeverityWarning, wantMsg: "backend unreachable"},
 		{
-			name:    "other error, mount probe also fails — original error preserved",
+			name:    "404 on Status, mount probe also fails — original error preserved",
 			backend: config.Backend{Name: "x"},
 			client: &fakeClient{
-				statusErr:     errors.New("decode failure"),
+				statusErr:     fmt.Errorf("HTTP 404: %w", backend.ErrNotFound),
 				probeMountErr: errors.New("probe alertmanager mount: HTTP 404"),
 			},
 			wantSev:     SeverityError,
-			wantMsg:     "decode failure",
+			wantMsg:     "HTTP 404",
 			wantNotMsgs: []string{"set prefix:", "/alertmanager/api/v2/status returned 200"},
 		},
 		{
-			name:    "other error, mount probe succeeds — downgrade to warning with verified prefix hint",
+			name:    "404 on Status, mount probe succeeds — downgrade to warning with verified prefix hint",
 			backend: config.Backend{Name: "x"},
 			client: &fakeClient{
-				statusErr:     errors.New("HTTP 404"),
+				statusErr:     fmt.Errorf("HTTP 404: %w", backend.ErrNotFound),
 				probeMountErr: nil,
 			},
 			wantSev: SeverityWarning,
@@ -136,6 +137,23 @@ func TestAuthChecker(t *testing.T) {
 				"/alertmanager/api/v2/status returned 200",
 				"set prefix: /alertmanager",
 			},
+		},
+		{
+			// Honesty regression guard: a non-404 4xx on Status() with a
+			// coincidentally-working alertmanager mount must NOT downgrade.
+			// Adding the prefix would not fix the underlying 422/400, so
+			// claiming a verified fix would mislead the operator. The
+			// probe is gated on backend.ErrNotFound exactly to avoid this
+			// trap (ADR 0039: "when that call returns a non-auth 404").
+			name:    "non-404 Status error, mount probe succeeds — no downgrade",
+			backend: config.Backend{Name: "x"},
+			client: &fakeClient{
+				statusErr:     errors.New("HTTP 422: invalid filter"),
+				probeMountErr: nil,
+			},
+			wantSev:     SeverityError,
+			wantMsg:     "HTTP 422",
+			wantNotMsgs: []string{"set prefix:", "/alertmanager/api/v2/status returned 200"},
 		},
 	}
 

@@ -319,6 +319,12 @@ func (c *Client) classifyStatus(resp *http.Response) error {
 	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, c.maxBodyBytes))
 	msg := cleanErrorBody(body)
+	if resp.StatusCode == http.StatusNotFound {
+		if msg == "" {
+			return fmt.Errorf("HTTP 404: %w", backend.ErrNotFound)
+		}
+		return fmt.Errorf("HTTP 404: %s: %w", msg, backend.ErrNotFound)
+	}
 	if msg == "" {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
