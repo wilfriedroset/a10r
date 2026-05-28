@@ -3,6 +3,8 @@
 package alerts
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -24,8 +27,8 @@ func (p *Page) View(width, height int) string {
 	if band != "" {
 		bandLines = 1
 	}
-	p.SetViewport(height-1-bandLines, len(p.view))
-	if len(p.view) == 0 {
+	p.SetViewport(height-1-bandLines, len(p.groups))
+	if len(p.groups) == 0 {
 		// Render bg-less so the empty pane keeps the terminal
 		// default background that the populated frame uses.
 		body := p.emptyState()
@@ -50,7 +53,7 @@ func (p *Page) emptyState() string {
 	if p.Filter != "" || p.stateFilter != "" {
 		return "no alerts match the active filter — Esc clears the prompt, Shift+F cycles state filters"
 	}
-	if p.totalAlerts() == 0 {
+	if !p.hasInScopeAlerts() {
 		return "no alerts (yet) — the poller will refresh on the next tick"
 	}
 	return "no alerts in view"
@@ -61,8 +64,15 @@ func (p *Page) emptyState() string {
 // theme.Table.Header (k9s-style yellow on base in catppuccin) so
 // they stand apart from the data rows. A leading TENANT column
 // appears when the active scope spans multiple backends.
+// sortKeyState labels the STATE column header. It is NOT a sort key —
+// the breakdown column is non-sortable — but the header renderer walks
+// a uniform key list, so the label lives here alongside the real keys.
+// ArrowFor / IsActive return empty / false for an unknown key, so the
+// column renders plain.
+const sortKeyState = "state"
+
 func (p *Page) renderHeader(width int) string {
-	cols := []string{sortKeySeverity, sortKeyName, sortKeyState, sortKeyAge}
+	cols := []string{sortKeySeverity, sortKeyName, sortKeyCount, sortKeyState, sortKeyAge}
 	widths := p.columnWidths(width)
 	// fg-only renderers so the header keeps the terminal default
 	// background — painting palette bg inside the unstyled body
@@ -111,10 +121,10 @@ func (p *Page) renderHeader(width int) string {
 // of the body, not just the visible characters, by padding the
 // rendered string to width before the style wraps it.
 func (p *Page) renderRows(width, maxRows int) string {
-	if maxRows <= 0 || len(p.view) == 0 {
+	if maxRows <= 0 || len(p.groups) == 0 {
 		return ""
 	}
-	end := min(p.TopRow()+maxRows, len(p.view))
+	end := min(p.TopRow()+maxRows, len(p.groups))
 
 	showTenant := p.ShowTenantColumn(len(p.byTenant))
 	// Compute column widths once per frame: the spec builder walks
@@ -131,35 +141,37 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// bytes lipgloss.Render injects per cell on coloured rows.
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		entry := p.view[i]
-		a := entry.a
-		ageLabel := p.formatTime(a.StartsAt)
+		g := p.groups[i]
+		ageLabel := p.formatTime(g.oldestStart)
 		if ageLabel == "" {
 			ageLabel = "—"
 		}
-		_, marked := p.marks[a.Fingerprint]
+		_, marked := p.marks[g.key()]
 		mark := " "
 		if marked {
 			mark = "✓"
 		}
-		// Per-cell severity colour applies only to plain rows. Cursor
-		// / marked / suppressed rows wrap the entire line in a row-
-		// level style; nested ANSI inside that wrap is fragile across
-		// terminals, and the row-level style is supposed to win — so
-		// skip the cell-level colour entirely for those three cases.
-		rowStyled := i == p.Index() || marked || a.State == backend.AlertStateSuppressed
-		sevCell := severityOf(a)
+		// Per-cell colour (severity tint, per-token state colour)
+		// applies only to plain rows. Cursor / marked / all-suppressed
+		// rows wrap the entire line in a row-level style; nested ANSI
+		// inside that wrap is fragile across terminals, and the row-
+		// level style is supposed to win — so skip cell-level colour
+		// entirely for those cases.
+		rowStyled := i == p.Index() || marked || g.allSuppressed()
+		sevCell := severityLabelForRank(g.severityRank)
+		stateCell := renderStateBreakdown(g, p.stateFormat, p.styles, rowStyled)
 		if !rowStyled {
-			sevCell = severityStyle(a, p.styles).Render(sevCell)
+			sevCell = severityStyleForRank(g.severityRank, p.styles).Render(sevCell)
 		}
-		row := make([]string, 0, 5)
+		row := make([]string, 0, 6)
 		if showTenant {
-			row = append(row, entry.tenant)
+			row = append(row, g.tenant)
 		}
 		row = append(row,
 			sevCell,
-			a.Labels["alertname"],
-			string(a.State),
+			alertNameCell(g),
+			countCell(g),
+			stateCell,
 			ageLabel,
 		)
 		prefix := "  "
@@ -170,27 +182,22 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// cursor > marked > dimmed. Cursor wraps the whole row in
 		// fg+bg (the salient "you are here" signal); Marked and
 		// Dimmed both change the foreground only so the row keeps
-		// the body's default background — k9s "tinted text"
-		// rather than two competing highlighted stripes stacked on
-		// top of each other. Dimmed fires when the alert is
-		// suppressed (silenced / inhibited / muted by a time
-		// interval) and is neither cursor nor marked — same
-		// treatment k9s gives "Completed" pods. Marked beats
-		// dimmed on purpose: marked is an explicit user action,
-		// suppression is ambient state.
+		// the body's default background — k9s "tinted text" rather
+		// than two competing highlighted stripes. Dimmed fires only
+		// when EVERY instance in the group is suppressed and the row
+		// is neither cursor nor marked. Marked beats dimmed on
+		// purpose: marked is an explicit user action, suppression is
+		// ambient state.
 		line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 		switch {
 		case i == p.Index():
-			// k9s parity: cursor bg tracks the row's semantic
-			// colour (severity), not the static cursorBgColor.
-			// `select_table.go:128` in k9s replaces the selected
-			// style on every selection-changed event; this is the
-			// equivalent.
-			rowColor := severityStyle(a, p.styles).GetForeground()
+			// k9s parity: cursor bg tracks the row's semantic colour
+			// (max severity), not a static cursor colour.
+			rowColor := severityStyleForRank(g.severityRank, p.styles).GetForeground()
 			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case marked:
 			line = p.styles.Table.MarkedFg.Render(line)
-		case a.State == backend.AlertStateSuppressed:
+		case g.allSuppressed():
 			line = p.styles.Table.DimmedFg.Render(line)
 		}
 		b.WriteString(line)
@@ -199,6 +206,35 @@ func (p *Page) renderRows(width, maxRows int) string {
 		}
 	}
 	return b.String()
+}
+
+// noAlertNameCell is the placeholder for a group whose instances
+// carry no `alertname` label — the synthetic empty-name aggregate.
+const noAlertNameCell = "(no alertname)"
+
+// alertNameCell is the ALERTNAME cell content: the group's alertname,
+// or the placeholder when empty.
+func alertNameCell(g alertGroup) string {
+	if g.alertName == "" {
+		return noAlertNameCell
+	}
+	return g.alertName
+}
+
+// countArrowMarker trails the COUNT cell of a single-instance group,
+// signalling that Enter skips L2 and lands straight on the instance
+// detail (L3).
+const countArrowMarker = " →"
+
+// countCell renders the COUNT cell — the instance tally, with a
+// trailing arrow on single-instance groups so the Enter-skips-L2
+// shortcut is visible at the row.
+func countCell(g alertGroup) string {
+	s := strconv.Itoa(g.count)
+	if g.count == 1 {
+		s += countArrowMarker
+	}
+	return s
 }
 
 // rowPrefixCols is the space the rendered row reserves for its
@@ -221,8 +257,9 @@ const flexUnbounded = 1 << 16
 // scope spans multiple backends and parts has 5 entries instead
 // of 4. The alertname column is the flex slot: when its assigned
 // width is narrower than the label, the cell is ellipsized with
-// format.EllipsizeSuffix so the truncation reads as intentional
-// ("…") rather than as a silent slice. Other columns fall back to
+// format.Ellipsize so the truncation appends the EllipsizeSuffix
+// ("…") and reads as intentional rather than as a silent slice.
+// Other columns fall back to
 // PadRight (which truncates on overflow without an ellipsis) —
 // those columns rarely exceed their floor in practice and the
 // ellipsis on a 1-cell shortfall would steal the only remaining
@@ -261,13 +298,13 @@ func (p *Page) flexColumnIndex() int {
 }
 
 // columnWidths returns the per-column widths (TENANT optional,
-// then SEVERITY, ALERTNAME flex, STATE, AGE) by measuring the
-// active dataset and handing the result to the duf-style
+// then SEVERITY, ALERTNAME flex, COUNT, STATE, AGE) by measuring
+// the active dataset and handing the result to the duf-style
 // distributor in package format. ALERTNAME is the unbounded
 // (weight=1) flex column; the rest are weight=0 fixed columns
 // that never grow past max(min, content). Per-row content widths
-// come from the filtered+sorted view so the layout reacts to the
-// data the user is actually looking at — long alertnames trigger
+// come from the filtered+aggregated view so the layout reacts to
+// the data the user is actually looking at — long alertnames trigger
 // a wider flex column on a wide terminal and ellipsize on a
 // narrow one rather than burning fixed cells.
 //
@@ -294,7 +331,10 @@ func (p *Page) columnSpecs() []format.Column {
 		// "warning", "info"); 12 keeps the column readable at the
 		// minimum and matches the previous fixed width so existing
 		// snapshots don't shift on the happy path.
-		sevMin   = 12
+		sevMin = 12
+		// COUNT floor: "COUNT" header is 5 cells; a single-instance
+		// row adds the " →" marker, so 7 keeps both legible.
+		countMin = 7
 		stateMin = 14
 		// AGE: relative ("5m ago") fits in 12; the absolute-time
 		// formatter renders 19 cells ("2026-05-01 13:45:00") plus a
@@ -319,21 +359,27 @@ func (p *Page) columnSpecs() []format.Column {
 	// its own title. ALERTNAME is intentionally absent — its
 	// Content is the flexUnbounded sentinel, so the per-row max
 	// would never beat the cap and walking it every frame is dead
-	// work for nothing.
+	// work for nothing. STATE now measures the rendered breakdown
+	// (wider than a bare state) and COUNT the digit count plus the
+	// single-instance arrow marker.
 	var (
 		tenantContent = lipgloss.Width("TENANT")
 		sevContent    = lipgloss.Width("SEVERITY")
+		countContent  = lipgloss.Width("COUNT")
 		stateContent  = lipgloss.Width("STATE")
 		ageContent    = lipgloss.Width("AGE")
 	)
-	for _, e := range p.view {
-		if w := lipgloss.Width(e.tenant); w > tenantContent {
+	for _, g := range p.groups {
+		if w := lipgloss.Width(g.tenant); w > tenantContent {
 			tenantContent = w
 		}
-		if w := lipgloss.Width(severityOf(e.a)); w > sevContent {
+		if w := lipgloss.Width(severityLabelForRank(g.severityRank)); w > sevContent {
 			sevContent = w
 		}
-		if w := lipgloss.Width(string(e.a.State)); w > stateContent {
+		if w := lipgloss.Width(countCell(g)); w > countContent {
+			countContent = w
+		}
+		if w := lipgloss.Width(stateBreakdownPlain(g, p.stateFormat)); w > stateContent {
 			stateContent = w
 		}
 	}
@@ -343,7 +389,7 @@ func (p *Page) columnSpecs() []format.Column {
 		ageContent = ageMin
 	}
 
-	specs := make([]format.Column, 0, 5)
+	specs := make([]format.Column, 0, 6)
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		specs = append(specs, format.Column{Min: tenantMin, Content: max(tenantMin, tenantContent), Weight: 0})
 	}
@@ -357,6 +403,7 @@ func (p *Page) columnSpecs() []format.Column {
 		// leave dead space the user could otherwise spend on the
 		// labels they're scanning.
 		format.Column{Min: alertNameMin, Content: flexUnbounded, Weight: 1},
+		format.Column{Min: countMin, Content: max(countMin, countContent), Weight: 0},
 		format.Column{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
 		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
 	)
@@ -370,27 +417,138 @@ func (p *Page) formatTime(ts time.Time) string {
 	return timerender.Display(p.timeFormat, p.now(), ts)
 }
 
-// severityOf returns the printable severity label, falling back
-// to "—" when no severity label is set.
-func severityOf(a backend.Alert) string {
-	if v, ok := a.Labels["severity"]; ok && v != "" {
-		return v
+// severityLabelForRank is the inverse of backend.SeverityRank: it
+// maps the group's max rank back to its printable label so the
+// SEVERITY cell headlines the worst severity in the group. Rank 0
+// (no recognised severity anywhere in the group) renders "—".
+func severityLabelForRank(rank int) string {
+	switch rank {
+	case 3:
+		return "critical"
+	case 2:
+		return "warning"
+	case 1:
+		return "info"
 	}
 	return "—"
 }
 
-// severityStyle returns the lipgloss style for a's severity label so
-// the renderer can foreground-tint the SEVERITY cell. Falls back to
-// Severity.Unknown for missing / unrecognised values so every cell
-// gets a consistent palette ref rather than a bare default.
-func severityStyle(a backend.Alert, styles *theme.Styles) lipgloss.Style {
-	switch strings.ToLower(a.Labels["severity"]) {
-	case "critical":
+// severityStyleForRank returns the lipgloss style for the group's max
+// severity rank so the renderer can foreground-tint the SEVERITY cell.
+// Rank 0 falls back to Severity.Unknown so every cell gets a
+// consistent palette ref rather than a bare default.
+func severityStyleForRank(rank int, styles *theme.Styles) lipgloss.Style {
+	switch rank {
+	case 3:
 		return styles.Severity.Critical
-	case "warning":
+	case 2:
 		return styles.Severity.Warning
-	case "info":
+	case 1:
 		return styles.Severity.Info
 	}
 	return styles.Severity.Unknown
+}
+
+// stateBucket pairs a non-zero state tally with its rendering inputs.
+type stateBucket struct {
+	count int
+	state backend.AlertState
+}
+
+// orderedBuckets returns the group's non-zero state tallies in the
+// fixed active → suppressed → unprocessed order the breakdown renders
+// in. The three buckets always sum to count.
+func orderedBuckets(g alertGroup) []stateBucket {
+	all := []stateBucket{
+		{g.active, backend.AlertStateActive},
+		{g.suppressed, backend.AlertStateSuppressed},
+		{g.unprocessed, backend.AlertStateUnprocessed},
+	}
+	out := make([]stateBucket, 0, len(all))
+	for _, b := range all {
+		if b.count > 0 {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// stateToken renders one bucket's text per the active density. Full
+// echoes the AM-native word (`9 active`); Compact emits count + the
+// two-letter abbreviation (`9ac`), chosen to avoid colliding visually
+// with the `s` / `S` silence verbs. Unknown states fall through to the
+// full string in both modes so a non-conforming value stays legible.
+func stateToken(count int, s backend.AlertState, f stateformat.Format) string {
+	if f != stateformat.Compact {
+		return fmt.Sprintf("%d %s", count, s)
+	}
+	switch s {
+	case backend.AlertStateActive:
+		return fmt.Sprintf("%dac", count)
+	case backend.AlertStateSuppressed:
+		return fmt.Sprintf("%dsu", count)
+	case backend.AlertStateUnprocessed:
+		return fmt.Sprintf("%dun", count)
+	default:
+		return fmt.Sprintf("%d%s", count, s)
+	}
+}
+
+// stateTokenStyle returns the foreground-only style for a bucket's
+// token. Active reads in the silence-state "active" foreground (the
+// app's existing fg-only "this is live" role), suppressed in the
+// dimmed foreground, unprocessed in the unknown-severity foreground —
+// every branch fg-only so the chrome keeps the terminal default
+// background (see feedback memory on chrome rendering).
+func stateTokenStyle(s backend.AlertState, styles *theme.Styles) lipgloss.Style {
+	switch s {
+	case backend.AlertStateSuppressed:
+		return styles.Table.DimmedFg
+	case backend.AlertStateUnprocessed:
+		return styles.Severity.Unknown
+	case backend.AlertStateActive:
+		return styles.SilenceState.Active
+	default:
+		return styles.SilenceState.Active
+	}
+}
+
+// stateBreakdownSep joins the breakdown tokens. Full uses the spaced
+// middot the design pins (`9 active · 3 suppressed`); Compact uses a
+// single space (`9ac 3su`).
+func stateBreakdownSep(f stateformat.Format) string {
+	if f == stateformat.Compact {
+		return " "
+	}
+	return " · "
+}
+
+// stateBreakdownPlain renders the STATE breakdown without colour — the
+// width-measurement form. Same token text and separator the coloured
+// renderer produces, so columnSpecs measures the true cell width.
+func stateBreakdownPlain(g alertGroup, f stateformat.Format) string {
+	buckets := orderedBuckets(g)
+	parts := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		parts = append(parts, stateToken(b.count, b.state, f))
+	}
+	return strings.Join(parts, stateBreakdownSep(f))
+}
+
+// renderStateBreakdown renders the STATE cell's per-state tally: non-
+// zero buckets only, fixed active → suppressed → unprocessed order,
+// summing to count. On plain rows each token is foreground-tinted by
+// state; on cursor / marked / all-suppressed rows the per-token colour
+// is skipped (rowStyled=true) so the row-level style wins.
+func renderStateBreakdown(g alertGroup, f stateformat.Format, styles *theme.Styles, rowStyled bool) string {
+	buckets := orderedBuckets(g)
+	parts := make([]string, 0, len(buckets))
+	for _, b := range buckets {
+		tok := stateToken(b.count, b.state, f)
+		if !rowStyled {
+			tok = stateTokenStyle(b.state, styles).Render(tok)
+		}
+		parts = append(parts, tok)
+	}
+	return strings.Join(parts, stateBreakdownSep(f))
 }

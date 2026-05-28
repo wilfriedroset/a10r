@@ -1,22 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package alerts renders the alerts list page — the home view of
-// the TUI:
+// the TUI. It rows on the alertname aggregate (one row per
+// (tenant, alertname)), not per instance: every backend.Alert
+// sharing an alertname rolls up into one alertGroup carrying a
+// COUNT, a per-state breakdown, the max severity, and the oldest
+// age. See CONTEXT.md "Alert aggregation" and ADR 0038.
 //
 //   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes
-//     PromptSubmittedMsg{PromptFilter} to the page).
-//   - Severity / alertname / state / age columns (plus tenant
-//     when the active scope spans more than one backend).
+//     PromptSubmittedMsg{PromptFilter} to the page). The filter
+//     narrows instances first; groups then rebuild from survivors.
+//   - Severity / alertname / count / state / age columns (plus
+//     tenant when the active scope spans more than one backend).
 //   - Sort cycling by `Shift+S` (severity), `Shift+N` (alertname),
-//     `Shift+T` (state), `Shift+A` (age). `h`/`l` walk between
+//     `Shift+C` (count), `Shift+A` (age). `h`/`l` walk between
 //     sort columns.
-//   - `s` follows the k9s same-key-different-N rule: with no marks
-//     it silences the cursor row via the per-row silence form;
-//     with one or more marks it fans out a bulk silence — the
-//     form opens once, the page substitutes per-target matchers
-//     and dispatches CreateSilence per marked alert. Read-only
-//     mode hides the binding via the action registry.
+//   - Enter drills: a COUNT==1 group skips the L2 group-detail page
+//     straight to the single-instance L3 detail; a COUNT>1 group
+//     pushes the L2 group-detail instance list.
+//   - `s` is silence-all: with no marks it prefills `alertname=<X>`
+//     for the cursor group (gated by a confirm modal when COUNT>1,
+//     blast radius not mark count); with marks it fans out one
+//     alertname silence per marked group. Read-only mode hides the
+//     binding via the action registry.
 //
 // Polling lives in the wiring layer (cmd/tui.go): a poll loop
 // emits DataMsg{Resource: []backend.Alert} that this page
@@ -39,6 +46,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -53,7 +61,7 @@ import (
 const (
 	sortKeySeverity = "severity"
 	sortKeyName     = "alertname"
-	sortKeyState    = "state"
+	sortKeyCount    = "count"
 	sortKeyAge      = "age"
 )
 
@@ -63,31 +71,63 @@ const (
 // the wiring layer and the page in lockstep.
 const scopeAll = "all"
 
-// alertSortColumns returns the page's sortable column set. Severity
-// defaults DESC (critical first) — every other column reads naturally
-// ascending. Comparators mirror the prior lessFor table verbatim.
-func alertSortColumns() []tablesort.Column[alertEntry] {
-	return []tablesort.Column[alertEntry]{
+// alertSortColumns returns the page's sortable column set, now keyed
+// on the alertname aggregate. Severity and count default DESC (worst /
+// largest first); alertname and age read naturally ascending. Every
+// comparator falls back to alertName ASC then tenant ASC so the order
+// is total and deterministic across re-sorts / poll ticks regardless
+// of ingest order.
+//
+// Severity uses Hotkey 'S' (Shift+S): unlike the L2 page, alerts L1
+// has no uppercase `S` verb — silence is lowercase `s` — so the
+// shortcut is free.
+func alertSortColumns() []tablesort.Column[alertGroup] {
+	return []tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
-			Less: func(a, b *alertEntry) bool {
-				return backend.SeverityRank(a.a.Labels) < backend.SeverityRank(b.a.Labels)
-			},
+			Less: tieBreakGroup(func(a, b *alertGroup) bool {
+				return a.severityRank < b.severityRank
+			}),
 		},
 		{
 			Key: sortKeyName, Title: "ALERTNAME", Hotkey: 'N', DefaultAsc: true,
-			Less: func(a, b *alertEntry) bool {
-				return a.a.Labels["alertname"] < b.a.Labels["alertname"]
-			},
+			Less: tieBreakGroup(func(a, b *alertGroup) bool {
+				return a.alertName < b.alertName
+			}),
 		},
 		{
-			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
-			Less: func(a, b *alertEntry) bool { return a.a.State < b.a.State },
+			Key: sortKeyCount, Title: "COUNT", Hotkey: 'C', DefaultAsc: false,
+			Less: tieBreakGroup(func(a, b *alertGroup) bool {
+				return a.count < b.count
+			}),
 		},
 		{
 			Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
-			Less: func(a, b *alertEntry) bool { return a.a.StartsAt.Before(b.a.StartsAt) },
+			Less: tieBreakGroup(func(a, b *alertGroup) bool {
+				return a.oldestStart.Before(b.oldestStart)
+			}),
 		},
+	}
+}
+
+// tieBreakGroup wraps a comparator so equal-by-primary groups fall
+// back to alertName ASC then tenant ASC. Without this, sort.SliceStable
+// would keep input order on ties — fine for cursor stickiness but not
+// a total order, so identical inputs in a different ingest order would
+// render differently. (tenant, alertName) is unique per group, so the
+// fallback yields one canonical layout.
+func tieBreakGroup(primary func(a, b *alertGroup) bool) func(a, b *alertGroup) bool {
+	return func(a, b *alertGroup) bool {
+		if primary(a, b) {
+			return true
+		}
+		if primary(b, a) {
+			return false
+		}
+		if a.alertName != b.alertName {
+			return a.alertName < b.alertName
+		}
+		return a.tenant < b.tenant
 	}
 }
 
@@ -116,6 +156,11 @@ type Options struct {
 	// in relative while the rest of the app reads absolute. Zero
 	// value (timerender.Relative) is the pre-toggle default.
 	TimeFormat timerender.Format
+	// StateFormat seeds the STATE-column breakdown density. Zero value
+	// (stateformat.Full) is the pre-toggle default, so a zero-value
+	// Options opens in the legible full mode — boot wiring threading
+	// this through is a separate later commit.
+	StateFormat stateformat.Format
 	// BulkConcurrency caps the per-tenant worker pool for the
 	// bulk-silence fanout (one CreateSilence per marked alert).
 	// Zero resolves to config.DefaultBulkConcurrency at construction
@@ -152,7 +197,7 @@ type Options struct {
 	// expire fanout inherit on the restricted silences page pushed
 	// by `S` from alert-detail. Matches silences.Options.EditorCtx.
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	// InitialStateFilter pre-seeds the `t` cycle's state filter so a
+	// InitialStateFilter pre-seeds the Shift+F cycle's state filter so a
 	// `:alerts --state suppressed` (typed at the prompt or via a user
 	// alias's expansion) lands on the suppressed-only view. Empty
 	// leaves the filter unset (page default — all states). Invalid
@@ -178,8 +223,9 @@ type Options struct {
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
-// emitted it under so the table can surface a TENANT column when
-// the active scope spans multiple backends.
+// emitted it under. It survives only as the per-instance unit the
+// substring / state filter operates on before aggregation — the
+// table rows on alertGroup, not on alertEntry.
 type alertEntry struct {
 	a      backend.Alert
 	tenant string
@@ -189,6 +235,39 @@ type alertEntry struct {
 	// filter inner loop is a single strings.Contains.
 	lowerComposite string
 }
+
+// alertGroup is the alertname aggregate the table rows on — every
+// post-filter instance sharing one (tenant, alertname). A TUI-layer
+// concept synthesised by recompute; no backend type. See CONTEXT.md
+// "Alert aggregation".
+type alertGroup struct {
+	tenant    string
+	alertName string
+	// instances are the surviving backend.Alert values for this
+	// group, sorted by fingerprint ASC for a stable drill-down order.
+	instances []backend.Alert
+	count     int
+	// severityRank is the MAX backend.SeverityRank across instances —
+	// the worst severity headlines the row.
+	severityRank int
+	// oldestStart is the MIN StartsAt across instances — the AGE cell.
+	oldestStart time.Time
+	// active / suppressed / unprocessed tally the instances per AM
+	// state; they sum to count and feed the STATE breakdown.
+	active      int
+	suppressed  int
+	unprocessed int
+}
+
+// key is the group's stable identity — the cursor-focus anchor and
+// the mark key. NUL-joined so a tenant or alertname containing the
+// separator can't forge another group's key.
+func (g alertGroup) key() string { return g.tenant + "\x00" + g.alertName }
+
+// allSuppressed reports whether every instance in the group is
+// suppressed — the row-dim condition. A zero-count group is never
+// "all suppressed" (there is nothing to dim).
+func (g alertGroup) allSuppressed() bool { return g.count > 0 && g.suppressed == g.count }
 
 // Page is the alerts list view. Implements app.Page.
 type Page struct {
@@ -208,21 +287,21 @@ type Page struct {
 	// unions the snapshots before sorting / filtering.
 	byTenant map[string][]backend.Alert
 
-	view []alertEntry // filtered + sorted view (recomputed on change)
+	groups []alertGroup // filtered + aggregated + sorted view (recomputed on change)
 
-	// focusFingerprint is the alert the cursor was on before the
-	// last recompute. Tracking by Fingerprint (not index) keeps
-	// the cursor on the same alert across poll-tick refreshes,
-	// sort changes, and filter changes. Empty when no alert is
-	// focused (cold start, empty view).
-	focusFingerprint string
+	// focusGroupKey is the group the cursor was on before the last
+	// recompute. Tracking by group key (not index) keeps the cursor on
+	// the same (tenant, alertname) across poll-tick refreshes, sort
+	// changes, and filter changes. Empty when no group is focused
+	// (cold start, empty view).
+	focusGroupKey string
 
-	// marks is the set of fingerprints the user has Space-toggled
-	// for bulk operations. Tracking by Fingerprint, like the cursor
-	// focus, so the marks survive re-sorts and re-filters without
-	// sliding onto unrelated alerts. `s` with marks fans out one
-	// CreateSilence per marked alert; failed targets keep their
-	// marks so the next `s` retries only the unfinished work.
+	// marks is the set of group keys the user has Space-toggled for
+	// bulk silence-all. Tracking by group key, like the cursor focus,
+	// so marks survive re-sorts and re-filters without sliding onto
+	// unrelated groups. `s` with marks fans out one alertname=<X>
+	// silence per marked group; failed targets keep their marks so the
+	// next `s` retries only the unfinished work.
 	marks map[string]struct{}
 
 	// pendingBulkSilence captures the resolved bulk-silence targets
@@ -230,6 +309,13 @@ type Page struct {
 	// ConfirmResultMsg, or between an opened bulk form (any N≥1)
 	// and its BulkSubmittedMsg. Cleared after consumption.
 	pendingBulkSilence pendingBulkSilence
+
+	// pendingSilenceAll captures the single-cursor silence-all target
+	// (count>1) between its blast-radius confirm modal and the
+	// ConfirmResultMsg. DISTINCT from pendingBulkSilence: the
+	// single-cursor confirm and the ≥2-marks bulk confirm are separate
+	// code paths and must not share state. Cleared after consumption.
+	pendingSilenceAll pendingSilenceAll
 
 	// bulkConcurrency caps the per-tenant worker pool for the
 	// bulk-silence fanout. Tenants always run in parallel; this
@@ -248,13 +334,18 @@ type Page struct {
 	// sorter owns the active sort column + direction. Comparators
 	// and column metadata come from alertSortColumns; the helper
 	// applies the cycle / flip / walk convention.
-	sorter      *tablesort.Sorter[alertEntry]
+	sorter      *tablesort.Sorter[alertGroup]
 	stateFilter string // "" = all, otherwise an AlertState value
 
 	// timeFormat mirrors the app-global toggle. Defaults to
 	// relative; flipped by app.TimeFormatChangedMsg so every list
 	// page agrees on absolute vs. relative timestamps.
 	timeFormat timerender.Format
+
+	// stateFormat mirrors the app-global STATE-breakdown density
+	// toggle. Defaults to Full; flipped by app.StateFormatChangedMsg
+	// so L1 and the L2 group-detail page agree on density.
+	stateFormat stateformat.Format
 
 	// readOnly mirrors Options.ReadOnly. Bindings() filters
 	// Dangerous entries when set; handleAction flashes a hint
@@ -305,6 +396,7 @@ func New(opts Options) *Page {
 		clients:         opts.Clients,
 		creator:         opts.Creator,
 		timeFormat:      opts.TimeFormat,
+		stateFormat:     opts.StateFormat,
 		byTenant:        map[string][]backend.Alert{},
 		sorter:          tablesort.New(alertSortColumns(), sortKeySeverity),
 		marks:           map[string]struct{}{},
@@ -318,9 +410,10 @@ func New(opts Options) *Page {
 		editorCtx:       opts.EditorCtx,
 	}
 	p.Recompute = p.recompute
-	p.RowCount = func() int { return len(p.view) }
+	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
+	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
 	return p
 }
@@ -369,11 +462,10 @@ func (p *Page) Title() string {
 	if scope == "" {
 		scope = scopeAll
 	}
-	total := p.totalAlerts()
 	if p.Filter != "" || p.stateFilter != "" {
-		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.view), total)
+		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.groups), p.totalGroups())
 	}
-	return fmt.Sprintf("alerts(%s)[%d]", scope, total)
+	return fmt.Sprintf("alerts(%s)[%d]", scope, len(p.groups))
 }
 
 func (p *Page) HeaderContent() string {
@@ -417,7 +509,7 @@ func (*Page) PollResources() []string { return []string{"alerts"} }
 // help overlay both render the read-only verb set.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("alerts")
-	out := make([]action.Action, 0, 6+len(sortBindings))
+	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: "alerts"},
 		action.Action{Key: "Space", Description: "mark", View: "alerts"},
@@ -430,6 +522,7 @@ func (p *Page) Bindings() []action.Action {
 	// strip so the affordance reads at a glance alongside the
 	// page-specific verbs. Same shape as silences.
 	out = append(out,
+		action.Action{Key: "Shift+T", Description: "state format", View: "alerts"},
 		action.Action{Key: "r", Description: "refresh", View: "alerts"},
 		action.Action{Key: "w", Description: "toggle watch", View: "alerts"},
 	)

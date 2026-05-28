@@ -97,7 +97,7 @@ func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 	p := New(Options{Styles: styles, Now: time.Now})
 	p.byTenant = benchAlerts(1000, 4)
 	p.recompute()
-	p.SetViewport(40, len(p.view))
+	p.SetViewport(40, len(p.groups))
 
 	b.ReportAllocs()
 	b.ResetTimer()
