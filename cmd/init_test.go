@@ -22,130 +22,47 @@ const (
 )
 
 // initInputs constructs the sequential lines runInit consumes, in
-// the order the prompts fire. The mimir branch fires TWO extra
-// prompts (prefix, then tenant); the prefix line uses the default
-// (empty input → suggested value) unless the caller passes a
-// non-default explicit value. Helper kept here so tests don't
-// hand-build long string literals that drift when prompt order
-// changes.
-func initInputs(name, urlStr, kind, tenant, authMode, authA, authB, poll, theme string) string {
-	parts := []string{name, urlStr, kind}
-	if kind == "mimir" {
-		// Two extra prompts in the mimir branch: the prefix
-		// (empty input → suggested default) and the tenant ID.
-		parts = append(parts, "", tenant)
-	}
-	parts = append(parts, authMode)
+// the order the prompts fire (ADR 0039: name, URL, auth, [creds],
+// poll, theme — no kind question and no mimir-only sub-prompts).
+// The non-auth fields are pinned: every existing test uses the
+// same backend name ("prod"), URL ("https://am.example"), poll
+// ("30s"), and theme ("catppuccin-mocha"); a caller wanting a
+// different fixture should hand-build the input string. Helper
+// kept here so tests don't reimplement the prompt order each time.
+func initInputs(authMode, authA, authB string) string {
+	parts := []string{"prod", "https://am.example", authMode}
 	switch authMode {
 	case authBearer:
 		parts = append(parts, authA)
 	case authBasic:
 		parts = append(parts, authA, authB)
 	}
-	parts = append(parts, poll, theme)
+	parts = append(parts, "30s", "catppuccin-mocha")
 	return strings.Join(parts, "\n") + "\n"
 }
 
-func TestPromptConfig_AlertmanagerNoAuth(t *testing.T) {
+func TestPromptConfig_NoAuth(t *testing.T) {
 	t.Parallel()
 
-	in := initInputs(
-		"prod", "https://am.example", "alertmanager", "",
-		"none", "", "",
-		"30s", "catppuccin-mocha",
-	)
+	in := initInputs("none", "", "")
 	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
 	require.NoError(t, err)
 	require.Len(t, cfg.Backends, 1)
 	require.Equal(t, "prod", cfg.Backends[0].Name)
 	require.Equal(t, "https://am.example", cfg.Backends[0].URL)
-	require.Empty(t, cfg.Backends[0].Prefix, "alertmanager kind leaves Prefix unset")
-	require.Empty(t, cfg.Backends[0].TenantHeader)
+	require.Empty(t, cfg.Backends[0].Prefix,
+		"wizard no longer prompts for prefix — slot stays empty unless --kv prefix= sets it")
+	require.Empty(t, cfg.Backends[0].TenantHeader,
+		"wizard no longer prompts for tenant — header stays empty unless --kv tenant= sets it")
 	require.Empty(t, cfg.Backends[0].BearerToken)
 	require.Nil(t, cfg.Backends[0].BasicAuth)
 	require.Equal(t, "catppuccin-mocha", cfg.Theme.Name)
 }
 
-func TestPromptConfig_MimirAddsPrefixAndTenant(t *testing.T) {
-	t.Parallel()
-
-	in := initInputs(
-		"mimir-prod", "https://mimir.example", "mimir", "tenant-a",
-		"none", "", "",
-		"60s", "catppuccin-latte",
-	)
-	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
-	require.NoError(t, err)
-	require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
-	require.Equal(t, "X-Scope-OrgID", cfg.Backends[0].TenantHeader)
-	require.Equal(t, "tenant-a", cfg.Backends[0].Tenant)
-}
-
-func TestSuggestedPrefix(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		url  string
-		want string
-	}{
-		{name: "bare host", url: "https://mimir.example", want: "/alertmanager"},
-		{name: "path-less with port", url: "https://mimir:9009", want: "/alertmanager"},
-		{name: "path already includes alertmanager", url: "https://mimir/alertmanager", want: ""},
-		{name: "trailing slash on alertmanager path", url: "https://mimir/alertmanager/", want: ""},
-		{name: "deeper path with alertmanager suffix", url: "https://mimir/api/alertmanager", want: ""},
-		{name: "unrelated path", url: "https://mimir/api/v1/foo", want: "/alertmanager"},
-		{name: "garbage url falls through to default", url: "://broken", want: "/alertmanager"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, suggestedPrefix(tc.url))
-		})
-	}
-}
-
-func TestRunInit_MimirEmptyTenantPlusBasicAuthRoundTrips(t *testing.T) {
-	t.Parallel()
-
-	// End-to-end regression: the wizard sequence
-	// {mimir, blank tenant, basic auth} must produce a YAML file
-	// that loads back through config.Load without the
-	// "tenant_header and tenant must be set together" validation
-	// error — that combination is what surfaced the empty-tenant
-	// bug.
-	dir := t.TempDir()
-	in := initInputs(
-		"primary", "https://mimir.example", "mimir", "",
-		authBasic, "alice", "hunter2",
-		"30s", "catppuccin-mocha",
-	)
-	err := runInit(initIO{
-		In:    strings.NewReader(in),
-		Out:   &bytes.Buffer{},
-		Err:   &bytes.Buffer{},
-		Flags: &GlobalFlags{ConfigDir: dir},
-	})
-	require.NoError(t, err)
-
-	loaded, err := config.Load(config.LoadOpts{Dir: dir})
-	require.NoError(t, err, "generated config must round-trip cleanly through Load")
-	require.Equal(t, "/alertmanager", loaded.Backends[0].Prefix)
-	require.Empty(t, loaded.Backends[0].TenantHeader)
-	require.Empty(t, loaded.Backends[0].Tenant)
-	require.NotNil(t, loaded.Backends[0].BasicAuth)
-	require.Equal(t, "alice", loaded.Backends[0].BasicAuth.Username)
-}
-
 func TestPromptConfig_BearerAuthFillsToken(t *testing.T) {
 	t.Parallel()
 
-	in := initInputs(
-		"prod", "https://am.example", "alertmanager", "",
-		authBearer, "supersecret", "",
-		"30s", "catppuccin-mocha",
-	)
+	in := initInputs(authBearer, "supersecret", "")
 	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
 	require.NoError(t, err)
 	require.Equal(t, "supersecret", cfg.Backends[0].BearerToken)
@@ -154,11 +71,7 @@ func TestPromptConfig_BearerAuthFillsToken(t *testing.T) {
 func TestPromptConfig_BasicAuthFillsBoth(t *testing.T) {
 	t.Parallel()
 
-	in := initInputs(
-		"prod", "https://am.example", "alertmanager", "",
-		authBasic, "alice", "hunter2",
-		"30s", "catppuccin-mocha",
-	)
+	in := initInputs(authBasic, "alice", "hunter2")
 	cfg, err := promptConfig(strings.NewReader(in), &bytes.Buffer{})
 	require.NoError(t, err)
 	require.NotNil(t, cfg.Backends[0].BasicAuth)
@@ -191,11 +104,7 @@ func TestRunInit_WritesConfigAndRoundTrips(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	in := initInputs(
-		"prod", "https://am.example", "alertmanager", "",
-		"none", "", "",
-		"30s", "catppuccin-mocha",
-	)
+	in := initInputs("none", "", "")
 
 	var out bytes.Buffer
 	err := runInit(initIO{
@@ -271,14 +180,108 @@ func TestNonEmpty(t *testing.T) {
 	require.Contains(t, err.Error(), "token cannot be empty")
 }
 
+// TestMimirSetupHint pins the post-write discoverability footer.
+// Per ADR 0039: prefix half suppresses when the URL path already
+// ends with `/alertmanager`; tenant half and doc anchor always
+// print so the multi-tenant nudge reaches even URL-savvy operators.
+func TestMimirSetupHint(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		url         string
+		wantMsgs    []string
+		wantNotMsgs []string
+	}{
+		{
+			name: "bare host fires both halves",
+			url:  "https://mimir.example",
+			wantMsgs: []string{
+				"set prefix: /alertmanager",
+				"tenant_header: X-Scope-OrgID",
+				"docs/end-users/configuration.md",
+			},
+		},
+		{
+			name: "URL ends with /alertmanager suppresses prefix half",
+			url:  "https://mimir.example/alertmanager",
+			wantMsgs: []string{
+				"tenant_header: X-Scope-OrgID",
+				"docs/end-users/configuration.md",
+			},
+			wantNotMsgs: []string{"set prefix:"},
+		},
+		{
+			name: "trailing slash on /alertmanager still suppresses prefix half",
+			url:  "https://mimir.example/alertmanager/",
+			wantMsgs: []string{
+				"tenant_header: X-Scope-OrgID",
+			},
+			wantNotMsgs: []string{"set prefix:"},
+		},
+		{
+			name: "unrelated path keeps prefix half",
+			url:  "https://mimir.example/api/v1/foo",
+			wantMsgs: []string{
+				"set prefix: /alertmanager",
+				"tenant_header: X-Scope-OrgID",
+			},
+		},
+		{
+			name: "garbage URL falls through, prints both halves",
+			url:  "://broken",
+			wantMsgs: []string{
+				"set prefix: /alertmanager",
+				"tenant_header: X-Scope-OrgID",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := mimirSetupHint(tc.url)
+			for _, want := range tc.wantMsgs {
+				require.Contains(t, got, want)
+			}
+			for _, notWant := range tc.wantNotMsgs {
+				require.NotContains(t, got, notWant)
+			}
+		})
+	}
+}
+
+// TestRunInit_PrintsMimirHint pins the end-to-end wiring: a wizard
+// run lands the Mimir setup hint on stderr, alongside the existing
+// plaintext-credential hint, so stdout-piping CI captures stay
+// pipe-clean while the operator's terminal still sees the footer.
+func TestRunInit_PrintsMimirHint(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var out, errBuf bytes.Buffer
+	in := initInputs("none", "", "")
+	err := runInit(initIO{
+		In:    strings.NewReader(in),
+		Out:   &out,
+		Err:   &errBuf,
+		Flags: &GlobalFlags{ConfigDir: dir},
+	})
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "wrote ")
+	require.Contains(t, errBuf.String(), "set prefix: /alertmanager",
+		"Mimir setup footer must land on stderr after the wizard succeeds")
+	require.Contains(t, errBuf.String(), "tenant_header: X-Scope-OrgID")
+}
+
 // minimal --kv set every one-shot run needs. Helpers compose on top
 // via append(minKVs(), ...) so a test that exercises one knob
-// doesn't repeat the boilerplate.
+// doesn't repeat the boilerplate. Per ADR 0039 there is no `kind`
+// key.
 func minKVs() []string {
 	return []string{
 		"name=prod",
 		"url=https://am.example",
-		"kind=alertmanager",
 	}
 }
 
@@ -303,7 +306,6 @@ func TestParseKVAnswers(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "prod", ans.Name)
 				require.Equal(t, "https://am.example", ans.URL)
-				require.Equal(t, "alertmanager", ans.Kind)
 				require.False(t, ans.PrefixSet)
 				require.False(t, ans.TenantSet)
 				require.Empty(t, ans.AuthMode)
@@ -317,7 +319,7 @@ func TestParseKVAnswers(t *testing.T) {
 			name: "last write wins",
 			kvs: []string{
 				"name=first", "name=second",
-				"url=https://am.example", "kind=alertmanager",
+				"url=https://am.example",
 			},
 			check: func(t *testing.T, ans initAnswers, err error) {
 				t.Helper()
@@ -332,7 +334,7 @@ func TestParseKVAnswers(t *testing.T) {
 			// from "user didn't pass tenant at all".
 			name: "empty value retained",
 			kvs: []string{
-				"name=mimir", "url=https://mimir.example", "kind=mimir",
+				"name=mimir", "url=https://mimir.example",
 				"tenant=",
 			},
 			check: func(t *testing.T, ans initAnswers, err error) {
@@ -341,6 +343,18 @@ func TestParseKVAnswers(t *testing.T) {
 				require.Empty(t, ans.Tenant)
 				require.True(t, ans.TenantSet,
 					"explicit empty value must still flip the *Set marker")
+			},
+		},
+		{
+			// Per ADR 0039 `kind` is no longer a recognised key.
+			// Operators on older scripts get a loud "unknown key"
+			// error rather than silently-honoured no-op.
+			name: "kind is no longer recognised",
+			kvs:  append(minKVs(), "kind=mimir"),
+			check: func(t *testing.T, _ initAnswers, err error) {
+				t.Helper()
+				require.Error(t, err)
+				require.Contains(t, err.Error(), `unknown key "kind"`)
 			},
 		},
 		{
@@ -394,18 +408,13 @@ func TestBuildInitConfig_OneShotMatchesWizard(t *testing.T) {
 	// Same explicit inputs through both flows must produce the
 	// same Config, byte-for-byte after YAML encoding. Locks the
 	// "one helper, two paths" guarantee.
-	wizardIn := initInputs(
-		"prod", "https://am.example", "alertmanager", "",
-		"none", "", "",
-		"30s", "catppuccin-mocha",
-	)
+	wizardIn := initInputs("none", "", "")
 	wizardCfg, err := promptConfig(strings.NewReader(wizardIn), &bytes.Buffer{})
 	require.NoError(t, err)
 
 	ans, err := parseKVAnswers([]string{
 		"name=prod",
 		"url=https://am.example",
-		"kind=alertmanager",
 		"auth_mode=none",
 		"poll_interval=30s",
 		"theme=catppuccin-mocha",
@@ -427,26 +436,23 @@ func TestBuildInitConfig(t *testing.T) {
 		wantErrSubstr string                                // non-empty → error case
 		check         func(t *testing.T, cfg config.Config) // non-nil → success-case extra assertions
 	}{
-		{name: "missing all", kvs: nil, wantErrSubstr: "name, url, kind"},
-		{name: "missing name", kvs: []string{"url=https://x", "kind=alertmanager"}, wantErrSubstr: "name"},
-		{name: "missing url", kvs: []string{"name=p", "kind=alertmanager"}, wantErrSubstr: "url"},
-		{name: "missing kind", kvs: []string{"name=p", "url=https://x"}, wantErrSubstr: "kind"},
+		{name: "missing all", kvs: nil, wantErrSubstr: "name, url"},
+		{name: "missing name", kvs: []string{"url=https://x"}, wantErrSubstr: "name"},
+		{name: "missing url", kvs: []string{"name=p"}, wantErrSubstr: "url"},
 		{
-			// kind=mimir without an explicit prefix mirrors the wizard's
-			// suggested-prefix behaviour: bare host gets /alertmanager.
-			name: "mimir defaults prefix",
-			kvs:  []string{"name=mimir", "url=https://mimir.example", "kind=mimir"},
+			// Explicit prefix passes straight through to the Backend
+			// — no wizard-time gate. The bare-Mimir operator scripting
+			// init reaches for this knob directly.
+			name: "explicit prefix sets backend.Prefix",
+			kvs:  append(minKVs(), "prefix=/alertmanager"),
 			check: func(t *testing.T, cfg config.Config) {
 				t.Helper()
 				require.Equal(t, "/alertmanager", cfg.Backends[0].Prefix)
 			},
 		},
 		{
-			name: "mimir explicit tenant sets header",
-			kvs: []string{
-				"name=mimir", "url=https://mimir.example", "kind=mimir",
-				"tenant=tenant-a",
-			},
+			name: "explicit tenant sets X-Scope-OrgID header",
+			kvs:  append(minKVs(), "tenant=tenant-a"),
 			check: func(t *testing.T, cfg config.Config) {
 				t.Helper()
 				require.Equal(t, "X-Scope-OrgID", cfg.Backends[0].TenantHeader)
@@ -457,32 +463,13 @@ func TestBuildInitConfig(t *testing.T) {
 			// Explicit empty tenant is the single-tenant Mimir case — the
 			// header must NOT be injected, otherwise Mimir would 400 on
 			// every request.
-			name: "mimir empty tenant omits header",
-			kvs: []string{
-				"name=mimir", "url=https://mimir.example", "kind=mimir",
-				"tenant=",
-			},
+			name: "empty tenant omits header",
+			kvs:  append(minKVs(), "tenant="),
 			check: func(t *testing.T, cfg config.Config) {
 				t.Helper()
 				require.Empty(t, cfg.Backends[0].TenantHeader)
 				require.Empty(t, cfg.Backends[0].Tenant)
 			},
-		},
-		{
-			// prefix is a mimir-only knob in the wizard; one-shot mirrors.
-			name:          "rejects prefix with alertmanager",
-			kvs:           append(minKVs(), "prefix=/alertmanager"),
-			wantErrSubstr: "prefix is only valid with kind=mimir",
-		},
-		{
-			name:          "rejects tenant with alertmanager",
-			kvs:           append(minKVs(), "tenant=tenant-a"),
-			wantErrSubstr: "tenant is only valid with kind=mimir",
-		},
-		{
-			name:          "rejects bad kind",
-			kvs:           []string{"name=p", "url=https://x", "kind=loki"},
-			wantErrSubstr: `kind "loki"`,
 		},
 		{
 			name:          "bearer requires token",
@@ -575,7 +562,6 @@ func TestRunInit_OneShotWritesAndRoundTrips(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example/api/v2",
-			"kind=alertmanager",
 			"auth_mode=basic",
 			"basic_user=alice",
 			"basic_password=hunter2",
@@ -683,7 +669,6 @@ func TestRunInit_DryRunPrintsYAMLDoesNotWrite(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example/api/v2",
-			"kind=alertmanager",
 			"auth_mode=none",
 			"poll_interval=10s",
 			"theme=catppuccin-mocha",
@@ -752,7 +737,7 @@ func TestRunInit_DryRunInvalidKVStillFails(t *testing.T) {
 		Flags:   &GlobalFlags{ConfigDir: dir},
 		OneShot: true,
 		DryRun:  true,
-		KVs:     []string{"name=prod"}, // missing url + kind
+		KVs:     []string{"name=prod"}, // missing url
 	})
 	require.Error(t, err)
 	var ee *ExitError
@@ -780,7 +765,6 @@ func TestRunInit_NudgesOnPlaintextBasicPassword(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example",
-			"kind=alertmanager",
 			"auth_mode=basic",
 			"basic_user=alice",
 			"basic_password=hunter2",
@@ -810,7 +794,6 @@ func TestRunInit_NudgesOnPlaintextBearerToken(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example",
-			"kind=alertmanager",
 			"auth_mode=bearer",
 			"bearer_token=supersecret",
 		},
@@ -821,11 +804,13 @@ func TestRunInit_NudgesOnPlaintextBearerToken(t *testing.T) {
 	require.Contains(t, errBuf.String(), "plaintext")
 }
 
-// TestRunInit_NoNudgeOnInterpolatedCredential covers the silent path:
-// if the operator already passed `${VAR}` for the credential value,
-// they've solved the problem the nudge is trying to point at. Adding
-// the hint anyway would be noise.
-func TestRunInit_NoNudgeOnInterpolatedCredential(t *testing.T) {
+// TestRunInit_NoPlaintextNudgeOnInterpolatedCredential covers the
+// silent path: if the operator already passed `${VAR}` for the
+// credential value, they've solved the problem the nudge is trying
+// to point at. The Mimir setup hint still fires unconditionally
+// (different concern), but the plaintext-credential channel goes
+// quiet.
+func TestRunInit_NoPlaintextNudgeOnInterpolatedCredential(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -839,43 +824,22 @@ func TestRunInit_NoNudgeOnInterpolatedCredential(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example",
-			"kind=alertmanager",
 			"auth_mode=basic",
 			"basic_user=alice",
 			"basic_password=${MY_PASSWORD}",
 		},
 	})
 	require.NoError(t, err)
-	require.Empty(t, errBuf.String(),
+	require.NotContains(t, errBuf.String(), "plaintext",
 		"credential already an interpolation -> no plaintext nudge")
 }
 
-// TestRunInit_NoNudgeWhenNoAuth keeps the noise floor low: an
-// auth_mode=none run has no credential at all, so the hint would
-// be doubly off-topic.
-func TestRunInit_NoNudgeWhenNoAuth(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	var errBuf bytes.Buffer
-	err := runInit(initIO{
-		In:      strings.NewReader(""),
-		Out:     &bytes.Buffer{},
-		Err:     &errBuf,
-		Flags:   &GlobalFlags{ConfigDir: dir},
-		OneShot: true,
-		KVs:     minKVs(),
-	})
-	require.NoError(t, err)
-	require.Empty(t, errBuf.String(),
-		"no auth captured -> no plaintext nudge")
-}
-
-// TestRunInit_DryRunSuppressesNudge keeps the preview path quiet:
-// `--dry-run` does not actually persist credentials anywhere, so a
-// plaintext-nudge would be advice without a target. The hint fires
-// only after a successful write.
-func TestRunInit_DryRunSuppressesNudge(t *testing.T) {
+// TestRunInit_DryRunSuppressesPlaintextNudge keeps the preview path
+// quiet for the plaintext-credential channel: `--dry-run` does not
+// actually persist credentials anywhere, so the warning is advice
+// without a target. The Mimir setup footer also stays silent in
+// dry-run because the write code path is the one that prints it.
+func TestRunInit_DryRunSuppressesPlaintextNudge(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -890,13 +854,12 @@ func TestRunInit_DryRunSuppressesNudge(t *testing.T) {
 		KVs: []string{
 			"name=prod",
 			"url=https://am.example",
-			"kind=alertmanager",
 			"auth_mode=basic",
 			"basic_user=alice",
 			"basic_password=hunter2",
 		},
 	})
 	require.NoError(t, err)
-	require.Empty(t, errBuf.String(),
+	require.NotContains(t, errBuf.String(), "plaintext",
 		"--dry-run writes nothing -> no plaintext nudge")
 }

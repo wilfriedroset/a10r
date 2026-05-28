@@ -18,8 +18,8 @@ func TestStyler_ChoiceColorOffMatchesLegacyLayout(t *testing.T) {
 	t.Parallel()
 
 	s := newStyler(false)
-	got := s.Choice("backend kind", []string{"alertmanager", "mimir"}, "alertmanager")
-	require.Equal(t, "backend kind (alertmanager/mimir) [alertmanager]: ", got)
+	got := s.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
+	require.Equal(t, "authentication (none/bearer/basic) [none]: ", got)
 }
 
 // Color-on assertions: the styler must wrap the chrome in bold-only
@@ -64,11 +64,11 @@ func TestStyler_ChoiceColorOnHighlightsOnlyBracketedDefault(t *testing.T) {
 	t.Parallel()
 
 	s := newStyler(true)
-	got := s.Choice("backend kind", []string{"alertmanager", "mimir"}, "alertmanager")
+	got := s.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
 
-	require.Contains(t, got, "backend kind")
-	require.Contains(t, got, "alertmanager/mimir")
-	require.Contains(t, got, "alertmanager")
+	require.Contains(t, got, "authentication")
+	require.Contains(t, got, "none/bearer/basic")
+	require.Contains(t, got, "none")
 	require.Contains(t, got, "\x1b[")
 	// bright-blue must appear exactly once — only the bracketed copy
 	// of the default value is highlighted, not the in-parens listing.

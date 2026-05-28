@@ -28,18 +28,10 @@ const (
 	authModeBasic  = "basic"
 )
 
-// kindAlertmanager / kindMimir are the two backend kinds the wizard
-// asks about. Same accepted set drives the --kv `kind=` validation.
-const (
-	kindAlertmanager = "alertmanager"
-	kindMimir        = "mimir"
-)
-
 // Canonical accepted-value lists. Shared between the wizard's
 // Choice prompt and the one-shot --kv validator so adding an entry
 // is a one-line change.
 var (
-	validInitKinds     = []string{kindAlertmanager, kindMimir}
 	validInitAuthModes = []string{authModeNone, authModeBearer, authModeBasic}
 	validInitThemes    = []string{
 		"catppuccin-mocha",
@@ -63,15 +55,21 @@ const (
 // "unknown key" error so the message lists every accepted name.
 // Sorted alphabetically so the error echo is reading-order stable
 // without a sort at error time.
+//
+// Per ADR 0039 there is no `kind` key — the wizard no longer asks
+// for backend kind and the one-shot path mirrors. `prefix:` and
+// `tenant:` map directly to the YAML fields the loader consumes
+// (no kind gate), so the operator passes them in standalone when
+// the backend needs them.
 var recognisedInitKeys = []string{
 	"auth_mode", "basic_password", "basic_user", "bearer_token",
-	"kind", "name", "poll_interval", "prefix", "tenant", "theme", "url",
+	"name", "poll_interval", "prefix", "tenant", "theme", "url",
 }
 
 // newInitCmd returns the `a10r init` subcommand. Walks the user
-// through a small set of prompts (backend kind, URL, auth, tenant,
-// poll interval, theme) and writes the result to the resolved
-// XDG config path.
+// through a small set of prompts (name, URL, auth, poll interval,
+// theme — see ADR 0039) and writes the result to the resolved XDG
+// config path.
 //
 // The `--force` flag overwrites an existing config file; without
 // it the command refuses rather than silently clobbering the
@@ -188,10 +186,52 @@ func runInit(env initIO) error {
 	}
 
 	fmt.Fprintf(env.Out, "wrote %s\n", path)
+	if hint := mimirSetupHint(cfg.Backends[0].URL); hint != "" {
+		fmt.Fprintln(env.Err, hint)
+	}
 	if hint := plaintextCredentialHint(cfg); hint != "" {
 		fmt.Fprintln(env.Err, hint)
 	}
 	return nil
+}
+
+// mimirSetupHint returns the post-write discoverability nudge ADR
+// 0039 wires in. The prefix half is suppressed when the URL path
+// already ends with `/alertmanager` — the operator clearly engaged
+// with the path themselves — so the hint does not contradict their
+// explicit choice. The tenant half always prints because tenancy
+// cannot be encoded in the URL. Empty string when the prefix half
+// is suppressed AND no other lines remain (currently impossible
+// since the tenant line is unconditional, kept as a guard for
+// future toggles).
+func mimirSetupHint(urlStr string) string {
+	var lines []string
+	if !urlPathHasAlertmanagerSuffix(urlStr) {
+		lines = append(lines,
+			"NOTE: if your backend is Grafana Mimir or another multi-tenant Alertmanager front, "+
+				"set prefix: /alertmanager in a10r.yaml (or include /alertmanager in the URL).")
+	}
+	lines = append(lines,
+		"For multi-tenant Mimir, also set tenant_header: X-Scope-OrgID and tenant: <your-org>.",
+		"See docs/end-users/configuration.md.")
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// urlPathHasAlertmanagerSuffix reports whether the URL's path ends
+// with `/alertmanager` (trailing slash tolerated). A nudge would
+// duplicate guidance the operator's URL already encodes, so the
+// hint suppresses the prefix half in this case. Garbage URLs fall
+// through to false so the helpful nudge still prints — the worst
+// outcome is one extra line.
+func urlPathHasAlertmanagerSuffix(urlStr string) bool {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/alertmanager")
 }
 
 // plaintextCredentialHint returns a one-line nudge when the rendered
@@ -275,13 +315,14 @@ func collectConfig(env initIO) (config.Config, error) {
 // flag input. buildInitConfig consumes it.
 //
 // PrefixSet / TenantSet distinguish "explicitly empty" from "not
-// supplied" for the mimir-default logic: when prefix is unset and
-// kind=mimir, suggestedPrefix(URL) decides; when it is set to "",
-// the user wants no prefix (e.g. their URL already encodes it).
+// supplied": an operator passing `--kv tenant=` (TenantSet=true,
+// Tenant="") wants the slot deliberately blank, distinct from
+// omitting `--kv tenant=` entirely. The wizard never prompts for
+// these (ADR 0039) so PrefixSet / TenantSet are only flipped by
+// the one-shot --kv path.
 type initAnswers struct {
 	Name      string
 	URL       string
-	Kind      string
 	Prefix    string
 	PrefixSet bool
 	Tenant    string
@@ -318,40 +359,6 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 		return config.Config{}, err
 	}
 	ans.URL = urlStr
-
-	kind, err := p.Choice("backend kind", validInitKinds, kindAlertmanager)
-	if err != nil {
-		return config.Config{}, err
-	}
-	ans.Kind = kind
-
-	if kind == kindMimir {
-		// Prefix is prompted, not forced. Mimir's alertmanager
-		// surface conventionally lives under /alertmanager, but
-		// users who already encoded that path in their URL
-		// (e.g. URL=https://mimir.example/alertmanager) would
-		// otherwise get the segment doubled into
-		// /alertmanager/alertmanager/api/v2/... Empty input means
-		// no prefix; the user can clear the default with a single
-		// keystroke when their URL already carries the path.
-		prefix, err := p.String(
-			"alertmanager path prefix (blank for none)",
-			suggestedPrefix(urlStr), nil)
-		if err != nil {
-			return config.Config{}, err
-		}
-		ans.Prefix = prefix
-		ans.PrefixSet = true
-
-		tenant, err := p.String(
-			"tenant ID (X-Scope-OrgID, leave blank for single-tenant Mimir)",
-			"", nil)
-		if err != nil {
-			return config.Config{}, err
-		}
-		ans.Tenant = tenant
-		ans.TenantSet = true
-	}
 
 	authMode, err := p.Choice("authentication", validInitAuthModes, authModeNone)
 	if err != nil {
@@ -398,36 +405,28 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 // branch funnel through it so a wizard run and a `--kv ...` run
 // with the same explicit inputs emit byte-identical YAML.
 //
-// Cross-field validation (auth mode requires its credential, mimir
-// extras only valid with kind=mimir, parseable poll_interval) lives
-// here rather than in parseKVAnswers because the wizard's prompt
-// sequence already enforces these structurally — but the helper
-// stays defensive so a future refactor of the wizard cannot drift
-// from the kv path.
+// Cross-field validation (auth mode requires its credential,
+// parseable poll_interval) lives here rather than in parseKVAnswers
+// because the wizard's prompt sequence already enforces these
+// structurally — but the helper stays defensive so a future
+// refactor of the wizard cannot drift from the kv path.
+//
+// Per ADR 0039, `prefix:` and `tenant:` pass straight through to
+// the Backend without any wizard-time gate. An explicit empty
+// tenant (TenantSet=true, Tenant="") keeps the tenant header
+// unset, otherwise Mimir would 400 on every request.
 func buildInitConfig(ans initAnswers) (config.Config, error) {
 	if err := validateInitAnswers(ans); err != nil {
 		return config.Config{}, err
 	}
 
 	be := config.Backend{Name: ans.Name, URL: ans.URL}
-	if ans.Kind == kindMimir {
-		// Prefix: explicit value wins; otherwise mimir's
-		// conventional /alertmanager (with the URL-already-
-		// encodes-it carve-out).
-		if ans.PrefixSet {
-			be.Prefix = ans.Prefix
-		} else {
-			be.Prefix = suggestedPrefix(ans.URL)
-		}
-		// Empty tenant input leaves both header and value unset so
-		// the generated YAML doesn't carry a dangling
-		// `tenant_header: X-Scope-OrgID` with no value — that
-		// configuration would force the header injection without a
-		// payload, which Mimir rejects in single-tenant mode.
-		if ans.Tenant != "" {
-			be.TenantHeader = "X-Scope-OrgID"
-			be.Tenant = ans.Tenant
-		}
+	if ans.PrefixSet {
+		be.Prefix = ans.Prefix
+	}
+	if ans.Tenant != "" {
+		be.TenantHeader = "X-Scope-OrgID"
+		be.Tenant = ans.Tenant
 	}
 
 	switch ans.AuthMode {
@@ -460,9 +459,8 @@ func buildInitConfig(ans initAnswers) (config.Config, error) {
 
 // validateInitAnswers enforces the cross-field rules that turn a
 // half-filled set of answers into a structurally consistent Config:
-// required fields present, kind / auth_mode in their allowed sets,
-// auth-mode-specific credentials present, mimir-only fields not set
-// when kind=alertmanager, theme in the allowed set.
+// required fields present, auth_mode in its allowed set, auth-mode-
+// specific credentials present, theme in the allowed set.
 //
 // The wizard enforces the same rules at prompt time; one-shot mode
 // hits the helper directly with a flat key=value bag, which is why
@@ -476,18 +474,6 @@ func validateInitAnswers(ans initAnswers) error {
 	}
 	if err := validateURL(ans.URL); err != nil {
 		return err
-	}
-	if !slices.Contains(validInitKinds, ans.Kind) {
-		return fmt.Errorf("kind %q: must be one of %s",
-			ans.Kind, strings.Join(validInitKinds, ", "))
-	}
-	if ans.Kind == kindAlertmanager {
-		if ans.PrefixSet {
-			return errors.New("prefix is only valid with kind=mimir")
-		}
-		if ans.TenantSet {
-			return errors.New("tenant is only valid with kind=mimir")
-		}
 	}
 	if err := validateInitAuth(ans); err != nil {
 		return err
@@ -505,8 +491,8 @@ func validateInitAnswers(ans initAnswers) error {
 }
 
 // validateRequired returns a precise "missing keys" error listing
-// every required field absent from the answers. Required keys:
-// name, url, kind. Other fields default or stay empty.
+// every required field absent from the answers. Required keys are
+// name and url; everything else defaults or stays empty.
 func validateRequired(ans initAnswers) error {
 	var missing []string
 	if ans.Name == "" {
@@ -514,9 +500,6 @@ func validateRequired(ans initAnswers) error {
 	}
 	if ans.URL == "" {
 		missing = append(missing, "url")
-	}
-	if ans.Kind == "" {
-		missing = append(missing, "kind")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required key(s): %s", strings.Join(missing, ", "))
@@ -594,8 +577,6 @@ func applyKVAnswer(ans *initAnswers, key, value string) error {
 		ans.Name = value
 	case "url":
 		ans.URL = value
-	case "kind":
-		ans.Kind = value
 	case "prefix":
 		ans.Prefix = value
 		ans.PrefixSet = true
@@ -684,23 +665,6 @@ func validateDuration(s string) error {
 		return fmt.Errorf("not a valid duration: %w", err)
 	}
 	return nil
-}
-
-// suggestedPrefix returns the default "alertmanager path prefix"
-// the wizard should pre-fill given the user's URL. Empty when the
-// URL's path already ends with /alertmanager — the user almost
-// certainly intends one prefix, not two stacked. Otherwise the
-// conventional Mimir mount point.
-func suggestedPrefix(urlStr string) string {
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return "/alertmanager"
-	}
-	trimmed := strings.TrimRight(u.Path, "/")
-	if strings.HasSuffix(trimmed, "/alertmanager") {
-		return ""
-	}
-	return "/alertmanager"
 }
 
 // nonEmpty returns a validator that rejects empty / whitespace

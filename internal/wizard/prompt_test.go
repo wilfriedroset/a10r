@@ -61,30 +61,30 @@ func TestPrompter_StringEOFErrors(t *testing.T) {
 func TestPrompter_ChoiceAcceptsValid(t *testing.T) {
 	t.Parallel()
 
-	p := New(strings.NewReader("mimir\n"), &bytes.Buffer{})
-	got, err := p.Choice("kind", []string{"alertmanager", "mimir"}, "alertmanager")
+	p := New(strings.NewReader("bearer\n"), &bytes.Buffer{})
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
 	require.NoError(t, err)
-	require.Equal(t, "mimir", got)
+	require.Equal(t, "bearer", got)
 }
 
 func TestPrompter_ChoiceUsesDefaultOnEmpty(t *testing.T) {
 	t.Parallel()
 
 	p := New(strings.NewReader("\n"), &bytes.Buffer{})
-	got, err := p.Choice("kind", []string{"alertmanager", "mimir"}, "alertmanager")
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
 	require.NoError(t, err)
-	require.Equal(t, "alertmanager", got)
+	require.Equal(t, "none", got)
 }
 
 func TestPrompter_ChoiceRejectsUnknown(t *testing.T) {
 	t.Parallel()
 
-	in := strings.NewReader("bogus\nmimir\n")
+	in := strings.NewReader("bogus\nbearer\n")
 	var out bytes.Buffer
 	p := New(in, &out)
-	got, err := p.Choice("kind", []string{"alertmanager", "mimir"}, "alertmanager")
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
 	require.NoError(t, err)
-	require.Equal(t, "mimir", got)
+	require.Equal(t, "bearer", got)
 	require.Contains(t, out.String(), "invalid:")
 }
 
