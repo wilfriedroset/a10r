@@ -745,7 +745,7 @@ func TestApp_GlobalsCatalogOrderingMatchesKeybindingsMd(t *testing.T) {
 	a := newTestApp(t)
 
 	require.Equal(t, []action.Action{
-		{Key: ":", Description: "command"},
+		{Key: ":", DisplayKey: ":cmd", Description: "Command mode"},
 		{Key: "/", Description: "filter"},
 		{Key: "?", Description: "help"},
 		{Key: "t", Description: "time format"},

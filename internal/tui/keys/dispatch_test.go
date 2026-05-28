@@ -488,3 +488,72 @@ func TestBindings_DescriptionTravelsVerbatim(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, "tenant picker", got[0].Description)
 }
+
+func TestSetActionDisplayKey_OverridesChipText(t *testing.T) {
+	t.Parallel()
+
+	// `:` triggers command mode but the help chip reads `:cmd` so the
+	// operator sees "type colon, then a command name" (ADR 0038).
+	// SetActionDisplayKey wires DisplayKey on the existing action;
+	// the trigger key stays unchanged so dispatching `:` still fires.
+	noop := func() tea.Cmd { return nil }
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "command", "Command mode", ":", noop)
+	d.SetActionDisplayKey("command", ":cmd")
+
+	got := d.Bindings(LayerGlobal)
+	require.Equal(t,
+		[]action.Action{{Key: ":", DisplayKey: ":cmd", Description: "Command mode"}},
+		got,
+		"Bindings() must carry the DisplayKey override to the help overlay")
+	consumed, _ := d.Dispatch(":")
+	require.True(t, consumed, "the trigger key (`:`) must still dispatch — only the chip label changed")
+}
+
+func TestSetActionDisplayKey_UnknownActionPanics(t *testing.T) {
+	t.Parallel()
+
+	// Wiring a display override against an action the caller forgot
+	// to register is a programmer error (same severity as Register
+	// panics on empty alias) — fail fast at the seam.
+	require.Panics(t, func() {
+		d := New(newFakeClock())
+		d.SetActionDisplayKey("nope", ":nope")
+	})
+}
+
+func TestSetActionDisplayKey_EmptyOverrideClearsField(t *testing.T) {
+	t.Parallel()
+
+	// An explicit empty argument is the supported way to walk back an
+	// override without re-running SetAction. The chip falls back to
+	// Key on the next Bindings() snapshot.
+	noop := func() tea.Cmd { return nil }
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "command", "Command mode", ":", noop)
+	d.SetActionDisplayKey("command", ":cmd")
+	d.SetActionDisplayKey("command", "")
+
+	got := d.Bindings(LayerGlobal)
+	require.Empty(t, got[0].DisplayKey,
+		"empty argument must clear the override so the chip falls back to Key")
+}
+
+func TestSetAction_ReRegisterClearsDisplayKey(t *testing.T) {
+	t.Parallel()
+
+	// SetAction is last-write-wins across every field, including
+	// displayKey. A caller that re-registers the same action after
+	// applying a chip override gets a fresh entry — the override does
+	// NOT survive. Callers that want a persistent override must
+	// re-apply SetActionDisplayKey after the second SetAction.
+	noop := func() tea.Cmd { return nil }
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "command", "Command mode", ":", noop)
+	d.SetActionDisplayKey("command", ":cmd")
+	d.SetAction(LayerGlobal, "command", "command", ":", noop)
+
+	got := d.Bindings(LayerGlobal)
+	require.Empty(t, got[0].DisplayKey,
+		"re-registration must clear any prior SetActionDisplayKey override")
+}

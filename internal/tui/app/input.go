@@ -77,7 +77,11 @@ func (a *App) registerGlobalBindings() {
 	// `:` opens the command bar; `/` opens the filter prompt. The
 	// dispatcher only fires the open; the resulting PromptSubmitted
 	// / PromptCancelled messages are handled by handleInput later.
-	a.dispatcher.SetAction(keys.LayerGlobal, "command", "command", ":", a.openPromptCmd(footer.PromptCommand))
+	// `:` renders in the help overlay as `<:cmd>  Command mode`
+	// (ADR 0038) so the operator reads "type colon, then a command
+	// name" — the trigger key stays a single colon.
+	a.dispatcher.SetAction(keys.LayerGlobal, "command", "Command mode", ":", a.openPromptCmd(footer.PromptCommand))
+	a.dispatcher.SetActionDisplayKey("command", ":cmd")
 	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "filter", "/", a.openPromptCmd(footer.PromptFilter))
 	// `?` opens the k9s-style help overlay. The bindings are
 	// composed at open-time so the RESOURCE column always reflects

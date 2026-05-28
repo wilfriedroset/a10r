@@ -26,7 +26,7 @@ func sampleOpts(t *testing.T) Options {
 			{Key: "Shift+N", Description: "sort name"},
 		},
 		Globals: []action.Action{
-			{Key: ":", Description: "command"},
+			{Key: ":", DisplayKey: ":cmd", Description: "Command mode"},
 			{Key: "/", Description: "filter"},
 			{Key: "?", Description: "help"},
 			{Key: "Esc", Description: "back"},
@@ -92,9 +92,11 @@ func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
 	h := New(sampleOpts(t))
 	out := testutil.StripStyle(h.View(160, 30))
 
-	for _, want := range []string{"<:>", "command", "<?>", "help", "<esc>", "back"} {
+	for _, want := range []string{"<:cmd>", "Command mode", "<?>", "help", "<esc>", "back"} {
 		require.Containsf(t, out, want, "GENERAL column must surface %q", want)
 	}
+	require.NotContains(t, out, "<:>",
+		"the bare `<:>` chip must be replaced by `<:cmd>` everywhere (ADR 0038)")
 	for _, want := range []string{"<j>", "down", "<gg>", "top", "<shift-g>", "bottom"} {
 		require.Containsf(t, out, want, "NAVIGATION column must surface %q", want)
 	}

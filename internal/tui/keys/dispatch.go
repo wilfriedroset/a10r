@@ -111,10 +111,12 @@ type Dispatcher struct {
 // actionEntry is the (layer, key, description, handler) tuple the
 // dispatcher records per stable action name. ApplyOverrides reads
 // (layer, handler) to wire user extras; Bindings reads (key,
-// description) to surface a layer's bindings to the help overlay.
+// description, displayKey) to surface a layer's bindings to the
+// help overlay.
 type actionEntry struct {
 	layer       Layer
 	key         string
+	displayKey  string
 	description string
 	handler     Handler
 }
@@ -171,8 +173,11 @@ func (d *Dispatcher) Set(layer Layer, key string, h Handler) {
 // those extra keys into.
 //
 // Re-registering the same name keeps the original slot in
-// actionOrder so Bindings() output stays stable; the entry's key,
-// description, layer, and handler are last-write-wins.
+// actionOrder so Bindings() output stays stable; every other field
+// — layer, key, displayKey, description, handler — is last-write-
+// wins. A prior SetActionDisplayKey override is therefore cleared
+// by a re-registration; callers that want a persistent override
+// must re-apply it after the second SetAction.
 func (d *Dispatcher) SetAction(layer Layer, name, description, key string, h Handler) {
 	if _, exists := d.actions[name]; !exists {
 		d.actionOrder = append(d.actionOrder, name)
@@ -182,11 +187,11 @@ func (d *Dispatcher) SetAction(layer Layer, name, description, key string, h Han
 }
 
 // Bindings returns the named actions registered at layer, in
-// registration order, as the [Key, Description] pairs the help
-// overlay renders. Anonymous bindings registered via Set are not
-// included — they carry no description and are reserved for chord
-// prefixes and dispatcher-internal hooks that are not user-visible
-// surface.
+// registration order, as the [Key, DisplayKey, Description] tuples
+// the help overlay renders. Anonymous bindings registered via Set
+// are not included — they carry no description and are reserved for
+// chord prefixes and dispatcher-internal hooks that are not
+// user-visible surface.
 func (d *Dispatcher) Bindings(layer Layer) []action.Action {
 	out := make([]action.Action, 0, len(d.actionOrder))
 	for _, name := range d.actionOrder {
@@ -194,9 +199,34 @@ func (d *Dispatcher) Bindings(layer Layer) []action.Action {
 		if !ok || entry.layer != layer {
 			continue
 		}
-		out = append(out, action.Action{Key: entry.key, Description: entry.description})
+		out = append(out, action.Action{
+			Key:         entry.key,
+			DisplayKey:  entry.displayKey,
+			Description: entry.description,
+		})
 	}
 	return out
+}
+
+// SetActionDisplayKey overrides the chip label the help overlay and
+// the hint strip paint for a previously-registered action. The
+// trigger key (what Dispatch matches against) stays unchanged —
+// only the visible affordance flips. Empty string clears any prior
+// override so the chip falls back to Key without forcing a full
+// SetAction round-trip. Used for `:` rendering as `<:cmd>
+// Command mode` (ADR 0038).
+//
+// Panics on unregistered action — matches the package's
+// programmer-error convention (cmdbar.Register / poll.New) so a
+// typo at wiring time surfaces immediately instead of silently
+// dropping the override.
+func (d *Dispatcher) SetActionDisplayKey(name, displayKey string) {
+	entry, ok := d.actions[name]
+	if !ok {
+		panic("keys: SetActionDisplayKey on unregistered action: " + name)
+	}
+	entry.displayKey = displayKey
+	d.actions[name] = entry
 }
 
 // Clear wipes every binding in the named layer and drops the
