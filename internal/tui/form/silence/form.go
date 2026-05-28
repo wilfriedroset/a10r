@@ -119,6 +119,11 @@ type Form struct {
 	// is true. See Options.BulkBanner.
 	bulkBanner string
 
+	// scopeNote is the caller-supplied scope banner; see
+	// Options.ScopeNote. Non-focusable — rendered above the body, not
+	// a field, so it never enters the Tab cycle.
+	scopeNote string
+
 	focus fieldIndex
 	err   string // last submit error; cleared on next keystroke
 
@@ -160,6 +165,14 @@ type Options struct {
 	// otherwise sit when Bulk is true; the page formats this so the
 	// user sees what their submit will fan out to.
 	BulkBanner string
+
+	// ScopeNote, when non-empty, renders a persistent banner above
+	// the form body. The silence-all flow sets it to state the true
+	// scope (all instances of an alertname) and, when the source view
+	// was filtered, to warn that the filter is not applied to the
+	// prefilled matchers. Empty for silence-one — the full label set
+	// speaks for itself. Non-focusable; does not affect Tab order.
+	ScopeNote string
 
 	// BlankEnds skips the "2h" default so the recreate-expired path
 	// can't be Ctrl+S'd through with a placeholder duration.
@@ -232,6 +245,7 @@ func New(opts Options) *Form {
 		editID:     opts.EditID,
 		bulk:       opts.Bulk,
 		bulkBanner: opts.BulkBanner,
+		scopeNote:  opts.ScopeNote,
 		submit:     submitter{parent: opts.SubmitCtx},
 	}
 	// Default focus is fieldMatchers (the iota+1 slot). Tenant is

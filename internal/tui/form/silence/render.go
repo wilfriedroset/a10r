@@ -88,6 +88,19 @@ func (f *Form) renderView(width, height int) string {
 		f.fieldRow("Comment", fieldComment, f.comment.View()),
 	)
 	body := strings.Join(rows, "\n")
+	if f.scopeNote != "" {
+		// Persistent scope banner at the very top so the operator
+		// reads the blast radius before the matchers. Foreground-only
+		// (warn tint) keeps the chrome-on-default-bg rule; the outer
+		// Width wrap below folds a long note across lines. Rendered
+		// here rather than as a field row so it never enters the Tab
+		// focus cycle (fields.go is untouched).
+		note := lipgloss.NewStyle().
+			Foreground(f.styles.Flash.Warn.GetForeground()).
+			Bold(true).
+			Render(f.scopeNote)
+		body = note + "\n\n" + body
+	}
 	if f.err != "" {
 		// The hint strip in the top panel already advertises
 		// Tab / Shift+Tab / Ctrl+S; the only thing the form

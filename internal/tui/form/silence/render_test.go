@@ -39,6 +39,75 @@ func TestForm_BulkModeRendersBanner(t *testing.T) {
 		"bulk View must NOT render the matchers placeholder — the buffer is hidden")
 }
 
+// TestForm_ScopeNoteRendersBannerAboveBody pins the silence-all
+// scope banner: when ScopeNote is set it must render verbatim, sit
+// above the Matchers row (so the operator reads the blast radius
+// first), and leave every field intact.
+func TestForm_ScopeNoteRendersBannerAboveBody(t *testing.T) {
+	t.Parallel()
+
+	// Deliberately short so the verbatim Contains is independent of
+	// the View width's wrap point (a long note wraps and would split
+	// the literal — the wrap shape is incidental, not under test).
+	const note = "Silencing ALL instances of alertname=HighCPU"
+	f := New(Options{
+		Clients:   map[string]Client{"prod": &fakeClient{}},
+		Tenant:    "prod",
+		Styles:    testutil.LoadStyles(t),
+		Now:       func() time.Time { return fixedNow },
+		Creator:   "alice",
+		Matchers:  nil,
+		ScopeNote: note,
+	})
+
+	plain := ansi.Strip(f.View(120, 24))
+	require.Contains(t, plain, note, "scope note must render verbatim")
+
+	noteIdx := strings.Index(plain, "alertname=HighCPU")
+	matchersIdx := strings.Index(plain, "Matchers:")
+	require.GreaterOrEqual(t, noteIdx, 0)
+	require.GreaterOrEqual(t, matchersIdx, 0)
+	require.Less(t, noteIdx, matchersIdx, "scope note must sit above the Matchers row")
+
+	// The banner is purely additive — every field row survives.
+	for _, label := range []string{"Matchers:", "Starts:", "Ends:", "Creator:", "Comment:"} {
+		require.Contains(t, plain, label, "field %q must still render under the banner", label)
+	}
+}
+
+// TestForm_NoScopeNoteLeavesBodyUntouched is the regression guard:
+// an empty ScopeNote must not perturb the rendered form body at all,
+// so the silence-one path (which never sets it) renders exactly as
+// before. We compare the Matchers-onward slice with and without the
+// note to prove the banner is the only delta.
+func TestForm_NoScopeNoteLeavesBodyUntouched(t *testing.T) {
+	t.Parallel()
+
+	mk := func(note string) string {
+		f := New(Options{
+			Clients:   map[string]Client{"prod": &fakeClient{}},
+			Tenant:    "prod",
+			Styles:    testutil.LoadStyles(t),
+			Now:       func() time.Time { return fixedNow },
+			Creator:   "alice",
+			ScopeNote: note,
+		})
+		return ansi.Strip(f.View(120, 24))
+	}
+
+	bare := mk("")
+	require.NotContains(t, bare, "Silencing ALL", "empty ScopeNote renders no banner")
+
+	withNote := mk("Silencing ALL instances of alertname=HighCPU")
+	bodyOf := func(s string) string {
+		i := strings.Index(s, "Matchers:")
+		require.GreaterOrEqual(t, i, 0, "Matchers row must be present")
+		return s[i:]
+	}
+	require.Equal(t, bodyOf(bare), bodyOf(withNote),
+		"the form body from Matchers onward must be byte-identical with and without the banner")
+}
+
 // TestForm_TenantRowHintAdvertisesEnter pins the discoverability
 // affordance: when the Tenant row is editable the rendered view
 // must include "[Enter to change]" so the user does not have to
