@@ -87,7 +87,13 @@ type ClientConfig struct {
 
 // Client is the vanilla Alertmanager v2 backend. Constructed via
 // New; safe for concurrent use across goroutines.
+//
+// `baseURL` is the un-prefixed root (cfg.BaseURL as-is) and is used
+// by ProbeAlertmanagerMount to issue a probe that bypasses the
+// configured prefix; `base` is the prefix-folded root every other
+// request composes from.
 type Client struct {
+	baseURL      string
 	base         string
 	http         *http.Client
 	caps         backend.Caps
@@ -120,7 +126,8 @@ func New(cfg ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		base: cfg.BaseURL + cfg.Prefix,
+		baseURL: cfg.BaseURL,
+		base:    cfg.BaseURL + cfg.Prefix,
 		http: &http.Client{
 			Transport:     transport,
 			Timeout:       timeout,

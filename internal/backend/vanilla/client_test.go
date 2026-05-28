@@ -589,3 +589,80 @@ func TestClient_ProbeReadyAt_TransportError(t *testing.T) {
 	require.ErrorIs(t, err, backend.ErrUnauthorized)
 	require.NotErrorIs(t, err, backend.ErrNoDateHeader)
 }
+
+// TestClient_ProbeAlertmanagerMount_Success pins the verified-fix
+// path that `a10r doctor`'s AuthChecker enrichment leans on: GET
+// against `<BaseURL>/alertmanager/api/v2/status` returns nil when
+// the server replies 2xx, even when the Client itself is configured
+// with an empty prefix. Mimics the "user typed `https://mimir`,
+// missed the `/alertmanager` prefix" topology — the probe is what
+// catches it.
+func TestClient_ProbeAlertmanagerMount_Success(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	require.NoError(t, c.ProbeAlertmanagerMount(t.Context()))
+	require.Equal(t, "/alertmanager/api/v2/status", gotPath,
+		"probe must hit the alertmanager mount regardless of configured prefix")
+}
+
+// TestClient_ProbeAlertmanagerMount_404 pins the "mount really isn't
+// there" path. A 404 surfaces as a non-nil error that does NOT carry
+// the auth sentinel — the doctor caller uses this to keep the
+// original SeverityError unchanged rather than claim a verified fix.
+func TestClient_ProbeAlertmanagerMount_404(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	err := c.ProbeAlertmanagerMount(t.Context())
+	require.Error(t, err)
+	require.NotErrorIs(t, err, backend.ErrUnauthorized)
+}
+
+// TestClient_ProbeAlertmanagerMount_Unauthorized pins that auth
+// failures on the verified path surface as ErrUnauthorized. The
+// doctor caller treats this as inconclusive (cannot verify that the
+// prefix would fix the original 404 because the mount itself rejects
+// the credential) and leaves the original error unchanged.
+func TestClient_ProbeAlertmanagerMount_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := newTestClient(t, srv)
+	err := c.ProbeAlertmanagerMount(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrUnauthorized)
+}
+
+// TestClient_ProbeAlertmanagerMount_TransportError pins that a
+// transport-level failure surfaces as ErrUnreachable, matching the
+// rest of the doX/exec pipeline's contract. Closing the server
+// before the probe runs forces a `connection refused` on the GET.
+func TestClient_ProbeAlertmanagerMount_TransportError(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	c := newTestClient(t, srv)
+	srv.Close()
+
+	err := c.ProbeAlertmanagerMount(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, backend.ErrUnreachable)
+}

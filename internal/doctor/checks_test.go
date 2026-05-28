@@ -19,18 +19,19 @@ import (
 
 // fakeClient is a small stand-in for backend.Client used across
 // the per-check tests. Only the methods doctor exercises today
-// (Status, ProbeReady, ProbeReadyAt) carry behaviour; the rest
-// come from the embedded ClientStub.
+// (Status, ProbeReady, ProbeReadyAt, ProbeAlertmanagerMount) carry
+// behaviour; the rest come from the embedded ClientStub.
 //
 // Field names mirror what each method returns; setting them per
 // test pins the relevant scenario without growing a builder.
 type fakeClient struct {
 	backendtest.ClientStub
-	statusOut   backend.Status
-	statusErr   error
-	probeErr    error
-	probeAtTime time.Time
-	probeAtErr  error
+	statusOut     backend.Status
+	statusErr     error
+	probeErr      error
+	probeAtTime   time.Time
+	probeAtErr    error
+	probeMountErr error
 }
 
 func (f *fakeClient) Status(context.Context) (backend.Status, error) {
@@ -42,6 +43,8 @@ func (f *fakeClient) ProbeReady(context.Context) error { return f.probeErr }
 func (f *fakeClient) ProbeReadyAt(context.Context) (time.Time, error) {
 	return f.probeAtTime, f.probeAtErr
 }
+
+func (f *fakeClient) ProbeAlertmanagerMount(context.Context) error { return f.probeMountErr }
 
 // Compile-time assertions — fakeClient must satisfy both the full
 // Client interface and the smaller Prober interface so the test

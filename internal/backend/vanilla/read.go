@@ -127,3 +127,27 @@ func (c *Client) ProbeReadyAt(ctx context.Context) (time.Time, error) {
 	}
 	return t, nil
 }
+
+// ProbeAlertmanagerMount implements backend.Prober. Issues GET
+// against `<baseURL>/alertmanager/api/v2/status`, bypassing the
+// client's configured prefix so the probe can verify whether
+// adding `prefix: /alertmanager` would fix a Status() 404 against
+// a bare-Mimir backend (ADR 0039).
+//
+// Returns nil only on a 2xx response — the doctor caller treats
+// that as a verified fix. ErrUnauthorized (401/403), ErrUnreachable
+// (transport), or a plain wrapped HTTP error otherwise; the caller
+// keeps the original Status() failure intact for every non-2xx
+// outcome so doctor never claims a fix it cannot prove.
+func (c *Client) ProbeAlertmanagerMount(ctx context.Context) error {
+	endpoint := c.baseURL + "/alertmanager/api/v2/status"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("probe alertmanager mount: build request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	if err := c.exec(req, nil); err != nil {
+		return fmt.Errorf("probe alertmanager mount: %w", err)
+	}
+	return nil
+}

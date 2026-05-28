@@ -77,11 +77,13 @@ type Client interface {
 // lockstep without a converter that could drift.
 type Caps = config.Capabilities
 
-// Prober is the small surface `a10r doctor` consumes for liveness
-// probes. Defined separately from Reader so the existing test
-// fakes (which implement Reader) do not need to grow a new method,
-// and so that future probe-style consumers (e.g. a TUI status
-// pane refresh button) can take just this interface.
+// Prober is the small surface `a10r doctor` consumes for
+// doctor-time probes (reachability, clock skew, and the
+// alertmanager-mount verification ADR 0039 introduced). Defined
+// separately from Reader so the existing test fakes (which
+// implement Reader) do not need to grow new methods, and so that
+// future probe-style consumers (e.g. a TUI status pane refresh
+// button) can take just this interface.
 //
 // vanilla.Client implements it. The mimir constructor wraps a
 // vanilla.Client, so Mimir backends satisfy Prober for free.
@@ -103,4 +105,14 @@ type Prober interface {
 	// Transport / non-2xx failures surface through the same wrapped
 	// error contract as ProbeReady.
 	ProbeReadyAt(ctx context.Context) (time.Time, error)
+
+	// ProbeAlertmanagerMount issues GET against
+	// `<BaseURL>/alertmanager/api/v2/status`, ignoring the client's
+	// configured prefix. Returns nil on a 2xx response, ErrUnauthorized
+	// on 401/403, ErrUnreachable on transport failure, and a plain
+	// wrapped status error otherwise. Used by the doctor AuthChecker
+	// to verify whether adding `prefix: /alertmanager` would fix a
+	// Status() 404 — only a nil return licenses the checker to claim
+	// a verified fix.
+	ProbeAlertmanagerMount(ctx context.Context) error
 }
