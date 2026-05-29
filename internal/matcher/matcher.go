@@ -89,19 +89,23 @@ func ParseOne(s string) (backend.Matcher, error) {
 	}, nil
 }
 
-// LabelPredicate parses s as a single label matcher and returns a
+// LabelPredicate parses s as one or more label matchers and returns a
 // predicate over a label set plus ok=true, for filtering a list by a
 // Prometheus-style selector (`cluster_id=99`, `cluster_id=~9.*`,
-// `cluster_id!=99`, `cluster_id!~prod-.*`).
+// `cluster_id!=99`, `cluster_id!~prod-.*`). Multiple matchers are
+// separated by `,` (or `&&`) and ANDed — `cluster_id=99,role=consul`
+// keeps only series matching both.
 //
 // It returns (nil, false) — telling the caller to fall back to its
 // substring / fuzzy / regex text search — when s carries the footer
 // prompt's text-mode sigils (a leading `~` for fuzzy or `\` for
-// literal), does not parse as a matcher (no operator, e.g. a bare
-// word), or carries an uncompilable regex (so a half-typed pattern
-// degrades to text search rather than dropping every row).
+// literal), or when ANY segment fails to parse as a matcher (no
+// operator, e.g. a bare word) or carries an uncompilable regex. The
+// all-or-nothing rule keeps a plain text query like `foo,bar` in text
+// mode and degrades a half-typed pattern to text search rather than
+// dropping every row.
 //
-// The `=~` / `!~` regex is compiled ONCE here and fully anchored
+// Each `=~` / `!~` regex is compiled ONCE here and fully anchored
 // (`^(?:…)$`) so it matches whole label values — the same semantics
 // Alertmanager applies server-side. A label absent from the set reads
 // as the empty value, so `name!=v` matches series without the label
@@ -115,22 +119,45 @@ func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
 	case '~', '\\':
 		return nil, false
 	}
-	m, err := ParseOne(s)
-	if err != nil {
-		return nil, false
+	segments := strings.Split(strings.ReplaceAll(s, "&&", ","), ",")
+	preds := make([]func(map[string]string) bool, 0, len(segments))
+	for _, seg := range segments {
+		m, err := ParseOne(strings.TrimSpace(seg))
+		if err != nil {
+			return nil, false
+		}
+		pred, err := matcherPredicate(m)
+		if err != nil {
+			return nil, false
+		}
+		preds = append(preds, pred)
 	}
+	return func(labels map[string]string) bool {
+		for _, pred := range preds {
+			if !pred(labels) {
+				return false
+			}
+		}
+		return true
+	}, true
+}
+
+// matcherPredicate compiles a single matcher into a label predicate,
+// returning an error only when a regex matcher's pattern won't compile
+// (the caller treats that as "not a label matcher", per LabelPredicate).
+func matcherPredicate(m backend.Matcher) (func(labels map[string]string) bool, error) {
 	if !m.IsRegex {
 		return func(labels map[string]string) bool {
 			return (labels[m.Name] == m.Value) == m.IsEqual
-		}, true
+		}, nil
 	}
 	re, err := regexp.Compile("^(?:" + m.Value + ")$")
 	if err != nil {
-		return nil, false
+		return nil, err
 	}
 	return func(labels map[string]string) bool {
 		return re.MatchString(labels[m.Name]) == m.IsEqual
-	}, true
+	}, nil
 }
 
 // Parse walks one-matcher-per-line input, returning the parsed
