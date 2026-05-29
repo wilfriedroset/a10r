@@ -185,6 +185,22 @@ func TestFilter_NarrowsView(t *testing.T) {
 	require.Contains(t, p.HeaderContent(), "filter:web")
 }
 
+func TestFilter_LabelMatcherSelectsByLabel(t *testing.T) {
+	t.Parallel()
+	p := newPage(t,
+		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{"cluster_id": "99"}),
+		// fp-2 has the value "99" on a different label (port); a label
+		// matcher on cluster_id must not keep it, where a substring would.
+		instance("fp-2", "warning", backend.AlertStateActive, map[string]string{"cluster_id": "98", "port": "99"}),
+	)
+	require.Len(t, p.view, 2)
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "cluster_id=99"})
+	require.Len(t, p.view, 1)
+	require.Equal(t, "fp-1", p.view[0].a.Fingerprint,
+		"label matcher keeps only the cluster_id=99 instance")
+}
+
 func TestSort_FingerprintTieBreakIsDeterministic(t *testing.T) {
 	t.Parallel()
 	// All identical severity + identical instance label so only the

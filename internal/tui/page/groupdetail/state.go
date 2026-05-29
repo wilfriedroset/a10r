@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -105,12 +106,19 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// filterEntries returns only the entries matching both the substring
-// and state filters. Shares the input backing when nothing filters
-// (recompute owns the slice) to avoid an O(N) copy every poll tick.
+// filterEntries returns only the entries matching both the search and
+// state filters. When the search buffer is a Prometheus label matcher
+// (`cluster_id=99`, `cluster_id=~9.*`, …) it filters by that label
+// predicate; otherwise it runs through footer.NewMatcher (substring /
+// fuzzy / literal / regex over the values). Shares the input backing
+// when nothing filters (recompute owns the slice) to avoid an O(N)
+// copy every poll tick.
 func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
-	matcher := footer.NewMatcher(search)
-	if matcher.MatchAll() && state == "" {
+	if pred, ok := matcher.LabelPredicate(search); ok {
+		return filterByLabel(in, pred, state)
+	}
+	m := footer.NewMatcher(search)
+	if m.MatchAll() && state == "" {
 		return in
 	}
 	out := make([]instanceEntry, 0, len(in))
@@ -118,7 +126,24 @@ func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
 		if state != "" && string(e.a.State) != state {
 			continue
 		}
-		if !matcher.MatchAll() && !matcher.Match(e.lowerComposite) {
+		if !m.MatchAll() && !m.Match(e.lowerComposite) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// filterByLabel keeps entries whose instance labels satisfy the label
+// predicate (and the state filter). Separate from filterEntries' text
+// path so each stays a flat loop rather than a branch-in-loop.
+func filterByLabel(in []instanceEntry, pred func(map[string]string) bool, state string) []instanceEntry {
+	out := make([]instanceEntry, 0, len(in))
+	for _, e := range in {
+		if state != "" && string(e.a.State) != state {
+			continue
+		}
+		if !pred(e.a.Labels) {
 			continue
 		}
 		out = append(out, e)

@@ -9,6 +9,7 @@ package matcher
 
 import (
 	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -86,6 +87,50 @@ func ParseOne(s string) (backend.Matcher, error) {
 		IsRegex: bestOp.isRegex,
 		IsEqual: bestOp.isEqual,
 	}, nil
+}
+
+// LabelPredicate parses s as a single label matcher and returns a
+// predicate over a label set plus ok=true, for filtering a list by a
+// Prometheus-style selector (`cluster_id=99`, `cluster_id=~9.*`,
+// `cluster_id!=99`, `cluster_id!~prod-.*`).
+//
+// It returns (nil, false) — telling the caller to fall back to its
+// substring / fuzzy / regex text search — when s carries the footer
+// prompt's text-mode sigils (a leading `~` for fuzzy or `\` for
+// literal), does not parse as a matcher (no operator, e.g. a bare
+// word), or carries an uncompilable regex (so a half-typed pattern
+// degrades to text search rather than dropping every row).
+//
+// The `=~` / `!~` regex is compiled ONCE here and fully anchored
+// (`^(?:…)$`) so it matches whole label values — the same semantics
+// Alertmanager applies server-side. A label absent from the set reads
+// as the empty value, so `name!=v` matches series without the label
+// (standard Prometheus behaviour).
+func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, false
+	}
+	switch s[0] {
+	case '~', '\\':
+		return nil, false
+	}
+	m, err := ParseOne(s)
+	if err != nil {
+		return nil, false
+	}
+	if !m.IsRegex {
+		return func(labels map[string]string) bool {
+			return (labels[m.Name] == m.Value) == m.IsEqual
+		}, true
+	}
+	re, err := regexp.Compile("^(?:" + m.Value + ")$")
+	if err != nil {
+		return nil, false
+	}
+	return func(labels map[string]string) bool {
+		return re.MatchString(labels[m.Name]) == m.IsEqual
+	}, true
 }
 
 // Parse walks one-matcher-per-line input, returning the parsed

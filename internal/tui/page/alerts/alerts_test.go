@@ -127,6 +127,25 @@ func TestAggregate_FilterNarrowsInstancesThenRegroups(t *testing.T) {
 	require.Equal(t, 1, p.groups[0].count, "COUNT reflects survivors only")
 }
 
+func TestAggregate_LabelMatcherFilterIsKeyScoped(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, map[string]string{"cluster_id": "99"}),
+		// fp2 carries the value "99" on a DIFFERENT label, so a plain
+		// substring search would keep it; the label matcher must not.
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp2", time.Minute, map[string]string{"cluster_id": "98", "port": "99"}),
+	}})
+	require.Len(t, p.groups, 1)
+	require.Equal(t, 2, p.groups[0].count)
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "cluster_id=99"})
+	require.Len(t, p.groups, 1)
+	require.Equal(t, 1, p.groups[0].count,
+		"the label matcher keeps only cluster_id=99, ignoring the port=99 value on fp2")
+}
+
 func TestAggregate_StateFilterReshapesBreakdown(t *testing.T) {
 	t.Parallel()
 

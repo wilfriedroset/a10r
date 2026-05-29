@@ -153,3 +153,46 @@ func TestParseOne_ErrorsAreSentinelsForErrorsIs(t *testing.T) {
 	_, err = matcher.ParseOne("severity=")
 	require.ErrorIs(t, err, matcher.ErrIncompleteMatcher)
 }
+
+func TestLabelPredicate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   string
+		ok      bool
+		labels  map[string]string
+		matches bool
+	}{
+		{name: "equal matches exact value", input: "cluster_id=99", ok: true, labels: map[string]string{"cluster_id": "99"}, matches: true},
+		{name: "equal rejects different value", input: "cluster_id=99", ok: true, labels: map[string]string{"cluster_id": "991"}, matches: false},
+		{name: "equal rejects absent label", input: "cluster_id=99", ok: true, labels: map[string]string{}, matches: false},
+		{name: "regex is fully anchored (full match)", input: "cluster_id=~9.*", ok: true, labels: map[string]string{"cluster_id": "99"}, matches: true},
+		{name: "regex anchored rejects partial", input: "cluster_id=~9", ok: true, labels: map[string]string{"cluster_id": "99"}, matches: false},
+		{name: "regex is case-sensitive (AM semantics, no implicit (?i))", input: "cluster_id=~ABC", ok: true, labels: map[string]string{"cluster_id": "abc"}, matches: false},
+		{name: "embedded anchor compiles and stays well-formed", input: "cluster_id=~^9", ok: true, labels: map[string]string{"cluster_id": "9"}, matches: true},
+		{name: "not-equal matches different", input: "cluster_id!=99", ok: true, labels: map[string]string{"cluster_id": "98"}, matches: true},
+		{name: "not-equal matches absent (empty != value)", input: "cluster_id!=99", ok: true, labels: map[string]string{}, matches: true},
+		{name: "not-equal rejects same", input: "cluster_id!=99", ok: true, labels: map[string]string{"cluster_id": "99"}, matches: false},
+		{name: "regex not-match rejects a match", input: "cluster_id!~prod-.*", ok: true, labels: map[string]string{"cluster_id": "prod-1"}, matches: false},
+		{name: "regex not-match keeps a non-match", input: "cluster_id!~prod-.*", ok: true, labels: map[string]string{"cluster_id": "stg-1"}, matches: true},
+		{name: "quoted value parses", input: `cluster_id="99"`, ok: true, labels: map[string]string{"cluster_id": "99"}, matches: true},
+		{name: "bare word is text mode", input: "web", ok: false},
+		{name: "fuzzy sigil is text mode", input: "~foo", ok: false},
+		{name: "literal sigil is text mode", input: `\foo=1`, ok: false},
+		{name: "leading operator is text mode", input: "=99", ok: false},
+		{name: "empty is text mode", input: "", ok: false},
+		{name: "uncompilable regex falls back to text", input: "cluster_id=~[", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			pred, ok := matcher.LabelPredicate(tt.input)
+			require.Equal(t, tt.ok, ok, "label-vs-text classification")
+			if !tt.ok {
+				require.Nil(t, pred)
+				return
+			}
+			require.Equal(t, tt.matches, pred(tt.labels))
+		})
+	}
+}

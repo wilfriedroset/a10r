@@ -23,27 +23,29 @@ The numeric keys (`0`-`9`) work from any page. Pressing `2` on the alerts list i
 
 ## Filter modes
 
-The `/` prompt classifies its input into one of four matcher modes — there is no "switch the mode" key, the buffer itself decides:
+The `/` prompt classifies its input by the buffer itself — there is no "switch the mode" key:
 
 | Buffer | Mode | When |
 | --- | --- | --- |
+| `name<op>value` (`=`, `!=`, `=~`, `!~`) | label matcher | **Alerts list & group detail only.** A Prometheus-style label selector (e.g. `cluster_id=99`, `cluster_id=~9.*`, `severity!=info`) filters by that exact label — key-scoped, not a value substring. Checked before the modes below; prefix with `\` to force a plain substring instead. |
 | `~<text>` | fuzzy | Leading `~`. The `~` is stripped before matching; the rest is fed to a fuzzy matcher. |
-| `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`). |
+| `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`) or a label matcher (e.g. `\foo=bar`). |
 | `<text>` with two or more distinct regex metacharacters from `. * + ? [ ] ( ) \| ^ $ \` | regex | The body is compiled as a Go regular expression. |
 | anything else | substring | Default — case-insensitive substring over the row's full search corpus (see below). |
 
-The two-meta threshold is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
+The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
 
 ### What `/` actually matches against
 
 The match scope is wider than the visible columns by design — operators want to filter by attributes that aren't always in the table:
 
-- **Alerts list:** every label value (`alertname`, `severity`, `instance`, `cluster`, …) AND every annotation value (`summary`, `description`, runbook URLs). A `/api` search on the alerts page can therefore hit an alert whose `summary` annotation reads "API latency above SLO" even though the alertname is `HighLatency`. Fuzzy mode (`~`) over this corpus is intentionally lenient — it's how you discover an alert when you only remember a fragment of a label nobody put in the name.
+- **Alerts list:** in text mode, every label value (`alertname`, `severity`, `instance`, `cluster`, …) AND every annotation value (`summary`, `description`, runbook URLs) — so `/api` can hit an alert whose `summary` reads "API latency above SLO" even though the alertname is `HighLatency`. In label-matcher mode (`name<op>value`) it filters by the exact label instead; filtering narrows the underlying instances and the page regroups, so COUNT / STATE reflect the survivors.
+- **Group detail (instance list):** same as the alerts list — text mode searches each instance's label/annotation values; `cluster_id=99` filters that instance set by the exact label.
 - **Silences list:** silence ID, creator, comment, state, and every matcher's `name`/`value`.
 - **Groups list:** the group's collapsed label set plus the alertname of each leaf.
 - **Receivers list:** receiver name (single-axis).
 
-If a fuzzy/substring search surfaces matches that look unrelated to the alertname, the hit is almost always an annotation or a non-name label. Use literal mode (`\<text>`) for exact substring matching with no escaping, or regex mode (e.g. `^web` — note the alerts page's composite is unordered so anchors won't reliably pin "alertname only"). Narrowing the default scope to alertname-only is on the backlog for a future release.
+If a fuzzy/substring search surfaces matches that look unrelated to the alertname, the hit is almost always an annotation or a non-name label. To scope to a specific label instead — including the alertname itself — use the label-matcher mode on the alerts list / group detail (e.g. `alertname=HighCPU`, `alertname=~Hi.*`, `severity!=info`). For exact-substring text matching with no escaping, use literal mode (`\<text>`).
 
 ## Vim motions on every table
 

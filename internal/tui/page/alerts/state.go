@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -190,15 +191,20 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// filterEntries returns a new slice containing only entries
-// whose Alert matches both the search and state filters. The
-// search string runs through footer.NewMatcher so a leading `~`
-// flips to fuzzy, a leading `\` to literal substring, and a body
-// with two distinct regex metas to compiled regex — matching the
-// keybindings.md /-prompt contract.
+// filterEntries returns a new slice containing only entries whose
+// Alert matches both the search and state filters. When the search
+// buffer is a Prometheus label matcher (`cluster_id=99`,
+// `cluster_id=~9.*`, …) it filters by that label predicate; otherwise
+// the buffer runs through footer.NewMatcher so a leading `~` flips to
+// fuzzy, a leading `\` to literal substring, and a body with two
+// distinct regex metas to compiled regex — matching the keybindings.md
+// /-prompt contract.
 func filterEntries(in []alertEntry, search, state string) []alertEntry {
-	matcher := footer.NewMatcher(search)
-	if matcher.MatchAll() && state == "" {
+	if pred, ok := matcher.LabelPredicate(search); ok {
+		return filterByLabel(in, pred, state)
+	}
+	m := footer.NewMatcher(search)
+	if m.MatchAll() && state == "" {
 		// `in` is recompute's local `flat` slice, consumed only by
 		// aggregate() which reads it without retaining it. Returning it
 		// unchanged avoids an O(N) copy that would fire every poll tick.
@@ -209,7 +215,24 @@ func filterEntries(in []alertEntry, search, state string) []alertEntry {
 		if state != "" && string(e.a.State) != state {
 			continue
 		}
-		if !matcher.MatchAll() && !matcher.Match(e.lowerComposite) {
+		if !m.MatchAll() && !m.Match(e.lowerComposite) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// filterByLabel keeps entries whose alert labels satisfy the label
+// predicate (and the state filter). Separate from filterEntries' text
+// path so each stays a flat loop rather than a branch-in-loop.
+func filterByLabel(in []alertEntry, pred func(map[string]string) bool, state string) []alertEntry {
+	out := make([]alertEntry, 0, len(in))
+	for _, e := range in {
+		if state != "" && string(e.a.State) != state {
+			continue
+		}
+		if !pred(e.a.Labels) {
 			continue
 		}
 		out = append(out, e)
