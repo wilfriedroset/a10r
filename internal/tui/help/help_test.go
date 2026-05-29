@@ -279,6 +279,11 @@ func TestHelp_DismissKeysEmitClosed(t *testing.T) {
 		{name: "q", key: tea.KeyPressMsg{Code: 'q', Text: "q"}},
 		{name: "esc", key: tea.KeyPressMsg{Code: tea.KeyEscape}},
 		{name: "question-mark", key: tea.KeyPressMsg{Code: '?', Text: "?"}},
+		// Space no longer scrolls the overlay — it dismisses like any
+		// other non-scroll key. Space is the mark reflex on every list
+		// page; binding it to a half-page scroll inside the very surface
+		// that teaches the keymap was a muscle-memory collision.
+		{name: "space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -315,7 +320,6 @@ func TestHelp_ScrollKeysDoNotDismiss(t *testing.T) {
 		{name: "pgup", key: tea.KeyPressMsg{Code: tea.KeyPgUp}},
 		{name: "home", key: tea.KeyPressMsg{Code: tea.KeyHome}},
 		{name: "end", key: tea.KeyPressMsg{Code: tea.KeyEnd}},
-		{name: "space", key: tea.KeyPressMsg{Code: tea.KeySpace}},
 		{name: "ctrl+d", key: tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl}},
 		{name: "ctrl+u", key: tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}},
 		{name: "ctrl+f", key: tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl}},

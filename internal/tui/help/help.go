@@ -139,8 +139,10 @@ func New(opts Options) *Help { return &Help{opts: opts} }
 // routes here while the overlay is open. Most keys dismiss
 // (it's read-only — `?` toggles off, `Esc` and `q` close it),
 // but the standard vim-style scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/
-// Ctrl+F/Ctrl+B plus the arrow / page-nav keys and Space) walk
-// the scroll offset instead. Wheel-only scrolling is
+// Ctrl+F/Ctrl+B plus the arrow / page-nav keys) walk the scroll
+// offset instead. Space is deliberately not among them — it's the
+// mark reflex on every list page, so it dismisses here rather than
+// scrolling. Wheel-only scrolling is
 // undiscoverable — a user reflexively pressing j/k to scroll a
 // long help body would otherwise close the overlay on the first
 // keystroke. Click / motion events arrive only while the App's
@@ -183,7 +185,7 @@ func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 //
 //   - j / down: line down
 //   - k / up:   line up
-//   - pgdown / space: half-page down
+//   - pgdown:   half-page down
 //   - pgup:     half-page up
 //   - ctrl+d / ctrl+u: half-page down / up (canonical vim)
 //   - ctrl+f / ctrl+b: full-page down / up (canonical vim)
@@ -203,7 +205,7 @@ func (h *Help) scrollByKey(key string) bool {
 		h.scroll++
 	case "k", "up":
 		h.scroll--
-	case "pgdown", "space", "ctrl+d":
+	case "pgdown", "ctrl+d":
 		h.scroll += half
 	case "pgup", "ctrl+u":
 		h.scroll -= half
