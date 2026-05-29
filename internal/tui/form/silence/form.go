@@ -29,6 +29,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // Client is the writeable-silences surface shared with the
@@ -150,8 +151,14 @@ type Options struct {
 	Creator  string
 	Matchers []backend.Matcher
 	Comment  string
-	// EndsAt prefills the ends field with an RFC3339 timestamp when
-	// non-zero. Zero keeps the "2h" placeholder default.
+	// EndsAt prefills the ends field when non-zero, in the same local
+	// zone-less layout the lists/detail display (timerender.Display
+	// Absolute) so an `e` form shows the format the operator already
+	// reads elsewhere. Second precision, matching the display: a
+	// backend timestamp's sub-seconds are dropped, so re-submitting
+	// without edits floors EndsAt to the whole second on screen —
+	// harmless for silence boundaries and the point of "edit what you
+	// see". Zero keeps the "2h" placeholder default.
 	EndsAt time.Time
 	// EditID switches submit to UpdateSilence(id). Empty → create.
 	EditID string
@@ -219,7 +226,7 @@ func New(opts Options) *Form {
 		// the shape is discoverable; parseEndsAt rejects empty at
 		// submit time to make this an actual guard, not a hint.
 	case !opts.EndsAt.IsZero():
-		ends.SetValue(opts.EndsAt.UTC().Format(time.RFC3339))
+		ends.SetValue(timerender.Display(timerender.Absolute, time.Time{}, opts.EndsAt))
 	default:
 		ends.SetValue("2h")
 	}

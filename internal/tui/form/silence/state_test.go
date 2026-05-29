@@ -54,6 +54,7 @@ func TestParseEndsAt_DurationShorthand(t *testing.T) {
 		{name: "7d shorthand resolves to base+7d", in: "7d", wantTime: base.Add(7 * 24 * time.Hour)},
 		{name: "mixed-unit shorthand", in: "2h30m", wantTime: base.Add(2*time.Hour + 30*time.Minute)},
 		{name: "rfc3339 timestamp still parses", in: "2026-04-25T14:00:00Z", wantTime: time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)},
+		{name: "zone-less timestamp read as local", in: "2026-06-01 10:00:00", wantTime: time.Date(2026, 6, 1, 10, 0, 0, 0, time.Local)}, //nolint:gosmopolitan // asserts the local-time contract
 
 		{name: "empty surfaces blank-ends sentinel", in: "", wantErr: "ends is required"},
 		{name: "capital M tailored", in: "1M", wantErr: "M is not a unit; m means minute (1m=60s); use 30d if you meant ~month"},
@@ -76,25 +77,80 @@ func TestParseEndsAt_DurationShorthand(t *testing.T) {
 	}
 }
 
-// TestParseEndsAt_NoLetterFallsBackToRFC3339Error pins the
-// disambiguation rule: when the input contains no letter that
-// could be a unit attempt (digits, dashes, colons), the failing
-// duration parse defers to RFC3339 so the operator sees the
-// timestamp parser's error rather than the misleading "not a
-// duration" message. Asserting on `*time.ParseError` (rather than
-// the wrapped message text) is tight against the contract — the
-// stdlib message string is implementation detail and could shift
-// across Go versions; the type is the guarantee.
-func TestParseEndsAt_NoLetterFallsBackToRFC3339Error(t *testing.T) {
+// TestParseAbsTime covers the absolute-timestamp grammar shared by
+// the Starts and Ends fields: full RFC3339 (with Z or an offset)
+// keeps its instant, while the zone-less shapes an operator reads
+// back off the display (timerender.absoluteFormat, ISO local) are
+// interpreted in time.Local. Anything else returns ok=false so the
+// caller can surface a friendly hint instead of leaking stdlib's
+// layout string.
+func TestParseAbsTime(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want time.Time
+		ok   bool
+	}{
+		{name: "rfc3339 Z keeps utc instant", in: "2026-06-01T10:00:00Z", want: time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC), ok: true},
+		{name: "rfc3339 offset keeps instant", in: "2026-06-01T10:00:00+02:00", want: time.Date(2026, 6, 1, 8, 0, 0, 0, time.UTC), ok: true},
+		{name: "zone-less T read as local", in: "2026-06-01T10:00:00", want: time.Date(2026, 6, 1, 10, 0, 0, 0, time.Local), ok: true},          //nolint:gosmopolitan // asserts the local-time contract
+		{name: "display format space read as local", in: "2026-06-01 10:00:00", want: time.Date(2026, 6, 1, 10, 0, 0, 0, time.Local), ok: true}, //nolint:gosmopolitan // asserts the local-time contract
+		{name: "minute precision read as local", in: "2026-06-01 10:00", want: time.Date(2026, 6, 1, 10, 0, 0, 0, time.Local), ok: true},        //nolint:gosmopolitan // asserts the local-time contract
+		{name: "date only is local midnight", in: "2026-06-01", want: time.Date(2026, 6, 1, 0, 0, 0, 0, time.Local), ok: true},                  //nolint:gosmopolitan // asserts the local-time contract
+
+		{name: "z and offset together rejected", in: "2026-06-01T10:00:00Z02:00", ok: false},
+		{name: "garbage rejected", in: "soon", ok: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, ok := parseAbsTime(tc.in)
+			require.Equal(t, tc.ok, ok)
+			if tc.ok {
+				require.True(t, got.Equal(tc.want), "want %s, got %s", tc.want, got)
+			}
+		})
+	}
+}
+
+// TestParseEndsAt_InvalidTimestampFriendlyError pins the no-letter
+// fallback: a timestamp-shaped input that parses as neither a
+// duration nor any accepted layout surfaces the friendly hint, not
+// stdlib's `*time.ParseError` layout string and not the "not a
+// duration" message (the input carried no unit letter, so the
+// operator was reaching for a timestamp).
+func TestParseEndsAt_InvalidTimestampFriendlyError(t *testing.T) {
 	t.Parallel()
 	base := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-	_, err := parseEndsAt("2026-04-25", base)
-	require.Error(t, err)
-	require.NotContains(t, err.Error(), "not a duration",
-		"a digit-and-dash input must surface the RFC3339 parse error, not the duration grammar message")
+	_, err := parseEndsAt("2026-06-01T10:00:00Z02:00", base)
+	require.EqualError(t, err,
+		"not a valid time (try 2h, or a timestamp like 2026-06-01 10:00:00, optionally Z or +02:00)")
 	var perr *time.ParseError
-	require.ErrorAs(t, err, &perr,
-		"the RFC3339 fallback should surface stdlib's typed *time.ParseError")
+	require.NotErrorAs(t, err, &perr, "stdlib's layout error must not leak to the operator")
+}
+
+// TestParseTimeOrNow covers the Starts field: empty / "now" yield
+// the supplied now, accepted timestamps parse (zone-less as local),
+// and garbage surfaces the friendly hint without the duration cue
+// the Starts field has no use for.
+func TestParseTimeOrNow(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+
+	for _, in := range []string{"", "now", "  now  "} {
+		got, err := parseTimeOrNow(in, now)
+		require.NoError(t, err)
+		require.True(t, got.Equal(now), "%q should resolve to now", in)
+	}
+
+	got, err := parseTimeOrNow("2026-06-01 10:00:00", now)
+	require.NoError(t, err)
+	require.True(t, got.Equal(time.Date(2026, 6, 1, 10, 0, 0, 0, time.Local))) //nolint:gosmopolitan // asserts the local-time contract
+
+	_, err = parseTimeOrNow("whenever", now)
+	require.EqualError(t, err,
+		"not a valid time (use now or a timestamp like 2026-06-01 10:00:00, optionally Z or +02:00)")
 }
 
 func TestMatchersFromLabels_DropsNameAndSorts(t *testing.T) {

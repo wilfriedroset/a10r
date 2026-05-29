@@ -55,28 +55,62 @@ func (f *Form) parseSpec() (backend.SilenceSpec, error) {
 }
 
 // parseTimeOrNow returns now when in is empty / "now"; otherwise
-// parses RFC3339.
+// parses an absolute timestamp (see parseAbsTime).
 func parseTimeOrNow(in string, now time.Time) (time.Time, error) {
 	in = strings.TrimSpace(in)
 	if in == "" || in == "now" {
 		return now, nil
 	}
-	return time.Parse(time.RFC3339, in)
+	if t, ok := parseAbsTime(in); ok {
+		return t, nil
+	}
+	return time.Time{}, errors.New("not a valid time (use now or a timestamp like 2026-06-01 10:00:00, optionally Z or +02:00)")
+}
+
+// absTimeLocalLayouts are the zone-less timestamp shapes the
+// Starts / Ends fields accept, read in time.Local. They mirror the
+// ISO-local layout the app displays (timerender.absoluteFormat) so
+// an operator can type back the value shown on screen — with either
+// a `T` or a space separator, and with seconds or the date alone —
+// instead of hand-appending the offset strict RFC3339 demands.
+var absTimeLocalLayouts = []string{
+	"2006-01-02T15:04:05",
+	"2006-01-02T15:04",
+	"2006-01-02 15:04:05",
+	"2006-01-02 15:04",
+	"2006-01-02",
+}
+
+// parseAbsTime parses an absolute timestamp. Full RFC3339 (with `Z`
+// or an explicit offset) keeps its instant; the zone-less layouts
+// are interpreted in time.Local. ok is false for any other input so
+// the caller surfaces a field-appropriate hint rather than stdlib's
+// raw layout error.
+func parseAbsTime(in string) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339, in); err == nil {
+		return t, true
+	}
+	for _, layout := range absTimeLocalLayouts {
+		//nolint:gosmopolitan // local time is the explicit operator-facing choice (mirrors timerender.absolute)
+		if t, err := time.ParseInLocation(layout, in, time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // parseEndsAt accepts either a Duration shorthand ("2h", "7d",
-// "1w2d3h") relative to base, or an RFC3339 timestamp. Empty input
-// is a validation error so the BlankEnds entry point
-// (recreate-expired) can't be Ctrl+S'd through with no duration
-// typed — the field's "2h" placeholder is a hint, not a default.
-// The `n` and `e` flows pre-fill a non-empty value so they never
-// hit the empty branch.
+// "1w2d3h") relative to base, or an absolute timestamp
+// (see parseAbsTime). Empty input is a validation error so the
+// BlankEnds entry point (recreate-expired) can't be Ctrl+S'd
+// through with no duration typed — the field's "2h" placeholder is
+// a hint, not a default. The `n` and `e` flows pre-fill a non-empty
+// value so they never hit the empty branch.
 //
 // Disambiguation: when the duration parse fails AND the input
 // carries a letter that could be a unit attempt, the duration
 // error wins so a `7days`-shaped typo surfaces the Duration
-// shorthand grammar rather than the misleading RFC3339 layout
-// error stdlib emits.
+// shorthand grammar rather than the misleading timestamp error.
 func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
@@ -89,21 +123,24 @@ func parseEndsAt(in string, base time.Time) (time.Time, error) {
 	if containsUnitLetter(in) {
 		return time.Time{}, durErr
 	}
-	return time.Parse(time.RFC3339, in)
+	if t, ok := parseAbsTime(in); ok {
+		return t, nil
+	}
+	return time.Time{}, errors.New("not a valid time (try 2h, or a timestamp like 2026-06-01 10:00:00, optionally Z or +02:00)")
 }
 
 // containsUnitLetter reports whether s carries any letter the
 // Duration shorthand grammar (or its rejected capitals) would
 // recognise as a unit attempt. Drives the parseEndsAt
 // disambiguation: a letter-bearing input means the operator was
-// reaching for a duration, not an RFC3339 timestamp.
+// reaching for a duration, not an absolute timestamp.
 //
 // The capital set is broader than the three the parser names in
 // its tailored messages (M/W/Y). `D/H/S` aren't load-bearing for
 // the friendly capital errors but a caps-locked operator typing
-// `1D` should still see the duration error, not the RFC3339
-// layout error — RFC3339 has no `D/H/S` letter anywhere, so any
-// letter at all is enough to disambiguate the intent.
+// `1D` should still see the duration error, not the timestamp
+// hint — the accepted timestamp layouts carry no `D/H/S` letter
+// anywhere, so any letter at all disambiguates the intent.
 func containsUnitLetter(s string) bool {
 	for i := range len(s) {
 		switch s[i] {

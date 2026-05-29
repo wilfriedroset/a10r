@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 func TestForm_BlankEndsLeavesFieldEmpty(t *testing.T) {
@@ -176,9 +177,17 @@ func TestForm_PrefillMatchers(t *testing.T) {
 	require.Equal(t, want, f.matchers.Value())
 }
 
+// TestForm_PrefillEndsAt pins "edit what you see": the prefill must
+// match the local zone-less layout the lists/detail display (via
+// timerender.Display Absolute), not RFC3339-UTC — otherwise an `e`
+// form reads a different format than every other view. Asserting
+// against the same renderer keeps the two in lockstep regardless of
+// the test host's zone. The sub-second fixture pins the deliberate
+// truncation: prefill round-trips only to the displayed second, not
+// the original instant's nanos (see Options.EndsAt).
 func TestForm_PrefillEndsAt(t *testing.T) {
 	t.Parallel()
-	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 0, time.UTC)
+	endsAt := time.Date(2026, 4, 25, 14, 0, 0, 523_000_000, time.UTC)
 	f := New(Options{
 		Clients: map[string]Client{defaultTenant: &fakeClient{}},
 		Tenant:  defaultTenant,
@@ -187,7 +196,12 @@ func TestForm_PrefillEndsAt(t *testing.T) {
 		Creator: "alice",
 		EndsAt:  endsAt,
 	})
-	require.Equal(t, "2026-04-25T14:00:00Z", f.ends.Value())
+	require.Equal(t, timerender.Display(timerender.Absolute, time.Time{}, endsAt), f.ends.Value())
+
+	got, ok := parseAbsTime(f.ends.Value())
+	require.True(t, ok, "prefilled value must parse back")
+	require.True(t, got.Equal(endsAt.Truncate(time.Second)),
+		"prefill round-trips to the displayed second; sub-seconds are intentionally dropped")
 }
 
 func TestForm_PrefillEndsAtZeroKeepsDefault(t *testing.T) {
