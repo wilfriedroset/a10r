@@ -1565,6 +1565,25 @@ func TestPage_ConfirmYesCallsExpireSilence(t *testing.T) {
 	require.Empty(t, p.pendingExpire.ids, "pending state must clear after confirm round")
 }
 
+// TestPage_DeleteKeyExpiresLikeX proves the documented `Delete`
+// alias for expire (keybindings.md) actually routes to the same
+// confirm-then-expire path as `x`. The page switches on the raw
+// lowercase key string, where Delete arrives as "delete".
+func TestPage_DeleteKeyExpiresLikeX(t *testing.T) {
+	t.Parallel()
+	fake := &fakeSilenceClient{}
+	p := pageWithRows(t, fake, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+
+	flashCmd := runBulk(t, p)
+	msg := flashCmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Contains(t, msg.Text, "silence expired")
+	fake.mu.Lock()
+	require.Equal(t, []string{"sil-a"}, fake.expiredIDs)
+	fake.mu.Unlock()
+}
+
 func TestPage_ConfirmNoIsNoop(t *testing.T) {
 	t.Parallel()
 	fake := &fakeSilenceClient{}

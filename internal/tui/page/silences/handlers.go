@@ -145,7 +145,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "e":
 		cmd := p.runWriteAction(p.openEditSilenceForm)
 		return p, cmd
-	case "x":
+	case "x", "delete":
 		cmd := p.runWriteAction(p.openExpireConfirmUnified)
 		return p, cmd
 	case "space":
