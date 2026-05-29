@@ -94,7 +94,9 @@ func ParseOne(s string) (backend.Matcher, error) {
 // Prometheus-style selector (`cluster_id=99`, `cluster_id=~9.*`,
 // `cluster_id!=99`, `cluster_id!~prod-.*`). Multiple matchers are
 // separated by `,` (or `&&`) and ANDed — `cluster_id=99,role=consul`
-// keeps only series matching both.
+// keeps only series matching both. A `,` / `&&` INSIDE a double-quoted
+// value is literal, not a separator, so a regex value can carry one:
+// `cluster_id=~"(a,b)"` (quote-aware, like Prometheus).
 //
 // It returns (nil, false) — telling the caller to fall back to its
 // substring / fuzzy / regex text search — when s carries the footer
@@ -119,7 +121,7 @@ func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
 	case '~', '\\':
 		return nil, false
 	}
-	segments := strings.Split(strings.ReplaceAll(s, "&&", ","), ",")
+	segments := splitMatchers(s)
 	preds := make([]func(map[string]string) bool, 0, len(segments))
 	for _, seg := range segments {
 		m, err := ParseOne(strings.TrimSpace(seg))
@@ -140,6 +142,44 @@ func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
 		}
 		return true
 	}, true
+}
+
+// splitMatchers breaks a multi-matcher selector into its segments on
+// top-level `,` and `&&`, treating separators inside a double-quoted
+// value as literal so a quoted regex can carry them
+// (`cluster_id=~"(a,b)"` stays one matcher). A backslash escapes the
+// next byte — including a `"` — so it neither toggles the quote state
+// nor splits, mirroring Prometheus's quoted-value handling. Operates
+// byte-wise; the separator/quote/escape bytes are all ASCII, so
+// multi-byte values pass through untouched.
+func splitMatchers(s string) []string {
+	var (
+		segs    []string
+		cur     strings.Builder
+		inQuote bool
+	)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\\' && i+1 < len(s):
+			cur.WriteByte(c)
+			i++
+			cur.WriteByte(s[i])
+		case c == '"':
+			inQuote = !inQuote
+			cur.WriteByte(c)
+		case !inQuote && c == ',':
+			segs = append(segs, cur.String())
+			cur.Reset()
+		case !inQuote && c == '&' && i+1 < len(s) && s[i+1] == '&':
+			segs = append(segs, cur.String())
+			cur.Reset()
+			i++
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	return append(segs, cur.String())
 }
 
 // matcherPredicate compiles a single matcher into a label predicate,

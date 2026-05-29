@@ -27,7 +27,7 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 | Buffer | Mode | When |
 | --- | --- | --- |
-| `name<op>value` (`=`, `!=`, `=~`, `!~`) | label matcher | **Alerts list & group detail only.** A Prometheus-style label selector (e.g. `cluster_id=99`, `cluster_id=~9.*`, `severity!=info`) filters by that exact label — key-scoped, not a value substring. Combine several with `,` (or `&&`) to AND them: `cluster_id=99,role=consul`. Checked before the modes below; prefix with `\` to force a plain substring instead. |
+| `name<op>value` (`=`, `!=`, `=~`, `!~`) | label matcher | **Alerts list & group detail only.** A Prometheus-style label selector (e.g. `cluster_id=99`, `cluster_id=~9.*`, `severity!=info`) filters by that exact label — key-scoped, not a value substring. Combine several with `,` (or `&&`) to AND them: `cluster_id=99,role=consul`. Quote a value to keep a literal `,` inside a regex: `cluster_id=~"(a,b)"`. Checked before the modes below; prefix with `\` to force a plain substring instead. |
 | `~<text>` | fuzzy | Leading `~`. The `~` is stripped before matching; the rest is fed to a fuzzy matcher. |
 | `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`) or a label matcher (e.g. `\foo=bar`). |
 | `<text>` with two or more distinct regex metacharacters from `. * + ? [ ] ( ) \| ^ $ \` | regex | The body is compiled as a Go regular expression. |
