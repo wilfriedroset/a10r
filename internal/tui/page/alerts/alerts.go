@@ -512,7 +512,7 @@ func (p *Page) Bindings() []action.Action {
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: "alerts"},
-		action.Action{Key: "Space", Description: "mark", View: "alerts"},
+		action.Action{Key: "Space", Description: "mark", View: "alerts", Shared: true},
 		action.Action{Key: "s", Description: "silence", View: "alerts", Dangerous: true},
 		action.Action{Key: "/", Description: "filter", View: "alerts"},
 		action.Action{Key: "Shift+F", Description: "state filter", View: "alerts"},

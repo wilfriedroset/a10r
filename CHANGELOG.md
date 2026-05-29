@@ -85,11 +85,13 @@ shell.
   backend status fan-out is a v0.2 concern; the body still
   reflects the latest poll).
 - Help overlay rebuilt as a k9s-style four-column layout
-  (RESOURCE / GENERAL / NAVIGATION / HOTKEYS) inside the App's
-  outer panel border. RESOURCE auto-merges the tenant numeric
-  list with the active page's verbs; HOTKEYS auto-collects
-  page-bound `Shift+*` sort shortcuts. Read-only mode filters
-  Dangerous out of both halves.
+  (RESOURCE / GENERAL / NAVIGATION / COMMANDS) inside the App's
+  outer panel border. Each binding renders under exactly one
+  heading, mirroring k9s: RESOURCE merges the tenant numeric list
+  with the active page's verbs and its `Shift+*` sort shortcuts;
+  the cross-cutting `Space` mark folds into GENERAL; NAVIGATION is
+  pure cursor motion. Chips render bold with the numeric tenant
+  keys in a distinct colour. Read-only mode filters Dangerous out.
 - Per-page polling fan-out: every entry in `cfg.Backends` gets
   its own poller emitting `poll.DataMsg` tagged with its tenant
   name. List pages can union the snapshots into a `byTenant`

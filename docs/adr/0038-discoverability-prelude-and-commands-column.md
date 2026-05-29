@@ -1,5 +1,10 @@
 # 0038 — Hint grid grows a curated global prelude, help overlay grows a COMMANDS column
 
+> Update (k9s help parity): the HOTKEYS column was later removed —
+> a10r has no user-hotkey feature and the `Shift+*` sorts moved to
+> RESOURCE, matching k9s. The overlay is now four columns:
+> RESOURCE | GENERAL | NAVIGATION | COMMANDS.
+
 The **hint grid** in the top panel was strictly "page bindings" — a
 verbatim render of the active page's `Bindings()`. The **help
 overlay** had four columns (RESOURCE / GENERAL / NAVIGATION /

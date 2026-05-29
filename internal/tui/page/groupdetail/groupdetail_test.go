@@ -403,3 +403,25 @@ func TestTitle_CountsAndFilteredForm(t *testing.T) {
 	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: webFilter})
 	require.Equal(t, "HighLatency(prod)[1/2]", p.Title())
 }
+
+// TestBindings_MarkIsShared pins the help-routing contract: the
+// table-wide Space/mark verb is flagged Shared so the help overlay
+// folds it into GENERAL (k9s parity) instead of doubling it in
+// RESOURCE. Forgetting the flag silently regresses the column layout.
+func TestBindings_MarkIsShared(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+	})
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "Space" {
+			found = true
+			require.True(t, b.Shared, "Space/mark must be Shared so it folds into GENERAL")
+		}
+	}
+	require.True(t, found, "group detail binds Space/mark")
+}

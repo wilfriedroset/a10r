@@ -52,6 +52,15 @@ type Action struct {
 	// The dispatcher surfaces a flash hint when a Bulk action
 	// fires with no rows marked rather than silently no-oping.
 	Bulk bool
+
+	// Shared flags a cross-cutting binding a page declares for its
+	// hint strip but that is not view-specific — the table-wide
+	// `Space`/mark verb every list page reuses. Mirrors k9s's
+	// KeyAction.Shared: the help overlay folds these into the
+	// GENERAL column instead of RESOURCE so a shared verb reads once,
+	// under the cross-cutting heading, rather than per page. The
+	// footer hint strip ignores the flag and still lists the binding.
+	Shared bool
 }
 
 // ChipKey is the precedence point for chip rendering: DisplayKey

@@ -1,24 +1,32 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package help renders the k9s-style help overlay opened by `?`.
-// The view is a bordered box titled "Help" hosting five columns:
+// The view is a bordered box titled "Help" hosting four columns:
 //
-//		RESOURCE  |  GENERAL  |  NAVIGATION  |  HOTKEYS  |  COMMANDS
+//		RESOURCE  |  GENERAL  |  NAVIGATION  |  COMMANDS
 //
-//	  - RESOURCE lists the active page's verbs plus the global
-//	    numeric tenant quick-switch (`<0>` all, `<1>`-`<9>` per
-//	    configured backend) — the one column that actually depends
-//	    on what the user is looking at.
+//	  - RESOURCE lists the active page's view-specific verbs (drill,
+//	    silence, the `Shift+`-letter sort shortcuts, …) plus the
+//	    global numeric tenant quick-switch (`<0>` all, `<1>`-`<9>` per
+//	    configured backend) — the one column that actually depends on
+//	    what the user is looking at. Sorts live here, not in a
+//	    separate column, matching k9s where every view binding
+//	    (`Sort Age`, `Sort Name`, …) sits under RESOURCE.
 //	  - GENERAL is the curated globals catalogue (`:cmd` `/` `?`
-//	    `Esc` `q` `Ctrl+C` `Ctrl+T` `r`).
-//	  - NAVIGATION is the table-context vim motions (`j` `k` `gg`
-//	    `G` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B` `h` `l`).
-//	  - HOTKEYS holds page-specific sort and filter shortcuts when
-//	    the active page exposes them; empty when the page doesn't.
+//	    `Esc` `q` `Ctrl+C` `Ctrl+T` `r`) plus the active page's
+//	    cross-cutting Shared verbs (`Space` mark), mirroring k9s
+//	    where mark lives under GENERAL on every table view.
+//	  - NAVIGATION is the table-context vim motions only (`j` `k`
+//	    `h` `l` `gg` `G` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B`) — pure
+//	    cursor movement, no verbs, per the k9s column split.
 //	  - COMMANDS lists the `:`-bar built-in aliases folded by synonym
 //	    (`silences, sil`) plus a `USER` sub-section showing
 //	    `short → expanded` rows when the operator has registered any
 //	    custom aliases (ADR 0038).
+//
+// Chips render bold in the key colour, with the numeric tenant
+// quick-switch keys (`<0>`-`<9>`) in the distinct num-key colour —
+// k9s's menu styling (`KeyColor` vs `NumKeyColor`, both bold).
 //
 // Read-only mode hides every Dangerous binding from RESOURCE.
 package help
@@ -50,11 +58,13 @@ type Options struct {
 	// column heading and is shown in the title strip.
 	PageName string
 
-	// PageBindings is the active page's Bindings() output. Auto-
-	// split inside the modal: shortcuts whose Key begins with
-	// "Shift+" land in the HOTKEYS column (sort/filter shortcuts
-	// match the k9s shape) and everything else lands in RESOURCE.
-	// Both halves go through the ReadOnly filter.
+	// PageBindings is the active page's Bindings() output. Rendered
+	// in RESOURCE (after the ReadOnly filter) — including the
+	// `Shift+`-letter sort shortcuts, which k9s keeps under RESOURCE
+	// rather than a separate column. Two exceptions are reorganised
+	// by columns(): Shared verbs (`Space` mark) fold into GENERAL,
+	// and verbs whose key a global or table motion already owns are
+	// dropped so each chip renders under exactly one heading.
 	PageBindings []action.Action
 
 	// Globals is the `keybindings.md §Global` list rendered in the
@@ -78,7 +88,7 @@ type Options struct {
 	// first. The COMMANDS column folds each group onto a single
 	// row (`silences, sil`) so the catalogue reads as a flat
 	// resource list. Empty / nil renders just the heading so the
-	// 5-column layout stays uniform across boot states.
+	// 4-column layout stays uniform across boot states.
 	Commands []cmdbar.AliasGroup
 
 	// UserCommands is the user-registered alias catalogue. Rendered
@@ -226,7 +236,7 @@ func (h *Help) clampScroll() {
 	}
 }
 
-// View renders the five columns into the rectangle the app shell
+// View renders the four columns into the rectangle the app shell
 // hands over. The outer frame is drawn by the app, not by this view.
 func (h *Help) View(width, height int) string {
 	if width <= 0 || height <= 0 {
@@ -280,18 +290,87 @@ func maxScrollOffset(cols [][]string, height int) int {
 // gap math stays uniform across the TUI.
 const colGap = 2
 
-// columns builds the five column bodies (heading + entry list each)
+// columns builds the four column bodies (heading + entry list each)
 // in display order. Each entry is already styled so the row joiner
 // can pad without re-measuring.
+//
+// The k9s rule is that every binding lives under exactly one heading.
+// Pages re-advertise cross-cutting bindings on their hint strip (the
+// global `/` filter and `r` refresh, the table-wide `Space` mark), so
+// the overlay reorganises the page's verbs before rendering: Shared
+// verbs (mark) fold into GENERAL; verbs whose key a global or a table
+// motion already owns are dropped from RESOURCE; the rest — sorts
+// included — stay in RESOURCE.
 func (h *Help) columns() [][]string {
-	verbs, hotkeys := splitVerbsHotkeys(h.opts.PageBindings, h.opts.ReadOnly)
+	verbs := filterDangerous(h.opts.PageBindings, h.opts.ReadOnly)
+	shared, verbs := partitionShared(verbs)
+	verbs = dropReserved(verbs, h.opts.Globals, h.opts.TableMotions)
 	return [][]string{
 		h.resourceColumn(verbs),
-		h.staticColumn("GENERAL", h.opts.Globals),
+		h.staticColumn("GENERAL", mergeGeneral(h.opts.Globals, shared)),
 		h.staticColumn("NAVIGATION", h.opts.TableMotions),
-		h.staticColumn("HOTKEYS", hotkeys),
 		h.commandsColumn(),
 	}
+}
+
+// partitionShared splits page verbs into the k9s "shared" set (the
+// cross-cutting `Space`/mark every list page reuses) and the
+// view-specific remainder. Shared verbs render in GENERAL alongside
+// the dispatcher globals — mirroring k9s, where mark lives under
+// GENERAL on every table view — while the remainder stays in RESOURCE.
+func partitionShared(verbs []action.Action) (shared, rest []action.Action) {
+	for _, a := range verbs {
+		if a.Shared {
+			shared = append(shared, a)
+			continue
+		}
+		rest = append(rest, a)
+	}
+	return shared, rest
+}
+
+// dropReserved removes any RESOURCE verb whose key already appears in
+// the GENERAL (globals) or NAVIGATION (table motions) column. A page
+// surfaces `/` filter and `r` refresh on its hint strip for
+// discoverability even though both are globals; the overlay drops the
+// RESOURCE copy so each chip renders once, under the cross-cutting
+// heading that owns it.
+func dropReserved(verbs, globals, motions []action.Action) []action.Action {
+	reserved := make(map[string]struct{}, len(globals)+len(motions))
+	for _, a := range globals {
+		reserved[a.Key] = struct{}{}
+	}
+	for _, a := range motions {
+		reserved[a.Key] = struct{}{}
+	}
+	out := make([]action.Action, 0, len(verbs))
+	for _, a := range verbs {
+		if _, dup := reserved[a.Key]; dup {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// mergeGeneral appends the shared page verbs to the dispatcher globals
+// for the GENERAL column, skipping any whose key a global already
+// advertises so the column never doubles a chip.
+func mergeGeneral(globals, shared []action.Action) []action.Action {
+	seen := make(map[string]struct{}, len(globals))
+	for _, a := range globals {
+		seen[a.Key] = struct{}{}
+	}
+	out := make([]action.Action, 0, len(globals)+len(shared))
+	out = append(out, globals...)
+	for _, a := range shared {
+		if _, dup := seen[a.Key]; dup {
+			continue
+		}
+		seen[a.Key] = struct{}{}
+		out = append(out, a)
+	}
+	return out
 }
 
 // synonymJoiner separates the canonical and short names on a
@@ -305,7 +384,7 @@ const (
 )
 
 // commandsColumn renders the ADR 0038 catalogue. The heading stays
-// in place even when every catalogue is empty so the 5-column
+// in place even when every catalogue is empty so the 4-column
 // layout is stable across boot states (no commands wired yet) and
 // shell states (no user aliases configured).
 func (h *Help) commandsColumn() []string {
@@ -353,25 +432,9 @@ func (h *Help) resourceColumn(verbs []action.Action) []string {
 	return h.alignedColumn("RESOURCE", parts)
 }
 
-// splitVerbsHotkeys partitions the page's bindings into RESOURCE-
-// column verbs (mark / drill / silence / filter / state-cycle) and
-// HOTKEYS-column shortcuts (sort columns, anything with a `Shift+`
-// prefix). Read-only filters Dangerous out of both halves.
-func splitVerbsHotkeys(in []action.Action, readOnly bool) (verbs, hotkeys []action.Action) {
-	for _, a := range filterDangerous(in, readOnly) {
-		if strings.HasPrefix(a.Key, "Shift+") {
-			hotkeys = append(hotkeys, a)
-			continue
-		}
-		verbs = append(verbs, a)
-	}
-	return verbs, hotkeys
-}
-
 // staticColumn renders a heading + a list of pre-curated actions
 // with chips padded to the column's widest entry so descriptions
-// line up. Globals / table motions / page hotkeys all flow through
-// here.
+// line up. Globals and table motions both flow through here.
 func (h *Help) staticColumn(name string, entries []action.Action) []string {
 	filtered := filterDangerous(entries, h.opts.ReadOnly)
 	parts := make([]rowParts, len(filtered))
@@ -473,7 +536,7 @@ func (h *Help) alignedColumn(heading string, parts []rowParts) []string {
 	chips := make([]string, len(parts))
 	chipWidths := make([]int, len(parts))
 	for i, p := range parts {
-		chip := h.opts.Styles.Hint.HelpKey.Render(ChipText(p.key))
+		chip := h.chipStyle(p.key).Render(ChipText(p.key))
 		w := lipgloss.Width(chip)
 		chips[i] = chip
 		chipWidths[i] = w
@@ -488,6 +551,27 @@ func (h *Help) alignedColumn(heading string, parts []rowParts) []string {
 		out = append(out, chips[i]+pad+"  "+p.desc)
 	}
 	return out
+}
+
+// chipStyle picks a chip's colour the way k9s colours its menu: the
+// numeric tenant quick-switch keys (`0`-`9`) render in the dedicated
+// num-key colour (Hint.HelpKeyBold), every other key in the standard
+// key colour (Hint.KeyBold). Both are bold — k9s draws every menu key
+// with its `:b` attribute.
+func (h *Help) chipStyle(key string) lipgloss.Style {
+	if isNumericKey(key) {
+		return h.opts.Styles.Hint.HelpKeyBold
+	}
+	return h.opts.Styles.Hint.KeyBold
+}
+
+// isNumericKey reports whether key is a single-digit tenant
+// quick-switch mnemonic — the keys k9s renders in NumKeyColor (its
+// predicate is `strconv.Atoi` succeeding on the menu mnemonic). a10r
+// only ever binds the bare digits 0-9 in that slot, so a single-rune
+// digit check matches without pulling in multi-digit edge cases.
+func isNumericKey(key string) bool {
+	return len(key) == 1 && key[0] >= '0' && key[0] <= '9'
 }
 
 // headingLabel renders a column heading in the table-header colour

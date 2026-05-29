@@ -444,7 +444,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "n", Description: "new", View: "silences", Dangerous: true},
 		action.Action{Key: "e", Description: "edit", View: "silences", Dangerous: true},
 		action.Action{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
-		action.Action{Key: "Space", Description: "mark", View: "silences"},
+		action.Action{Key: "Space", Description: "mark", View: "silences", Shared: true},
 		action.Action{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
 		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
 	)

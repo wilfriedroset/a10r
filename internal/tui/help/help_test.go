@@ -21,7 +21,7 @@ func sampleOpts(t *testing.T) Options {
 		PageName: "alerts",
 		PageBindings: []action.Action{
 			{Key: "Enter", Description: "detail"},
-			{Key: "Space", Description: "mark"},
+			{Key: "Space", Description: "mark", Shared: true},
 			{Key: "s", Description: "silence", Dangerous: true},
 			{Key: "/", Description: "filter"},
 			{Key: "Shift+S", Description: "sort severity"},
@@ -49,9 +49,10 @@ func TestHelp_ColumnsRender(t *testing.T) {
 	t.Parallel()
 	h := New(sampleOpts(t))
 	out := testutil.StripStyle(h.View(160, 30))
-	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "HOTKEYS", "COMMANDS"} {
+	for _, col := range []string{"RESOURCE", "GENERAL", "NAVIGATION", "COMMANDS"} {
 		require.Containsf(t, out, col, "column heading %q must appear", col)
 	}
+	require.NotContains(t, out, "HOTKEYS", "the HOTKEYS column was removed (k9s parity)")
 }
 
 // TestHelp_ChipsAlignWithinColumn pins the k9s layout rule:
@@ -206,7 +207,7 @@ func TestHelp_CommandsColumnEmptyStillRendersHeading(t *testing.T) {
 	out := testutil.StripStyle(New(opts).View(160, 40))
 
 	require.Contains(t, out, "COMMANDS",
-		"COMMANDS heading must always appear so the 5-column layout is stable")
+		"COMMANDS heading must always appear so the 4-column layout is stable")
 }
 
 func TestHelp_ResourceColumnListsTenantsAndPageVerbs(t *testing.T) {
@@ -257,9 +258,13 @@ func TestHelp_StaticColumnsRenderCuratedEntries(t *testing.T) {
 	for _, want := range []string{"<j>", "down", "<gg>", "top", "<shift-g>", "bottom"} {
 		require.Containsf(t, out, want, "NAVIGATION column must surface %q", want)
 	}
-	for _, want := range []string{"<shift-s>", "sort severity"} {
-		require.Containsf(t, out, want, "HOTKEYS column must surface %q", want)
+	// Sort shortcuts render in RESOURCE, not a separate column — k9s
+	// keeps every view binding under RESOURCE.
+	for _, want := range []string{"<shift-s>", "sort severity", "<shift-n>", "sort name"} {
+		require.Containsf(t, out, want, "RESOURCE column must surface sort shortcut %q", want)
 	}
+	require.NotContains(t, out, "HOTKEYS",
+		"the HOTKEYS column is gone — a10r has no user-hotkey feature and sorts moved to RESOURCE")
 }
 
 // TestHelp_DismissKeysEmitClosed pins the dismiss contract: q, Esc,
@@ -507,6 +512,118 @@ func TestHelp_NoTenantsDropsNumericBlock(t *testing.T) {
 			"otherwise `<0> all` reads as a no-op key")
 	require.Contains(t, out, "RESOURCE",
 		"the column heading still renders so the page verbs have a banner")
+}
+
+// TestHelp_NoBindingAppearsInTwoColumns pins the k9s rule that every
+// key lives under exactly one heading. The page re-advertises the
+// global `/` filter and `r` refresh (for its footer hint strip) and
+// the table-wide `Space` mark; the overlay must render each chip once:
+// filter / refresh under GENERAL, mark folded into GENERAL (Shared),
+// and the view-specific `Enter` drill kept in RESOURCE.
+func TestHelp_NoBindingAppearsInTwoColumns(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.PageBindings = []action.Action{
+		{Key: "Enter", Description: "detail"},
+		{Key: "Space", Description: "mark", Shared: true},
+		{Key: "/", Description: "filter"},
+		{Key: "r", Description: "refresh"},
+		{Key: "s", Description: "silence"},
+	}
+	opts.Globals = []action.Action{
+		{Key: ":", DisplayKey: ":cmd", Description: "Command mode"},
+		{Key: "/", Description: "filter"},
+		{Key: "r", Description: "refresh"},
+		{Key: "q", Description: "quit"},
+	}
+	opts.TableMotions = []action.Action{
+		{Key: "j", Description: "down"},
+		{Key: "k", Description: "up"},
+		{Key: "Enter", Description: "drill"},
+	}
+	out := testutil.StripStyle(New(opts).View(200, 40))
+
+	for chip, n := range map[string]int{
+		"</>":     1, // filter: page + global -> once (GENERAL)
+		"<r>":     1, // refresh: page + global -> once (GENERAL)
+		"<space>": 1, // mark: Shared -> once (GENERAL), not RESOURCE
+		"<enter>": 1, // drill: page + motion -> once (RESOURCE)
+	} {
+		require.Equalf(t, n, strings.Count(out, chip),
+			"chip %q must appear exactly %d time(s) across all columns", chip, n)
+	}
+	require.Contains(t, out, "<s>", "view-specific verbs survive in RESOURCE")
+	require.Contains(t, out, "silence")
+}
+
+func TestPartitionShared(t *testing.T) {
+	t.Parallel()
+	in := []action.Action{
+		{Key: "Enter", Description: "detail"},
+		{Key: "Space", Description: "mark", Shared: true},
+		{Key: "s", Description: "silence"},
+	}
+	shared, rest := partitionShared(in)
+	require.Len(t, shared, 1)
+	require.Equal(t, "Space", shared[0].Key)
+	require.Len(t, rest, 2)
+	require.Equal(t, "Enter", rest[0].Key)
+	require.Equal(t, "s", rest[1].Key)
+}
+
+func TestDropReserved(t *testing.T) {
+	t.Parallel()
+	verbs := []action.Action{
+		{Key: "Enter", Description: "detail"},
+		{Key: "/", Description: "filter"},
+		{Key: "r", Description: "refresh"},
+		{Key: "s", Description: "silence"},
+	}
+	globals := []action.Action{{Key: "/"}, {Key: "r"}, {Key: "q"}}
+	motions := []action.Action{{Key: "j"}, {Key: "Enter"}}
+	got := dropReserved(verbs, globals, motions)
+	require.Len(t, got, 1, "/, r (globals) and Enter (motion) are reserved")
+	require.Equal(t, "s", got[0].Key)
+}
+
+func TestMergeGeneral(t *testing.T) {
+	t.Parallel()
+	globals := []action.Action{{Key: "/"}, {Key: "r", Description: "refresh"}}
+	shared := []action.Action{
+		{Key: "Space", Description: "mark"},
+		{Key: "r", Description: "refresh"}, // already a global -> skipped
+	}
+	got := mergeGeneral(globals, shared)
+	require.Len(t, got, 3)
+	require.Equal(t, "/", got[0].Key)
+	require.Equal(t, "r", got[1].Key)
+	require.Equal(t, "Space", got[2].Key, "shared verb appends after the globals")
+}
+
+func TestIsNumericKey(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		"0": true, "1": true, "9": true,
+		"s": false, "Shift+S": false, ":cmd": false,
+		"gg": false, "": false, "10": false,
+	}
+	for key, want := range cases {
+		require.Equalf(t, want, isNumericKey(key), "isNumericKey(%q)", key)
+	}
+}
+
+// TestHelp_ChipStyleBoldAndNumericColor pins the k9s menu styling:
+// every chip is bold, and the numeric tenant quick-switch keys carry
+// a colour distinct from the rest (k9s NumKeyColor vs KeyColor).
+func TestHelp_ChipStyleBoldAndNumericColor(t *testing.T) {
+	t.Parallel()
+	h := New(sampleOpts(t))
+	numeric := h.chipStyle("0")
+	plain := h.chipStyle("s")
+	require.True(t, numeric.GetBold(), "numeric chips are bold (k9s :b)")
+	require.True(t, plain.GetBold(), "regular chips are bold (k9s :b)")
+	require.NotEqual(t, plain.GetForeground(), numeric.GetForeground(),
+		"numeric tenant chips use the distinct num-key colour")
 }
 
 func TestChipText(t *testing.T) {

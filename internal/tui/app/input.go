@@ -193,9 +193,13 @@ func (a *App) globalsCatalog() []action.Action {
 	return append(a.dispatcher.Bindings(keys.LayerGlobal), action.Action{Key: "r", Description: "refresh"})
 }
 
-// tableMotionsCatalog is the NAVIGATION-column list. Mirrors the
-// table-context block from `keybindings.md` so the help overlay
-// reads the same affordances the dispatcher serves.
+// tableMotionsCatalog is the NAVIGATION-column list: pure cursor
+// movement, matching the k9s column split where NAVIGATION holds
+// motions only. The table-context verbs `Enter`/drill and
+// `Space`/mark live elsewhere — drill is view-specific (each page's
+// Bindings() lands it in RESOURCE) and mark is a Shared verb the help
+// overlay folds into GENERAL — so listing them here too would render
+// each chip in two columns.
 func tableMotionsCatalog() []action.Action {
 	return []action.Action{
 		{Key: "j", Description: "down"},
@@ -208,8 +212,6 @@ func tableMotionsCatalog() []action.Action {
 		{Key: "Ctrl+U", Description: "half page up"},
 		{Key: "Ctrl+F", Description: "page down"},
 		{Key: "Ctrl+B", Description: "page up"},
-		{Key: "Enter", Description: "drill"},
-		{Key: "Space", Description: "mark"},
 	}
 }
 

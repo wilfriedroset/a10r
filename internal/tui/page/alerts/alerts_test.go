@@ -862,6 +862,23 @@ func TestBindings_ExposeCountSortAndStateFormat(t *testing.T) {
 	require.True(t, hasStateFormat, "Shift+T state-format binding surfaces")
 }
 
+// TestBindings_MarkIsShared pins the help-routing contract: the
+// table-wide Space/mark verb is flagged Shared so the help overlay
+// folds it into GENERAL (k9s parity) instead of doubling it in
+// RESOURCE. Forgetting the flag silently regresses the column layout.
+func TestBindings_MarkIsShared(t *testing.T) {
+	t.Parallel()
+	p := newPage(t)
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "Space" {
+			found = true
+			require.True(t, b.Shared, "Space/mark must be Shared so it folds into GENERAL")
+		}
+	}
+	require.True(t, found, "alerts page binds Space/mark")
+}
+
 // --- Preserved infra -------------------------------------------------
 
 func TestInfra_DropsDataMsgFromUnknownTenant(t *testing.T) {

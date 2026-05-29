@@ -103,6 +103,22 @@ func TestApp_HelpDismissKeyClosesHelp(t *testing.T) {
 	}
 }
 
+// TestTableMotionsCatalogIsPureMotion pins the k9s NAVIGATION-column
+// rule: the column holds cursor movement only. `Enter`/drill and
+// `Space`/mark are not motions — drill is a view-specific verb
+// (RESOURCE) and mark is a cross-cutting Shared verb (GENERAL); both
+// would otherwise duplicate the per-page Bindings() the overlay also
+// renders.
+func TestTableMotionsCatalogIsPureMotion(t *testing.T) {
+	t.Parallel()
+	for _, a := range tableMotionsCatalog() {
+		require.NotEqualf(t, "Enter", a.Key,
+			"Enter/drill belongs in RESOURCE, not the NAVIGATION column")
+		require.NotEqualf(t, "Space", a.Key,
+			"Space/mark belongs in GENERAL, not the NAVIGATION column")
+	}
+}
+
 // TestApp_HelpKeyShadowedWhileModalOpen pins the modal > help
 // precedence (per ADR 0020): with a modal already open, `?` reaches
 // the modal (which ignores it) and does NOT open the help overlay.

@@ -119,7 +119,7 @@ func TestPage_BindingsExposeSortShortcutsForHelpOverlay(t *testing.T) {
 	}
 	for k, desc := range want {
 		require.Contains(t, got, k,
-			"Bindings() must surface %s so the `?` overlay's HOTKEYS column lists it", k)
+			"Bindings() must surface %s so the `?` overlay's RESOURCE column lists it", k)
 		require.Equal(t, desc, got[k],
 			"sort description for %s must match the keybindings.md table", k)
 	}
@@ -2223,4 +2223,21 @@ func TestPage_RestrictIDsNilPreservesPriorBehaviour(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
 	require.Len(t, p.view, 2, "no restriction: all silences must appear")
 	require.Equal(t, "silences(all)[2]", p.Title(), "no AlertName: scope label stays")
+}
+
+// TestBindings_MarkIsShared pins the help-routing contract: the
+// table-wide Space/mark verb is flagged Shared so the help overlay
+// folds it into GENERAL (k9s parity) instead of doubling it in
+// RESOURCE. Forgetting the flag silently regresses the column layout.
+func TestBindings_MarkIsShared(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "Space" {
+			found = true
+			require.True(t, b.Shared, "Space/mark must be Shared so it folds into GENERAL")
+		}
+	}
+	require.True(t, found, "silences page binds Space/mark")
 }

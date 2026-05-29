@@ -239,7 +239,7 @@ func (*Page) PollResources() []string { return []string{"receivers"} }
 
 // Bindings implements app.Page. Sort shortcut comes from the
 // tablesort helper; the helper's single-column setup emits exactly
-// one Shift+N entry so the help overlay's HOTKEYS column picks it
+// one Shift+N entry so the help overlay's RESOURCE column picks it
 // up identically to the multi-axis pages.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("receivers")
