@@ -771,10 +771,12 @@ func TestNormalizeKey(t *testing.T) {
 // records that this order is the muscle-memory contract from
 // keybindings.md (`:` and `/` first, `Ctrl+C` as escape-hatch last
 // before the tenant picker, refresh appended because it's
-// documented-as-global but implemented-per-page). A future
-// contributor reordering registerGlobalBindings or moving the `r`
-// append would otherwise rearrange the help column silently — this
-// test makes any such drift loud.
+// documented-as-global but implemented-per-page). The `~` / `\`
+// filter-mode sigils ride directly after `/` so the auto-detect
+// modes are discoverable from the overlay alone. A future
+// contributor reordering registerGlobalBindings, moving the `r`
+// append, or dropping the sigils would otherwise rearrange the help
+// column silently — this test makes any such drift loud.
 func TestApp_GlobalsCatalogOrderingMatchesKeybindingsMd(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
@@ -782,6 +784,8 @@ func TestApp_GlobalsCatalogOrderingMatchesKeybindingsMd(t *testing.T) {
 	require.Equal(t, []action.Action{
 		{Key: ":", DisplayKey: ":cmd", Description: "Command mode"},
 		{Key: "/", Description: "filter"},
+		{Key: "~", Description: "fuzzy filter"},
+		{Key: "\\", Description: "literal filter"},
 		{Key: "?", Description: "help"},
 		{Key: "t", Description: "time format"},
 		{Key: "Esc", Description: "back"},

@@ -12,10 +12,11 @@
 //	    what the user is looking at. Sorts live here, not in a
 //	    separate column, matching k9s where every view binding
 //	    (`Sort Age`, `Sort Name`, …) sits under RESOURCE.
-//	  - GENERAL is the curated globals catalogue (`:cmd` `/` `?`
-//	    `Esc` `q` `Ctrl+C` `Ctrl+T` `r`) plus the active page's
-//	    cross-cutting Shared verbs (`Space` mark), mirroring k9s
-//	    where mark lives under GENERAL on every table view.
+//	  - GENERAL is the curated globals catalogue (`:cmd` `/` `~`
+//	    `\` `?` `Esc` `q` `Ctrl+C` `Ctrl+T` `r`) — the `~` / `\`
+//	    filter-mode sigils ride directly after `/` — plus the active
+//	    page's cross-cutting Shared verbs (`Space` mark), mirroring
+//	    k9s where mark lives under GENERAL on every table view.
 //	  - NAVIGATION is the table-context vim motions only (`j` `k`
 //	    `h` `l` `gg` `G` `Ctrl+D` `Ctrl+U` `Ctrl+F` `Ctrl+B`) — pure
 //	    cursor movement, no verbs, per the k9s column split.

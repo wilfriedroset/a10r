@@ -182,15 +182,40 @@ func pickerSelectionsToScope(selections, tenants []string) string {
 
 // globalsCatalog is the GENERAL-column list rendered in the help
 // overlay, derived from the dispatcher's LayerGlobal registrations
-// (per ADR 0019). The lone curated row is `r` (refresh): documented
-// as global in keybindings.md but implemented per-page (each page
-// handles `r` in its own Update and surfaces it via Bindings()).
-// Keeping it explicit here, rather than burying the special case,
-// leaves a visible marker for the next deepening — folding refresh
-// into the dispatcher as a real LayerGlobal entry that emits
-// RefreshRequestedMsg.
+// (per ADR 0019). Two kinds of curated rows are folded in:
+//
+//   - the `~` / `\` filter-mode sigils, inserted right after `/`.
+//     The prompt auto-detects fuzzy (`~`) and literal (`\`) from a
+//     leading prefix (regex auto-detects from the body, no sigil).
+//     They are not dispatcher keys — the operator types them inside
+//     a `/` filter — but the overlay is the only always-on surface
+//     that teaches them; the tips bar that also advertises them is
+//     off by default.
+//   - `r` (refresh): documented as global in keybindings.md but
+//     implemented per-page (each page handles `r` in its own Update
+//     and surfaces it via Bindings()). Kept explicit here, rather
+//     than buried, as a marker for the next deepening — folding
+//     refresh into the dispatcher as a real LayerGlobal entry that
+//     emits RefreshRequestedMsg.
 func (a *App) globalsCatalog() []action.Action {
-	return append(a.dispatcher.Bindings(keys.LayerGlobal), action.Action{Key: "r", Description: "refresh"})
+	globals := a.dispatcher.Bindings(keys.LayerGlobal)
+	sigils := []action.Action{
+		{Key: "~", Description: "fuzzy filter"},
+		{Key: "\\", Description: "literal filter"},
+	}
+	out := make([]action.Action, 0, len(globals)+len(sigils)+1)
+	inserted := false
+	for _, g := range globals {
+		out = append(out, g)
+		if g.Key == "/" {
+			out = append(out, sigils...)
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append(out, sigils...)
+	}
+	return append(out, action.Action{Key: "r", Description: "refresh"})
 }
 
 // tableMotionsCatalog is the NAVIGATION-column list: pure cursor

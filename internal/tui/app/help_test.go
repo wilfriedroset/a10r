@@ -119,6 +119,32 @@ func TestTableMotionsCatalogIsPureMotion(t *testing.T) {
 	}
 }
 
+// TestGlobalsCatalogListsFilterSigils pins the discoverability fix:
+// the `/` prompt auto-detects fuzzy (`~`) and literal (`\`) modes
+// from a leading sigil, but those sigils were advertised only in the
+// optional (default-off) tips bar. The GENERAL column must list them
+// directly after `/` so the modes are reachable from `?` alone.
+func TestGlobalsCatalogListsFilterSigils(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	got := a.globalsCatalog()
+
+	slashAt := -1
+	for i, b := range got {
+		if b.Key == "/" {
+			slashAt = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, slashAt, 0, "baseline: the `/` filter global must be present")
+	require.GreaterOrEqual(t, len(got), slashAt+3, "two sigil rows must follow `/`")
+
+	require.Equal(t, "~", got[slashAt+1].Key, "`~` must sit immediately after `/`")
+	require.Contains(t, got[slashAt+1].Description, "fuzzy")
+	require.Equal(t, "\\", got[slashAt+2].Key, "`\\` must sit immediately after `~`")
+	require.Contains(t, got[slashAt+2].Description, "literal")
+}
+
 // TestApp_HelpKeyShadowedWhileModalOpen pins the modal > help
 // precedence (per ADR 0020): with a modal already open, `?` reaches
 // the modal (which ignores it) and does NOT open the help overlay.
