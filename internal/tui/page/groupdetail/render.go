@@ -151,60 +151,80 @@ func headerLabel(k string) string {
 }
 
 // renderRows returns the visible window of data rows, reconciling the
-// scroll window against the cursor each frame. Per-cell severity tint
-// applies only on plain rows; cursor / marked / suppressed rows wrap
-// the whole line so nested ANSI doesn't fight the row-level style.
+// scroll window against the cursor each frame.
+//
+// Colour follows instance state: a FIRING (active) instance that is
+// neither the cursor (its row-level highlight wins) nor marked gets the
+// full treatment — its SEVERITY cell tints and its distinguishing
+// labels take the YAML palette, matching the groups page so a k=v pair
+// reads consistently across the TUI. Suppressed and unprocessed
+// instances recede: the whole row dims, so the firing ones the operator
+// can still act on stand out. The cursor and marked rows keep their
+// row-level wrap (nested ANSI inside it is fragile), so their labels
+// stay plain under the wrap.
 func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
 	cols := p.columnWidths(width)
+	flexW := 0
+	if flexColumnIndex < len(cols) {
+		flexW = cols[flexColumnIndex]
+	}
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		entry := p.view[i]
-		a := entry.a
-		ageLabel := p.formatTime(a.StartsAt)
-		if ageLabel == "" {
-			ageLabel = "—"
-		}
-		_, marked := p.marks[a.Fingerprint]
-		mark := " "
-		if marked {
-			mark = "✓"
-		}
-		rowStyled := i == p.Index() || marked || a.State == backend.AlertStateSuppressed
-		sevCell := severityOf(a)
-		if !rowStyled {
-			sevCell = severityStyle(a, p.styles).Render(sevCell)
-		}
-		row := []string{
-			sevCell,
-			entry.distinguishSummary,
-			stateToken(a.State, p.stateFormat),
-			ageLabel,
-		}
-		prefix := "  "
-		if i == p.Index() {
-			prefix = "▸ "
-		}
-		line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
-		switch {
-		case i == p.Index():
-			rowColor := severityStyle(a, p.styles).GetForeground()
-			line = p.styles.Table.CursorOver(rowColor).Render(line)
-		case marked:
-			line = p.styles.Table.MarkedFg.Render(line)
-		case a.State == backend.AlertStateSuppressed:
-			line = p.styles.Table.DimmedFg.Render(line)
-		}
-		b.WriteString(line)
+		b.WriteString(p.renderRow(i, cols, flexW, width))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+// renderRow renders one instance row at the pre-computed column
+// widths. See renderRows for the colour-by-state contract.
+func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
+	entry := p.view[i]
+	a := entry.a
+	ageLabel := p.formatTime(a.StartsAt)
+	if ageLabel == "" {
+		ageLabel = "—"
+	}
+	_, marked := p.marks[a.Fingerprint]
+	mark := " "
+	if marked {
+		mark = "✓"
+	}
+	isCursor := i == p.Index()
+	isActive := a.State == backend.AlertStateActive
+	colour := isActive && !isCursor && !marked
+
+	sevCell := severityOf(a)
+	// Clip the distinguishing labels on the PLAIN string (so the
+	// middle-out ellipsis and column widths stay correct), then colour
+	// the result — colouring never changes the cell's width.
+	labels := ellipsizeMiddle(entry.distinguishSummary, flexW)
+	if colour {
+		sevCell = severityStyle(a, p.styles).Render(sevCell)
+		labels = p.styleDistinguish(labels)
+	}
+	prefix := "  "
+	if isCursor {
+		prefix = "▸ "
+	}
+	row := []string{sevCell, labels, stateToken(a.State, p.stateFormat), ageLabel}
+	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
+	switch {
+	case isCursor:
+		return p.styles.Table.CursorOver(severityStyle(a, p.styles).GetForeground()).Render(line)
+	case marked:
+		return p.styles.Table.MarkedFg.Render(line)
+	case !isActive:
+		return p.styles.Table.DimmedFg.Render(line)
+	}
+	return line
 }
 
 // rowPrefixCols is the space reserved for the leading "▸ ✓ " prefix
@@ -219,9 +239,9 @@ const flexColumnIndex = 1
 
 // padColumns lays out the row at the pre-computed widths, joining
 // adjacent cells with a single inter-column space (colSep) so columns
-// never fuse. The flex column (distinguishing labels) clips middle-out
-// so a value's discriminating tail survives even when it shares a long
-// prefix with a sibling; the rest pad/truncate without an ellipsis.
+// never fuse. Cells arrive pre-clipped — renderRows middle-clips the
+// flex distinguishing-labels cell (and optionally colours it) before
+// calling — so this only pads each cell to its column width.
 func (p *Page) padColumns(parts []string, cols []int) string {
 	var b strings.Builder
 	for i, v := range parts {
@@ -231,13 +251,34 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 		if i > 0 {
 			b.WriteString(colSep)
 		}
-		if i == flexColumnIndex {
-			b.WriteString(format.PadRight(ellipsizeMiddle(v, cols[i]), cols[i]))
-			continue
-		}
 		b.WriteString(format.PadRight(v, cols[i]))
 	}
 	return b.String()
+}
+
+// styleDistinguish colours an already-clipped distinguishing-labels
+// cell with the YAML palette (name / `=` / value / separator), matching
+// the groups page's k=v styling. It runs AFTER the middle-out clip on
+// the plain string, so the ellipsis stays correct and colouring never
+// changes the cell's width — layout is unaffected. A fragment the clip
+// left without an `=` (a rare middle-cut artefact) renders in the value
+// colour.
+func (p *Page) styleDistinguish(clipped string) string {
+	if clipped == "" {
+		return clipped
+	}
+	pairs := strings.Split(clipped, " · ")
+	for i, pair := range pairs {
+		name, val, ok := strings.Cut(pair, "=")
+		if !ok {
+			pairs[i] = p.styles.YAML.Value.Render(pair)
+			continue
+		}
+		pairs[i] = p.styles.YAML.Key.Render(name) +
+			p.styles.YAML.Punct.Render("=") +
+			p.styles.YAML.Value.Render(val)
+	}
+	return strings.Join(pairs, p.styles.YAML.Punct.Render(" · "))
 }
 
 // colSep is the single inter-column space the renderer inserts between
