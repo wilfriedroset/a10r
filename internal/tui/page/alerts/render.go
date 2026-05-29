@@ -537,11 +537,13 @@ func stateToken(count int, s backend.AlertState, f stateformat.Format) string {
 }
 
 // stateTokenStyle returns the foreground-only style for a bucket's
-// token. Active reads in the silence-state "active" foreground (the
-// app's existing fg-only "this is live" role), suppressed in the
-// dimmed foreground, unprocessed in the unknown-severity foreground —
-// every branch fg-only so the chrome keeps the terminal default
-// background (see feedback memory on chrome rendering).
+// token. Active reads in the table's default foreground: every row
+// here is a firing alert, so "active" is the baseline, not a status to
+// flag — urgency lives in the SEVERITY column and the all-suppressed
+// row-dim, and a green "active" would falsely read as healthy.
+// Suppressed dims (receded), unprocessed takes the unknown-severity
+// foreground. Every branch is fg-only so the chrome keeps the terminal
+// default background (see feedback memory on chrome rendering).
 func stateTokenStyle(s backend.AlertState, styles *theme.Styles) lipgloss.Style {
 	switch s {
 	case backend.AlertStateSuppressed:
@@ -549,9 +551,9 @@ func stateTokenStyle(s backend.AlertState, styles *theme.Styles) lipgloss.Style 
 	case backend.AlertStateUnprocessed:
 		return styles.Severity.Unknown
 	case backend.AlertStateActive:
-		return styles.SilenceState.Active
+		return lipgloss.NewStyle()
 	default:
-		return styles.SilenceState.Active
+		return lipgloss.NewStyle()
 	}
 }
 

@@ -316,6 +316,21 @@ func TestRender_StateBreakdownFullVsCompact(t *testing.T) {
 	require.Equal(t, "4 suppressed", stateBreakdownPlain(g3, stateformat.Full))
 }
 
+// TestStateTokenStyle_ActiveIsNeutral pins the active bucket to the
+// default foreground: every row is a firing alert, so "active" is the
+// baseline, and a green token would falsely read as healthy. Suppressed
+// stays dimmed so the two buckets remain visually distinct.
+func TestStateTokenStyle_ActiveIsNeutral(t *testing.T) {
+	t.Parallel()
+	styles := pagetest.Styles(t)
+	active := stateTokenStyle(backend.AlertStateActive, styles).Render("54 active")
+	require.Equal(t, "54 active", active,
+		"the active bucket must render in the default foreground (no colour SGR)")
+	suppressed := stateTokenStyle(backend.AlertStateSuppressed, styles).Render("3 suppressed")
+	require.NotEqual(t, "3 suppressed", suppressed,
+		"the suppressed bucket must be dimmed (styled) so it reads distinct from active")
+}
+
 func TestRender_MaxSeverityCell(t *testing.T) {
 	t.Parallel()
 
