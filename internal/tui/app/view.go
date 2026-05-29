@@ -140,8 +140,18 @@ func (a *App) renderBody(height int) string {
 		// see the active filter without leaving the body in their
 		// peripheral vision. Mirrors the k9s "/-prompt visible"
 		// affordance. Closed prompt OR command mode → no append.
+		//
+		// A trailing `[fuzzy]` / `[literal]` / `[regex]` tag is
+		// appended when the buffer auto-detects a non-default mode,
+		// so the user gets feedback that a leading sigil (or a
+		// regex-y body) changed the matcher. Substring — the
+		// default — stays untagged to keep the common case quiet.
 		if a.prompt.IsOpen() && a.prompt.Mode() == footer.PromptFilter {
-			title += " </" + a.prompt.Value() + ">"
+			value := a.prompt.Value()
+			title += " </" + value + ">"
+			if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {
+				title += " [" + mode.String() + "]"
+			}
 		}
 		subtitle := p.HeaderContent()
 		if subtitle != "" {

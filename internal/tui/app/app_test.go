@@ -434,6 +434,48 @@ func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
 		"command-mode prompt must not bleed into the body title")
 }
 
+// TestApp_FilterPromptShowsDetectedMode covers the discoverability
+// fix: while a `/` filter is typed, the body title surfaces the
+// auto-detected search mode so the user gets feedback that a sigil
+// (or a regex-y body) changed the matcher. Substring — the default —
+// stays untagged so the common case isn't noisy on every keystroke.
+func TestApp_FilterPromptShowsDetectedMode(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	a = updated.(*App)
+	page := newFakePage("alerts")
+	drive(t, a, PushPage(func() Page { return page }))
+
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "hi" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out := testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "</hi>")
+	require.NotContains(t, out, "[substring]",
+		"substring is the default — tagging it would be noise on every keystroke")
+
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "~hi" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[fuzzy]",
+		"a ~-prefixed filter must surface its detected mode in the title")
+
+	// Regex is the only mode that flips on the body alone (no leading
+	// sigil), so it's the branch most likely to regress silently:
+	// two distinct metacharacters (`^` and `.`) trip auto-detect.
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "^a.b" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[regex]",
+		"a regex-y body (no sigil) must surface the auto-detected regex mode")
+}
+
 func TestApp_PasteRoutesToOpenPrompt(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
