@@ -315,7 +315,7 @@ func (*Form) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "Tab", Description: "next field", View: "silence-form"},
 		{Key: "Shift+Tab", Description: "prev field", View: "silence-form"},
-		{Key: "Enter", Description: "pick tenant (on Tenant row)", View: "silence-form"},
+		{Key: "Enter", Description: "submit (pick tenant on Tenant row)", View: "silence-form"},
 		{Key: "Ctrl+S", Description: "submit", View: "silence-form"},
 	}
 }
@@ -360,11 +360,21 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 			cmd := f.submitNow()
 			return f, cmd
 		case "enter":
-			// Enter on the Tenant row opens the tenant picker; on
-			// every other row it falls through to the focused field
-			// (textarea grows a newline; textinput is a no-op).
-			if f.focus == fieldTenant && !f.tenantDisabled() {
+			// Enter on the Tenant row opens the tenant picker; on the
+			// matchers textarea it grows a newline (multi-matcher
+			// entry); on every single-line scalar field it submits.
+			// keybindings.md has always documented "Enter | Submit",
+			// and a dead Enter on a textinput gave the user no feedback.
+			// Ctrl+S still submits from any field, the textarea included.
+			switch {
+			case f.focus == fieldTenant && !f.tenantDisabled():
 				cmd := f.openTenantPicker()
+				return f, cmd
+			case f.focus == fieldMatchers:
+				// Fall through to forwardToFocused: the textarea
+				// inserts a newline so multi-line entry keeps working.
+			default:
+				cmd := f.submitNow()
 				return f, cmd
 			}
 		}

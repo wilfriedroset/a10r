@@ -151,7 +151,8 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | Key | What |
 | --- | --- |
 | `Tab` / `Shift+Tab` | Next / previous field |
-| `Enter` | Submit |
+| `Enter` | Submit (from any single-line field). On the Tenant row it opens the tenant picker; in the Matchers box it inserts a newline for multi-matcher entry. |
+| `Ctrl+S` | Submit from any field, including the Matchers box |
 | `Esc` | Cancel (confirm if dirty) |
 
 ### Status pane

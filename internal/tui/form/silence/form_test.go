@@ -462,6 +462,52 @@ func TestForm_SubmitSuccessEmitsSubmittedMsg(t *testing.T) {
 	require.Equal(t, fixedNow.Add(2*time.Hour), client.last.EndsAt)
 }
 
+// TestForm_EnterSubmitsFromScalarField covers the keymap-honesty
+// fix: keybindings.md has always documented "Enter | Submit", but
+// before this change Enter on a single-line field fell through to a
+// dead textinput (no submit, no feedback). Enter from a scalar field
+// must now drive the same submit cycle as Ctrl+S.
+func TestForm_EnterSubmitsFromScalarField(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{wantID: "sil-77"}
+	f := newForm(t, client)
+
+	type_(f, "alertname=HighCPU")
+	for range 4 {
+		_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyTab}) // matchers -> comment
+	}
+	require.Equal(t, fieldComment, f.focus, "4 tabs from matchers must land on the comment field")
+	type_(f, "ack while patching")
+
+	_, cmd := f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd, "Enter on a scalar field must submit, not no-op")
+	done, ok := cmd().(submitDoneMsg)
+	require.True(t, ok, "Enter must drive the async submit cycle the same way Ctrl+S does")
+	_, cmd2 := f.Update(done)
+	msg := cmd2().(SubmittedMsg)
+	require.Equal(t, "sil-77", msg.ID)
+	require.Equal(t, 1, client.createCalls)
+}
+
+// TestForm_EnterOnMatchersInsertsNewline guards the multi-matcher
+// entry path: Enter inside the matchers textarea must keep inserting
+// a newline (one matcher per line), never submit — that's why submit
+// lives on Ctrl+S and Enter-submit is scoped to the scalar fields.
+func TestForm_EnterOnMatchersInsertsNewline(t *testing.T) {
+	t.Parallel()
+	client := &fakeClient{}
+	f := newForm(t, client) // default focus is the matchers textarea
+	require.Equal(t, fieldMatchers, f.focus)
+
+	type_(f, "alertname=A")
+	_, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	type_(f, "severity=critical")
+
+	require.Equal(t, 0, client.calls(), "Enter on the matchers textarea must not submit")
+	require.Contains(t, f.matchers.Value(), "\n",
+		"Enter on the matchers textarea must insert a newline for multi-matcher entry")
+}
+
 func TestForm_SubmitWithoutMatchersFails(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{}
