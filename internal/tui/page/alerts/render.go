@@ -92,6 +92,9 @@ func (p *Page) renderHeader(width int) string {
 		if idx >= len(widths) {
 			break
 		}
+		if idx > 0 {
+			b.WriteString(colSep)
+		}
 		label := strings.ToUpper(k)
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
@@ -134,6 +137,14 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// frame, not per row) so the cost lands once on the outer loop
 	// either way.
 	cols := p.columnWidths(width)
+	// STATE sits second-to-last in the rendered row; its allocated
+	// width caps the breakdown so an over-cap breakdown ellipsizes
+	// here rather than starving ALERTNAME (the cap lives in
+	// columnSpecs). -1 (no STATE column visible) disables ellipsis.
+	stateIdx := -1
+	if len(cols) >= 2 {
+		stateIdx = len(cols) - 2
+	}
 	var b strings.Builder
 	// Reserve enough capacity for the visible page (rows × width)
 	// plus per-row styling overhead so the Builder doesn't realloc
@@ -159,7 +170,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 		// entirely for those cases.
 		rowStyled := i == p.Index() || marked || g.allSuppressed()
 		sevCell := severityLabelForRank(g.severityRank)
-		stateCell := renderStateBreakdown(g, p.stateFormat, p.styles, rowStyled)
+		stateCell := p.stateCell(g, stateIdx, cols, rowStyled)
 		if !rowStyled {
 			sevCell = severityStyleForRank(g.severityRank, p.styles).Render(sevCell)
 		}
@@ -243,6 +254,16 @@ func countCell(g alertGroup) string {
 // spaces so the column titles line up with the data columns.
 const rowPrefixCols = 4
 
+// colSeparator is the width of the single space the renderer inserts
+// between adjacent columns. Passed to format.Distribute so the budget
+// reserves n-1 gap cells, and used by padColumns / renderHeader to
+// join cells — keeping header and data rows aligned while guaranteeing
+// columns never fuse.
+const colSeparator = 1
+
+// colSep is the rendered inter-column separator string.
+const colSep = " "
+
 // flexUnbounded is the Content sentinel for the alertname column
 // in columnSpecs. Using a finite-but-huge value (rather than
 // math.MaxInt) keeps the allocator's integer math honest while
@@ -251,6 +272,16 @@ const rowPrefixCols = 4
 // hardware. Picked over MaxInt to avoid edge cases in the
 // proportional-shrink path multiplying widths by total budget.
 const flexUnbounded = 1 << 16
+
+// stateContentCap bounds the STATE column's requested width. The full
+// 3-bucket breakdown (`9 active · 3 suppressed · 1 unprocessed`, ~38
+// cells) is weight-0 and would otherwise demand its full measured
+// width, starving the ALERTNAME flex column and driving the table into
+// the allocator's emergency proportional shrink. 24 fits the common
+// homogeneous form (`567 active`) and most 2-bucket cases; the 3-bucket
+// full form exceeds it and ellipsizes instead of cannibalising
+// ALERTNAME. The compact form (`9ac 3su 1un`) stays well under the cap.
+const stateContentCap = 24
 
 // padColumns lays out the row's columns at pre-computed cols
 // widths. The leading TENANT column is optional — added when
@@ -275,6 +306,9 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 	for i, v := range parts {
 		if i >= len(cols) {
 			break
+		}
+		if i > 0 {
+			b.WriteString(colSep)
 		}
 		if i == flexIdx {
 			b.WriteString(format.PadRight(format.Ellipsize(v, cols[i]), cols[i]))
@@ -318,7 +352,11 @@ func (p *Page) columnWidths(width int) []int {
 	// minus chrome". Centralising the chrome subtraction here keeps
 	// the spec construction pure and easy to test.
 	budget := max(0, width-rowPrefixCols)
-	return format.Distribute(specs, budget, 0)
+	// separator=1: the renderer joins cells with a single inter-column
+	// space (see padColumns / renderHeader), so the allocator reserves
+	// n-1 gap cells from the budget. The gap guarantees columns can
+	// never fuse regardless of content width.
+	return format.Distribute(specs, budget, colSeparator)
 }
 
 // columnSpecs builds the per-column Spec slice the distributor
@@ -404,7 +442,11 @@ func (p *Page) columnSpecs() []format.Column {
 		// labels they're scanning.
 		format.Column{Min: alertNameMin, Content: flexUnbounded, Weight: 1},
 		format.Column{Min: countMin, Content: max(countMin, countContent), Weight: 0},
-		format.Column{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
+		// STATE: cap the requested width so a wide 3-bucket breakdown
+		// can't starve ALERTNAME. The renderer ellipsizes the breakdown
+		// to the allocated width when it falls short of the measured
+		// content (see padColumns / the STATE branch in renderRows).
+		format.Column{Min: stateMin, Content: min(stateContentCap, max(stateMin, stateContent)), Weight: 0},
 		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
 	)
 	return specs
@@ -533,6 +575,28 @@ func stateBreakdownPlain(g alertGroup, f stateformat.Format) string {
 		parts = append(parts, stateToken(b.count, b.state, f))
 	}
 	return strings.Join(parts, stateBreakdownSep(f))
+}
+
+// stateCell renders the STATE cell for one group, ellipsizing the
+// breakdown to the column's allocated width when the full string
+// overflows it. The allocated width is capped in columnSpecs
+// (stateContentCap) so a wide 3-bucket breakdown can't starve
+// ALERTNAME; here the rendered string is clipped to match.
+//
+// On overflow the cell is rendered plain (uncoloured) and ellipsized
+// with format.Ellipsize: the per-token colours that renderStateBreakdown
+// applies are not SGR-safe to slice mid-token, so the truncated form
+// drops them rather than risk a dangling escape. When the breakdown
+// fits (the common case and the always-true case for the compact
+// form), the fully styled render is returned untouched.
+func (p *Page) stateCell(g alertGroup, stateIdx int, cols []int, rowStyled bool) string {
+	if stateIdx >= 0 && stateIdx < len(cols) {
+		plain := stateBreakdownPlain(g, p.stateFormat)
+		if w := cols[stateIdx]; lipgloss.Width(plain) > w {
+			return format.Ellipsize(plain, w)
+		}
+	}
+	return renderStateBreakdown(g, p.stateFormat, p.styles, rowStyled)
 }
 
 // renderStateBreakdown renders the STATE cell's per-state tally: non-

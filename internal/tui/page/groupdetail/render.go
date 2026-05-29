@@ -3,6 +3,7 @@
 package groupdetail
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -117,6 +118,9 @@ func (p *Page) renderHeader(width int) string {
 		if idx >= len(widths) {
 			break
 		}
+		if idx > 0 {
+			b.WriteString(colSep)
+		}
 		label := headerLabel(k)
 		// STATE has no sort column; only the sortable columns get an
 		// arrow / active tint.
@@ -213,17 +217,22 @@ const rowPrefixCols = 4
 // No TENANT column on this page, so it never shifts.
 const flexColumnIndex = 1
 
-// padColumns lays out the row at the pre-computed widths. The flex
-// column (distinguishing labels) ellipsizes to one line; the rest
-// pad/truncate without an ellipsis.
+// padColumns lays out the row at the pre-computed widths, joining
+// adjacent cells with a single inter-column space (colSep) so columns
+// never fuse. The flex column (distinguishing labels) clips middle-out
+// so a value's discriminating tail survives even when it shares a long
+// prefix with a sibling; the rest pad/truncate without an ellipsis.
 func (p *Page) padColumns(parts []string, cols []int) string {
 	var b strings.Builder
 	for i, v := range parts {
 		if i >= len(cols) {
 			break
 		}
+		if i > 0 {
+			b.WriteString(colSep)
+		}
 		if i == flexColumnIndex {
-			b.WriteString(format.PadRight(format.Ellipsize(v, cols[i]), cols[i]))
+			b.WriteString(format.PadRight(ellipsizeMiddle(v, cols[i]), cols[i]))
 			continue
 		}
 		b.WriteString(format.PadRight(v, cols[i]))
@@ -231,12 +240,68 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 	return b.String()
 }
 
+// colSep is the single inter-column space the renderer inserts between
+// adjacent cells. colSeparator is its width, passed to
+// format.Distribute so the budget reserves n-1 gap cells.
+const (
+	colSep       = " "
+	colSeparator = 1
+)
+
+// ellipsizeMiddle clips s to at most w terminal cells, replacing the
+// middle with a single ellipsis so BOTH the head and the discriminating
+// tail survive. Two instance values sharing a long prefix but differing
+// in the tail (`…-1a-0042` vs `…-1b-0117`) stay distinguishable, where a
+// tail-truncating ellipsis would collapse them to the same shared
+// prefix. Returns "" for w <= 0 and s unchanged when it already fits;
+// falls back to a tail ellipsis (format.Ellipsize) at w == 1 where no
+// middle split is possible. Not SGR-aware — the distinguishing-labels
+// cell is plain text.
+func ellipsizeMiddle(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	if w <= len(format.EllipsizeSuffix) {
+		return format.Ellipsize(s, w)
+	}
+	keep := w - lipgloss.Width(format.EllipsizeSuffix)
+	head := (keep + 1) / 2
+	tail := keep - head
+	headStr := format.Truncate(s, head)
+	tailStr := truncateLeft(s, tail)
+	return headStr + format.EllipsizeSuffix + tailStr
+}
+
+// truncateLeft returns the suffix of s whose rendered width is at most
+// w cells, walking runes from the end so the discriminating tail is
+// preserved. Mirrors format.Truncate from the other side.
+func truncateLeft(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	used := 0
+	cut := len(runes)
+	for i, r := range slices.Backward(runes) {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			break
+		}
+		used += rw
+		cut = i
+	}
+	return string(runes[cut:])
+}
+
 // columnWidths returns the SEVERITY, INSTANCE (flex), STATE, AGE
 // widths via the duf-style distributor. INSTANCE is the unbounded
 // weight-1 flex column; the rest are fixed at max(min, content).
 func (p *Page) columnWidths(width int) []int {
 	budget := max(0, width-rowPrefixCols)
-	return format.Distribute(p.columnSpecs(), budget, 0)
+	return format.Distribute(p.columnSpecs(), budget, colSeparator)
 }
 
 // flexUnbounded caps the flex column's Content at a finite-but-huge

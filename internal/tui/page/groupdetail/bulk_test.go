@@ -26,7 +26,7 @@ func newWritablePage(t *testing.T, instances ...backend.Alert) *Page {
 		Styles:    pagetest.Styles(t),
 		Now:       func() time.Time { return fixedNow },
 		Tenant:    tenant,
-		AlertName: "HighLatency",
+		AlertName: alertName,
 		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
 		Instances: instances,
 	})
@@ -35,7 +35,7 @@ func newWritablePage(t *testing.T, instances ...backend.Alert) *Page {
 func TestSilenceOne_NoMarksPushesForm(t *testing.T) {
 	t.Parallel()
 	p := newWritablePage(t,
-		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{"instance": "web-1"}),
+		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 	)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -47,7 +47,7 @@ func TestSilenceOne_NoMarksPushesForm(t *testing.T) {
 func TestSilenceOne_NoWritableBackendFlashes(t *testing.T) {
 	t.Parallel()
 	p := newPage(t, // no Clients
-		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{"instance": "web-1"}),
+		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 	)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -76,7 +76,7 @@ func TestBulkSilence_MarkedFanoutResolvesByFingerprint(t *testing.T) {
 	insts := make([]backend.Alert, 3)
 	for i := range insts {
 		insts[i] = instance(fmt.Sprintf("fp-%d", i), "warning", backend.AlertStateActive,
-			map[string]string{"instance": fmt.Sprintf("web-%d", i)})
+			map[string]string{sortKeyInstance: fmt.Sprintf("web-%d", i)})
 	}
 	p := newWritablePage(t, insts...)
 	// Mark all three.
@@ -97,8 +97,8 @@ func TestBulkSilence_MarkedFanoutResolvesByFingerprint(t *testing.T) {
 func TestBulkSilence_MarkOnFilteredOutInstanceStillFansOut(t *testing.T) {
 	t.Parallel()
 	p := newWritablePage(t,
-		instance("fp-web", "warning", backend.AlertStateActive, map[string]string{"instance": "web-1"}),
-		instance("fp-db", "warning", backend.AlertStateActive, map[string]string{"instance": "db-1"}),
+		instance("fp-web", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
+		instance("fp-db", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: dbInst}),
 	)
 	// Mark both rows.
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
@@ -108,7 +108,7 @@ func TestBulkSilence_MarkOnFilteredOutInstanceStillFansOut(t *testing.T) {
 
 	// Filter so db-1 is hidden; the marked-but-hidden instance must
 	// still be in the resolved targets (walks instances, not view).
-	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "web"})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: webFilter})
 	require.Len(t, p.view, 1)
 
 	targets := p.resolveBulkSilenceTargets()
@@ -118,8 +118,8 @@ func TestBulkSilence_MarkOnFilteredOutInstanceStillFansOut(t *testing.T) {
 func TestBulkSilence_FanoutRoundTripDropsMarksAndFlashes(t *testing.T) {
 	t.Parallel()
 	p := newWritablePage(t,
-		instance("fp-0", "warning", backend.AlertStateActive, map[string]string{"instance": "web-0"}),
-		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{"instance": "web-1"}),
+		instance("fp-0", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst0}),
+		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 	)
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})

@@ -137,14 +137,17 @@ func distinguishingSummary(a backend.Alert, common map[string]string) string {
 	}
 	keys := make([]string, 0, len(dist))
 	for k := range dist {
-		if k == "instance" {
+		// `instance` is pinned first below; `severity` is excluded
+		// entirely because the group-detail page carries it in a
+		// dedicated SEVERITY column — repeating it here is noise.
+		if k == sortKeyInstance || k == "severity" {
 			continue
 		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if _, ok := dist["instance"]; ok {
-		keys = append([]string{"instance"}, keys...)
+	if _, ok := dist[sortKeyInstance]; ok {
+		keys = append([]string{sortKeyInstance}, keys...)
 	}
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
