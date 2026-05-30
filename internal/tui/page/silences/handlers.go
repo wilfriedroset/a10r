@@ -237,11 +237,11 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	creator := entry.s.CreatedBy
 	if creator == "" {
@@ -283,7 +283,7 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		return silenceform.Options{}, footer.ShowFlash(footer.FlashInfo, "no silence under the cursor"), false
 	}
 	if len(p.clients) == 0 {
-		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend), false
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend), false
 	}
 	entry := p.view[p.Index()]
 	if entry.s.State != backend.SilenceStateExpired {
@@ -291,7 +291,7 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 			"only expired silences can be recreated — use `e` to edit a live silence"), false
 	}
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend), false
+		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend), false
 	}
 	return silenceform.Options{
 		Clients:   p.clients,
@@ -357,7 +357,7 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	body, err := silenceToYAML(entry.s)
 	if err != nil {
@@ -509,7 +509,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 func (p *Page) openNewSilenceForm() tea.Cmd {
 	tenant, _, ok := p.pickWriteTarget()
 	if !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	creator := p.defaultCreator()
 	now := p.now

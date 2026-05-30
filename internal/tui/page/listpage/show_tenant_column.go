@@ -14,7 +14,7 @@ package listpage
 // no configured list was plumbed in (test paths that don't pin
 // Tenants).
 func (b *Base) ShowTenantColumn(observed int) bool {
-	if b.Scope != scopeAll {
+	if b.Scope != ScopeAll {
 		return false
 	}
 	if n := len(b.Tenants); n > 0 {

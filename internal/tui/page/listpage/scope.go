@@ -4,10 +4,8 @@ package listpage
 
 import "strings"
 
-// scopeAll is the canonical "every configured tenant" scope label.
-// Pinned here so the helper agrees with each page's own scopeAll
-// const without importing them.
-const scopeAll = "all"
+// ScopeAll is the canonical "every configured tenant" scope label.
+const ScopeAll = "all"
 
 // ScopeIncludes reports whether tenant should appear in the view
 // given b.Scope. Empty / "all" includes everyone; otherwise the
@@ -16,7 +14,7 @@ const scopeAll = "all"
 // around each entry so a pasted scope with spaces still matches.
 func (b *Base) ScopeIncludes(tenant string) bool {
 	scope := strings.TrimSpace(b.Scope)
-	if scope == "" || scope == scopeAll {
+	if scope == "" || scope == ScopeAll {
 		return true
 	}
 	for s := range strings.SplitSeq(scope, ",") {

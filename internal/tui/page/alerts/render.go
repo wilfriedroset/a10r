@@ -82,7 +82,7 @@ func (p *Page) renderHeader(width int) string {
 	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", rowPrefixCols))
+	b.WriteString(strings.Repeat(" ", format.RowPrefixCols))
 	idx := 0
 	if p.ShowTenantColumn(len(p.byTenant)) && idx < len(widths) {
 		b.WriteString(headerFg.Render(format.PadRight("TENANT", widths[idx])))
@@ -248,30 +248,8 @@ func countCell(g alertGroup) string {
 	return s
 }
 
-// rowPrefixCols is the space the rendered row reserves for its
-// leading "[cursor] [mark] " prefix (▸ or space + mark glyph or
-// space + separator). renderHeader prepends the same number of
-// spaces so the column titles line up with the data columns.
-const rowPrefixCols = 4
-
-// colSeparator is the width of the single space the renderer inserts
-// between adjacent columns. Passed to format.Distribute so the budget
-// reserves n-1 gap cells, and used by padColumns / renderHeader to
-// join cells — keeping header and data rows aligned while guaranteeing
-// columns never fuse.
-const colSeparator = 1
-
 // colSep is the rendered inter-column separator string.
 const colSep = " "
-
-// flexUnbounded is the Content sentinel for the alertname column
-// in columnSpecs. Using a finite-but-huge value (rather than
-// math.MaxInt) keeps the allocator's integer math honest while
-// guaranteeing no realistic terminal width can reach the cap —
-// 1 << 16 covers a 65k-cell-wide terminal, well past any current
-// hardware. Picked over MaxInt to avoid edge cases in the
-// proportional-shrink path multiplying widths by total budget.
-const flexUnbounded = 1 << 16
 
 // stateContentCap bounds the STATE column's requested width. The full
 // 3-bucket breakdown (`9 active · 3 suppressed · 1 unprocessed`, ~38
@@ -351,12 +329,8 @@ func (p *Page) columnWidths(width int) []int {
 	// allocator's contract is "fits in N cells", not "fits in N
 	// minus chrome". Centralising the chrome subtraction here keeps
 	// the spec construction pure and easy to test.
-	budget := max(0, width-rowPrefixCols)
-	// separator=1: the renderer joins cells with a single inter-column
-	// space (see padColumns / renderHeader), so the allocator reserves
-	// n-1 gap cells from the budget. The gap guarantees columns can
-	// never fuse regardless of content width.
-	return format.Distribute(specs, budget, colSeparator)
+	budget := max(0, width-format.RowPrefixCols)
+	return format.Distribute(specs, budget, len(colSep))
 }
 
 // columnSpecs builds the per-column Spec slice the distributor
@@ -395,7 +369,7 @@ func (p *Page) columnSpecs() []format.Column {
 	// Measure max content width per column from the live dataset.
 	// Header labels are included so a column never collapses under
 	// its own title. ALERTNAME is intentionally absent — its
-	// Content is the flexUnbounded sentinel, so the per-row max
+	// Content is the format.FlexUnbounded sentinel, so the per-row max
 	// would never beat the cap and walking it every frame is dead
 	// work for nothing. STATE now measures the rendered breakdown
 	// (wider than a bare state) and COUNT the digit count plus the
@@ -434,13 +408,13 @@ func (p *Page) columnSpecs() []format.Column {
 	specs = append(specs,
 		format.Column{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
 		// ALERTNAME is the unbounded flex column. Min is the floor
-		// for narrow terminals; Content is set to flexUnbounded so
+		// for narrow terminals; Content is set to format.FlexUnbounded so
 		// the allocator never caps it, handing the column every
 		// leftover cell on a wide terminal — even when every
 		// alertname in view is short. Capping at the live max would
 		// leave dead space the user could otherwise spend on the
 		// labels they're scanning.
-		format.Column{Min: alertNameMin, Content: flexUnbounded, Weight: 1},
+		format.Column{Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1},
 		format.Column{Min: countMin, Content: max(countMin, countContent), Weight: 0},
 		// STATE: cap the requested width so a wide 3-bucket breakdown
 		// can't starve ALERTNAME. The renderer ellipsizes the breakdown
@@ -550,8 +524,6 @@ func stateTokenStyle(s backend.AlertState, styles *theme.Styles) lipgloss.Style 
 		return styles.Table.DimmedFg
 	case backend.AlertStateUnprocessed:
 		return styles.Severity.Unknown
-	case backend.AlertStateActive:
-		return lipgloss.NewStyle()
 	default:
 		return lipgloss.NewStyle()
 	}

@@ -98,7 +98,7 @@ type Options struct {
 	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
-// Page is the alert-detail view. Implements app.Page.
+// Implements app.Page.
 type Page struct {
 	*detailpage.Base
 
@@ -119,12 +119,9 @@ type Page struct {
 
 	// clients is the per-tenant write surface for `s`. See Options.
 	clients map[string]silenceform.Client
-	// creator seeds the silence form's CreatedBy field.
 	creator string
 
-	// timeFormat mirrors the app-global toggle. Flipped by
-	// app.TimeFormatChangedMsg so the summary's "age:" line reads
-	// the same shape as the alerts list it was pushed from.
+	// timeFormat is flipped by app.TimeFormatChangedMsg so the detail reads the same shape as the list.
 	timeFormat timerender.Format
 
 	// silences caches the polled snapshot for p.tenant only, keyed
@@ -189,19 +186,12 @@ func New(opts Options) *Page {
 	return p
 }
 
-// PollResources implements app.PollAwarePage. The detail page only
-// reacts to the silences feed — silenced-by UUIDs in the alert are
-// resolved against this snapshot to enrich the suppression block.
-// Listing the label here lets the App's cache replay hydrate the
-// page on push so a freshly-drilled detail view shows enriched
-// rows immediately, without waiting for the next poll tick.
+// PollResources implements app.PollAwarePage.
 func (*Page) PollResources() []string { return []string{"silences"} }
 
 func (*Page) Crumb() string { return "detail" }
 
-// Title is k9s-style "Describe(<scope>/<alertname>)". Appends
-// ` [raw yaml]` when `y` has toggled raw mode — both modes
-// otherwise render the same chrome.
+// Appends ' [raw yaml]' suffix when raw mode is active.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -310,17 +300,13 @@ func (p *Page) ingestSilences(m poll.DataMsg) {
 	p.silences = next
 }
 
-// openSilenceForm pushes the silence form prefilled with this
-// alert's labels via silenceform.MatchersFromLabels (which drops
-// the synthetic `__name__` key). Empty / unknown tenant flashes
-// a hint instead of crashing — matches the alerts list `s` UX
-// so the affordance reads consistently across pages.
+// Empty / unknown tenant flashes a hint; matches the alerts list 's' UX.
 func (p *Page) openSilenceForm() tea.Cmd {
 	if len(p.clients) == 0 || p.tenant == "" {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if _, ok := p.clients[p.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(p.a.Labels)
 	creator := p.creator
@@ -343,21 +329,9 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	})
 }
 
-// hintNoWriteableBackend mirrors the alerts page's const so a
-// wording tweak there is the only edit required to keep the
-// affordance consistent. Two copies — one per package — beats a
-// shared internal/tui/footer string when the only consumers are
-// these two pages.
-const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
-
-// hintReadOnly is the flash text emitted when `s` fires on a
-// read-only alert detail page.
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
-// copyFingerprint returns the Cmd that asks the clipboard
-// integration to copy this alert's fingerprint, surfacing success
-// or failure as a flash. nil clipboard is a graceful "no
-// integration" path.
+// nil clipboard flashes a "not configured" hint.
 func (p *Page) copyFingerprint() tea.Cmd {
 	if p.clip == nil {
 		return footer.ShowFlash(footer.FlashWarn, "clipboard not configured")
@@ -411,13 +385,7 @@ func isSafeBrowserURL(raw string) bool {
 	return false
 }
 
-// View implements app.Page. Builds a flat line list, hanging-
-// indent-wraps any line that overflows width, then slices the
-// visible window starting at p.Scroll.
-//
-// The rawYAML toggle swaps the line list for a raw-payload dump
-// produced by output.WriteYAML; the scroll / styling / clamping
-// machinery is untouched so the two modes share one viewport.
+// rawYAML toggle swaps to a raw-payload dump; scroll/styling machinery is shared.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -441,11 +409,7 @@ func (p *Page) View(width, height int) string {
 	return listpage.Wrap(width, strings.Join(visible, "\n"))
 }
 
-// bodyLines builds the full list of rendered lines (one display
-// row each) so View can slice and the scroll machinery can clamp
-// against an exact length. Long values are wrapped with a
-// hanging indent so continuation lines align under the value
-// instead of bleeding to column 0.
+// Builds the structured line list so View can slice and scroll clamps to exact length.
 func (p *Page) bodyLines(width int) []string {
 	out := make([]string, 0, 32)
 	out = append(out, splitLines(p.renderSummary())...)

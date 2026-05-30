@@ -213,10 +213,10 @@ func (p *Page) openSilenceForS() tea.Cmd {
 // synthetic __name__). No scope note — silence-one is exactly-scoped.
 func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if _, ok := p.clients[p.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if p.Index() >= len(p.view) {
 		return footer.ShowFlash(footer.FlashInfo, "no instance under the cursor")
@@ -320,6 +320,3 @@ func (p *Page) commonLabelsCopy() map[string]string {
 
 // hintReadOnly is flashed on a Dangerous keypress in read-only mode.
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
-
-// hintNoWriteableBackend mirrors the alerts/alert pages' const.
-const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"

@@ -113,7 +113,7 @@ func (p *Page) renderHeader(width int) string {
 	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", rowPrefixCols))
+	b.WriteString(strings.Repeat(" ", format.RowPrefixCols))
 	for idx, k := range cols {
 		if idx >= len(widths) {
 			break
@@ -227,11 +227,6 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
 	return line
 }
 
-// rowPrefixCols is the space reserved for the leading "▸ ✓ " prefix
-// (cursor glyph + mark glyph + separator). renderHeader prepends the
-// same count so the titles line up with the data columns.
-const rowPrefixCols = 4
-
 // flexColumnIndex is the position of the INSTANCE (distinguishing-
 // labels) flex column in the rendered row: index 1, after SEVERITY.
 // No TENANT column on this page, so it never shifts.
@@ -341,14 +336,9 @@ func truncateLeft(s string, w int) string {
 // widths via the duf-style distributor. INSTANCE is the unbounded
 // weight-1 flex column; the rest are fixed at max(min, content).
 func (p *Page) columnWidths(width int) []int {
-	budget := max(0, width-rowPrefixCols)
+	budget := max(0, width-format.RowPrefixCols)
 	return format.Distribute(p.columnSpecs(), budget, colSeparator)
 }
-
-// flexUnbounded caps the flex column's Content at a finite-but-huge
-// value so no realistic terminal can reach it while the allocator's
-// integer math stays honest.
-const flexUnbounded = 1 << 16
 
 func (p *Page) columnSpecs() []format.Column {
 	const (
@@ -380,7 +370,7 @@ func (p *Page) columnSpecs() []format.Column {
 
 	return []format.Column{
 		{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
-		{Min: instanceMin, Content: flexUnbounded, Weight: 1},
+		{Min: instanceMin, Content: format.FlexUnbounded, Weight: 1},
 		{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
 		{Min: ageMin, Content: ageContent, Weight: 0},
 	}

@@ -23,7 +23,7 @@ func ToggleWatch(b *Base, ui *PollingUI) {
 // PausedRefresh so the next incoming DataMsg is honoured exactly
 // once — the operator pulled it deliberately and expects to see
 // fresh data even though watch mode is off. Empty Scope normalises
-// to scopeAll so the wiring layer sees the same value the renderer
+// to ScopeAll so the wiring layer sees the same value the renderer
 // uses.
 func RequestRefresh(b *Base, ui *PollingUI, resource string) tea.Cmd {
 	ui.Refreshing = true
@@ -32,7 +32,7 @@ func RequestRefresh(b *Base, ui *PollingUI, resource string) tea.Cmd {
 	}
 	scope := b.Scope
 	if scope == "" {
-		scope = scopeAll
+		scope = ScopeAll
 	}
 	emit := func() tea.Msg {
 		return app.RefreshRequestedMsg{Resource: resource, Scope: scope}

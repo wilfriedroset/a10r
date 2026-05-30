@@ -17,6 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
 // pendingSilenceAll captures the single-cursor silence-all target
@@ -130,7 +131,7 @@ type pendingBulkSilence struct {
 // no marks left after resolution drops to a soft Info flash.
 func (p *Page) openBulkSilence() tea.Cmd {
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	targets, tenants := p.resolveBulkSilenceTargets()
 	if len(targets) == 0 {
@@ -386,8 +387,3 @@ func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
 	}
 	return footer.ShowFlash(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
 }
-
-// hintNoWriteableBackend is the shared "configure a writeable backend"
-// message every page flashes when `s` lands but no silenceform.Client
-// is available. Pulled to a const so a wording change touches one site.
-const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"

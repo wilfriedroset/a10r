@@ -168,10 +168,10 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	}
 	entry := p.flat[r.groupIdx]
 	if len(p.clients) == 0 {
-		return p, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return p, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return p, footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return p, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	matchers := silenceform.MatchersFromLabels(backend.CommonLabels(entry.g.Alerts))
 	if len(matchers) == 0 {
@@ -206,11 +206,6 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 		})
 	})
 }
-
-// hintNoWriteableBackend mirrors the alerts / alert page consts
-// so the "configure a writeable backend" hint reads identically
-// across the three pages that push the silence form on `s`.
-const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
 
 // hintReadOnly is the flash text emitted when `s` fires on a
 // read-only page. Same intent as silences/alerts but worded for

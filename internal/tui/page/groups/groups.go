@@ -190,9 +190,6 @@ type Page struct {
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
-// scopeAll is the canonical "every configured tenant" label.
-const scopeAll = "all"
-
 func New(opts Options) *Page {
 	now := opts.Now
 	if now == nil {
@@ -204,7 +201,7 @@ func New(opts Options) *Page {
 	)
 	p := &Page{
 		Base: listpage.Base{
-			Scope:         scopeAll,
+			Scope:         listpage.ScopeAll,
 			BackendHealth: map[string]listpage.BackendHealth{},
 			Tenants:       opts.Tenants,
 		},
@@ -247,7 +244,7 @@ func (p *Page) Title() string {
 	}
 	scope := p.Scope
 	if scope == "" {
-		scope = scopeAll
+		scope = listpage.ScopeAll
 	}
 	total := p.totalGroups()
 	visible := len(p.visibleGroups())

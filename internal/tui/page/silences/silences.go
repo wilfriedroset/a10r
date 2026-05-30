@@ -37,11 +37,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
-// Sort column keys. Stable identifiers passed to the tablesort
-// helper. Order does not matter at the constant level — visual
-// h/l walk order comes from the silenceSortColumns slice (BY,
-// STARTS, ENDS, STATE) since BY is leftmost on the rendered table
-// while ENDS is the page default.
 const (
 	sortKeyEndsAt    = "ends"
 	sortKeyStartsAt  = "starts"
@@ -49,12 +44,6 @@ const (
 	sortKeyState     = "state"
 )
 
-// silenceSortColumns returns the page's sortable axes in visual
-// header order (BY → STARTS → ENDS → STATE). h/l walks through
-// this order so "right one column" matches what the user sees;
-// ENDS is the default sort key — silences expiring soonest at
-// the top — but that lives separately from registration
-// order. All defaults are ASC.
 func silenceSortColumns() []tablesort.Column[silenceEntry] {
 	return []tablesort.Column[silenceEntry]{
 		{
@@ -79,9 +68,6 @@ func silenceSortColumns() []tablesort.Column[silenceEntry] {
 	}
 }
 
-// silenceEntry pairs a silence with the tenant tag the poller
-// emitted it under so the renderer can surface a TENANT column
-// when more than one backend's data is in scope.
 type silenceEntry struct {
 	s      backend.Silence
 	tenant string
@@ -93,7 +79,6 @@ type silenceEntry struct {
 	lowerComposite string
 }
 
-// Page is the silences list view.
 type Page struct {
 	listpage.Base
 	listpage.PollingUI
@@ -108,9 +93,7 @@ type Page struct {
 	byTenant map[string][]backend.Silence
 	view     []silenceEntry
 
-	// sorter owns the active sort column + direction. Comparators
-	// and column metadata come from silenceSortColumns; the helper
-	// applies the cycle / flip / walk convention.
+	// sorter: comparators from silenceSortColumns.
 	sorter  *tablesort.Sorter[silenceEntry]
 	focusID string
 
@@ -120,7 +103,6 @@ type Page struct {
 	// Empty in tests or read-only runs — write actions flash a
 	// hint instead.
 	clients map[string]silenceform.Client
-	// creator seeds the form's CreatedBy field; usually $USER.
 	creator string
 
 	// marks is the set of silence IDs the user has Space-toggled
@@ -143,9 +125,7 @@ type Page struct {
 	// crashing.
 	editor edit.Resolver
 
-	// timeFormat mirrors the app-global toggle (relative vs.
-	// absolute timestamps). Flipped by app.TimeFormatChangedMsg
-	// so every list page agrees.
+	// timeFormat is flipped by app.TimeFormatChangedMsg so all list pages agree.
 	timeFormat timerender.Format
 
 	// pendingEdit captures which silence the user is editing in
@@ -153,20 +133,13 @@ type Page struct {
 	// against the right backend. Empty between rounds.
 	pendingEdit pendingEdit
 
-	// bulkConcurrency caps the per-tenant worker pool for the
-	// bulk-expire fanout. Tenants always run in parallel; this
-	// knob limits the inner pool size per tenant. Resolved from
-	// Options.BulkConcurrency (zero falls back to the config
-	// default at construction time).
+	// bulkConcurrency: tenants always parallel; this limits the inner pool per tenant.
 	bulkConcurrency int
 	// logger is the structured logger used for per-failure detail
 	// in the bulk fanout. Nil suppresses logging — the page never
 	// crashes on a missing logger.
 	logger *slog.Logger
-	// cancelBulk cancels the in-flight bulk-expire fanout when set.
-	// Populated by handleExpireConfirm at fanout start; cleared
-	// when the bulkExpireDoneMsg lands. Close() calls it so a page
-	// pop short-circuits not-yet-started workers.
+	// cancelBulk: Close() calls it so a page pop short-circuits not-yet-started workers.
 	cancelBulk context.CancelFunc
 
 	// mu guards cancelEditorUpdate. The editor-driven UpdateSilence
@@ -189,10 +162,7 @@ type Page struct {
 	alertName   string
 	alertLabels map[string]string
 
-	// readOnly mirrors Options.ReadOnly. Bindings() filters
-	// Dangerous entries when set so the hint strip and help
-	// overlay drop them; handleAction also flashes a hint instead
-	// of dispatching the write so a stray keystroke is harmless.
+	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
 	readOnly bool
 
 	// editorCtx is the parent context the editor subprocess
@@ -201,12 +171,7 @@ type Page struct {
 	// editor session. nil falls back to context.Background()
 	// inside edit.Edit.
 	editorCtx context.Context //nolint:containedctx // editor subprocess ctx, not session state.
-	// bulkCtx is the parent context the bulk-expire fanout
-	// inherits. Wired to the program's RunE ctx so a quit
-	// cancels the in-flight workers instead of orphaning their
-	// goroutines for a multi-day session. nil falls back to
-	// context.Background() (preserves the pre-fix behaviour for
-	// callers that haven't plumbed it yet).
+	// bulkCtx: wired to RunE ctx so a quit cancels in-flight workers. nil falls back to context.Background().
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 
 	// submitCtx parents the silence form's submit ctx. See
@@ -299,7 +264,7 @@ func New(opts Options) *Page {
 	}
 	p := &Page{
 		Base: listpage.Base{
-			Scope:         scopeAll,
+			Scope:         listpage.ScopeAll,
 			BackendHealth: map[string]listpage.BackendHealth{},
 			Tenants:       opts.Tenants,
 		},
@@ -340,14 +305,6 @@ func New(opts Options) *Page {
 	return p
 }
 
-// scopeAll is the canonical "every configured tenant" label.
-// Pinned as a constant so the wiring layer and the page stay in
-// lockstep — same shape as the alerts page.
-const scopeAll = "all"
-
-// Init kicks the spinner so the cold-start "loading" empty state
-// animates until the first DataMsg lands. Update breaks the Tick
-// chain after that.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 // Close implements app.Page. Cancels any in-flight bulk-expire
@@ -375,10 +332,6 @@ func (p *Page) Close() tea.Cmd {
 
 func (*Page) Crumb() string { return "silences" }
 
-// Title is k9s-style "silences(<scope>)[<count>]"; flips to the
-// loading affordance during a loading window. When alertName is set
-// (restricted silences view per ADR 0035) it substitutes for the
-// scope label. Same shape as the alerts page.
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
 		return p.LoadingTitle("silences")
@@ -387,7 +340,7 @@ func (p *Page) Title() string {
 	if scope == "" {
 		scope = p.Scope
 		if scope == "" {
-			scope = scopeAll
+			scope = listpage.ScopeAll
 		}
 	}
 	total := p.totalSilences()
@@ -418,24 +371,10 @@ func (p *Page) Footer() string {
 	)
 }
 
-// PollResources implements app.PollAwarePage so the App-level
-// snapshot cache only replays "silences" payloads into this
-// page on push — alerts / receivers / groups cache entries are
-// filtered out before the page would have to type-assert and
-// discard them.
+// PollResources implements app.PollAwarePage.
 func (*Page) PollResources() []string { return []string{"silences"} }
 
-// Bindings implements app.Page. Every write action carries
-// Dangerous so read-only mode hides them via the action
-// registry. `x` doubles as "expire cursor row" (no marks) and
-// "bulk expire all marked rows" (one or more marks) — k9s-style
-// same-key-different-N. Ctrl+X is intentionally absent; the
-// single-binding rule is the whole point of this page's bulk UX.
-//
-// When the page is in read-only mode, Dangerous entries are
-// stripped before the slice is returned so the hint strip and
-// help overlay both render the read-only verb set without the
-// caller having to re-filter.
+// When read-only, Dangerous entries are stripped before returning.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("silences")
 	out := make([]action.Action, 0, 8+len(sortBindings))
@@ -449,9 +388,6 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
 	)
 	out = append(out, sortBindings...)
-	// `r` is documented in the global help catalog; the page hint
-	// strip surfaces it here so the affordance also shows up next
-	// to the page-specific verbs.
 	out = append(out,
 		action.Action{Key: "r", Description: "refresh", View: "silences"},
 		action.Action{Key: "w", Description: "toggle watch", View: "silences"},

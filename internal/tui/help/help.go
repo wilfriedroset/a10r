@@ -33,6 +33,7 @@
 package help
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -45,15 +46,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// ClosedMsg is emitted when the help overlay is dismissed. The app
-// shell clears its help slot on receipt. Lives in this package
-// (per ADR 0020) because the help overlay owns its own routing
-// slot — viewer overlays no longer rent modal/'s ResultMsg surface
-// to ship a no-payload marker.
+// ClosedMsg is emitted when the overlay is dismissed; per ADR 0020.
 type ClosedMsg struct{}
 
-// Options bundles every input the overlay needs. The wiring layer
-// in app.go assembles this on `?` press.
 type Options struct {
 	// PageName is the active page's Crumb() — labels the RESOURCE
 	// column heading and is shown in the title strip.
@@ -107,9 +102,7 @@ type Options struct {
 	Styles *theme.Styles
 }
 
-// Help is the viewer overlay rendered by `?`. The app shell holds
-// it in a dedicated routing slot (`a.help`) separate from the modal
-// slot; the two never render simultaneously.
+// Implements the '?' overlay. Held in a dedicated routing slot, never shares with the modal slot.
 type Help struct {
 	opts Options
 
@@ -133,22 +126,9 @@ type Help struct {
 	lastMaxScroll  int
 }
 
-// New constructs a Help overlay.
 func New(opts Options) *Help { return &Help{opts: opts} }
 
-// Update handles the keystrokes and wheel ticks the app shell
-// routes here while the overlay is open. Most keys dismiss
-// (it's read-only — `?` toggles off, `Esc` and `q` close it),
-// but the standard vim-style scroll keys (j/k/g/G/Ctrl+D/Ctrl+U/
-// Ctrl+F/Ctrl+B plus the arrow / page-nav keys) walk the scroll
-// offset instead. Space is deliberately not among them — it's the
-// mark reflex on every list page, so it dismisses here rather than
-// scrolling. Wheel-only scrolling is
-// undiscoverable — a user reflexively pressing j/k to scroll a
-// long help body would otherwise close the overlay on the first
-// keystroke. Click / motion events arrive only while the App's
-// mouse cell-motion mode is on but the help overlay has no use
-// for them — they're ignored alongside other non-key messages.
+// Space dismisses (not scrolling) — it's the mark reflex; overriding it would surprise users.
 func (h *Help) Update(msg tea.Msg) (*Help, tea.Cmd) {
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		h.scrollBy(wheel)
@@ -163,12 +143,6 @@ func (h *Help) Update(msg tea.Msg) (*Help, tea.Cmd) {
 	return h, nil
 }
 
-// scrollBy adjusts the scroll offset for a wheel tick. Up reduces
-// the offset; down increases it. The lower bound is zero; the
-// upper bound is enforced inside View so a window resize doesn't
-// strand the offset past the new maximum (the scroll field is the
-// only mutable state on the help overlay — re-clamping there keeps
-// the math centralised).
 func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 	switch m.Button {
 	case tea.MouseWheelUp:
@@ -180,24 +154,7 @@ func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 	}
 }
 
-// scrollByKey routes the vim-style scroll keys to the scroll
-// offset and returns true when the key was consumed (so the Update
-// caller knows to skip the dismiss path). Recognised keys:
-//
-//   - j / down: line down
-//   - k / up:   line up
-//   - pgdown:   half-page down
-//   - pgup:     half-page up
-//   - ctrl+d / ctrl+u: half-page down / up (canonical vim)
-//   - ctrl+f / ctrl+b: full-page down / up (canonical vim)
-//   - g / home: jump to top
-//   - G / end:  jump to bottom
-//
-// Half / full-page steps come from the cursor package so the help
-// overlay scrolls with the same cadence as the alerts and silences
-// pages. The offset is clamped to [0, lastMaxScroll] inline so a
-// held-down key doesn't strand the offset past the last row before
-// View has a chance to re-clamp.
+// Half/full-page steps use cursor package for consistent cadence with list pages.
 func (h *Help) scrollByKey(key string) bool {
 	half := cursor.HalfPageStep(h.lastBodyHeight)
 	full := cursor.FullPageStep(h.lastBodyHeight)
@@ -239,8 +196,7 @@ func (h *Help) clampScroll() {
 	}
 }
 
-// View renders the four columns into the rectangle the app shell
-// hands over. The outer frame is drawn by the app, not by this view.
+// The outer frame is drawn by the app, not here.
 func (h *Help) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -270,9 +226,6 @@ func (h *Help) View(width, height int) string {
 	return strings.Join(rows, "\n")
 }
 
-// maxScrollOffset is the largest scroll value that still leaves
-// at least one row visible. Negative results clamp to zero (every
-// column fits inside height — nothing to scroll).
 func maxScrollOffset(cols [][]string, height int) int {
 	tallest := 0
 	for _, c := range cols {
@@ -287,10 +240,7 @@ func maxScrollOffset(cols [][]string, height int) int {
 	return overflow
 }
 
-// colGap is the inter-column spacing the row joiner reserves so a
-// cell whose content fills the column doesn't touch the next
-// column's chip. Two spaces matches the panel-side colGap so chrome
-// gap math stays uniform across the TUI.
+// Two spaces matches the panel-side colGap; chrome gap math stays uniform.
 const colGap = 2
 
 // columns builds the four column bodies (heading + entry list each)
@@ -305,7 +255,10 @@ const colGap = 2
 // motion already owns are dropped from RESOURCE; the rest — sorts
 // included — stay in RESOURCE.
 func (h *Help) columns() [][]string {
-	verbs := filterDangerous(h.opts.PageBindings, h.opts.ReadOnly)
+	verbs := h.opts.PageBindings
+	if h.opts.ReadOnly {
+		verbs = action.FilterDangerous(verbs)
+	}
 	shared, verbs := partitionShared(verbs)
 	verbs = dropReserved(verbs, h.opts.Globals, h.opts.TableMotions)
 	return [][]string{
@@ -356,9 +309,6 @@ func dropReserved(verbs, globals, motions []action.Action) []action.Action {
 	return out
 }
 
-// mergeGeneral appends the shared page verbs to the dispatcher globals
-// for the GENERAL column, skipping any whose key a global already
-// advertises so the column never doubles a chip.
 func mergeGeneral(globals, shared []action.Action) []action.Action {
 	seen := make(map[string]struct{}, len(globals))
 	for _, a := range globals {
@@ -414,10 +364,6 @@ func (h *Help) commandsColumn() []string {
 	return out
 }
 
-// resourceColumn lists the tenant numeric quick-switch (`<0>` all,
-// `<1>` … `<9>` per configured backend) followed by the active
-// page's non-sort verbs. Empty backends just drop the numeric block.
-// Chip alignment is handled inside alignedColumn.
 func (h *Help) resourceColumn(verbs []action.Action) []string {
 	parts := make([]rowParts, 0, 1+len(h.opts.Tenants)+len(verbs))
 	if len(h.opts.Tenants) > 0 {
@@ -426,7 +372,7 @@ func (h *Help) resourceColumn(verbs []action.Action) []string {
 			if i >= 9 {
 				break
 			}
-			parts = append(parts, rowParts{key: itoa(i + 1), desc: name})
+			parts = append(parts, rowParts{key: strconv.Itoa(i + 1), desc: name})
 		}
 	}
 	for _, a := range verbs {
@@ -435,11 +381,11 @@ func (h *Help) resourceColumn(verbs []action.Action) []string {
 	return h.alignedColumn("RESOURCE", parts)
 }
 
-// staticColumn renders a heading + a list of pre-curated actions
-// with chips padded to the column's widest entry so descriptions
-// line up. Globals and table motions both flow through here.
 func (h *Help) staticColumn(name string, entries []action.Action) []string {
-	filtered := filterDangerous(entries, h.opts.ReadOnly)
+	filtered := entries
+	if h.opts.ReadOnly {
+		filtered = action.FilterDangerous(filtered)
+	}
 	parts := make([]rowParts, len(filtered))
 	for i, a := range filtered {
 		parts[i] = rowParts{key: a.ChipKey(), desc: a.Description}
@@ -447,14 +393,7 @@ func (h *Help) staticColumn(name string, entries []action.Action) []string {
 	return h.alignedColumn(name, parts)
 }
 
-// composeRows zips columns into rows. Each cell renders into the
-// leftmost colWidth-colGap cells of its colWidth slot — the trailing
-// colGap stays blank so neighbouring columns never touch even when
-// a truncated description filled the visible budget. Each row is
-// exactly colWidth*len(cols) columns wide; the App panel takes care
-// of side borders. scroll shifts the starting row so a help payload
-// that overflows the overlay's height can be walked downward by
-// mouse-wheel ticks.
+// Trailing colGap stays blank so neighbouring columns never touch.
 func (h *Help) composeRows(cols [][]string, colWidth, height, scroll int) []string {
 	maxLen := 0
 	for _, c := range cols {
@@ -520,20 +459,11 @@ func ChipText(key string) string {
 	return "<" + strings.ReplaceAll(strings.ToLower(key), "+", "-") + ">"
 }
 
-// rowParts is the (chip-key, description) pair feeding
-// alignedColumn. Bundled so the per-column widest-chip pass walks
-// one slice instead of two.
 type rowParts struct {
 	key  string
 	desc string
 }
 
-// alignedColumn renders a heading + every entry row, with chips
-// padded to the column's widest visible chip so descriptions line
-// up under one invisible left edge — the k9s layout rule. A single
-// gap of two cells separates chip from description; the column
-// joiner reserves another colGap cells of right-edge whitespace so
-// neighbouring columns never touch.
 func (h *Help) alignedColumn(heading string, parts []rowParts) []string {
 	widest := 0
 	chips := make([]string, len(parts))
@@ -568,17 +498,11 @@ func (h *Help) chipStyle(key string) lipgloss.Style {
 	return h.opts.Styles.Hint.KeyBold
 }
 
-// isNumericKey reports whether key is a single-digit tenant
-// quick-switch mnemonic — the keys k9s renders in NumKeyColor (its
-// predicate is `strconv.Atoi` succeeding on the menu mnemonic). a10r
-// only ever binds the bare digits 0-9 in that slot, so a single-rune
-// digit check matches without pulling in multi-digit edge cases.
+// isNumericKey matches the k9s NumKeyColor predicate.
 func isNumericKey(key string) bool {
 	return len(key) == 1 && key[0] >= '0' && key[0] <= '9'
 }
 
-// headingLabel renders a column heading in the table-header colour
-// (uppercase to match the list-page table headers).
 func (h *Help) headingLabel(name string) string {
 	st := lipgloss.NewStyle().
 		Foreground(h.opts.Styles.Table.Header.GetForeground()).
@@ -586,28 +510,13 @@ func (h *Help) headingLabel(name string) string {
 	return st.Render(name)
 }
 
-// subheadingLabel renders an in-column sub-section divider (today
-// only the USER block inside COMMANDS). Same colour as a column
-// heading so the visual family is consistent, but unbold so a
-// reader's eye registers it as nested rather than as a peer column.
+// Unbold so a reader sees it as nested, not a peer column.
 func (h *Help) subheadingLabel(name string) string {
 	st := lipgloss.NewStyle().
 		Foreground(h.opts.Styles.Table.Header.GetForeground())
 	return st.Render(name)
 }
 
-// filterDangerous strips Dangerous-flagged actions when readOnly is
-// true; otherwise returns the slice unchanged. Thin wrapper around
-// action.FilterDangerous so the existing tests keep their call shape.
-func filterDangerous(in []action.Action, readOnly bool) []action.Action {
-	if !readOnly {
-		return in
-	}
-	return action.FilterDangerous(in)
-}
-
-// padRight pads s with trailing spaces so it occupies exactly w
-// columns, lipgloss-aware so styled chips don't blow the math.
 func padRight(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -617,13 +526,4 @@ func padRight(s string, w int) string {
 		return format.SGRTruncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-cur)
-}
-
-// itoa is a small allocation-free int → string for the numeric
-// tenant quick-switch (1-9 only).
-func itoa(n int) string {
-	if n < 0 || n > 9 {
-		return ""
-	}
-	return string(rune('0' + n))
 }

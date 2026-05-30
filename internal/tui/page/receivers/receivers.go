@@ -135,14 +135,11 @@ type Page struct {
 	focusTenant string
 }
 
-// scopeAll is the canonical "every configured tenant" label.
-const scopeAll = "all"
-
 // New constructs an empty receivers page from the supplied Options.
 func New(opts Options) *Page {
 	p := &Page{
 		Base: listpage.Base{
-			Scope:         scopeAll,
+			Scope:         listpage.ScopeAll,
 			BackendHealth: map[string]listpage.BackendHealth{},
 			Tenants:       opts.Tenants,
 		},
@@ -168,7 +165,7 @@ func (*Page) Crumb() string { return "receivers" }
 func (p *Page) Title() string {
 	scope := p.Scope
 	if scope == "" {
-		scope = scopeAll
+		scope = listpage.ScopeAll
 	}
 	total := p.totalReceivers()
 	if p.Filter != "" {

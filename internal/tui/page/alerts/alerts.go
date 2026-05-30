@@ -52,24 +52,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
-// Sort column keys. Stable identifiers passed to the tablesort
-// helper — used as both the canonical Key (for ArrowFor / IsActive
-// lookups) and the lower-cased description text in the help
-// overlay (the helper derives "sort by <title>" from each Column's
-// Title, which lower-cases to these strings). Order matches the
-// cycle order for the h/l sort-column walk.
 const (
 	sortKeySeverity = "severity"
 	sortKeyName     = "alertname"
 	sortKeyCount    = "count"
 	sortKeyAge      = "age"
 )
-
-// scopeAll is the canonical label for the "every configured
-// tenant" scope. Used by Title, scopeIncludes, and the
-// `<0>` quick-switch payload — pinning it as a constant keeps
-// the wiring layer and the page in lockstep.
-const scopeAll = "all"
 
 // alertSortColumns returns the page's sortable column set, now keyed
 // on the alertname aggregate. Severity and count default DESC (worst /
@@ -131,25 +119,15 @@ func tieBreakGroup(primary func(a, b *alertGroup) bool) func(a, b *alertGroup) b
 	}
 }
 
-// Options bundles the per-page constructor inputs.
 type Options struct {
 	Styles *theme.Styles
 	// Now injects the wall clock for the age column. nil falls
 	// back to time.Now.
 	Now func() time.Time
-	// Scope labels the active tenant set in the body title — one
-	// tenant name when a single backend is selected, "all" when
-	// every configured tenant is selected, or comma-joined names
-	// when a subset is selected. Empty hides the parenthesised
-	// scope from the title.
 	Scope string
-	// Clients is the per-tenant write surface the page hands to
-	// the silence form when the user presses `s`. Empty in tests
-	// or read-only runs — `s` flashes a hint instead. Same shape
-	// as the silences page.
+	// Clients is the per-tenant write surface for 's'; nil flashes a hint.
 	Clients map[string]silenceform.Client
-	// Creator seeds the silence form's CreatedBy field; usually
-	// $USER. Empty falls back to "a10r" in the form factory.
+	// Creator seeds CreatedBy; empty falls back to "a10r".
 	Creator string
 	// TimeFormat seeds the page's time-format mode at construction
 	// so a page pushed *after* the user toggled `t` doesn't open
@@ -158,8 +136,7 @@ type Options struct {
 	TimeFormat timerender.Format
 	// StateFormat seeds the STATE-column breakdown density. Zero value
 	// (stateformat.Full) is the pre-toggle default, so a zero-value
-	// Options opens in the legible full mode — boot wiring threading
-	// this through is a separate later commit.
+	// Options opens in the legible full mode.
 	StateFormat stateformat.Format
 	// BulkConcurrency caps the per-tenant worker pool for the
 	// bulk-silence fanout (one CreateSilence per marked alert).
@@ -269,7 +246,7 @@ func (g alertGroup) key() string { return g.tenant + "\x00" + g.alertName }
 // "all suppressed" (there is nothing to dim).
 func (g alertGroup) allSuppressed() bool { return g.count > 0 && g.suppressed == g.count }
 
-// Page is the alerts list view. Implements app.Page.
+// Implements app.Page.
 type Page struct {
 	listpage.Base
 	listpage.PollingUI
@@ -279,7 +256,6 @@ type Page struct {
 
 	// clients is the per-tenant write surface for `s`; see Options.
 	clients map[string]silenceform.Client
-	// creator seeds the silence form's CreatedBy field.
 	creator string
 
 	// byTenant stores the most recent snapshot per tenant. Each
@@ -321,8 +297,7 @@ type Page struct {
 	// bulk-silence fanout. Tenants always run in parallel; this
 	// knob limits the inner pool size per tenant.
 	bulkConcurrency int
-	// logger is the structured logger used for per-failure detail
-	// in the bulk fanout. Nil suppresses logging.
+	// logger: nil suppresses logging.
 	logger *slog.Logger
 	// cancelBulk cancels the in-flight bulk-silence fanout when
 	// set. Populated when fanout starts; the dispatch Cmd defers
@@ -331,25 +306,17 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
-	// sorter owns the active sort column + direction. Comparators
-	// and column metadata come from alertSortColumns; the helper
-	// applies the cycle / flip / walk convention.
+	// sorter: comparators from alertSortColumns.
 	sorter      *tablesort.Sorter[alertGroup]
 	stateFilter string // "" = all, otherwise an AlertState value
 
-	// timeFormat mirrors the app-global toggle. Defaults to
-	// relative; flipped by app.TimeFormatChangedMsg so every list
-	// page agrees on absolute vs. relative timestamps.
+	// timeFormat is flipped by app.TimeFormatChangedMsg so all list pages agree.
 	timeFormat timerender.Format
 
-	// stateFormat mirrors the app-global STATE-breakdown density
-	// toggle. Defaults to Full; flipped by app.StateFormatChangedMsg
-	// so L1 and the L2 group-detail page agree on density.
+	// stateFormat is flipped by app.StateFormatChangedMsg so L1 and L2 agree on density.
 	stateFormat stateformat.Format
 
-	// readOnly mirrors Options.ReadOnly. Bindings() filters
-	// Dangerous entries when set; handleAction flashes a hint
-	// instead of opening the silence form.
+	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
 	readOnly bool
 
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
@@ -418,29 +385,16 @@ func New(opts Options) *Page {
 	return p
 }
 
-// SetScope updates the active tenant scope and rebuilds the
-// view so the title's `[N]` count and the rendered rows both
-// reflect the new selection. Mirror of the app.ScopeChangedMsg
-// handler — exists for direct callers (the cmd-bar wiring,
-// tests) that don't go through bubbletea's message bus.
+// Mirror of app.ScopeChangedMsg for direct callers (cmd-bar, tests).
 func (p *Page) SetScope(s string) {
 	p.Scope = s
 	p.recompute()
 }
 
-// Init kicks the spinner so the cold-start "loading" affordance
-// animates until the first DataMsg lands. Update breaks the Tick
-// chain once any in-scope DataMsg has arrived and re-arms it on
-// every manual `r` refresh.
 func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
-// Close implements app.Page. Cancels any in-flight bulk-silence
-// fanout so a page pop while workers are mid-air aborts not-yet-
-// started work via the worker channel select. In-flight HTTP
-// requests are allowed to finish — CreateSilence is non-idempotent,
-// so cancelling mid-flight risks a half-created silence; finishing
-// the request and letting the user see the success / failure on
-// the next poll is the safer trade-off.
+// In-flight requests finish: CreateSilence is non-idempotent so
+// cancelling mid-flight risks a half-created silence.
 func (p *Page) Close() tea.Cmd {
 	if p.cancelBulk != nil {
 		p.cancelBulk()
@@ -451,16 +405,13 @@ func (p *Page) Close() tea.Cmd {
 
 func (*Page) Crumb() string { return "alerts" }
 
-// Title is k9s-style "alerts(<scope>)[<count>]". During a loading
-// window the title flips to the loading affordance so the border
-// itself reads as the loading state.
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
 		return p.LoadingTitle("alerts")
 	}
 	scope := p.Scope
 	if scope == "" {
-		scope = scopeAll
+		scope = listpage.ScopeAll
 	}
 	if p.Filter != "" || p.stateFilter != "" {
 		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.groups), p.totalGroups())
@@ -492,21 +443,10 @@ func (p *Page) Footer() string {
 	)
 }
 
-// PollResources implements app.PollAwarePage so the App-level
-// snapshot cache only replays "alerts" payloads into this page
-// on push.
+// PollResources implements app.PollAwarePage.
 func (*Page) PollResources() []string { return []string{"alerts"} }
 
-// Bindings implements app.Page. Returns the per-view bindings
-// surfaced in the header's right-zone hint strip. Sort shortcuts
-// come from the tablesort helper so every list page surfaces the
-// same convention without each page hand-rolling the strings;
-// h/l column walk lives on every table view via TableMotions and
-// isn't repeated here.
-//
-// When the page is in read-only mode the Dangerous entries (`s`)
-// are stripped before the slice is returned so the hint strip and
-// help overlay both render the read-only verb set.
+// When read-only, Dangerous entries ('s') are stripped before returning.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("alerts")
 	out := make([]action.Action, 0, 8+len(sortBindings))
@@ -518,9 +458,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+F", Description: "state filter", View: "alerts"},
 	)
 	out = append(out, sortBindings...)
-	// `r` is a global binding too; surface it on the alerts hint
-	// strip so the affordance reads at a glance alongside the
-	// page-specific verbs. Same shape as silences.
+	// 'r' is global; surface it here for discoverability.
 	out = append(out,
 		action.Action{Key: "Shift+T", Description: "state format", View: "alerts"},
 		action.Action{Key: "r", Description: "refresh", View: "alerts"},

@@ -59,7 +59,7 @@ func (b *Base) ErrorBand(now time.Time) string {
 		// Single offender: tenant prefix only useful when scope
 		// covers >1 tenant (avoids "prod: …" noise on a
 		// single-tenant view).
-		if b.Scope == scopeAll || strings.Contains(b.Scope, ",") {
+		if b.Scope == ScopeAll || strings.Contains(b.Scope, ",") {
 			return head.tenant + ": " + head.detail + suffix
 		}
 		return head.detail + suffix

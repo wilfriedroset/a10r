@@ -14,6 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
 // pendingExpire is the in-flight state between an opened expire
@@ -37,12 +38,6 @@ type pendingExpireID struct {
 	tenant string
 }
 
-// hintNoWriteableBackend is the shared message every write action
-// flashes when no Client is reachable for the active scope.
-// Mirrors the alerts / alert / groups pages so the affordance
-// reads identically across resources.
-const hintNoWriteableBackend = "no writeable backend in scope — pick a tenant with `<1>`-`<9>` or `Ctrl+T`"
-
 // openExpireConfirmUnified routes `x` to the single-row or bulk
 // expire confirm depending on whether any silences are marked.
 // Mirror of the alerts page's openSilenceForS.
@@ -64,11 +59,11 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no silence under the cursor")
 	}
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	entry := p.view[p.Index()]
 	if _, ok := p.clients[entry.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	p.pendingExpire = pendingExpire{
 		ids:  []pendingExpireID{{id: entry.s.ID, tenant: entry.tenant}},
@@ -99,7 +94,7 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no rows marked — Space marks one")
 	}
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	ids := make([]pendingExpireID, 0, len(p.marks))
 	for tenant, sils := range p.byTenant {

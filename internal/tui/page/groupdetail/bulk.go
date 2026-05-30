@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
 // bulkSilenceTarget is one marked instance's silence-one work: its
@@ -46,10 +47,10 @@ const silenceOneWarnThreshold = 10
 // dropped silently.
 func (p *Page) openBulkSilence() tea.Cmd {
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if _, ok := p.clients[p.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	targets := p.resolveBulkSilenceTargets()
 	if len(targets) == 0 {

@@ -65,33 +65,17 @@ func styleTitle(raw string, styles *theme.Styles) string {
 	return b.String()
 }
 
-// TenantBinding is one entry in the panel's tenant-shortcut
-// column. K9s shows numeric shortcuts for the configured
-// namespaces (`<0> all`, `<1> ns-1`, …); a10r mirrors the
-// shape with one row per configured backend plus the synthetic
-// `<0> all` selector.
 type TenantBinding struct {
 	Key  string
 	Name string
 }
 
-// State bundles every input the renderer needs. Stateless: the
-// app shell rebuilds it every frame from poll snapshots and the
-// active page's metadata.
+// Stateless — the app rebuilds it every frame from poll snapshots.
 type State struct {
-	Width int
-	// Tenants are the numeric tenant shortcuts surfaced in the
-	// leftmost column. Empty hides the column.
+	Width   int
 	Tenants []TenantBinding
-	// Hints are the page's bindings rendered as a `<key> Action`
-	// table in the middle. Auto-built from the active page's
-	// Bindings() so adding a binding there shows up here. The
-	// panel prepends a curated global prelude (today: `?`) per
-	// ADR 0038, so the hint zone is never empty even when the
-	// page returns nil Bindings.
 	Hints []action.Action
-	// Logo is the ASCII art on the right. Empty hides the column.
-	Logo string
+	Logo  string
 }
 
 // gridCols caps how many parallel columns the tenants and hints
@@ -189,21 +173,12 @@ func RenderTop(state State, styles *theme.Styles) string {
 	return strings.Join(out, "\n")
 }
 
-// rowParts bundles the per-row inputs composeRow walks. Grouped
-// in a struct so the signature stays small as the panel grows.
 type rowParts struct {
 	tenants, hint, logo           string
 	tenantW, hintW, logoW, totalW int
 }
 
-// composeRow assembles one panel row: tenants + gap + hint with
-// the logo right-aligned to totalW. The two left columns each
-// get padded to their natural width so multi-row content stays
-// aligned; the logo lines get tinted with body.logoColor for k9s
-// parity. SGRTruncate-then-PadRight is the belt-and-braces hard
-// floor — the width-aware reflow should already keep rows within
-// totalW, but a future regression would otherwise smear an active
-// SGR style into the body chrome.
+// SGRTruncate-then-PadRight: future regression would smear an active SGR style into the body chrome.
 func composeRow(p rowParts, styles *theme.Styles) string {
 	tenants := format.PadRight(p.tenants, p.tenantW)
 	hint := format.PadRight(p.hint, p.hintW)
@@ -221,16 +196,11 @@ func composeRow(p rowParts, styles *theme.Styles) string {
 	return format.PadRight(format.SGRTruncate(line, p.totalW), p.totalW)
 }
 
-// colPart is the (rendered, width) pair joinCols walks. width=0
-// hides the column (no content, no leading gap).
 type colPart struct {
 	s string
 	w int
 }
 
-// joinCols concatenates parts left-to-right with a `gap`-wide
-// inter-column spacer, skipping any zero-width column. Pulled
-// out of composeRow so the per-row builder stays linear.
 func joinCols(gap int, parts ...colPart) string {
 	var sb strings.Builder
 	first := true
@@ -247,13 +217,7 @@ func joinCols(gap int, parts ...colPart) string {
 	return sb.String()
 }
 
-// renderTenantLines formats the tenant-shortcut column as a
-// k9s-style column-major grid of `<key> name` cells. Width is
-// capped at gridCols columns and rowsBudget rows; items past the
-// cap silently drop so the panel never grows taller than the
-// logo. The key chip is bold to distinguish tenant / namespace
-// shortcuts from regular action shortcuts; the name renders in
-// the menu foreground at normal weight to literally match k9s.
+// Key chip bold to distinguish tenant shortcuts from action shortcuts; matches k9s NumKeyColor.
 func renderTenantLines(tenants []TenantBinding, rowsBudget int, styles *theme.Styles) []string {
 	if len(tenants) == 0 {
 		return nil
@@ -365,10 +329,6 @@ func widestCell(cells []string) int {
 	return w
 }
 
-// renderGrid lays cells column-major into `cols × rows`, padding
-// each visible cell to cellW so columns line up. Both gridLines
-// and gridLinesWithWidth share this row builder once they've
-// settled on a (cols, rows, cellW) triple.
 func renderGrid(cells []string, cols, rows, cellW int) []string {
 	out := make([]string, rows)
 	rowCap := cols*cellW + (cols-1)*colGap
@@ -392,19 +352,9 @@ func renderGrid(cells []string, cols, rows, cellW int) []string {
 	return out
 }
 
-// helpHint is the curated discoverability prelude prepended to
-// every page's Bindings() before the hint grid renders (ADR 0038).
-// `?` is a LayerGlobal verb owned by the dispatcher; surfacing it
-// in the chrome means a first-time operator sees the discovery
-// gateway without having to know it exists.
+// helpHint is prepended to every page's Bindings for discoverability (ADR 0038).
 var helpHint = action.Action{Key: "?", Description: "help"}
 
-// prependHelpHint returns `hints` with helpHint inserted at index 0
-// unless a `?`-keyed binding is already present (defensive against
-// a future page that misroutes the global). The input is never
-// mutated; on the non-dedup path the output is a fresh slice so
-// callers can keep passing the page's Bindings() result through
-// unchanged.
 func prependHelpHint(hints []action.Action) []action.Action {
 	for _, h := range hints {
 		if h.Key == "?" {
@@ -417,18 +367,6 @@ func prependHelpHint(hints []action.Action) []action.Action {
 	return out
 }
 
-// renderHintLines formats the hint column as a k9s-style column-
-// major grid of `<key> Description` cells. Mirrors k9s's frame.menu
-// zone. Unlike tenants, hints reflow under width pressure: cols
-// shrink 3 → 2 → 1, and the trailing chip drops once 1-col still
-// won't fit. Pass `unboundedRows` for availWidth to opt out of the
-// width-aware reflow (used for the pre-logo-drop pass).
-//
-// `?` is always present as the first cell — the panel widens the
-// page's Bindings() with a curated global prelude so the help
-// affordance survives even an empty page binding set. A page that
-// (against ADR 0019) re-emits `?` is silently deduped to avoid
-// painting the chip twice.
 func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *theme.Styles) []string {
 	hints = prependHelpHint(hints)
 	if len(hints) == 0 {
@@ -458,7 +396,6 @@ func renderHintLines(hints []action.Action, rowsBudget, availWidth int, styles *
 	return gridLinesWithWidth(cells, rowsBudget, availWidth)
 }
 
-// splitNonEmpty splits s on \n, returning nil for empty input.
 func splitNonEmpty(s string) []string {
 	if s == "" {
 		return nil
@@ -466,8 +403,6 @@ func splitNonEmpty(s string) []string {
 	return strings.Split(s, "\n")
 }
 
-// getLine returns lines[i] when i is in range, otherwise "" so
-// the row builder can compose mismatched-height columns.
 func getLine(lines []string, i int) string {
 	if i >= len(lines) {
 		return ""
@@ -475,7 +410,6 @@ func getLine(lines []string, i int) string {
 	return lines[i]
 }
 
-// maxWidth returns the widest visual width across lines.
 func maxWidth(lines []string) int {
 	w := 0
 	for _, l := range lines {
@@ -486,11 +420,7 @@ func maxWidth(lines []string) int {
 	return w
 }
 
-// MinBodyWidth is the smallest viewport width at which the
-// table-based pages render legibly. Below the threshold RenderBody
-// substitutes a centred "resize" placeholder so the operator still
-// sees the panel chrome and page title. 60 clears known cell-width
-// footguns and still fits a half-screen tmux pane.
+// MinBodyWidth: below this RenderBody substitutes a placeholder; 60 fits a half-screen tmux pane.
 const MinBodyWidth = 60
 
 // RenderBody wraps the page's body content in a single-line
@@ -525,8 +455,7 @@ func RenderBody(width, height int, body, title, footer string, styles *theme.Sty
 	innerWidth := width - 2
 	innerHeight := height - 2
 
-	// Top border with embedded title: "┌── title ──┐".
-	top := buildTitleBorder(innerWidth, title, styles)
+	top := buildLabelBorder(innerWidth, title, "┌", "┐", styles)
 
 	// Inner body: split body into lines, pad / slice to fit inner.
 	lines := strings.Split(body, "\n")
@@ -550,25 +479,12 @@ func RenderBody(width, height int, body, title, footer string, styles *theme.Sty
 		lines[i] = bar + l + bar
 	}
 
-	// Bottom border, optionally embedding a label the same way
-	// the title sits in the top edge.
-	bottom := buildFooterBorder(innerWidth, footer, styles)
+	bottom := buildLabelBorder(innerWidth, footer, "└", "┘", styles)
 
 	return top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
 }
 
-// RenderFrame wraps a single-line `body` in a 3-line bordered box
-// matching the body panel's frame:
-//
-//	┌──────────────┐
-//	│ body         │
-//	└──────────────┘
-//
-// Used by the App for the `:` / `/` prompt panel. The body is
-// truncated when it exceeds the inner width; a hard upper bound
-// since the prompt is keyboard-driven and the user can only enter
-// what they see. Border is `frame.border.fgColor`-tinted so the
-// prompt panel matches the body panel's frame.
+// Used by the App for the ':' / '/' prompt panel.
 func RenderFrame(width int, body string, styles *theme.Styles) string {
 	if width < 4 {
 		return body
@@ -586,22 +502,6 @@ func RenderFrame(width int, body string, styles *theme.Styles) string {
 	bottom := border.Render("└" + strings.Repeat("─", innerWidth) + "┘")
 	bar := border.Render("│")
 	return top + "\n" + bar + body + bar + "\n" + bottom
-}
-
-// buildTitleBorder draws "┌── title ──┐" with the title centred
-// and tinted in `frame.title.fgColor`. The horizontal rules get
-// `frame.border.fgColor`. Falls back to a plain (still tinted)
-// border when the title is too long for the inner width (rare on
-// terminals ≥ 80 cols).
-func buildTitleBorder(innerWidth int, title string, styles *theme.Styles) string {
-	return buildLabelBorder(innerWidth, title, "┌", "┐", styles)
-}
-
-// buildFooterBorder is the bottom-edge counterpart: same layout,
-// `└` / `┘` corners. Empty label renders a plain rule so pages
-// without ambient state to surface still get a clean frame.
-func buildFooterBorder(innerWidth int, footer string, styles *theme.Styles) string {
-	return buildLabelBorder(innerWidth, footer, "└", "┘", styles)
 }
 
 // buildLabelBorder draws "<L>── label ──<R>" with the label

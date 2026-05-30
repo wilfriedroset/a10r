@@ -194,14 +194,14 @@ func (p *Page) openSilenceForS() tea.Cmd {
 // group's identity — `alertname=<X>` alone, NOT the full label set.
 func (p *Page) openSilenceAllForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	if p.Index() >= len(p.groups) {
 		return footer.ShowFlash(footer.FlashInfo, "no alert under the cursor")
 	}
 	g := p.groups[p.Index()]
 	if _, ok := p.clients[g.tenant]; !ok {
-		return footer.ShowFlash(footer.FlashWarn, hintNoWriteableBackend)
+		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	p.pendingSilenceAll = pendingSilenceAll{
 		tenant:    g.tenant,
