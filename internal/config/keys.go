@@ -115,13 +115,16 @@ func parseKeys(raw []byte, source string) (KeyOverrides, error) {
 // conflicts inline. The first occurrence of a key claims the slot;
 // the second triggers the error pointing at the OFFENDING line so
 // the operator opens their editor at the line they need to fix.
+// keyBinding records which action owns a key and the line it was
+// bound on, so a duplicate binding can be reported with both sites.
+type keyBinding struct {
+	action string
+	line   int
+}
+
 func validateKeyMapping(root *yaml.Node, source string) (KeyOverrides, error) {
 	out := KeyOverrides{}
-	type binding struct {
-		action string
-		line   int
-	}
-	keyOwner := map[string]binding{}
+	keyOwner := map[string]keyBinding{}
 
 	for i := 0; i < len(root.Content); i += 2 {
 		action, err := decodeActionName(root.Content[i], source)
@@ -132,19 +135,8 @@ func validateKeyMapping(root *yaml.Node, source string) (KeyOverrides, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, kv := range keys {
-			if _, reserved := reservedKeys[kv.value]; reserved {
-				return nil, fmt.Errorf(
-					"%w: %s:%d: %q attempts to bind reserved key %q (0-9 are reserved for tenant quick-switch)",
-					ErrKeyOverrideInvalid, source, kv.line, action, kv.value)
-			}
-			if prev, dup := keyOwner[kv.value]; dup && prev.action != action {
-				return nil, fmt.Errorf(
-					"%w: %s:%d: key %q is also bound to action %q at line %d",
-					ErrKeyOverrideInvalid, source, kv.line, kv.value, prev.action, prev.line)
-			}
-			keyOwner[kv.value] = binding{action: action, line: kv.line}
-			out[action] = append(out[action], kv.value)
+		if err := assignKeys(out, keyOwner, action, keys, source); err != nil {
+			return nil, err
 		}
 	}
 
@@ -156,6 +148,27 @@ func validateKeyMapping(root *yaml.Node, source string) (KeyOverrides, error) {
 		sort.Strings(ks)
 	}
 	return out, nil
+}
+
+// assignKeys binds every key in keys to action, rejecting reserved
+// keys (0-9, held for tenant quick-switch) and keys already bound to a
+// different action. keyOwner and out are updated in place.
+func assignKeys(out KeyOverrides, keyOwner map[string]keyBinding, action string, keys []keyEntry, source string) error {
+	for _, kv := range keys {
+		if _, reserved := reservedKeys[kv.value]; reserved {
+			return fmt.Errorf(
+				"%w: %s:%d: %q attempts to bind reserved key %q (0-9 are reserved for tenant quick-switch)",
+				ErrKeyOverrideInvalid, source, kv.line, action, kv.value)
+		}
+		if prev, dup := keyOwner[kv.value]; dup && prev.action != action {
+			return fmt.Errorf(
+				"%w: %s:%d: key %q is also bound to action %q at line %d",
+				ErrKeyOverrideInvalid, source, kv.line, kv.value, prev.action, prev.line)
+		}
+		keyOwner[kv.value] = keyBinding{action: action, line: kv.line}
+		out[action] = append(out[action], kv.value)
+	}
+	return nil
 }
 
 // decodeActionName pulls the action string out of an action key
@@ -262,22 +275,12 @@ func canonicaliseKey(k string) string {
 	}
 	parts := strings.Split(k, "+")
 	last := parts[len(parts)-1]
-	mods := parts[:len(parts)-1]
-	rewritten := make([]string, 0, len(mods)+1)
-	for _, m := range mods {
-		switch strings.ToLower(m) {
-		case "ctrl":
-			rewritten = append(rewritten, "Ctrl")
-		case "alt":
-			rewritten = append(rewritten, "Alt")
-		case "shift":
-			rewritten = append(rewritten, "Shift")
-		default:
-			// Unknown modifier: leave the whole token alone so the
-			// dispatcher's lookup miss surfaces it verbatim rather
-			// than silently masking a typo.
-			return k
-		}
+	rewritten, ok := canonicaliseMods(parts[:len(parts)-1])
+	if !ok {
+		// Unknown modifier: leave the whole token alone so the
+		// dispatcher's lookup miss surfaces it verbatim rather than
+		// silently masking a typo.
+		return k
 	}
 	// Final segment: title-case single letters (`q` → `Q`) so the
 	// "Shift+Q vs Shift+q" mismatch can't bite. Named special keys
@@ -292,6 +295,26 @@ func canonicaliseKey(k string) string {
 	}
 	rewritten = append(rewritten, last)
 	return strings.Join(rewritten, "+")
+}
+
+// canonicaliseMods title-cases each known modifier (ctrl/alt/shift).
+// ok is false on the first unknown modifier, signalling the caller to
+// leave the original key untouched rather than masking a typo.
+func canonicaliseMods(mods []string) ([]string, bool) {
+	out := make([]string, 0, len(mods)+1)
+	for _, m := range mods {
+		switch strings.ToLower(m) {
+		case "ctrl":
+			out = append(out, "Ctrl")
+		case "alt":
+			out = append(out, "Alt")
+		case "shift":
+			out = append(out, "Shift")
+		default:
+			return nil, false
+		}
+	}
+	return out, true
 }
 
 // namedKeyCanonical maps the lower-case spelling of every supported

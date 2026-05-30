@@ -350,21 +350,26 @@ func compileNoProxy(spec string) func(host string) bool {
 		return nil
 	}
 	return func(host string) bool {
-		// Strip the port — the user writes "localhost", not
-		// "localhost:9093".
-		if i := strings.LastIndexByte(host, ':'); i >= 0 {
-			host = host[:i]
-		}
-		if slices.Contains(exact, host) {
+		return matchNoProxy(exact, suffixes, host)
+	}
+}
+
+// matchNoProxy reports whether host matches a no_proxy entry — an
+// exact host or a "."-prefixed domain suffix. The port is stripped
+// first: the user writes "localhost", not "localhost:9093".
+func matchNoProxy(exact, suffixes []string, host string) bool {
+	if i := strings.LastIndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	if slices.Contains(exact, host) {
+		return true
+	}
+	for _, s := range suffixes {
+		if strings.HasSuffix(host, s) {
 			return true
 		}
-		for _, s := range suffixes {
-			if strings.HasSuffix(host, s) {
-				return true
-			}
-		}
-		return false
 	}
+	return false
 }
 
 // splitComma trims leading/trailing whitespace on each fragment.

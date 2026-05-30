@@ -193,11 +193,11 @@ linters:
         - rangeValCopy
 
     gocyclo:
-      min-complexity: 15
+      min-complexity: 14
     gocognit:
-      min-complexity: 15
+      min-complexity: 14
     cyclop:
-      max-complexity: 15
+      max-complexity: 14
       package-average: 8
     nestif:
       min-complexity: 5

@@ -101,59 +101,49 @@ type AuthChecker struct{}
 
 func (AuthChecker) Name() string { return checkAuth }
 
-func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
+// result stamps a Result with the backend name and this checker's
+// Name(), leaving Run to decide only severity and message.
+func (ac AuthChecker) result(b config.Backend, sev Severity, msg string) Result {
+	return Result{Backend: b.Name, Check: ac.Name(), Severity: sev, Message: msg}
+}
+
+func (ac AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
-		return Result{
-			Backend:  b.Name,
-			Check:    checkAuth,
-			Severity: SeverityError,
-			Message:  "client construction failed at startup",
-		}
+		return ac.result(b, SeverityError, "client construction failed at startup")
 	}
 	if _, err := c.Status(ctx); err != nil {
-		switch {
-		case errors.Is(err, backend.ErrUnauthorized):
-			msg := fmt.Sprintf("authentication rejected: %s", err)
-			if b.TenantHeader == "" {
-				msg += " — if backend is multi-tenant Mimir, set tenant_header: X-Scope-OrgID and tenant: <org> in a10r.yaml"
-			}
-			return Result{
-				Backend:  b.Name,
-				Check:    checkAuth,
-				Severity: SeverityError,
-				Message:  msg,
-			}
-		case errors.Is(err, backend.ErrUnreachable):
-			return Result{
-				Backend:  b.Name,
-				Check:    checkAuth,
-				Severity: SeverityWarning,
-				Message:  "backend unreachable; auth not exercised",
-			}
-		default:
-			// Adding `prefix: /alertmanager` cannot fix a 422 / 400 /
-			// decode failure, so a coincidentally-working mount probe
-			// must not downgrade non-404 errors (ADR 0039 honesty bar).
-			if errors.Is(err, backend.ErrNotFound) {
-				if prober, ok := c.(backend.Prober); ok && prober.ProbeAlertmanagerMount(ctx) == nil {
-					return Result{
-						Backend:  b.Name,
-						Check:    checkAuth,
-						Severity: SeverityWarning,
-						Message: "Status() failed but /alertmanager/api/v2/status returned 200 — " +
-							"set prefix: /alertmanager in a10r.yaml",
-					}
-				}
-			}
-			return Result{
-				Backend:  b.Name,
-				Check:    checkAuth,
-				Severity: SeverityError,
-				Message:  err.Error(),
+		return ac.classifyStatusErr(ctx, b, c, err)
+	}
+	return ac.result(b, SeverityOK, "")
+}
+
+// classifyStatusErr maps a failed Status() probe to a Result: rejected
+// auth is an Error (with a Mimir tenant-header hint when none is set),
+// an unreachable backend is a Warning (auth not exercised), and a 404
+// that turns out to be a missing /alertmanager mount is a Warning with
+// the prefix fix. Any other error stays an Error — adding a prefix
+// cannot fix a 422/400/decode failure, so a coincidentally-working
+// mount probe must not downgrade it (ADR 0039 honesty bar).
+func (ac AuthChecker) classifyStatusErr(ctx context.Context, b config.Backend, c backend.Client, err error) Result {
+	switch {
+	case errors.Is(err, backend.ErrUnauthorized):
+		msg := fmt.Sprintf("authentication rejected: %s", err)
+		if b.TenantHeader == "" {
+			msg += " — if backend is multi-tenant Mimir, set tenant_header: X-Scope-OrgID and tenant: <org> in a10r.yaml"
+		}
+		return ac.result(b, SeverityError, msg)
+	case errors.Is(err, backend.ErrUnreachable):
+		return ac.result(b, SeverityWarning, "backend unreachable; auth not exercised")
+	default:
+		if errors.Is(err, backend.ErrNotFound) {
+			if prober, ok := c.(backend.Prober); ok && prober.ProbeAlertmanagerMount(ctx) == nil {
+				return ac.result(b, SeverityWarning,
+					"Status() failed but /alertmanager/api/v2/status returned 200 — "+
+						"set prefix: /alertmanager in a10r.yaml")
 			}
 		}
+		return ac.result(b, SeverityError, err.Error())
 	}
-	return Result{Backend: b.Name, Check: checkAuth, Severity: SeverityOK}
 }
 
 // VersionFloorChecker parses Status().VersionInfo.Version and

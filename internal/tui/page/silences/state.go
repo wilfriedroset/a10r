@@ -52,7 +52,11 @@ func (p *Page) recompute() {
 
 // scopedEntries flattens byTenant into filterable entries, honouring
 // the scope gate and the restrictIDs allowlist (when set). The
-// composite cache is built once per entry here, not per keystroke.
+// composite cache is built once per entry here, not per keystroke. A
+// first pass counts in-scope silences so the result slice is sized in
+// one allocation.
+//
+//nolint:gocognit // cohesive two-pass flatten (count then build); the scope + restrictIDs gates read clearest inline with the loop
 func (p *Page) scopedEntries() []silenceEntry {
 	total := 0
 	for tenant, sils := range p.byTenant {

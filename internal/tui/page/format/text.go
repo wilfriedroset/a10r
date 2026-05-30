@@ -78,6 +78,13 @@ func Truncate(s string, w int) string {
 //
 // Returns "" for w <= 0; returns s unchanged when its visible width
 // already fits.
+//
+// This is a single-pass SGR scanner: the escape-sequence state
+// (inEsc / sawSGR / used + the builder) is shared across the loop, so
+// splitting the switch into helpers would thread that state through a
+// signature and read worse, not simpler.
+//
+//nolint:gocognit // cohesive single-pass scanner; see the note above
 func SGRTruncate(s string, w int) string {
 	if w <= 0 {
 		return ""

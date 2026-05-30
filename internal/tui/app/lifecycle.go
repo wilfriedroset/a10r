@@ -369,48 +369,51 @@ func (a *App) replayCachedDataMsgs() tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	allowed, filtering := a.replayFilter()
+	keep := a.replayLabelFilter()
 	for label, bucket := range a.caches.poll {
-		if filtering {
-			if _, ok := allowed[label]; !ok {
-				continue
-			}
+		if !keep(label) {
+			continue
 		}
 		for _, m := range bucket {
-			top, cmd := a.stack[len(a.stack)-1].Update(m)
-			a.stack[len(a.stack)-1] = top
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			cmds = a.dispatchAppend(cmds, m)
 		}
 	}
 	for _, m := range a.caches.status {
-		top, cmd := a.stack[len(a.stack)-1].Update(m)
-		a.stack[len(a.stack)-1] = top
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		cmds = a.dispatchAppend(cmds, m)
 	}
 	return tea.Batch(cmds...)
 }
 
-// replayFilter resolves the active page's PollResources()
-// declaration into a lookup set. Returns (set, true) when the
-// page opts in (an empty set means "want nothing" — still
-// filtering); (nil, false) when the page doesn't implement
-// PollAwarePage, in which case the caller skips filtering
-// entirely.
-func (a *App) replayFilter() (map[string]struct{}, bool) {
+// dispatchAppend feeds m to the top page, swaps in the page it
+// returns, and appends any non-nil command to cmds.
+func (a *App) dispatchAppend(cmds []tea.Cmd, m tea.Msg) []tea.Cmd {
+	top, cmd := a.stack[len(a.stack)-1].Update(m)
+	a.stack[len(a.stack)-1] = top
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
+// replayLabelFilter returns a predicate reporting whether cached poll
+// messages for a resource label should be replayed into the freshly-
+// pushed page. A page that declares its polled resources via
+// PollAwarePage replays only those (an empty declaration replays
+// nothing); a page that doesn't implement it replays everything
+// cached.
+func (a *App) replayLabelFilter() func(label string) bool {
 	pa, ok := a.stack[len(a.stack)-1].(PollAwarePage)
 	if !ok {
-		return nil, false
+		return func(string) bool { return true }
 	}
-	labels := pa.PollResources()
-	allowed := make(map[string]struct{}, len(labels))
-	for _, l := range labels {
+	allowed := make(map[string]struct{}, len(pa.PollResources()))
+	for _, l := range pa.PollResources() {
 		allowed[l] = struct{}{}
 	}
-	return allowed, true
+	return func(label string) bool {
+		_, ok := allowed[label]
+		return ok
+	}
 }
 
 // refreshCrumbs rebuilds the breadcrumb strip from the current

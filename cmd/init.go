@@ -146,6 +146,8 @@ type initIO struct {
 // command returns. CI pipelines use this to preview a generated
 // config before committing it; the headless complement to the
 // wizard's "review before save" affordance.
+//
+//nolint:gocognit // cohesive top-level init flow (validate → dry-run-or-write → hints); the branches don't factor into independently-meaningful helpers
 func runInit(env initIO) error {
 	if len(env.KVs) > 0 && !env.OneShot {
 		return NewExitError(ExitConfigInvalid,
@@ -505,6 +507,8 @@ func validateRequired(ans initAnswers) error {
 // none → no credentials may be set; bearer → bearer_token required,
 // basic_user/basic_password forbidden; basic → both basic_user and
 // basic_password required, bearer_token forbidden.
+//
+//nolint:gocognit,cyclop // the per-mode rules read clearest as one switch — it is the auth-model spec; splitting each case into a helper fragments that spec without simplifying it
 func validateInitAuth(ans initAnswers) error {
 	mode := ans.AuthMode
 	if mode == "" {
