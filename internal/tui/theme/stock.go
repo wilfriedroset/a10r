@@ -2,6 +2,16 @@
 
 package theme
 
+const (
+	colorAqua           = "aqua"
+	colorDodgerblue     = "dodgerblue"
+	colorGreenyellow    = "greenyellow"
+	colorLightskyblue   = "lightskyblue"
+	colorLightslategray = "lightslategray"
+	colorMediumpurple   = "mediumpurple"
+	colorOrangered      = "orangered"
+)
+
 // stockStatus mirrors the `k9s.frame.status` block from the k9s
 // upstream stock skin
 // (derailed/k9s/internal/config/templates/stock-skin.yaml). It is
@@ -15,11 +25,11 @@ package theme
 // table is greppable against the upstream source. parseColor
 // resolves them to RGB at compile time.
 var stockStatus = k9sFrameStatus{
-	NewColor:       "lightskyblue",
-	ModifyColor:    "greenyellow",
-	AddColor:       "dodgerblue",
-	ErrorColor:     "orangered",
-	HighlightColor: "aqua",
-	KillColor:      "mediumpurple",
-	CompletedColor: "lightslategray",
+	NewColor:       colorLightskyblue,
+	ModifyColor:    colorGreenyellow,
+	AddColor:       colorDodgerblue,
+	ErrorColor:     colorOrangered,
+	HighlightColor: colorAqua,
+	KillColor:      colorMediumpurple,
+	CompletedColor: colorLightslategray,
 }

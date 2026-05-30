@@ -32,6 +32,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
+const bindingViewSilenceForm = "silence-form"
+
 // Client is the writeable-silences surface shared with the
 // silences list page. The form never expires anything, so
 // ExpireSilence is cosmetic here — kept so the form and the page
@@ -313,10 +315,10 @@ func (*Form) Footer() string { return "" }
 
 func (*Form) Bindings() []action.Action {
 	return []action.Action{
-		{Key: "Tab", Description: "next field", View: "silence-form"},
-		{Key: "Shift+Tab", Description: "prev field", View: "silence-form"},
-		{Key: "Enter", Description: "submit (pick tenant on Tenant row)", View: "silence-form"},
-		{Key: "Ctrl+S", Description: "submit", View: "silence-form"},
+		{Key: "Tab", Description: "next field", View: bindingViewSilenceForm},
+		{Key: "Shift+Tab", Description: "prev field", View: bindingViewSilenceForm},
+		{Key: "Enter", Description: "submit (pick tenant on Tenant row)", View: bindingViewSilenceForm},
+		{Key: "Ctrl+S", Description: "submit", View: bindingViewSilenceForm},
 	}
 }
 

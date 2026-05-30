@@ -239,7 +239,7 @@ func (c *Client) exec(req *http.Request, dst any) error {
 	// this tool is to HTTP to operator-supplied AM URLs. Host pinning
 	// at the transport layer (parseExpectedHost in mimir.New) blocks
 	// auth-replay across redirects to a different origin.
-	resp, err := c.http.Do(req) //nolint:gosec // G704: Alertmanager URL is operator-configured by design
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
 	}
@@ -281,7 +281,7 @@ func (c *Client) execHeaders(req *http.Request) (http.Header, error) {
 	// which composes the package's validated BaseURL with a fixed
 	// path — there is no user-controlled URL component on this
 	// codepath. Same pattern as exec() above.
-	resp, err := c.http.Do(req) //nolint:gosec // URL composed from validated BaseURL + fixed path
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", backend.ErrUnreachable, err)
 	}

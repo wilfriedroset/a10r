@@ -36,7 +36,7 @@ type pendingSilenceAll struct {
 // NOT the full label set — the alertname aggregate's identity is the
 // alertname (CONTEXT.md "Silence-all").
 func alertnameMatcher(alertName string) []backend.Matcher {
-	return []backend.Matcher{{Name: "alertname", Value: alertName, IsEqual: true}}
+	return []backend.Matcher{{Name: labelAlertname, Value: alertName, IsEqual: true}}
 }
 
 // silenceAllScopeNote states the true scope of a silence-all and, when
@@ -230,9 +230,9 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 // fanout (distinct from the L2 silence-one full-label fanout).
 func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 	n := len(targets)
-	word := "alerts"
+	word := resourceAlerts
 	if n == 1 {
-		word = "alert"
+		word = wordAlert
 	}
 	if len(tenants) == 1 {
 		return fmt.Sprintf("applies to %d %s (tenant %s) — one alertname silence each", n, word, tenants[0])

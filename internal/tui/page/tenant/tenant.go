@@ -37,6 +37,8 @@ const (
 	sortKeyVersion = "version"
 )
 
+const scopeAll = "all"
+
 // tenantSortColumns returns the page's sortable columns. URL and
 // VERSION default ASC for consistency with NAME; the version
 // comparator is semver-aware so "0.27.0" sorts after "0.9.0"
@@ -165,7 +167,7 @@ func New(opts Options) *Page {
 	return &Page{
 		styles: opts.Styles,
 		drill:  opts.DrillFactory,
-		scope:  "all",
+		scope:  scopeAll,
 		sorter: tablesort.New(tenantSortColumns(), sortKeyName),
 	}
 }
@@ -192,7 +194,7 @@ func (*Page) Crumb() string { return "tenant" }
 func (p *Page) Title() string {
 	scope := p.scope
 	if scope == "" {
-		scope = "all"
+		scope = scopeAll
 	}
 	return fmt.Sprintf("tenants(%s)[%d]", scope, len(p.rows))
 }
@@ -460,7 +462,7 @@ func tenantColumnWidths(width int) []int {
 // rows).
 func (p *Page) scopeIncludes(name string) bool {
 	scope := strings.TrimSpace(p.scope)
-	if scope == "" || scope == "all" {
+	if scope == "" || scope == scopeAll {
 		return true
 	}
 	for s := range strings.SplitSeq(scope, ",") {

@@ -146,9 +146,9 @@ func doctorExitFromResults(backends []config.Backend, results []doctor.Result) e
 		}
 		failed[r.Backend] = true
 		switch r.Check {
-		case "reachability", "build":
+		case checkReachability, checkBuild:
 			unreachable[r.Backend] = true
-		case "auth":
+		case checkAuth:
 			authFailed[r.Backend] = true
 		}
 	}
@@ -206,7 +206,7 @@ func buildDoctorClients(cfg *config.Config, debugLog *slog.Logger) (map[string]b
 		if err != nil {
 			failures = append(failures, doctor.Result{
 				Backend:  be.Name,
-				Check:    "build",
+				Check:    checkBuild,
 				Severity: doctor.SeverityError,
 				Message:  err.Error(),
 			})
@@ -281,7 +281,7 @@ func renderDoctor(out io.Writer, results []doctor.Result, format output.Format) 
 	// Resolve has been applied upstream; explicit table or empty
 	// (from a degenerate caller) renders here.
 	tbl := output.Table{
-		Cols: []string{"backend", "check", "severity", "message"},
+		Cols: []string{"backend", "check", fieldSeverity, "message"},
 		Rows: doctorRows(results),
 	}
 	if err := tbl.Write(out); err != nil {

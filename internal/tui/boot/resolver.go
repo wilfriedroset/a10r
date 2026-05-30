@@ -19,7 +19,7 @@ import (
 // itself is just dispatch glue.
 func newResolver(env *pageEnv) *cmdbar.Resolver {
 	r := cmdbar.New()
-	r.Register("alerts", func(args []string) tea.Cmd {
+	r.Register(resourceAlerts, func(args []string) tea.Cmd {
 		ax, err := parseAlertsArgs(args)
 		if err != nil {
 			return flashWarnCmd(":alerts: " + err.Error())
@@ -29,18 +29,18 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 	silencesFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newSilencesPage(env) })
 	}
-	r.RegisterGroup([]string{"silences", "sil"}, silencesFactory)
-	r.Register("status", func(_ []string) tea.Cmd {
+	r.RegisterGroup([]string{resourceSilences, "sil"}, silencesFactory)
+	r.Register(resourceStatus, func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newStatusPage(env) })
 	})
 	receiversFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newReceiversPage(env) })
 	}
-	r.RegisterGroup([]string{"receivers", "rec"}, receiversFactory)
+	r.RegisterGroup([]string{resourceReceivers, "rec"}, receiversFactory)
 	groupsFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newGroupsPage(env) })
 	}
-	r.RegisterGroup([]string{"groups", "gr"}, groupsFactory)
+	r.RegisterGroup([]string{resourceGroups, "gr"}, groupsFactory)
 	drill := func(name string) (app.Page, error) { return newTenantConfigPage(env, name) }
 	tenantFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })

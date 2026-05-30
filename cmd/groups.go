@@ -202,7 +202,7 @@ func renderGroupYAML(out io.Writer, rows []groupRow) error {
 
 func renderGroupTable(out io.Writer, rows []groupRow) error {
 	tbl := output.Table{
-		Cols: []string{"tenant", "labels", "count", "receivers"},
+		Cols: []string{fieldTenant, "labels", "count", fieldReceivers},
 		Rows: groupTableRows(rows),
 	}
 	if err := tbl.Write(out); err != nil {

@@ -44,6 +44,8 @@ type DrillRequestMsg struct {
 // idiom.
 const sortKeyName = "name"
 
+const resourceReceivers = "receivers"
+
 // receiverSortColumns returns the page's single sortable axis. The
 // helper still applies the same "press the active column to flip
 // direction" idiom — flipping ASC↔DESC is the only state change
@@ -157,7 +159,7 @@ func (*Page) Init() tea.Cmd { return nil }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return "receivers" }
+func (*Page) Crumb() string { return resourceReceivers }
 
 // Title implements app.Page. Mirrors the alerts shape:
 // `receivers(<scope>)[<count>]` or `receivers(<scope>)[F/T]`
@@ -232,18 +234,18 @@ func (p *Page) Footer() string {
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
 // page on push.
-func (*Page) PollResources() []string { return []string{"receivers"} }
+func (*Page) PollResources() []string { return []string{resourceReceivers} }
 
 // Bindings implements app.Page. Sort shortcut comes from the
 // tablesort helper; the helper's single-column setup emits exactly
 // one Shift+N entry so the help overlay's RESOURCE column picks it
 // up identically to the multi-axis pages.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings("receivers")
+	sortBindings := p.sorter.Bindings(resourceReceivers)
 	out := make([]action.Action, 0, 2+len(sortBindings))
-	out = append(out, action.Action{Key: "Enter", Description: "drill", View: "receivers"})
+	out = append(out, action.Action{Key: "Enter", Description: "drill", View: resourceReceivers})
 	out = append(out, sortBindings...)
-	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: "receivers"})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: resourceReceivers})
 	return out
 }
 

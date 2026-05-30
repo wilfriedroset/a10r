@@ -438,9 +438,9 @@ func (p *Page) formatTime(ts time.Time) string {
 func severityLabelForRank(rank int) string {
 	switch rank {
 	case 3:
-		return "critical"
+		return severityCritical
 	case 2:
-		return "warning"
+		return severityWarning
 	case 1:
 		return "info"
 	}

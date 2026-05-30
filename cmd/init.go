@@ -36,7 +36,7 @@ var (
 	validInitThemes    = []string{
 		"catppuccin-mocha",
 		"catppuccin-latte",
-		"gruvbox-dark",
+		themeGruvboxDark,
 	}
 )
 
@@ -63,7 +63,7 @@ const (
 // the backend needs them.
 var recognisedInitKeys = []string{
 	"auth_mode", "basic_password", "basic_user", "bearer_token",
-	"name", "poll_interval", "prefix", "tenant", "theme", "url",
+	fieldName, "poll_interval", "prefix", fieldTenant, fieldTheme, fieldURL,
 }
 
 // newInitCmd returns the `a10r init` subcommand. Walks the user
@@ -385,7 +385,7 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 	}
 	ans.Poll = poll
 
-	theme, err := p.Choice("theme", validInitThemes, defaultTheme)
+	theme, err := p.Choice(fieldTheme, validInitThemes, defaultTheme)
 	if err != nil {
 		return config.Config{}, fmt.Errorf("prompt theme: %w", err)
 	}
@@ -490,10 +490,10 @@ func validateInitAnswers(ans initAnswers) error {
 func validateRequired(ans initAnswers) error {
 	var missing []string
 	if ans.Name == "" {
-		missing = append(missing, "name")
+		missing = append(missing, fieldName)
 	}
 	if ans.URL == "" {
-		missing = append(missing, "url")
+		missing = append(missing, fieldURL)
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required key(s): %s", strings.Join(missing, ", "))
@@ -567,14 +567,14 @@ func parseKVAnswers(kvs []string) (initAnswers, error) {
 // unknown-key error echoes the accepted set sorted for readability.
 func applyKVAnswer(ans *initAnswers, key, value string) error {
 	switch key {
-	case "name":
+	case fieldName:
 		ans.Name = value
-	case "url":
+	case fieldURL:
 		ans.URL = value
 	case "prefix":
 		ans.Prefix = value
 		ans.PrefixSet = true
-	case "tenant":
+	case fieldTenant:
 		ans.Tenant = value
 		ans.TenantSet = true
 	case "auth_mode":
@@ -587,7 +587,7 @@ func applyKVAnswer(ans *initAnswers, key, value string) error {
 		ans.BasicPass = value
 	case "poll_interval":
 		ans.Poll = value
-	case "theme":
+	case fieldTheme:
 		ans.Theme = value
 	default:
 		return fmt.Errorf("unknown key %q: recognised keys are %s",

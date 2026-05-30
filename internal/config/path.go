@@ -16,6 +16,11 @@ const (
 	defaultConfigFile = "a10r.yaml"
 )
 
+const (
+	goosDarwin  = "darwin"
+	goosWindows = "windows"
+)
+
 // DefaultDir returns the OS-conformant config directory (the
 // "built-in default" rung of ADR 0027's precedence chain):
 //
@@ -34,14 +39,14 @@ func defaultConfigDirFor(
 	homeDir func() (string, error),
 ) (string, error) {
 	switch goos {
-	case "darwin":
+	case goosDarwin:
 		home, err := homeDir()
 		if err != nil {
 			return "", fmt.Errorf("user home: %w", err)
 		}
 		return filepath.Join(home, "Library", "Application Support", "a10r"), nil
 
-	case "windows":
+	case goosWindows:
 		local := env(xdg.LocalAppData)
 		if local == "" {
 			return "", xdg.ErrLocalAppDataMissing

@@ -71,7 +71,7 @@ func (a *App) toggleStateFormatCmd() tea.Cmd {
 // page consumes to filter its view and update its title.
 func (a *App) registerTenantBindings() {
 	a.dispatcher.Set(keys.LayerGlobal, "0", func() tea.Cmd {
-		return func() tea.Msg { return ScopeChangedMsg{Scope: "all"} }
+		return func() tea.Msg { return ScopeChangedMsg{Scope: scopeAll} }
 	})
 	for i, name := range a.tenants {
 		if i >= 9 {
@@ -135,7 +135,7 @@ func (a *App) registerGlobalBindings() {
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
-	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", "Esc", PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, PopPage)
 	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
 	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
 	// `Ctrl+T` opens the tenant picker — fuzzy search over
@@ -165,7 +165,7 @@ func (a *App) registerGlobalBindings() {
 // predictably.
 func pickerSelectionsToScope(selections, tenants []string) string {
 	if len(selections) == 0 || len(selections) == len(tenants) {
-		return "all"
+		return scopeAll
 	}
 	picked := make(map[string]struct{}, len(selections))
 	for _, s := range selections {
@@ -227,7 +227,7 @@ func (a *App) globalsCatalog() []action.Action {
 // each chip in two columns.
 func tableMotionsCatalog() []action.Action {
 	return []action.Action{
-		{Key: "j", Description: "down"},
+		{Key: "j", Description: keyDescDown},
 		{Key: "k", Description: "up"},
 		{Key: "h", Description: "prev column"},
 		{Key: "l", Description: "next column"},

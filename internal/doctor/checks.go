@@ -14,6 +14,15 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
+const (
+	checkReachability = "reachability"
+	checkAuth         = "auth"
+	checkVersionFloor = "version-floor"
+	checkTLSExpiry    = "tls-expiry"
+	checkConfigAPI    = "config_api"
+	checkRing         = "ring"
+)
+
 // DefaultCheckers returns the bundled checker suite in the order
 // doctor runs them. Reachability first because every other check
 // needs the backend to respond at all; auth next so credential
@@ -42,7 +51,7 @@ func DefaultCheckers() []Checker {
 // stub can opt out by not implementing the smaller interface.
 type ReachabilityChecker struct{}
 
-func (ReachabilityChecker) Name() string { return "reachability" }
+func (ReachabilityChecker) Name() string { return checkReachability }
 
 // Run reports a single Error when the client is nil — factory.Build
 // failed at startup, but the operator must still see the configured
@@ -51,7 +60,7 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if c == nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "reachability",
+			Check:    checkReachability,
 			Severity: SeverityError,
 			Message:  "client construction failed at startup; check `a10r validate`",
 		}
@@ -60,7 +69,7 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if !ok {
 		return Result{
 			Backend:  b.Name,
-			Check:    "reachability",
+			Check:    checkReachability,
 			Severity: SeverityWarning,
 			Message:  "client does not implement Prober — skipping",
 		}
@@ -68,12 +77,12 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if err := prober.ProbeReady(ctx); err != nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "reachability",
+			Check:    checkReachability,
 			Severity: SeverityError,
 			Message:  err.Error(),
 		}
 	}
-	return Result{Backend: b.Name, Check: "reachability", Severity: SeverityOK}
+	return Result{Backend: b.Name, Check: checkReachability, Severity: SeverityOK}
 }
 
 // AuthChecker calls Status() and classifies the response. 401/403
@@ -90,13 +99,13 @@ func (ReachabilityChecker) Run(ctx context.Context, b config.Backend, c backend.
 // end-to-end.
 type AuthChecker struct{}
 
-func (AuthChecker) Name() string { return "auth" }
+func (AuthChecker) Name() string { return checkAuth }
 
 func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "auth",
+			Check:    checkAuth,
 			Severity: SeverityError,
 			Message:  "client construction failed at startup",
 		}
@@ -110,14 +119,14 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 			}
 			return Result{
 				Backend:  b.Name,
-				Check:    "auth",
+				Check:    checkAuth,
 				Severity: SeverityError,
 				Message:  msg,
 			}
 		case errors.Is(err, backend.ErrUnreachable):
 			return Result{
 				Backend:  b.Name,
-				Check:    "auth",
+				Check:    checkAuth,
 				Severity: SeverityWarning,
 				Message:  "backend unreachable; auth not exercised",
 			}
@@ -129,7 +138,7 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 				if prober, ok := c.(backend.Prober); ok && prober.ProbeAlertmanagerMount(ctx) == nil {
 					return Result{
 						Backend:  b.Name,
-						Check:    "auth",
+						Check:    checkAuth,
 						Severity: SeverityWarning,
 						Message: "Status() failed but /alertmanager/api/v2/status returned 200 — " +
 							"set prefix: /alertmanager in a10r.yaml",
@@ -138,13 +147,13 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 			}
 			return Result{
 				Backend:  b.Name,
-				Check:    "auth",
+				Check:    checkAuth,
 				Severity: SeverityError,
 				Message:  err.Error(),
 			}
 		}
 	}
-	return Result{Backend: b.Name, Check: "auth", Severity: SeverityOK}
+	return Result{Backend: b.Name, Check: checkAuth, Severity: SeverityOK}
 }
 
 // VersionFloorChecker parses Status().VersionInfo.Version and
@@ -154,13 +163,13 @@ func (AuthChecker) Run(ctx context.Context, b config.Backend, c backend.Client) 
 // above-or-equal → OK with the version reported in the message.
 type VersionFloorChecker struct{}
 
-func (VersionFloorChecker) Name() string { return "version-floor" }
+func (VersionFloorChecker) Name() string { return checkVersionFloor }
 
 func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "version-floor",
+			Check:    checkVersionFloor,
 			Severity: SeverityError,
 			Message:  "client construction failed at startup",
 		}
@@ -169,7 +178,7 @@ func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if err != nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "version-floor",
+			Check:    checkVersionFloor,
 			Severity: SeverityWarning,
 			Message:  fmt.Sprintf("status unavailable: %s", err),
 		}
@@ -178,7 +187,7 @@ func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if err != nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "version-floor",
+			Check:    checkVersionFloor,
 			Severity: SeverityWarning,
 			Message:  fmt.Sprintf("backend reported unrecognised version %q: %s", st.Version.Version, err),
 		}
@@ -190,7 +199,7 @@ func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.
 		// here rather than panicking.
 		return Result{
 			Backend:  b.Name,
-			Check:    "version-floor",
+			Check:    checkVersionFloor,
 			Severity: SeverityError,
 			Message:  fmt.Sprintf("internal: floor constant unparseable: %s", err),
 		}
@@ -198,14 +207,14 @@ func (VersionFloorChecker) Run(ctx context.Context, b config.Backend, c backend.
 	if got.Compare(floor) < 0 {
 		return Result{
 			Backend:  b.Name,
-			Check:    "version-floor",
+			Check:    checkVersionFloor,
 			Severity: SeverityError,
 			Message:  fmt.Sprintf("backend reports %s; a10r requires >= %s", got, floor),
 		}
 	}
 	return Result{
 		Backend:  b.Name,
-		Check:    "version-floor",
+		Check:    checkVersionFloor,
 		Severity: SeverityOK,
 		Message:  fmt.Sprintf("backend %s >= floor %s", got, floor),
 	}
@@ -259,7 +268,7 @@ type TLSExpiryChecker struct {
 	now func() time.Time
 }
 
-func (TLSExpiryChecker) Name() string { return "tls-expiry" }
+func (TLSExpiryChecker) Name() string { return checkTLSExpiry }
 
 func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.Client) Result {
 	probe := t.probe
@@ -277,7 +286,7 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 	if errors.Is(err, a10rtls.ErrNotHTTPS) {
 		return Result{
 			Backend:  b.Name,
-			Check:    "tls-expiry",
+			Check:    checkTLSExpiry,
 			Severity: SeverityOK,
 			Message:  "n/a (backend URL is not https)",
 		}
@@ -285,7 +294,7 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 	if err != nil {
 		return Result{
 			Backend:  b.Name,
-			Check:    "tls-expiry",
+			Check:    checkTLSExpiry,
 			Severity: SeverityError,
 			Message:  fmt.Sprintf("tls probe failed: %s", err),
 		}
@@ -296,14 +305,14 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 	case remaining <= 0:
 		return Result{
 			Backend:  b.Name,
-			Check:    "tls-expiry",
+			Check:    checkTLSExpiry,
 			Severity: SeverityError,
 			Message:  fmt.Sprintf("certificate expired at %s", cert.NotAfter.Format(time.RFC3339)),
 		}
 	case remaining < tlsExpiryWarnThreshold:
 		return Result{
 			Backend:  b.Name,
-			Check:    "tls-expiry",
+			Check:    checkTLSExpiry,
 			Severity: SeverityWarning,
 			Message: fmt.Sprintf("certificate expires in %s (NotAfter %s)",
 				remaining.Round(time.Hour), cert.NotAfter.Format(time.RFC3339)),
@@ -311,7 +320,7 @@ func (t TLSExpiryChecker) Run(ctx context.Context, b config.Backend, _ backend.C
 	default:
 		return Result{
 			Backend:  b.Name,
-			Check:    "tls-expiry",
+			Check:    checkTLSExpiry,
 			Severity: SeverityOK,
 			Message:  fmt.Sprintf("certificate valid until %s", cert.NotAfter.Format(time.RFC3339)),
 		}
@@ -338,7 +347,7 @@ type capabilityProbe func(ctx context.Context, c backend.Client) error
 // what failed.
 func defaultProbes() map[string]capabilityProbe {
 	return map[string]capabilityProbe{
-		"config_api": func(ctx context.Context, c backend.Client) error {
+		checkConfigAPI: func(ctx context.Context, c backend.Client) error {
 			_, err := c.GetConfig(ctx)
 			if err != nil {
 				return fmt.Errorf("get config: %w", err)
@@ -352,7 +361,7 @@ func defaultProbes() map[string]capabilityProbe {
 			}
 			return nil
 		},
-		"ring": func(ctx context.Context, c backend.Client) error {
+		checkRing: func(ctx context.Context, c backend.Client) error {
 			_, err := c.RingStatus(ctx)
 			if err != nil {
 				return fmt.Errorf("get ring status: %w", err)
@@ -369,13 +378,13 @@ func defaultProbes() map[string]capabilityProbe {
 func enabledCapabilities(caps config.Capabilities) []string {
 	var out []string
 	if caps.ConfigAPI {
-		out = append(out, "config_api")
+		out = append(out, checkConfigAPI)
 	}
 	if caps.TenantAdmin {
 		out = append(out, "tenant_admin")
 	}
 	if caps.Ring {
-		out = append(out, "ring")
+		out = append(out, checkRing)
 	}
 	return out
 }

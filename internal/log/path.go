@@ -11,6 +11,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
+const (
+	goosDarwin  = "darwin"
+	goosWindows = "windows"
+)
+
 // DefaultPath returns the OS-conformant log file path:
 //
 //   - Unix:    $XDG_STATE_HOME/a10r/a10r.log (default
@@ -29,14 +34,14 @@ func defaultPathFor(
 	homeDir func() (string, error),
 ) (string, error) {
 	switch goos {
-	case "darwin":
+	case goosDarwin:
 		home, err := homeDir()
 		if err != nil {
 			return "", fmt.Errorf("user home: %w", err)
 		}
 		return filepath.Join(home, "Library", "Logs", "a10r", "a10r.log"), nil
 
-	case "windows":
+	case goosWindows:
 		local := env(xdg.LocalAppData)
 		if local == "" {
 			return "", xdg.ErrLocalAppDataMissing

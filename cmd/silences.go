@@ -281,7 +281,7 @@ func renderSilenceYAML(out io.Writer, rows []silenceRow) error {
 
 func renderSilenceTable(out io.Writer, rows []silenceRow) error {
 	tbl := output.Table{
-		Cols: []string{"tenant", "id", "state", "matchers", "ends-at"},
+		Cols: []string{fieldTenant, "id", "state", "matchers", "ends-at"},
 		Rows: silenceTableRows(rows),
 	}
 	if err := tbl.Write(out); err != nil {

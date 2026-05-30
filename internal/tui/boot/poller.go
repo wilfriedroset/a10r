@@ -15,6 +15,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
+const (
+	resourceAlerts    = "alerts"
+	resourceSilences  = "silences"
+	resourceGroups    = "groups"
+	resourceReceivers = "receivers"
+	resourceStatus    = "status"
+)
+
 // startBackendPoller spawns the per-(backend, resource) poller
 // matrix. Each entry in clients gets one poller per resource
 // (alerts, silences, receivers, alert-groups, status), and every
@@ -98,15 +106,15 @@ func pageInterval(be config.Backend, cfg *config.Config, resource string) time.D
 // case as "use the resolved default".
 func pageOverride(p config.PageOverrides, resource string) time.Duration {
 	switch resource {
-	case "alerts":
+	case resourceAlerts:
 		return p.Alerts.PollInterval
-	case "silences":
+	case resourceSilences:
 		return p.Silences.PollInterval
-	case "groups":
+	case resourceGroups:
 		return p.Groups.PollInterval
-	case "receivers":
+	case resourceReceivers:
 		return p.Receivers.PollInterval
-	case "status":
+	case resourceStatus:
 		return p.Status.PollInterval
 	default:
 		return 0
@@ -136,19 +144,19 @@ type fetcherEntry struct {
 // on the cold-start snapshot.
 func backendFetchers(c backend.Client) []fetcherEntry {
 	return []fetcherEntry{
-		{resource: "alerts", fetch: func(ctx context.Context) (any, error) {
+		{resource: resourceAlerts, fetch: func(ctx context.Context) (any, error) {
 			return c.ListAlerts(ctx, backend.AlertFilter{})
 		}},
-		{resource: "silences", fetch: func(ctx context.Context) (any, error) {
+		{resource: resourceSilences, fetch: func(ctx context.Context) (any, error) {
 			return c.ListSilences(ctx, backend.SilenceFilter{})
 		}},
-		{resource: "receivers", fetch: func(ctx context.Context) (any, error) {
+		{resource: resourceReceivers, fetch: func(ctx context.Context) (any, error) {
 			return c.ListReceivers(ctx)
 		}},
-		{resource: "groups", fetch: func(ctx context.Context) (any, error) {
+		{resource: resourceGroups, fetch: func(ctx context.Context) (any, error) {
 			return c.ListAlertGroups(ctx, backend.AlertFilter{})
 		}},
-		{resource: "status", fetch: func(ctx context.Context) (any, error) {
+		{resource: resourceStatus, fetch: func(ctx context.Context) (any, error) {
 			return c.Status(ctx)
 		}},
 	}

@@ -204,7 +204,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "silences")
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, resourceSilences)
 }
 
 // handleClearMarks drops every mark on the page in response to
@@ -367,7 +367,7 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 	return p.editor.Edit(edit.Request{
 		ResourceID: entry.s.ID,
 		Initial:    string(body),
-		Extension:  "yaml",
+		Extension:  editorExtensionYAML,
 		Ctx:        p.editorCtx,
 	})
 }
@@ -412,7 +412,7 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: pending.id,
 			Initial:    m.Content,
-			Extension:  "yaml",
+			Extension:  editorExtensionYAML,
 			Ctx:        p.editorCtx,
 		})
 		return tea.Batch(flash, reopen)
@@ -492,7 +492,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: m.pending.id,
 			Initial:    m.content,
-			Extension:  "yaml",
+			Extension:  editorExtensionYAML,
 			Ctx:        p.editorCtx,
 		})
 		return tea.Batch(flash, reopen)

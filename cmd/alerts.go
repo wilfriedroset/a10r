@@ -53,7 +53,7 @@ func newAlertsListCmd(flags *GlobalFlags) *cobra.Command {
 			State:           state,
 		})
 	}
-	cmd.Flags().StringVar(&severity, "severity", "",
+	cmd.Flags().StringVar(&severity, fieldSeverity, "",
 		"keep only alerts matching the named severity label (case-insensitive)")
 	cmd.Flags().StringVar(&state, "state", "",
 		"keep only alerts in the named state: active, suppressed, unprocessed")
@@ -112,7 +112,7 @@ func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 // shape. Severity is read from labels["severity"] (the
 // Alertmanager convention) — empty when the label is absent.
 func toAlertRow(tenant string, a backend.Alert) alertRow {
-	severity := a.Labels["severity"]
+	severity := a.Labels[fieldSeverity]
 	name := a.Labels["alertname"]
 	return alertRow{
 		Tenant:      tenant,
@@ -174,7 +174,7 @@ func renderAlertYAML(out io.Writer, rows []alertRow) error {
 
 func renderAlertTable(out io.Writer, rows []alertRow) error {
 	tbl := output.Table{
-		Cols: []string{"tenant", "name", "severity", "state"},
+		Cols: []string{fieldTenant, fieldName, fieldSeverity, "state"},
 		Rows: alertTableRows(rows),
 	}
 	if err := tbl.Write(out); err != nil {

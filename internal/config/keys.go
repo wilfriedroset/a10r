@@ -25,6 +25,11 @@ const KeysDir = "keys"
 // a wiring exercise per ADR 0010.
 const DefaultKeysProfile = "default"
 
+const (
+	canonicalEsc   = "Esc"
+	canonicalEnter = "Enter"
+)
+
 // reservedKeys is the closed set of keys the user is NOT allowed
 // to bind in their overlay. 0-9 are reserved for the tenant
 // quick-switch (`<0>` = all, `<1>`-`<9>` = the Nth backend) — the
@@ -297,8 +302,8 @@ func canonicaliseKey(k string) string {
 // extended by future code without touching control flow.
 var namedKeyCanonical = map[string]string{
 	"space":     "Space",
-	"esc":       "Esc",
-	"enter":     "Enter",
+	"esc":       canonicalEsc,
+	"enter":     canonicalEnter,
 	"tab":       "Tab",
 	"backspace": "Backspace",
 	"up":        "Up",

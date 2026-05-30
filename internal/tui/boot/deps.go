@@ -15,6 +15,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
+const (
+	buildVersionDev    = "dev"
+	buildCommitNone    = "none"
+	cmdbarArgStateName = "state"
+)
+
 // Deps holds the construction-time seams that production wires to
 // real factories and tests override with fakes. Zero value is valid:
 // every nil field falls back to its production constructor (see
@@ -122,10 +128,10 @@ func (d Deps) resolved() Deps {
 		out.HistoryDir = footer.DefaultHistoryDir
 	}
 	if out.Version == "" {
-		out.Version = "dev"
+		out.Version = buildVersionDev
 	}
 	if out.Commit == "" {
-		out.Commit = "none"
+		out.Commit = buildCommitNone
 	}
 	return out
 }

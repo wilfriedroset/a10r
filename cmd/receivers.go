@@ -18,7 +18,7 @@ import (
 // newReceiversCmd returns the `a10r receivers` parent command.
 func newReceiversCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "receivers",
+		Use:     fieldReceivers,
 		Short:   "Inspect receivers across configured backends",
 		GroupID: groupRead,
 		Args:    cobra.NoArgs,
@@ -123,7 +123,7 @@ func renderReceiverYAML(out io.Writer, rows []receiverRow) error {
 
 func renderReceiverTable(out io.Writer, rows []receiverRow) error {
 	tbl := output.Table{
-		Cols: []string{"tenant", "name"},
+		Cols: []string{fieldTenant, fieldName},
 		Rows: receiverTableRows(rows),
 	}
 	if err := tbl.Write(out); err != nil {

@@ -81,11 +81,11 @@ Run with no subcommand to launch the TUI.`,
 		"disable the pager wrapper around --output=table on a TTY")
 	f.BoolVar(&flags.ReadOnly, "read-only", false,
 		"force read-only mode across the session (no silence create/update/expire)")
-	f.StringVar(&flags.Tenant, "tenant", "",
+	f.StringVar(&flags.Tenant, fieldTenant, "",
 		"pre-select tenant(s) at startup; mirrors :tenant <name|all|a,b> syntax")
 	f.DurationVar(&flags.PollInterval, "poll-interval", 0,
 		"override defaults.poll_interval for this run (0 = use config value)")
-	f.StringVar(&flags.Theme, "theme", "",
+	f.StringVar(&flags.Theme, fieldTheme, "",
 		"override theme.name for this run (empty = use config value)")
 
 	return rootCmd

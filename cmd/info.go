@@ -159,7 +159,7 @@ func renderBackend(w *writer, b config.Backend) {
 func authLabel(b config.Backend) string {
 	switch {
 	case b.BasicAuth != nil:
-		return "basic"
+		return authModeBasic
 	case b.Authorization != nil:
 		// authorization.type defaults to "Bearer" via Backend.Validate
 		// — surface it as-is so the operator can read off the wire

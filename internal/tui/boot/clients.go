@@ -61,7 +61,7 @@ type clientBuilder func(cfg config.Backend, ua string, opts ...factory.Option) (
 // Exported so the cmd package's non-TUI alerts / silences / etc.
 // subcommands tag their HTTP traffic with the same UA.
 func UserAgent(ver, comm string) string {
-	if comm == "" || comm == "none" {
+	if comm == "" || comm == buildCommitNone {
 		return "a10r/" + ver
 	}
 	return "a10r/" + ver + " (" + comm + ")"

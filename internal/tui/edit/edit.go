@@ -27,6 +27,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+const (
+	envEditor         = "A10R_EDITOR"
+	envEditorFallback = "EDITOR"
+	draftResourceID   = "draft"
+)
+
 // FinishedMsg is delivered when the editor exits. Content is the
 // post-edit buffer (whatever the user saved, or the original if
 // they aborted without writing). Err is non-nil when the editor
@@ -97,7 +103,7 @@ func SystemResolver() Resolver {
 		def = "notepad"
 	}
 	return Resolver{
-		EditorEnv:     []string{"A10R_EDITOR", "EDITOR"},
+		EditorEnv:     []string{envEditor, envEditorFallback},
 		DefaultEditor: def,
 	}
 }
@@ -188,7 +194,7 @@ func (r Resolver) Edit(req Request) tea.Cmd {
 	}
 	id := req.ResourceID
 	if id == "" {
-		id = "draft"
+		id = draftResourceID
 	}
 	// os.CreateTemp combines O_EXCL + O_CREATE under the hood and
 	// embeds a random suffix in the basename; a pre-existing
@@ -294,7 +300,7 @@ func sanitize(s string) string {
 		}
 	}
 	if b.Len() == 0 {
-		return "draft"
+		return draftResourceID
 	}
 	return b.String()
 }

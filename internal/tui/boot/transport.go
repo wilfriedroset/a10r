@@ -9,6 +9,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
+const (
+	tlsVersionTLS10 = "TLS10"
+	tlsVersionTLS11 = "TLS11"
+)
+
 // logTransportSurprises emits one log line per backend whose TLS
 // config carries a deprecated min/max version or an inline CA
 // bundle that overrides the system root pool, plus an INFO line
@@ -46,12 +51,12 @@ func logTLSSurprises(logger *slog.Logger, be config.Backend) {
 		logger.Info("backend tls_config.ca set, system CA roots not used",
 			slog.String("backend", be.Name))
 	}
-	if v := be.TLSConfig.MinVersion; v == "TLS10" || v == "TLS11" {
+	if v := be.TLSConfig.MinVersion; v == tlsVersionTLS10 || v == tlsVersionTLS11 {
 		logger.Warn("backend tls_config.min_version is deprecated",
 			slog.String("backend", be.Name),
 			slog.String("min_version", v))
 	}
-	if v := be.TLSConfig.MaxVersion; v == "TLS10" || v == "TLS11" {
+	if v := be.TLSConfig.MaxVersion; v == tlsVersionTLS10 || v == tlsVersionTLS11 {
 		logger.Warn("backend tls_config.max_version is deprecated",
 			slog.String("backend", be.Name),
 			slog.String("max_version", v))

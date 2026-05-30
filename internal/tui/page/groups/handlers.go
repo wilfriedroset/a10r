@@ -115,7 +115,7 @@ func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "groups")
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, resourceGroups)
 }
 
 // toggleExpandAll flips every group's expanded flag based on the

@@ -23,7 +23,7 @@ func (p *Page) totalGroups() int {
 			continue
 		}
 		for _, a := range alerts {
-			seen[tenant+"\x00"+a.Labels["alertname"]] = struct{}{}
+			seen[tenant+"\x00"+a.Labels[labelAlertname]] = struct{}{}
 		}
 	}
 	return len(seen)
@@ -69,7 +69,7 @@ func (p *Page) scanScope() (total int, knownKey bool) {
 		}
 		if p.focusGroupKey != "" && !knownKey {
 			for _, a := range alerts {
-				if tenant+"\x00"+a.Labels["alertname"] == p.focusGroupKey {
+				if tenant+"\x00"+a.Labels[labelAlertname] == p.focusGroupKey {
 					knownKey = true
 					break
 				}
@@ -112,7 +112,7 @@ func aggregate(in []alertEntry) []alertGroup {
 	byKey := map[string]*alertGroup{}
 	order := make([]string, 0)
 	for _, e := range in {
-		name := e.a.Labels["alertname"]
+		name := e.a.Labels[labelAlertname]
 		key := e.tenant + "\x00" + name
 		g, ok := byKey[key]
 		if !ok {

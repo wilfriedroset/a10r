@@ -90,9 +90,9 @@ func (p *Page) renderHeader(width int) string {
 		col{label: "UUID"},
 		col{label: "BY", sortKey: sortKeyCreatedBy},
 		col{label: "COMMENT"},
-		col{label: "STARTS", sortKey: sortKeyStartsAt},
-		col{label: "ENDS", sortKey: sortKeyEndsAt},
-		col{label: "STATE", sortKey: sortKeyState},
+		col{label: colHeaderStarts, sortKey: sortKeyStartsAt},
+		col{label: colHeaderEnds, sortKey: sortKeyEndsAt},
+		col{label: colHeaderState, sortKey: sortKeyState},
 	)
 	// fg-only so the header keeps the terminal default background
 	// — painted palette bg in the unstyled body frame creates a

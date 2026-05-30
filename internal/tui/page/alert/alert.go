@@ -98,6 +98,12 @@ type Options struct {
 	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
+const (
+	resourceSilences = "silences"
+	viewAlert        = "alert"
+	silenceExpired   = "expired"
+)
+
 // Implements app.Page.
 type Page struct {
 	*detailpage.Base
@@ -187,7 +193,7 @@ func New(opts Options) *Page {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{"silences"} }
+func (*Page) PollResources() []string { return []string{resourceSilences} }
 
 func (*Page) Crumb() string { return "detail" }
 
@@ -209,11 +215,11 @@ func (p *Page) Title() string {
 // are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
 	out := []action.Action{
-		{Key: "s", Description: "silence", View: "alert", Dangerous: true},
-		{Key: "S", Description: "open silences", View: "alert"},
-		{Key: "y", Description: "yaml", View: "alert"},
-		{Key: "c", Description: "copy fp", View: "alert"},
-		{Key: "o", Description: "open URL", View: "alert"},
+		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true},
+		{Key: "S", Description: "open silences", View: viewAlert},
+		{Key: "y", Description: "yaml", View: viewAlert},
+		{Key: "c", Description: "copy fp", View: viewAlert},
+		{Key: "o", Description: "open URL", View: viewAlert},
 	}
 	if p.readOnly {
 		return action.FilterDangerous(out)
@@ -286,7 +292,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // state proportional to one tenant's silence count rather than the
 // whole multi-tenant fan-out.
 func (p *Page) ingestSilences(m poll.DataMsg) {
-	if m.ResourceLabel != "silences" || m.Tenant != p.tenant {
+	if m.ResourceLabel != resourceSilences || m.Tenant != p.tenant {
 		return
 	}
 	sils, ok := m.Resource.([]backend.Silence)
@@ -570,7 +576,7 @@ func (p *Page) expiryField(ts time.Time) string {
 		return "ends " + timerender.Display(timerender.Absolute, p.now(), ts)
 	}
 	if ts.Sub(p.now()) <= 0 {
-		return "expired"
+		return silenceExpired
 	}
 	return "expires in " + timerender.Remaining(p.now(), ts)
 }

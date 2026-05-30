@@ -352,8 +352,10 @@ func renderGrid(cells []string, cols, rows, cellW int) []string {
 	return out
 }
 
+const helpHintDescription = "help"
+
 // helpHint is prepended to every page's Bindings for discoverability (ADR 0038).
-var helpHint = action.Action{Key: "?", Description: "help"}
+var helpHint = action.Action{Key: "?", Description: helpHintDescription}
 
 func prependHelpHint(hints []action.Action) []action.Action {
 	for _, h := range hints {

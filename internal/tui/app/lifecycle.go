@@ -3,6 +3,8 @@
 package app
 
 import (
+	"slices"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/help"
@@ -257,8 +259,8 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 func (a *App) quitWithCleanup() tea.Cmd {
 	a.quitting = true
 	cmds := make([]tea.Cmd, 0, len(a.stack)+1)
-	for i := len(a.stack) - 1; i >= 0; i-- {
-		if c := a.stack[i].Close(); c != nil {
+	for _, page := range slices.Backward(a.stack) {
+		if c := page.Close(); c != nil {
 			cmds = append(cmds, c)
 		}
 	}

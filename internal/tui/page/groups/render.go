@@ -233,9 +233,9 @@ func (p *Page) columnWidths(width int) (tenant, name, count, sev int) {
 func severityLabelByRank(rank int) string {
 	switch rank {
 	case 3:
-		return "critical"
+		return severityCritical
 	case 2:
-		return "warning"
+		return severityWarning
 	case 1:
 		return "info"
 	}

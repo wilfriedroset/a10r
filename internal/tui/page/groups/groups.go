@@ -38,6 +38,13 @@ const (
 	sortKeySeverity = "severity"
 )
 
+const resourceGroups = "groups"
+
+const (
+	severityCritical = "critical"
+	severityWarning  = "warning"
+)
+
 // groupSortColumns returns the page's sortable axes. Count and
 // severity default DESC (noisiest / worst groups land first —
 // triage priority); name defaults ASC (alphabetical reading
@@ -231,7 +238,7 @@ func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return "groups" }
+func (*Page) Crumb() string { return resourceGroups }
 
 // Title implements app.Page. Mirrors the alerts shape:
 // `groups(<scope>)[<count>]` or `groups(<scope>)[F/T]` while a
@@ -240,7 +247,7 @@ func (*Page) Crumb() string { return "groups" }
 // state, k9s-style.
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle("groups")
+		return p.LoadingTitle(resourceGroups)
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -274,7 +281,7 @@ func (p *Page) Footer() string {
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "groups" payloads into this page
 // on push.
-func (*Page) PollResources() []string { return []string{"groups"} }
+func (*Page) PollResources() []string { return []string{resourceGroups} }
 
 // Bindings implements app.Page. Sort shortcuts come from the
 // tablesort helper so all list pages emit them identically; the
@@ -285,17 +292,17 @@ func (*Page) PollResources() []string { return []string{"groups"} }
 // stripped before the slice is returned so the hint strip and
 // help overlay both render the read-only verb set.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings("groups")
+	sortBindings := p.sorter.Bindings(resourceGroups)
 	out := make([]action.Action, 0, 4+len(sortBindings))
 	out = append(out,
-		action.Action{Key: "Enter", Description: "expand / drill", View: "groups"},
-		action.Action{Key: "s", Description: "silence group", View: "groups", Dangerous: true},
-		action.Action{Key: "Tab", Description: "expand all", View: "groups"},
+		action.Action{Key: "Enter", Description: "expand / drill", View: resourceGroups},
+		action.Action{Key: "s", Description: "silence group", View: resourceGroups, Dangerous: true},
+		action.Action{Key: "Tab", Description: "expand all", View: resourceGroups},
 	)
 	out = append(out, sortBindings...)
 	out = append(out,
-		action.Action{Key: "r", Description: "refresh", View: "groups"},
-		action.Action{Key: "w", Description: "toggle watch", View: "groups"},
+		action.Action{Key: "r", Description: "refresh", View: resourceGroups},
+		action.Action{Key: "w", Description: "toggle watch", View: resourceGroups},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

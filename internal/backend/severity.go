@@ -4,6 +4,12 @@ package backend
 
 import "strings"
 
+const (
+	severityCritical = "critical"
+	severityWarning  = "warning"
+	severityInfo     = "info"
+)
+
 // SeverityRank assigns a numeric weight to the alert's `severity`
 // label so descending sort puts critical (highest rank) first.
 // `"critical"` → 3, `"warning"` → 2, `"info"` → 1, anything else
@@ -19,11 +25,11 @@ import "strings"
 // hot loop wants.
 func SeverityRank(labels map[string]string) int {
 	switch strings.ToLower(labels["severity"]) {
-	case "critical":
+	case severityCritical:
 		return 3
-	case "warning":
+	case severityWarning:
 		return 2
-	case "info":
+	case severityInfo:
 		return 1
 	}
 	return 0

@@ -20,6 +20,11 @@ import (
 	"time"
 )
 
+const (
+	labelNow         = "now"
+	labelRetryingNow = "retrying now"
+)
+
 // Format selects between the relative and absolute rendering modes
 // Display branches on. The zero value is Relative — every list page
 // boots in relative mode until the user presses `t`.
@@ -101,7 +106,7 @@ func Remaining(now, future time.Time) string {
 func NextAttempt(now, deadline time.Time) string {
 	d := deadline.Sub(now)
 	if d < time.Second {
-		return "retrying now"
+		return labelRetryingNow
 	}
 	return "retrying in " + Duration(d)
 }
@@ -369,7 +374,7 @@ func relative(now, ts time.Time) string {
 		abs = -abs
 	}
 	if abs < time.Second {
-		return "now"
+		return labelNow
 	}
 	var unit string
 	switch {

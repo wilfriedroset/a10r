@@ -22,6 +22,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
+const resourceStatus = "status"
+
 // Page renders the AM /status output.
 type Page struct {
 	styles *theme.Styles
@@ -46,7 +48,7 @@ func (*Page) Init() tea.Cmd { return nil }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return "status" }
+func (*Page) Crumb() string { return resourceStatus }
 
 // Title implements app.Page. Mirrors the rest of the list pages —
 // `status(<scope>)`. Empty scope folds to "all" rather than dropping
@@ -83,13 +85,13 @@ func (*Page) Footer() string { return "" }
 // the cold-start snapshot for the whole session. The Update branch
 // type-asserts m.Resource to backend.Status; see
 // cmd/tui.go backendFetchers for the matching poll fetcher.
-func (*Page) PollResources() []string { return []string{"status"} }
+func (*Page) PollResources() []string { return []string{resourceStatus} }
 
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
-		{Key: "c", Description: "cluster", View: "status"},
-		{Key: "v", Description: "version", View: "status"},
-		{Key: "p", Description: "config", View: "status"},
+		{Key: "c", Description: "cluster", View: resourceStatus},
+		{Key: "v", Description: "version", View: resourceStatus},
+		{Key: "p", Description: "config", View: resourceStatus},
 	}
 }
 

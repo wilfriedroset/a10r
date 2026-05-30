@@ -46,6 +46,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
+const keyNameDown = "down"
+
 // ClosedMsg is emitted when the overlay is dismissed; per ADR 0020.
 type ClosedMsg struct{}
 
@@ -159,7 +161,7 @@ func (h *Help) scrollByKey(key string) bool {
 	half := cursor.HalfPageStep(h.lastBodyHeight)
 	full := cursor.FullPageStep(h.lastBodyHeight)
 	switch key {
-	case "j", "down":
+	case "j", keyNameDown:
 		h.scroll++
 	case "k", "up":
 		h.scroll--

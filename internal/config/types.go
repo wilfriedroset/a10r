@@ -240,12 +240,14 @@ func (b *Backend) validateProxy() error {
 // via the `headers:` map. Mirrors Prometheus's reservedHeaders list:
 // Authorization rides through the auth blocks, the rest are managed
 // by a10r's transport layer.
+const reservedHeaderManaged = "set automatically by a10r"
+
 var reservedHeaders = map[string]string{
 	"authorization":    "use basic_auth, authorization, or bearer_token",
 	"host":             "set the URL host instead",
-	"content-type":     "set automatically by a10r",
-	"content-length":   "set automatically by a10r",
-	"content-encoding": "set automatically by a10r",
+	"content-type":     reservedHeaderManaged,
+	"content-length":   reservedHeaderManaged,
+	"content-encoding": reservedHeaderManaged,
 }
 
 func validateHeaders(h map[string]string) error {

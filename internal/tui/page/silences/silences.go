@@ -44,6 +44,16 @@ const (
 	sortKeyState     = "state"
 )
 
+const (
+	colHeaderStarts = "STARTS"
+	colHeaderEnds   = "ENDS"
+	colHeaderState  = "STATE"
+)
+
+const resourceSilences = "silences"
+
+const editorExtensionYAML = "yaml"
+
 func silenceSortColumns() []tablesort.Column[silenceEntry] {
 	return []tablesort.Column[silenceEntry]{
 		{
@@ -52,17 +62,17 @@ func silenceSortColumns() []tablesort.Column[silenceEntry] {
 			Less:        func(a, b *silenceEntry) bool { return a.s.CreatedBy < b.s.CreatedBy },
 		},
 		{
-			Key: sortKeyStartsAt, Title: "STARTS", Hotkey: 'S', DefaultAsc: true,
+			Key: sortKeyStartsAt, Title: colHeaderStarts, Hotkey: 'S', DefaultAsc: true,
 			Description: "sort by startsAt",
 			Less:        func(a, b *silenceEntry) bool { return a.s.StartsAt.Before(b.s.StartsAt) },
 		},
 		{
-			Key: sortKeyEndsAt, Title: "ENDS", Hotkey: 'E', DefaultAsc: true,
+			Key: sortKeyEndsAt, Title: colHeaderEnds, Hotkey: 'E', DefaultAsc: true,
 			Description: "sort by endsAt",
 			Less:        func(a, b *silenceEntry) bool { return a.s.EndsAt.Before(b.s.EndsAt) },
 		},
 		{
-			Key: sortKeyState, Title: "STATE", Hotkey: 'T', DefaultAsc: true,
+			Key: sortKeyState, Title: colHeaderState, Hotkey: 'T', DefaultAsc: true,
 			Less: func(a, b *silenceEntry) bool { return a.s.State < b.s.State },
 		},
 	}
@@ -330,11 +340,11 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return "silences" }
+func (*Page) Crumb() string { return resourceSilences }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle("silences")
+		return p.LoadingTitle(resourceSilences)
 	}
 	scope := p.alertName
 	if scope == "" {
@@ -372,25 +382,25 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{"silences"} }
+func (*Page) PollResources() []string { return []string{resourceSilences} }
 
 // When read-only, Dangerous entries are stripped before returning.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings("silences")
+	sortBindings := p.sorter.Bindings(resourceSilences)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: "silences"},
-		action.Action{Key: "n", Description: "new", View: "silences", Dangerous: true},
-		action.Action{Key: "e", Description: "edit", View: "silences", Dangerous: true},
-		action.Action{Key: "x", Description: "expire (cursor / marks)", View: "silences", Dangerous: true},
-		action.Action{Key: "Space", Description: "mark", View: "silences", Shared: true},
-		action.Action{Key: "Ctrl+E", Description: "editor", View: "silences", Dangerous: true},
-		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: "silences", Dangerous: true},
+		action.Action{Key: "Enter", Description: "detail", View: resourceSilences},
+		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "Space", Description: "mark", View: resourceSilences, Shared: true},
+		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true},
 	)
 	out = append(out, sortBindings...)
 	out = append(out,
-		action.Action{Key: "r", Description: "refresh", View: "silences"},
-		action.Action{Key: "w", Description: "toggle watch", View: "silences"},
+		action.Action{Key: "r", Description: "refresh", View: resourceSilences},
+		action.Action{Key: "w", Description: "toggle watch", View: resourceSilences},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

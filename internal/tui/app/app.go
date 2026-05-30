@@ -36,6 +36,13 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
+const (
+	scopeAll         = "all"
+	keyNameEsc       = "Esc"
+	keyDescDown      = "down"
+	resourceSilences = "silences"
+)
+
 // Options collects the dependencies the App needs to operate.
 type Options struct {
 	Styles     *theme.Styles
@@ -201,7 +208,7 @@ func (h appHistories) historyFor(mode footer.PromptMode, pageLabel string) *foot
 	if mode == footer.PromptCommand {
 		return h.cmd
 	}
-	if pageLabel == "silences" {
+	if pageLabel == resourceSilences {
 		return h.silenceMatcher
 	}
 	return h.filter

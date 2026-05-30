@@ -41,12 +41,12 @@ func TestRedactAttr_PassesThroughNonSecret(t *testing.T) {
 	t.Parallel()
 
 	cases := []slog.Attr{
-		slog.String("user-agent", "a10r/0.0.1"),
+		slog.String("user-agent", "a10r/0.0.1"), //nolint:sloglint // HTTP header names are kebab-case per RFC 9110
 		slog.String("method", "GET"),
 		slog.Int("status", 200),
 		slog.Int64("latency_ms", 42),
 		// X-Scope-OrgID must NOT be masked — see ADR 0008.
-		slog.String("x-scope-orgid", "tenant-prod"),
+		slog.String("x-scope-orgid", "tenant-prod"), //nolint:sloglint // HTTP header names are kebab-case per RFC 9110
 	}
 	for _, a := range cases {
 		t.Run(a.Key, func(t *testing.T) {
@@ -87,8 +87,8 @@ func TestNew_AppliesRedaction_Logfmt(t *testing.T) {
 
 	logger.Info("http req",
 		slog.String("authorization", "Bearer secret-token"),
-		slog.String("x-scope-orgid", "tenant-prod"),
-		slog.String("user-agent", "a10r/test"))
+		slog.String("x-scope-orgid", "tenant-prod"), //nolint:sloglint // HTTP header names are kebab-case per RFC 9110
+		slog.String("user-agent", "a10r/test"))      //nolint:sloglint // HTTP header names are kebab-case per RFC 9110
 
 	out := buf.String()
 	require.Contains(t, out, "authorization=***")
@@ -115,7 +115,7 @@ func TestNew_AppliesRedaction_JSON(t *testing.T) {
 
 	logger.Info("http req",
 		slog.String("authorization", "Bearer secret-token"),
-		slog.String("x-scope-orgid", "tenant-prod"))
+		slog.String("x-scope-orgid", "tenant-prod")) //nolint:sloglint // HTTP header names are kebab-case per RFC 9110
 
 	out := buf.String()
 	require.Contains(t, out, `"authorization":"***"`)

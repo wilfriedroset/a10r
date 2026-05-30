@@ -35,6 +35,22 @@ const (
 	groupSetup = "setup"
 )
 
+const (
+	fieldName      = "name"
+	fieldSeverity  = "severity"
+	fieldTenant    = "tenant"
+	fieldReceivers = "receivers"
+
+	checkBuild        = "build"
+	checkAuth         = "auth"
+	checkReachability = "reachability"
+
+	fieldTheme = "theme"
+	fieldURL   = "url"
+
+	themeGruvboxDark = "gruvbox-dark"
+)
+
 // Execute builds the cobra root command, registers groups +
 // subcommands explicitly (no init() side effects), and runs it.
 // main() in the repo root simply forwards an error from this

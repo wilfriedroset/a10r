@@ -12,12 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// goosWindows is the runtime.GOOS value used to skip symlink-creation
-// tests on Windows, where os.Symlink requires admin privilege. The
-// unix CI is the contract; the skip is a pragmatic guard for local
-// `go test` runs on non-CI Windows hosts.
-const goosWindows = "windows"
-
 // envNone is a getenv stub that returns empty for every key. The
 // loader rejects any unresolved ${VAR} so fixtures in this file stay
 // literal — tests that exercise interpolation live in interpolate_test.go.

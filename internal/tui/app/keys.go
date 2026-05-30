@@ -75,7 +75,7 @@ func normalizeKey(k tea.KeyPressMsg) string {
 // is the point.
 var specialNames = map[rune]string{
 	tea.KeyEnter:     "Enter",
-	tea.KeyEscape:    "Esc",
+	tea.KeyEscape:    keyNameEsc,
 	tea.KeyTab:       "Tab",
 	tea.KeyBackspace: "Backspace",
 	tea.KeySpace:     "Space",

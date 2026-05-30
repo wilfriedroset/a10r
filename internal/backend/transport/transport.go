@@ -269,15 +269,22 @@ func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
 // (and the schema validates) to the stdlib uint16 constants. The
 // second return value distinguishes "user did not configure" (no
 // override) from a configured version.
+const (
+	tlsVersionTLS10 = "TLS10"
+	tlsVersionTLS11 = "TLS11"
+	tlsVersionTLS12 = "TLS12"
+	tlsVersionTLS13 = "TLS13"
+)
+
 func tlsVersionLookup(s string) (uint16, bool) {
 	switch s {
-	case "TLS10":
+	case tlsVersionTLS10:
 		return tls.VersionTLS10, true
-	case "TLS11":
+	case tlsVersionTLS11:
 		return tls.VersionTLS11, true
-	case "TLS12":
+	case tlsVersionTLS12:
 		return tls.VersionTLS12, true
-	case "TLS13":
+	case tlsVersionTLS13:
 		return tls.VersionTLS13, true
 	default:
 		return 0, false

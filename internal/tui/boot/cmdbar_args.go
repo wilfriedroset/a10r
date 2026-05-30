@@ -62,7 +62,7 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 			val = args[i]
 		}
 		switch key {
-		case "state":
+		case cmdbarArgStateName:
 			lower := strings.ToLower(strings.TrimSpace(val))
 			if !slices.Contains(validAlertStates, lower) {
 				return alertsArgs{}, fmt.Errorf("--state %q: must be one of %s",

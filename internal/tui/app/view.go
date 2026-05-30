@@ -94,7 +94,7 @@ func (a *App) panelState() panel.State {
 // present-but-trivial in zero-backend / wizard runs.
 func tenantBindings(tenants []string) []panel.TenantBinding {
 	out := make([]panel.TenantBinding, 0, len(tenants)+1)
-	out = append(out, panel.TenantBinding{Key: "0", Name: "all"})
+	out = append(out, panel.TenantBinding{Key: "0", Name: scopeAll})
 	for i, t := range tenants {
 		if i >= 9 {
 			break // numeric quick-switch tops out at 1-9
