@@ -152,71 +152,69 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// bytes lipgloss.Render injects per cell on coloured rows.
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		g := p.groups[i]
-		ageLabel := p.formatTime(g.oldestStart)
-		if ageLabel == "" {
-			ageLabel = "—"
-		}
-		_, marked := p.marks[g.key()]
-		mark := " "
-		if marked {
-			mark = "✓"
-		}
-		// Per-cell colour (severity tint, per-token state colour)
-		// applies only to plain rows. Cursor / marked / all-suppressed
-		// rows wrap the entire line in a row-level style; nested ANSI
-		// inside that wrap is fragile across terminals, and the row-
-		// level style is supposed to win — so skip cell-level colour
-		// entirely for those cases.
-		rowStyled := i == p.Index() || marked || g.allSuppressed()
-		sevCell := severityLabelForRank(g.severityRank)
-		stateCell := p.stateCell(g, stateIdx, cols, rowStyled)
-		if !rowStyled {
-			sevCell = severityStyleForRank(g.severityRank, p.styles).Render(sevCell)
-		}
-		row := make([]string, 0, 6)
-		if showTenant {
-			row = append(row, g.tenant)
-		}
-		row = append(row,
-			sevCell,
-			alertNameCell(g),
-			countCell(g),
-			stateCell,
-			ageLabel,
-		)
-		prefix := "  "
-		if i == p.Index() {
-			prefix = "▸ "
-		}
-		// Pad to the full width before styling. Precedence:
-		// cursor > marked > dimmed. Cursor wraps the whole row in
-		// fg+bg (the salient "you are here" signal); Marked and
-		// Dimmed both change the foreground only so the row keeps
-		// the body's default background — k9s "tinted text" rather
-		// than two competing highlighted stripes. Dimmed fires only
-		// when EVERY instance in the group is suppressed and the row
-		// is neither cursor nor marked. Marked beats dimmed on
-		// purpose: marked is an explicit user action, suppression is
-		// ambient state.
-		line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
-		switch {
-		case i == p.Index():
-			// k9s parity: cursor bg tracks the row's semantic colour
-			// (max severity), not a static cursor colour.
-			rowColor := severityStyleForRank(g.severityRank, p.styles).GetForeground()
-			line = p.styles.Table.CursorOver(rowColor).Render(line)
-		case marked:
-			line = p.styles.Table.MarkedFg.Render(line)
-		case g.allSuppressed():
-			line = p.styles.Table.DimmedFg.Render(line)
-		}
-		b.WriteString(line)
+		b.WriteString(p.renderRow(i, p.groups[i], cols, stateIdx, width, showTenant))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+// renderRow renders one alert-group row at view index i, padded to
+// width and styled. Per-cell colour (severity tint, per-token state
+// colour) applies only to plain rows: cursor / marked / all-suppressed
+// rows wrap the whole line in a row-level style, and nested ANSI inside
+// that wrap is fragile, so cell-level colour is skipped there. Row
+// precedence: cursor > marked > dimmed. Cursor wraps in fg+bg (the
+// "you are here" signal); Marked and Dimmed change the foreground only
+// so the row keeps the body background — k9s "tinted text". Dimmed
+// fires only when every instance is suppressed and the row is neither
+// cursor nor marked; Marked beats dimmed because it is an explicit
+// user action while suppression is ambient state.
+func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, showTenant bool) string {
+	ageLabel := p.formatTime(g.oldestStart)
+	if ageLabel == "" {
+		ageLabel = "—"
+	}
+	_, marked := p.marks[g.key()]
+	mark := " "
+	if marked {
+		mark = "✓"
+	}
+	rowStyled := i == p.Index() || marked || g.allSuppressed()
+	sevCell := severityLabelForRank(g.severityRank)
+	stateCell := p.stateCell(g, stateIdx, cols, rowStyled)
+	if !rowStyled {
+		sevCell = severityStyleForRank(g.severityRank, p.styles).Render(sevCell)
+	}
+	row := make([]string, 0, 6)
+	if showTenant {
+		row = append(row, g.tenant)
+	}
+	row = append(row,
+		sevCell,
+		alertNameCell(g),
+		countCell(g),
+		stateCell,
+		ageLabel,
+	)
+	prefix := "  "
+	if i == p.Index() {
+		prefix = "▸ "
+	}
+	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
+	switch {
+	case i == p.Index():
+		// k9s parity: cursor bg tracks the row's semantic colour
+		// (max severity), not a static cursor colour.
+		rowColor := severityStyleForRank(g.severityRank, p.styles).GetForeground()
+		line = p.styles.Table.CursorOver(rowColor).Render(line)
+	case marked:
+		line = p.styles.Table.MarkedFg.Render(line)
+	case g.allSuppressed():
+		line = p.styles.Table.DimmedFg.Render(line)
+	}
+	return line
 }
 
 // noAlertNameCell is the placeholder for a group whose instances

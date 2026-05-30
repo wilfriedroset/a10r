@@ -3,6 +3,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
@@ -23,7 +25,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 		Stderr:  cmd.ErrOrStderr(),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("build TUI: %w", err)
 	}
 	defer res.Close()
 

@@ -138,65 +138,63 @@ func (p *Page) renderRows(width, maxRows int) string {
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		e := p.view[i]
-		row := make([]string, 0, 7)
-		if p.ShowTenantColumn(len(p.byTenant)) {
-			row = append(row, e.tenant)
-		}
-		row = append(row,
-			clipSilenceID(e.s.ID),
-			e.s.CreatedBy,
-			singleLine(e.s.Comment),
-			p.formatTime(e.s.StartsAt),
-			p.formatTime(e.s.EndsAt),
-			string(e.s.State),
-		)
-		prefix := "  "
-		if i == p.Index() {
-			prefix = "▸ "
-		}
-		_, marked := p.marks[e.s.ID]
-		mark := ""
-		if showMark {
-			if marked {
-				mark = "✓ "
-			} else {
-				mark = "  "
-			}
-		}
-		// Pad to the full width before styling so the Cursor row's
-		// background extends across the whole line k9s-style.
-		// Precedence: cursor > marked > expired-dim. Cursor wraps
-		// the whole row in fg+bg (the salient "you are here"
-		// signal); Marked and the expired-dim treatment both change
-		// the foreground only so the row keeps the body's default
-		// background — k9s "tinted text" rather than two competing
-		// highlighted stripes stacked on top of each other. Dimming
-		// fires when the silence is expired (state == expired) and
-		// is neither cursor nor marked — same treatment the alerts
-		// page applies to suppressed alerts. Marked beats the dim:
-		// marked is an explicit user action, expiry is ambient
-		// state.
-		line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
-		switch {
-		case i == p.Index():
-			// k9s parity: cursor bg tracks the silence-state
-			// colour (active/pending/expired) rather than the
-			// static cursorBgColor — see select_table.go:128 in
-			// k9s for the equivalent runtime override.
-			rowColor := silenceStateColor(e.s.State, p.styles)
-			line = p.styles.Table.CursorOver(rowColor).Render(line)
-		case marked:
-			line = p.styles.Table.MarkedFg.Render(line)
-		case e.s.State == backend.SilenceStateExpired:
-			line = p.styles.Table.DimmedFg.Render(line)
-		}
-		b.WriteString(line)
+		b.WriteString(p.renderRow(i, p.view[i], width, showMark))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+// renderRow renders one silence row at view index i, padded to width
+// and styled. Precedence: cursor > marked > expired-dim. Cursor wraps
+// the whole row in fg+bg (the salient "you are here" signal); Marked
+// and the expired-dim treatment change the foreground only so the row
+// keeps the body's default background — k9s "tinted text" rather than
+// competing highlighted stripes. Dimming fires when the silence is
+// expired and is neither cursor nor marked; Marked beats the dim
+// because it is an explicit user action while expiry is ambient state.
+func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string {
+	row := make([]string, 0, 7)
+	if p.ShowTenantColumn(len(p.byTenant)) {
+		row = append(row, e.tenant)
+	}
+	row = append(row,
+		clipSilenceID(e.s.ID),
+		e.s.CreatedBy,
+		singleLine(e.s.Comment),
+		p.formatTime(e.s.StartsAt),
+		p.formatTime(e.s.EndsAt),
+		string(e.s.State),
+	)
+	prefix := "  "
+	if i == p.Index() {
+		prefix = "▸ "
+	}
+	_, marked := p.marks[e.s.ID]
+	mark := ""
+	if showMark {
+		if marked {
+			mark = "✓ "
+		} else {
+			mark = "  "
+		}
+	}
+	line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
+	switch {
+	case i == p.Index():
+		// k9s parity: cursor bg tracks the silence-state colour
+		// (active/pending/expired) rather than the static
+		// cursorBgColor — see select_table.go:128 in k9s for the
+		// equivalent runtime override.
+		rowColor := silenceStateColor(e.s.State, p.styles)
+		line = p.styles.Table.CursorOver(rowColor).Render(line)
+	case marked:
+		line = p.styles.Table.MarkedFg.Render(line)
+	case e.s.State == backend.SilenceStateExpired:
+		line = p.styles.Table.DimmedFg.Render(line)
+	}
+	return line
 }
 
 // padColumns lays out a row across fixed-width columns. UUID,

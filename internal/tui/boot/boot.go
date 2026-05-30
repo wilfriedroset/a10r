@@ -234,7 +234,7 @@ func resolveConfigDirAndStyles(d Deps, explicitDir, themeName string) (string, *
 	}
 	styles, err := d.LoadStyles(themeName, configDir)
 	if err != nil {
-		return "", nil, err //nolint:wrapcheck // LoadStyles already wraps with the skin path.
+		return "", nil, err
 	}
 	return configDir, styles, nil
 }

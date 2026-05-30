@@ -4,6 +4,7 @@ package silence
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ import (
 func (f *Form) parseSpec() (backend.SilenceSpec, error) {
 	matchers, err := matcher.Parse(f.matchers.Value())
 	if err != nil {
-		return backend.SilenceSpec{}, err
+		return backend.SilenceSpec{}, fmt.Errorf("parse matchers: %w", err)
 	}
 	if !f.bulk && len(matchers) == 0 {
 		return backend.SilenceSpec{}, errors.New("at least one matcher is required")
@@ -121,7 +122,7 @@ func parseEndsAt(in string, base time.Time) (time.Time, error) {
 		return base.Add(d), nil
 	}
 	if containsUnitLetter(in) {
-		return time.Time{}, durErr
+		return time.Time{}, durErr //nolint:wrapcheck // durErr is already a user-facing message from the duration parser.
 	}
 	if t, ok := parseAbsTime(in); ok {
 		return t, nil

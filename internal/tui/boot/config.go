@@ -21,7 +21,7 @@ func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*confi
 			fmt.Fprintln(errOut, "no config found — starting with empty backend list (run `a10r validate` after editing your config)")
 			return &config.Config{}, nil
 		}
-		return nil, err //nolint:wrapcheck // config.Load already wraps with the source path.
+		return nil, err
 	}
 	return cfg, nil
 }

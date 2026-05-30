@@ -8,6 +8,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os/signal"
 	"syscall"
 
@@ -55,7 +56,10 @@ func Execute() error {
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags, nil)
 	registerSubcommands(rootCmd, &flags)
-	return rootCmd.ExecuteContext(ctx)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		return fmt.Errorf("execute: %w", err)
+	}
+	return nil
 }
 
 // registerSubcommands attaches every a10r subcommand to root. Shared

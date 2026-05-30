@@ -218,16 +218,16 @@ func NewApp(opts Options) *App {
 		resolver = cmdbar.New()
 	}
 	a := &App{
-		styles:      opts.Styles,
-		dispatcher:  opts.Dispatcher,
-		cmdbar:      resolver,
-		tenants:     opts.Tenants,
-		refresh:     opts.Refresh,
-		readOnly:    opts.ReadOnly,
-		crumbs:      footer.NewCrumbs(),
-		prompt:      footer.NewPrompt(resolver.Suggest),
-		flash:       footer.NewFlash(),
-		hintbar:     opts.HintBar,
+		styles:     opts.Styles,
+		dispatcher: opts.Dispatcher,
+		cmdbar:     resolver,
+		tenants:    opts.Tenants,
+		refresh:    opts.Refresh,
+		readOnly:   opts.ReadOnly,
+		crumbs:     footer.NewCrumbs(),
+		prompt:     footer.NewPrompt(resolver.Suggest),
+		flash:      footer.NewFlash(),
+		hintbar:    opts.HintBar,
 		caches: caches{
 			poll:   map[string]map[string]poll.DataMsg{},
 			status: map[string]poll.BackendStatusMsg{},

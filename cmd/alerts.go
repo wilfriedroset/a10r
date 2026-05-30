@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
@@ -39,30 +40,23 @@ func newAlertsCmd(flags *GlobalFlags) *cobra.Command {
 // --severity=critical --fail || page-oncall`.
 func newAlertsListCmd(flags *GlobalFlags) *cobra.Command {
 	var (
-		outputFmt string
-		severity  string
-		state     string
-		failOnAny bool
+		common   commonListFlags
+		severity string
+		state    string
 	)
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List alerts across configured backends",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runAlertsList(cmd.Context(), cmd.OutOrStdout(), flags, alertsListOptions{
-				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
-				Severity:        severity,
-				State:           state,
-			})
-		},
+	cmd := newListCmd("List alerts across configured backends",
+		"exit with code 10 when at least one alert matches the filters", &common)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runAlertsList(cmd.Context(), cmd.OutOrStdout(), flags, alertsListOptions{
+			commonListFlags: common,
+			Severity:        severity,
+			State:           state,
+		})
 	}
-	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
 	cmd.Flags().StringVar(&severity, "severity", "",
 		"keep only alerts matching the named severity label (case-insensitive)")
 	cmd.Flags().StringVar(&state, "state", "",
 		"keep only alerts in the named state: active, suppressed, unprocessed")
-	cmd.Flags().BoolVar(&failOnAny, "fail", false,
-		"exit with code 10 when at least one alert matches the filters")
 	return cmd
 }
 
@@ -95,7 +89,7 @@ func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]alertRow, error) {
 			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("list alerts: %w", err)
 			}
 			rows := make([]alertRow, 0, len(alerts))
 			for _, a := range alerts {
@@ -164,15 +158,29 @@ func sortAlertRows(rows []alertRow) {
 	})
 }
 
-func renderAlertJSON(out io.Writer, rows []alertRow) error { return output.WriteJSON(out, rows) }
-func renderAlertYAML(out io.Writer, rows []alertRow) error { return output.WriteYAML(out, rows) }
+func renderAlertJSON(out io.Writer, rows []alertRow) error {
+	if err := output.WriteJSON(out, rows); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
+}
+
+func renderAlertYAML(out io.Writer, rows []alertRow) error {
+	if err := output.WriteYAML(out, rows); err != nil {
+		return fmt.Errorf("write yaml: %w", err)
+	}
+	return nil
+}
 
 func renderAlertTable(out io.Writer, rows []alertRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "name", "severity", "state"},
 		Rows: alertTableRows(rows),
 	}
-	return tbl.Write(out)
+	if err := tbl.Write(out); err != nil {
+		return fmt.Errorf("write table: %w", err)
+	}
+	return nil
 }
 
 // alertTableRows flattens to the column shape the Table helper

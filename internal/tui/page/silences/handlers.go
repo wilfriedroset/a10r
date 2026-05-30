@@ -443,9 +443,15 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		p.pendingEdit = pendingEdit{}
 		return footer.ShowFlash(footer.FlashError, "no writeable backend for silence "+id)
 	}
-	// Async write so a slow backend doesn't block Update. The
-	// cancel handle (mu-guarded) lets Close() abort the in-flight
-	// UpdateSilence; editorCtx propagates app-level shutdown when set.
+	return p.dispatchEditorUpdate(client, id, spec, pending, m.Content)
+}
+
+// dispatchEditorUpdate runs UpdateSilence asynchronously so a slow
+// backend doesn't block Update. The mu-guarded cancel handle lets
+// Close() abort the in-flight write; editorCtx propagates app-level
+// shutdown when set. pending is threaded through so a failed write
+// can reopen the editor with the user's content preserved.
+func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec backend.SilenceSpec, pending pendingEdit, content string) tea.Cmd {
 	parent := p.editorCtx
 	if parent == nil {
 		parent = context.Background()
@@ -465,7 +471,6 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		p.mu.Unlock()
 		cancel()
 	}
-	content := m.Content
 	return func() tea.Msg {
 		defer clearCancel()
 		err := client.UpdateSilence(ctx, id, spec)
@@ -571,7 +576,6 @@ func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 	}
 	return "", nil, false
 }
-
 
 // auditSilenceWrite emits the success-path audit record on every
 // silence mutation so an operator can reconstruct the day's

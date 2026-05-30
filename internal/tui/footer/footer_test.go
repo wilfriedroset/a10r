@@ -13,7 +13,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-
 func TestCrumbs_PushPopRender(t *testing.T) {
 	t.Parallel()
 
@@ -69,7 +68,6 @@ func TestCrumbs_SetIsDefensiveCopy(t *testing.T) {
 	require.NotEqual(t, "mutated", c.Render(testutil.LoadStyles(t)),
 		"Set must copy the input slice so external mutation doesn't bleed in")
 }
-
 
 func TestPrompt_BackspaceRemovesLastRune(t *testing.T) {
 	t.Parallel()
@@ -292,7 +290,6 @@ func TestPrompt_RenderHasNoBackgroundFill(t *testing.T) {
 	}
 }
 
-
 // stubSuggester returns a function that maps an exact input to a
 // canned suggestion. Anything not in the map returns "" — matches
 // the cmdbar.Resolver.Suggest contract.
@@ -489,7 +486,6 @@ func TestPrompt_RenderHasNoBackgroundFillWithGhost(t *testing.T) {
 		"ghost must not paint a background colour even when chained with fg")
 }
 
-
 func TestPrompt_UpCyclesHistoryPrev(t *testing.T) {
 	t.Parallel()
 
@@ -644,7 +640,6 @@ func TestPrompt_OpenResetsHistoryCycle(t *testing.T) {
 	require.False(t, h.Cycling(),
 		"OpenWithHistory must Reset the ring so the cursor starts at present")
 }
-
 
 func TestFlash_NewIsInactive(t *testing.T) {
 	t.Parallel()

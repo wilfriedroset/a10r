@@ -102,11 +102,9 @@ func (p *Page) renderHeader(width int) string {
 }
 
 // renderRow renders one row of the tree — group header (alertIdx
-// == -1) or leaf — into the body. The deep nesting is pre-existing
-// and out of scope for the structural file split; refactoring it
-// is its own follow-up.
-//
-//nolint:nestif // pre-existing complexity in the group/leaf branch.
+// == -1) or leaf — into the body, dispatching the cell content to
+// writeGroupCells / writeLeafCells and wrapping the cursor row in
+// the row's semantic colour.
 func (p *Page) renderRow(r row, focused bool, width int) string {
 	entry := p.flat[r.groupIdx]
 	tenantW, nameW, countW, sevW := p.columnWidths(width)
@@ -126,66 +124,9 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 	}
 
 	if r.alertIdx == -1 {
-		marker := "▸"
-		if p.expanded[r.groupIdx] {
-			marker = "▾"
-		}
-		b.WriteString(marker + " ")
-
-		summary := labelSummary(entry.g.Labels)
-		if !focused {
-			// Cursor row wraps the whole line in fg+bg (alerts page
-			// convention); nested ANSI inside the wrap is fragile, so
-			// per-cell colouring is skipped on the cursor row.
-			summary = styledLabelSummary(entry.g.Labels, p.styles)
-		}
-		b.WriteString(format.PadRight(summary, nameW))
-
-		count := strconv.Itoa(len(entry.g.Alerts))
-		b.WriteString(format.PadRight(count, countW))
-
-		sev := severityLabelByRank(entry.severityRank)
-		if !focused {
-			sev = severityStyleByRank(entry.severityRank, p.styles).Render(sev)
-		}
-		b.WriteString(format.PadRight(sev, sevW))
+		p.writeGroupCells(&b, r, entry, focused, nameW, countW, sevW)
 	} else {
-		// Leaf row: empty tree slot, then the labels that
-		// distinguish this leaf from its siblings (instance, pod,
-		// host, …) plus its state. The group header already shows
-		// the labels common to every alert; echoing them on every
-		// leaf is dead pixels and hides the field that actually
-		// identifies the instance. Falls back to the alertname
-		// when distinguishing labels are empty (true duplicates)
-		// so the row never reads as blank.
-		b.WriteString(strings.Repeat(" ", treeColWidth))
-		a := entry.g.Alerts[r.alertIdx]
-		diff := backend.DistinguishingLabels(a, entry.common)
-		var labelText string
-		if len(diff) > 0 {
-			if focused {
-				labelText = labelSummary(diff)
-			} else {
-				labelText = styledLabelSummary(diff, p.styles)
-			}
-		} else {
-			labelText = a.Labels["alertname"]
-			if !focused {
-				labelText = p.styles.YAML.Key.Render(labelText)
-			}
-		}
-		state := string(a.State)
-		if !focused {
-			state = p.styles.YAML.Value.Render(state)
-		}
-		// Leaves collapse the NAME / COUNT / SEVERITY columns into
-		// one wide cell on purpose: a leaf has no group-level count
-		// and its severity is already rolled into the parent's
-		// SEVERITY cell, so per-leaf alignment under those columns
-		// would be padding around dead air. Drilling via Enter is
-		// where per-alert detail belongs.
-		leaf := "  " + labelText + " — " + state
-		b.WriteString(format.PadRight(leaf, nameW+countW+sevW))
+		p.writeLeafCells(&b, entry, r.alertIdx, focused, nameW, countW, sevW)
 	}
 
 	body := format.PadRight(b.String(), width)
@@ -197,6 +138,64 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 		return p.styles.Table.CursorOver(rowColor).Render(body)
 	}
 	return body
+}
+
+// writeGroupCells renders a group-header row's NAME/COUNT/SEVERITY
+// cells. On the cursor row per-cell colouring is skipped because the
+// whole line is wrapped in fg+bg downstream and nested ANSI inside
+// that wrap is fragile.
+func (p *Page) writeGroupCells(b *strings.Builder, r row, entry groupEntry, focused bool, nameW, countW, sevW int) {
+	marker := "▸"
+	if p.expanded[r.groupIdx] {
+		marker = "▾"
+	}
+	b.WriteString(marker + " ")
+
+	summary := labelSummary(entry.g.Labels)
+	if !focused {
+		summary = styledLabelSummary(entry.g.Labels, p.styles)
+	}
+	b.WriteString(format.PadRight(summary, nameW))
+
+	count := strconv.Itoa(len(entry.g.Alerts))
+	b.WriteString(format.PadRight(count, countW))
+
+	sev := severityLabelByRank(entry.severityRank)
+	if !focused {
+		sev = severityStyleByRank(entry.severityRank, p.styles).Render(sev)
+	}
+	b.WriteString(format.PadRight(sev, sevW))
+}
+
+// writeLeafCells renders a leaf row: the labels distinguishing this
+// leaf from its siblings (or the alertname when there are none, so
+// the row never reads blank) plus state, collapsed into one wide
+// cell. A leaf has no group-level count and its severity rolls into
+// the parent's SEVERITY cell, so per-leaf alignment there would be
+// padding around dead air — per-alert detail lives behind Enter.
+func (p *Page) writeLeafCells(b *strings.Builder, entry groupEntry, alertIdx int, focused bool, nameW, countW, sevW int) {
+	b.WriteString(strings.Repeat(" ", treeColWidth))
+	a := entry.g.Alerts[alertIdx]
+	diff := backend.DistinguishingLabels(a, entry.common)
+	var labelText string
+	if len(diff) > 0 {
+		if focused {
+			labelText = labelSummary(diff)
+		} else {
+			labelText = styledLabelSummary(diff, p.styles)
+		}
+	} else {
+		labelText = a.Labels["alertname"]
+		if !focused {
+			labelText = p.styles.YAML.Key.Render(labelText)
+		}
+	}
+	state := string(a.State)
+	if !focused {
+		state = p.styles.YAML.Value.Render(state)
+	}
+	leaf := "  " + labelText + " — " + state
+	b.WriteString(format.PadRight(leaf, nameW+countW+sevW))
 }
 
 // Column geometry. tenantColWidth mirrors the alerts / silences

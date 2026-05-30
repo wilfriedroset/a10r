@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sort"
 	"strconv"
@@ -43,26 +44,19 @@ func newGroupsCmd(flags *GlobalFlags) *cobra.Command {
 // docs.
 func newGroupsListCmd(flags *GlobalFlags) *cobra.Command {
 	var (
-		outputFmt string
-		receiver  string
-		failOnAny bool
+		common   commonListFlags
+		receiver string
 	)
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List alert groups across configured backends",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGroupsList(cmd.Context(), cmd.OutOrStdout(), flags, groupsListOptions{
-				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
-				Receiver:        receiver,
-			})
-		},
+	cmd := newListCmd("List alert groups across configured backends",
+		"exit with code 10 when at least one group matches the filters", &common)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runGroupsList(cmd.Context(), cmd.OutOrStdout(), flags, groupsListOptions{
+			commonListFlags: common,
+			Receiver:        receiver,
+		})
 	}
-	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
 	cmd.Flags().StringVar(&receiver, "receiver", "",
 		"keep only groups whose alerts target the named receiver (case-insensitive)")
-	cmd.Flags().BoolVar(&failOnAny, "fail", false,
-		"exit with code 10 when at least one group matches the filters")
 	return cmd
 }
 
@@ -98,7 +92,7 @@ func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]groupRow, error) {
 			groups, err := c.ListAlertGroups(ctx, backend.AlertFilter{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("list alert groups: %w", err)
 			}
 			rows := make([]groupRow, 0, len(groups))
 			for _, g := range groups {
@@ -192,15 +186,29 @@ func sortGroupRows(rows []groupRow) {
 	})
 }
 
-func renderGroupJSON(out io.Writer, rows []groupRow) error { return output.WriteJSON(out, rows) }
-func renderGroupYAML(out io.Writer, rows []groupRow) error { return output.WriteYAML(out, rows) }
+func renderGroupJSON(out io.Writer, rows []groupRow) error {
+	if err := output.WriteJSON(out, rows); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
+}
+
+func renderGroupYAML(out io.Writer, rows []groupRow) error {
+	if err := output.WriteYAML(out, rows); err != nil {
+		return fmt.Errorf("write yaml: %w", err)
+	}
+	return nil
+}
 
 func renderGroupTable(out io.Writer, rows []groupRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "labels", "count", "receivers"},
 		Rows: groupTableRows(rows),
 	}
-	return tbl.Write(out)
+	if err := tbl.Write(out); err != nil {
+		return fmt.Errorf("write table: %w", err)
+	}
+	return nil
 }
 
 // groupTableRows flattens to the column shape the Table helper

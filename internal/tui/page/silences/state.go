@@ -36,6 +36,24 @@ func (p *Page) totalSilences() int {
 // sorting. Cursor is preserved across rebuilds by silence ID when
 // possible — see snapshotFocus.
 func (p *Page) recompute() {
+	p.view = filterSilences(p.scopedEntries(), p.Filter)
+	p.sorter.Apply(p.view)
+	if p.focusID != "" {
+		for i, e := range p.view {
+			if e.s.ID == p.focusID {
+				p.SetIndex(i, len(p.view))
+				return
+			}
+		}
+	}
+	p.Clamp(len(p.view))
+	p.snapshotFocus()
+}
+
+// scopedEntries flattens byTenant into filterable entries, honouring
+// the scope gate and the restrictIDs allowlist (when set). The
+// composite cache is built once per entry here, not per keystroke.
+func (p *Page) scopedEntries() []silenceEntry {
 	total := 0
 	for tenant, sils := range p.byTenant {
 		if p.ScopeIncludes(tenant) {
@@ -60,18 +78,7 @@ func (p *Page) recompute() {
 			})
 		}
 	}
-	p.view = filterSilences(flat, p.Filter)
-	p.sorter.Apply(p.view)
-	if p.focusID != "" {
-		for i, e := range p.view {
-			if e.s.ID == p.focusID {
-				p.SetIndex(i, len(p.view))
-				return
-			}
-		}
-	}
-	p.Clamp(len(p.view))
-	p.snapshotFocus()
+	return flat
 }
 
 // filterSilences returns a fresh slice with the entries whose

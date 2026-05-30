@@ -109,7 +109,7 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 			ProxyFromEnvironment: cfg.ProxyFromEnvironment,
 		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("build base transport: %w", err)
 		}
 		base = built
 	}
@@ -127,12 +127,12 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 		ExpectedHost:  expectedHost,
 	}, base)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build auth transport: %w", err)
 	}
 	headeredRT := transport.WithHostPinnedHeaders(authedRT, cfg.Headers, expectedHost)
 	uaRT := transport.WithUserAgent(headeredRT, cfg.UserAgent)
 
-	return vanilla.New(vanilla.ClientConfig{
+	client, err := vanilla.New(vanilla.ClientConfig{
 		BaseURL:      cfg.BaseURL,
 		Prefix:       cfg.Prefix,
 		Transport:    uaRT,
@@ -140,6 +140,10 @@ func New(cfg ClientConfig) (*vanilla.Client, error) {
 		Caps:         cfg.Caps,
 		ExpectedHost: expectedHost,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("build vanilla client: %w", err)
+	}
+	return client, nil
 }
 
 // parseExpectedHost extracts the host portion of cfg.BaseURL for

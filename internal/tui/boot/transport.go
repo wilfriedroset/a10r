@@ -28,25 +28,33 @@ import (
 // loop tolerates a nil TLS block — the common case.
 func logTransportSurprises(logger *slog.Logger, backends []config.Backend) {
 	for _, be := range backends {
-		if be.TLSConfig != nil {
-			if be.TLSConfig.CA != "" {
-				logger.Info("backend tls_config.ca set, system CA roots not used",
-					slog.String("backend", be.Name))
-			}
-			if v := be.TLSConfig.MinVersion; v == "TLS10" || v == "TLS11" {
-				logger.Warn("backend tls_config.min_version is deprecated",
-					slog.String("backend", be.Name),
-					slog.String("min_version", v))
-			}
-			if v := be.TLSConfig.MaxVersion; v == "TLS10" || v == "TLS11" {
-				logger.Warn("backend tls_config.max_version is deprecated",
-					slog.String("backend", be.Name),
-					slog.String("max_version", v))
-			}
-		}
+		logTLSSurprises(logger, be)
 		if be.ProxyFromEnvironment {
 			logResolvedProxy(logger, be)
 		}
+	}
+}
+
+// logTLSSurprises emits the CA-override info line and the
+// min/max-version deprecation warnings for one backend's TLS
+// settings. No-op when the backend has no tls_config block.
+func logTLSSurprises(logger *slog.Logger, be config.Backend) {
+	if be.TLSConfig == nil {
+		return
+	}
+	if be.TLSConfig.CA != "" {
+		logger.Info("backend tls_config.ca set, system CA roots not used",
+			slog.String("backend", be.Name))
+	}
+	if v := be.TLSConfig.MinVersion; v == "TLS10" || v == "TLS11" {
+		logger.Warn("backend tls_config.min_version is deprecated",
+			slog.String("backend", be.Name),
+			slog.String("min_version", v))
+	}
+	if v := be.TLSConfig.MaxVersion; v == "TLS10" || v == "TLS11" {
+		logger.Warn("backend tls_config.max_version is deprecated",
+			slog.String("backend", be.Name),
+			slog.String("max_version", v))
 	}
 }
 

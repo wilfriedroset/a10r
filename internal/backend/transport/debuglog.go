@@ -55,7 +55,7 @@ func (r *debugLogRT) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	if err != nil {
 		r.logError(req, latency, err)
-		return resp, err
+		return resp, err //nolint:wrapcheck // RoundTripper contract requires errors propagate as-is.
 	}
 	r.logSuccess(req, resp, latency)
 	return resp, nil

@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sort"
 
@@ -34,23 +35,14 @@ func newReceiversCmd(flags *GlobalFlags) *cobra.Command {
 // case is "fail my pipeline if no receivers are configured", a
 // shape mirroring the alerts / silences --fail contract.
 func newReceiversListCmd(flags *GlobalFlags) *cobra.Command {
-	var (
-		outputFmt string
-		failOnAny bool
-	)
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List receivers across configured backends",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runReceiversList(cmd.Context(), cmd.OutOrStdout(), flags, receiversListOptions{
-				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
-			})
-		},
+	var common commonListFlags
+	cmd := newListCmd("List receivers across configured backends",
+		"exit with code 10 when at least one receiver is returned", &common)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runReceiversList(cmd.Context(), cmd.OutOrStdout(), flags, receiversListOptions{
+			commonListFlags: common,
+		})
 	}
-	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
-	cmd.Flags().BoolVar(&failOnAny, "fail", false,
-		"exit with code 10 when at least one receiver is returned")
 	return cmd
 }
 
@@ -78,7 +70,7 @@ func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, op
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]receiverRow, error) {
 			recvs, err := c.ListReceivers(ctx)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("list receivers: %w", err)
 			}
 			rows := make([]receiverRow, 0, len(recvs))
 			for _, r := range recvs {
@@ -115,15 +107,29 @@ func sortReceiverRows(rows []receiverRow) {
 	})
 }
 
-func renderReceiverJSON(out io.Writer, rows []receiverRow) error { return output.WriteJSON(out, rows) }
-func renderReceiverYAML(out io.Writer, rows []receiverRow) error { return output.WriteYAML(out, rows) }
+func renderReceiverJSON(out io.Writer, rows []receiverRow) error {
+	if err := output.WriteJSON(out, rows); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
+}
+
+func renderReceiverYAML(out io.Writer, rows []receiverRow) error {
+	if err := output.WriteYAML(out, rows); err != nil {
+		return fmt.Errorf("write yaml: %w", err)
+	}
+	return nil
+}
 
 func renderReceiverTable(out io.Writer, rows []receiverRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "name"},
 		Rows: receiverTableRows(rows),
 	}
-	return tbl.Write(out)
+	if err := tbl.Write(out); err != nil {
+		return fmt.Errorf("write table: %w", err)
+	}
+	return nil
 }
 
 // receiverTableRows flattens to the column shape the Table helper

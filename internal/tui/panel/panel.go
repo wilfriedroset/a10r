@@ -74,8 +74,8 @@ type TenantBinding struct {
 type State struct {
 	Width   int
 	Tenants []TenantBinding
-	Hints []action.Action
-	Logo  string
+	Hints   []action.Action
+	Logo    string
 }
 
 // gridCols caps how many parallel columns the tenants and hints

@@ -347,40 +347,45 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		return f, nil
 	}
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
-		case "tab":
-			cmd := f.cycleFocus(1)
+		if cmd, handled := f.handleKey(keyMsg); handled {
 			return f, cmd
-		case "shift+tab":
-			cmd := f.cycleFocus(-1)
-			return f, cmd
-		case "esc":
-			return f, func() tea.Msg { return CancelledMsg{} }
-		case "ctrl+s":
-			cmd := f.submitNow()
-			return f, cmd
-		case "enter":
-			// Enter on the Tenant row opens the tenant picker; on the
-			// matchers textarea it grows a newline (multi-matcher
-			// entry); on every single-line scalar field it submits.
-			// keybindings.md has always documented "Enter | Submit",
-			// and a dead Enter on a textinput gave the user no feedback.
-			// Ctrl+S still submits from any field, the textarea included.
-			switch {
-			case f.focus == fieldTenant && !f.tenantDisabled():
-				cmd := f.openTenantPicker()
-				return f, cmd
-			case f.focus == fieldMatchers:
-				// Fall through to forwardToFocused: the textarea
-				// inserts a newline so multi-line entry keeps working.
-			default:
-				cmd := f.submitNow()
-				return f, cmd
-			}
 		}
 	}
 	cmd := f.forwardToFocused(msg)
 	return f, cmd
+}
+
+// handleKey processes the form's navigation and submit keys. A
+// handled=false return means the key falls through to the focused
+// bubbles input — notably Enter on the matchers textarea, which must
+// reach the textarea to grow a newline for multi-matcher entry.
+func (f *Form) handleKey(keyMsg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch keyMsg.String() {
+	case "tab":
+		return f.cycleFocus(1), true
+	case "shift+tab":
+		return f.cycleFocus(-1), true
+	case "esc":
+		return func() tea.Msg { return CancelledMsg{} }, true
+	case "ctrl+s":
+		return f.submitNow(), true
+	case "enter":
+		// Enter on the Tenant row opens the tenant picker; on the
+		// matchers textarea it grows a newline; on every single-line
+		// scalar field it submits. keybindings.md has always
+		// documented "Enter | Submit", and a dead Enter on a textinput
+		// gave the user no feedback. Ctrl+S still submits from any
+		// field, the textarea included.
+		switch {
+		case f.focus == fieldTenant && !f.tenantDisabled():
+			return f.openTenantPicker(), true
+		case f.focus == fieldMatchers:
+			return nil, false
+		default:
+			return f.submitNow(), true
+		}
+	}
+	return nil, false
 }
 
 // View implements app.Page. Delegates to renderView (render.go).

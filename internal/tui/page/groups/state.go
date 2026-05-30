@@ -31,21 +31,7 @@ func (p *Page) recompute() {
 	for i, e := range p.flat {
 		prev[groupKey(e)] = i < len(p.expanded) && p.expanded[i]
 	}
-	p.flat = p.flat[:0]
-	for tenant, gs := range p.byTenant {
-		if !p.ScopeIncludes(tenant) {
-			continue
-		}
-		for _, g := range gs {
-			p.flat = append(p.flat, groupEntry{
-				g:            g,
-				tenant:       tenant,
-				severityRank: groupSeverityRank(g),
-				common:       backend.CommonLabels(g.Alerts),
-				lowerSummary: strings.ToLower(labelSummary(g.Labels)),
-			})
-		}
-	}
+	p.rebuildFlat()
 	p.cachedRows = nil
 	p.sorter.Apply(p.flat)
 	p.expanded = make([]bool, len(p.flat))
@@ -69,6 +55,28 @@ func (p *Page) recompute() {
 	}
 	p.Clamp(len(p.rows()))
 	p.snapshotFocus()
+}
+
+// rebuildFlat repopulates p.flat in place from byTenant, keeping
+// only in-scope tenants and stamping each entry's derived fields
+// (severity rank, common labels, lower-cased summary) once per
+// rebuild rather than per render.
+func (p *Page) rebuildFlat() {
+	p.flat = p.flat[:0]
+	for tenant, gs := range p.byTenant {
+		if !p.ScopeIncludes(tenant) {
+			continue
+		}
+		for _, g := range gs {
+			p.flat = append(p.flat, groupEntry{
+				g:            g,
+				tenant:       tenant,
+				severityRank: groupSeverityRank(g),
+				common:       backend.CommonLabels(g.Alerts),
+				lowerSummary: strings.ToLower(labelSummary(g.Labels)),
+			})
+		}
+	}
 }
 
 // rowKey builds the focus identity for r. Group headers use the

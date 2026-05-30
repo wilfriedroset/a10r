@@ -9,6 +9,7 @@ package matcher
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -193,7 +194,7 @@ func matcherPredicate(m backend.Matcher) (func(labels map[string]string) bool, e
 	}
 	re, err := regexp.Compile("^(?:" + m.Value + ")$")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compile regex %q: %w", m.Value, err)
 	}
 	return func(labels map[string]string) bool {
 		return re.MatchString(labels[m.Name]) == m.IsEqual

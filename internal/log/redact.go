@@ -162,7 +162,10 @@ func (h *msgRedactingHandler) Enabled(ctx context.Context, lvl slog.Level) bool 
 // mutating the local copy is private to this call) before delegating.
 func (h *msgRedactingHandler) Handle(ctx context.Context, r slog.Record) error {
 	r.Message = stripURLUserinfo(r.Message)
-	return h.inner.Handle(ctx, r)
+	if err := h.inner.Handle(ctx, r); err != nil {
+		return fmt.Errorf("handle log record: %w", err)
+	}
+	return nil
 }
 
 // WithAttrs / WithGroup must preserve the wrapper so subsequent

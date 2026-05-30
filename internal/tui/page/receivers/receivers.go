@@ -427,32 +427,35 @@ func (p *Page) View(width, height int) string {
 	rows = append(rows, p.renderHeader())
 	showTenant := p.ShowTenantColumn(len(p.byTenant))
 	for i := p.TopRow(); i < end; i++ {
-		e := p.view[i]
-		prefix := "  "
-		if i == p.Index() {
-			prefix = "▸ "
-		}
-		var b strings.Builder
-		b.WriteString(prefix)
-		if showTenant {
-			b.WriteString(format.PadRight(e.tenant, receiverTenantW))
-		}
-		b.WriteString(e.name)
-		// Pad to width before applying the cursor style so the
-		// background extends across the whole row k9s-style. The
-		// assembled line is still plain text here, so PadRight's
-		// overflow-truncation walks runes safely (no ANSI to split).
-		row := format.PadRight(b.String(), width)
-		if i == p.Index() {
-			// k9s parity: cursor bg tracks the row's semantic
-			// colour. Receiver rows have no severity / state, so
-			// we use Severity.Info (k9s StdColor equivalent).
-			rowColor := p.styles.Severity.Info.GetForeground()
-			row = p.styles.Table.CursorOver(rowColor).Render(row)
-		}
-		rows = append(rows, row)
+		rows = append(rows, p.renderRow(i, width, p.view[i], showTenant))
 	}
 	return listpage.Wrap(width, strings.Join(rows, "\n"))
+}
+
+// renderRow renders one receiver row at view index i, padded to width.
+// Receiver rows carry no severity / state, so the cursor row uses
+// Severity.Info as its semantic colour (the k9s StdColor equivalent).
+func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool) string {
+	prefix := "  "
+	if i == p.Index() {
+		prefix = "▸ "
+	}
+	var b strings.Builder
+	b.WriteString(prefix)
+	if showTenant {
+		b.WriteString(format.PadRight(e.tenant, receiverTenantW))
+	}
+	b.WriteString(e.name)
+	// Pad to width before applying the cursor style so the background
+	// extends across the whole row k9s-style. The assembled line is
+	// still plain text here, so PadRight's overflow-truncation walks
+	// runes safely (no ANSI to split).
+	row := format.PadRight(b.String(), width)
+	if i == p.Index() {
+		rowColor := p.styles.Severity.Info.GetForeground()
+		row = p.styles.Table.CursorOver(rowColor).Render(row)
+	}
+	return row
 }
 
 // renderHeader emits the column-title strip with the active sort

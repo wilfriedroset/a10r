@@ -221,7 +221,7 @@ func (f *fakeStatusBackend) Status(ctx context.Context) (backend.Status, error) 
 		select {
 		case <-time.After(f.delay):
 		case <-ctx.Done():
-			return backend.Status{}, ctx.Err() //nolint:wrapcheck // sentinel propagation
+			return backend.Status{}, ctx.Err()
 		}
 	}
 	if f.err != nil {

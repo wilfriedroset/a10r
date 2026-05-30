@@ -58,7 +58,11 @@ func silenceToYAML(s backend.Silence) ([]byte, error) {
 			IsRegex: m.IsRegex, IsEqual: m.IsEqual,
 		}
 	}
-	return yaml.Marshal(doc)
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal silence: %w", err)
+	}
+	return out, nil
 }
 
 // silenceFromYAML parses the editor's post-edit buffer into a
@@ -79,7 +83,7 @@ func silenceFromYAML(in []byte) (string, backend.SilenceSpec, error) {
 	// "endsAt must be after startsAt" or "id is required".
 	dec.KnownFields(true)
 	if err := dec.Decode(&doc); err != nil {
-		return "", backend.SilenceSpec{}, err
+		return "", backend.SilenceSpec{}, fmt.Errorf("decode silence yaml: %w", err)
 	}
 	if doc.ID == "" {
 		return "", backend.SilenceSpec{}, errors.New("id is required")

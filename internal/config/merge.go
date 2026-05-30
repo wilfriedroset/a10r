@@ -75,27 +75,32 @@ func walkSymlinks(dir string, visited map[string]struct{}, found *[]string) erro
 	}
 
 	for _, entry := range entries {
-		full := filepath.Join(dir, entry.Name())
-		// os.Stat follows symlinks; entry.Type() reflects the symlink
-		// itself, so a directory linked from inside config.d/ would be
-		// skipped without this. The result drives the recurse-vs-collect
-		// branch below.
-		info, err := os.Stat(full)
+		if err := walkEntry(dir, entry, visited, found); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// walkEntry handles one directory entry under dir: recurse into
+// subdirectories or collect regular .yaml/.yml files. os.Stat (not
+// entry.Type()) follows symlinks, so a directory linked from inside
+// config.d/ recurses rather than being skipped as a symlink.
+func walkEntry(dir string, entry os.DirEntry, visited map[string]struct{}, found *[]string) error {
+	full := filepath.Join(dir, entry.Name())
+	info, err := os.Stat(full)
+	if err != nil {
+		return fmt.Errorf("stat drop-in entry %q: %w", full, err)
+	}
+	switch {
+	case info.IsDir():
+		return walkSymlinks(full, visited, found)
+	case info.Mode().IsRegular() && hasYAMLSuffix(entry.Name()):
+		abs, err := filepath.Abs(full)
 		if err != nil {
-			return fmt.Errorf("stat drop-in entry %q: %w", full, err)
+			return fmt.Errorf("absolute path %q: %w", full, err)
 		}
-		switch {
-		case info.IsDir():
-			if err := walkSymlinks(full, visited, found); err != nil {
-				return err
-			}
-		case info.Mode().IsRegular() && hasYAMLSuffix(entry.Name()):
-			abs, err := filepath.Abs(full)
-			if err != nil {
-				return fmt.Errorf("absolute path %q: %w", full, err)
-			}
-			*found = append(*found, abs)
-		}
+		*found = append(*found, abs)
 	}
 	return nil
 }

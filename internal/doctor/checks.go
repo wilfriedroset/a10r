@@ -340,15 +340,24 @@ func defaultProbes() map[string]capabilityProbe {
 	return map[string]capabilityProbe{
 		"config_api": func(ctx context.Context, c backend.Client) error {
 			_, err := c.GetConfig(ctx)
-			return err
+			if err != nil {
+				return fmt.Errorf("get config: %w", err)
+			}
+			return nil
 		},
 		"tenant_admin": func(ctx context.Context, c backend.Client) error {
 			_, err := c.ListTenantConfigs(ctx)
-			return err
+			if err != nil {
+				return fmt.Errorf("list tenant configs: %w", err)
+			}
+			return nil
 		},
 		"ring": func(ctx context.Context, c backend.Client) error {
 			_, err := c.RingStatus(ctx)
-			return err
+			if err != nil {
+				return fmt.Errorf("get ring status: %w", err)
+			}
+			return nil
 		},
 	}
 }
@@ -394,23 +403,19 @@ type CapabilitiesChecker struct {
 
 func (CapabilitiesChecker) Name() string { return "capabilities" }
 
+// result stamps a Result with the backend name and this checker's
+// Name(), leaving Run to decide only severity and message.
+func (cc CapabilitiesChecker) result(b config.Backend, sev Severity, msg string) Result {
+	return Result{Backend: b.Name, Check: cc.Name(), Severity: sev, Message: msg}
+}
+
 func (cc CapabilitiesChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
-		return Result{
-			Backend:  b.Name,
-			Check:    "capabilities",
-			Severity: SeverityError,
-			Message:  "client construction failed at startup",
-		}
+		return cc.result(b, SeverityError, "client construction failed at startup")
 	}
 	enabled := enabledCapabilities(b.Capabilities)
 	if len(enabled) == 0 {
-		return Result{
-			Backend:  b.Name,
-			Check:    "capabilities",
-			Severity: SeverityOK,
-			Message:  "no capabilities configured",
-		}
+		return cc.result(b, SeverityOK, "no capabilities configured")
 	}
 
 	probes := cc.probes
@@ -450,26 +455,11 @@ func (cc CapabilitiesChecker) Run(ctx context.Context, b config.Backend, c backe
 
 	switch {
 	case len(mismatched) > 0:
-		return Result{
-			Backend:  b.Name,
-			Check:    "capabilities",
-			Severity: SeverityError,
-			Message:  fmt.Sprintf("capability mismatch: %v", mismatched),
-		}
+		return cc.result(b, SeverityError, fmt.Sprintf("capability mismatch: %v", mismatched))
 	case len(transport) > 0:
-		return Result{
-			Backend:  b.Name,
-			Check:    "capabilities",
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("transport failure on %v; backend unreachable", transport),
-		}
+		return cc.result(b, SeverityWarning, fmt.Sprintf("transport failure on %v; backend unreachable", transport))
 	default:
-		return Result{
-			Backend:  b.Name,
-			Check:    "capabilities",
-			Severity: SeverityOK,
-			Message:  fmt.Sprintf("verified: %v", verified),
-		}
+		return cc.result(b, SeverityOK, fmt.Sprintf("verified: %v", verified))
 	}
 }
 
@@ -502,23 +492,19 @@ type ClockSkewChecker struct {
 
 func (ClockSkewChecker) Name() string { return "clock-skew" }
 
+// result stamps a Result with the backend name and this checker's
+// Name(), leaving Run to decide only severity and message.
+func (cs ClockSkewChecker) result(b config.Backend, sev Severity, msg string) Result {
+	return Result{Backend: b.Name, Check: cs.Name(), Severity: sev, Message: msg}
+}
+
 func (cs ClockSkewChecker) Run(ctx context.Context, b config.Backend, c backend.Client) Result {
 	if c == nil {
-		return Result{
-			Backend:  b.Name,
-			Check:    "clock-skew",
-			Severity: SeverityError,
-			Message:  "client construction failed at startup",
-		}
+		return cs.result(b, SeverityError, "client construction failed at startup")
 	}
 	prober, ok := c.(backend.Prober)
 	if !ok {
-		return Result{
-			Backend:  b.Name,
-			Check:    "clock-skew",
-			Severity: SeverityWarning,
-			Message:  "client does not implement Prober — skipping",
-		}
+		return cs.result(b, SeverityWarning, "client does not implement Prober — skipping")
 	}
 	now := cs.now
 	if now == nil {
@@ -527,20 +513,10 @@ func (cs ClockSkewChecker) Run(ctx context.Context, b config.Backend, c backend.
 
 	serverNow, err := prober.ProbeReadyAt(ctx)
 	if errors.Is(err, backend.ErrNoDateHeader) {
-		return Result{
-			Backend:  b.Name,
-			Check:    "clock-skew",
-			Severity: SeverityOK,
-			Message:  "skipped: no Date header on /api/v2/status",
-		}
+		return cs.result(b, SeverityOK, "skipped: no Date header on /api/v2/status")
 	}
 	if err != nil {
-		return Result{
-			Backend:  b.Name,
-			Check:    "clock-skew",
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("probe failed: %s", err),
-		}
+		return cs.result(b, SeverityWarning, fmt.Sprintf("probe failed: %s", err))
 	}
 
 	skew := serverNow.Sub(now())
@@ -549,21 +525,13 @@ func (cs ClockSkewChecker) Run(ctx context.Context, b config.Backend, c backend.
 		abs = -abs
 	}
 	if abs <= clockSkewWarnThreshold {
-		return Result{
-			Backend:  b.Name,
-			Check:    "clock-skew",
-			Severity: SeverityOK,
-			Message:  fmt.Sprintf("skew %s within %s threshold", skew.Round(time.Second), clockSkewWarnThreshold),
-		}
+		return cs.result(b, SeverityOK,
+			fmt.Sprintf("skew %s within %s threshold", skew.Round(time.Second), clockSkewWarnThreshold))
 	}
 	direction := "ahead of"
 	if skew < 0 {
 		direction = "behind"
 	}
-	return Result{
-		Backend:  b.Name,
-		Check:    "clock-skew",
-		Severity: SeverityWarning,
-		Message:  fmt.Sprintf("server is %s %s local clock", abs.Round(time.Second), direction),
-	}
+	return cs.result(b, SeverityWarning,
+		fmt.Sprintf("server is %s %s local clock", abs.Round(time.Second), direction))
 }

@@ -205,7 +205,7 @@ func marshalSilence(s backend.Silence) (string, error) {
 	}
 	out, err := yaml.Marshal(doc)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("marshal silence yaml: %w", err)
 	}
 	return string(out), nil
 }
@@ -217,7 +217,7 @@ func marshalSilence(s backend.Silence) (string, error) {
 func marshalRawSilence(s backend.Silence) (string, error) {
 	var buf bytes.Buffer
 	if err := output.WriteYAML(&buf, s); err != nil {
-		return "", err
+		return "", fmt.Errorf("marshal raw silence: %w", err)
 	}
 	return strings.TrimRight(buf.String(), "\n"), nil
 }

@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
@@ -22,6 +24,23 @@ import (
 type commonListFlags struct {
 	Output    string
 	FailOnAny bool
+}
+
+// newListCmd builds the cobra skeleton shared by every
+// `<resource> list` subcommand: the "list" verb, NoArgs, and the
+// universal --output / --fail flags bound into common. Callers set
+// RunE and add any resource-specific filter flags. failHelp differs
+// per resource because what a matched row means for the exit-10 gate
+// is resource-specific.
+func newListCmd(short, failHelp string, common *commonListFlags) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: short,
+		Args:  cobra.NoArgs,
+	}
+	cmd.Flags().StringVar(&common.Output, "output", "", "output format: table, json, yaml")
+	cmd.Flags().BoolVar(&common.FailOnAny, "fail", false, failHelp)
+	return cmd
 }
 
 // listRecipe is the per-command shape runListRecipe lifts into a
@@ -45,7 +64,7 @@ type listRecipe[R any] struct {
 func runListRecipe[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, r listRecipe[R]) error {
 	format, err := output.ParseFormat(r.Format)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse output format: %w", err)
 	}
 	cfg, err := loadCmdConfig(flags)
 	if err != nil {

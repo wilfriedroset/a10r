@@ -220,15 +220,7 @@ func distributeTail(cols []Column, out []int, remainder int) int {
 	if remainder <= 0 {
 		return 0
 	}
-	order := make([]int, 0, len(cols))
-	for i, c := range cols {
-		if c.Weight > 0 && out[i] < max(0, c.Content) {
-			order = append(order, i)
-		}
-	}
-	sort.SliceStable(order, func(a, b int) bool {
-		return cols[order[a]].Weight > cols[order[b]].Weight
-	})
+	order := eligibleByWeight(cols, out)
 	given := 0
 	for given < remainder {
 		progressed := false
@@ -249,6 +241,23 @@ func distributeTail(cols []Column, out []int, remainder int) int {
 		}
 	}
 	return given
+}
+
+// eligibleByWeight returns the indices of flex columns (Weight > 0)
+// that have not yet reached their content cap, ordered by descending
+// weight. Sorted stable so caller order wins ties — the column
+// listed first claims the leftover cell.
+func eligibleByWeight(cols []Column, out []int) []int {
+	order := make([]int, 0, len(cols))
+	for i, c := range cols {
+		if c.Weight > 0 && out[i] < max(0, c.Content) {
+			order = append(order, i)
+		}
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return cols[order[a]].Weight > cols[order[b]].Weight
+	})
+	return order
 }
 
 // EllipsizeSuffix is the single-cell suffix Truncate / SGRTruncate

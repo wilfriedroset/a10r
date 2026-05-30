@@ -50,7 +50,11 @@ type Pager struct {
 }
 
 func (p *Pager) Write(b []byte) (int, error) {
-	return p.target.Write(b)
+	n, err := p.target.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("write to pager: %w", err)
+	}
+	return n, nil
 }
 
 // Close flushes the pager's stdin and waits for the subprocess

@@ -12,7 +12,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-
 func TestPicker_SingleSelectEnterReturnsCursor(t *testing.T) {
 	t.Parallel()
 
@@ -160,7 +159,6 @@ func TestPicker_ViewIncludesItems(t *testing.T) {
 	require.Contains(t, out, "prod")
 	require.Contains(t, out, "staging")
 }
-
 
 func TestConfirm_YResolvesYes(t *testing.T) {
 	t.Parallel()

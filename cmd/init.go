@@ -344,50 +344,50 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 	var ans initAnswers
 	name, err := p.String("backend name", "prod", validateBackendName)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("prompt backend name: %w", err)
 	}
 	ans.Name = name
 
 	urlStr, err := p.String("backend URL", "", validateURL)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("prompt backend URL: %w", err)
 	}
 	ans.URL = urlStr
 
 	authMode, err := p.Choice("authentication", validInitAuthModes, authModeNone)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("prompt auth mode: %w", err)
 	}
 	ans.AuthMode = authMode
 	switch authMode {
 	case authModeBearer:
 		token, err := p.Secret("bearer token")
 		if err != nil {
-			return config.Config{}, err
+			return config.Config{}, fmt.Errorf("prompt bearer token: %w", err)
 		}
 		ans.Bearer = token
 	case authModeBasic:
 		user, err := p.String("username", "", nonEmpty("username"))
 		if err != nil {
-			return config.Config{}, err
+			return config.Config{}, fmt.Errorf("prompt username: %w", err)
 		}
 		ans.BasicUser = user
 		pass, err := p.Secret("password")
 		if err != nil {
-			return config.Config{}, err
+			return config.Config{}, fmt.Errorf("prompt password: %w", err)
 		}
 		ans.BasicPass = pass
 	}
 
 	poll, err := p.String("default poll interval", defaultPollInterval, validateDuration)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("prompt poll interval: %w", err)
 	}
 	ans.Poll = poll
 
 	theme, err := p.Choice("theme", validInitThemes, defaultTheme)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, fmt.Errorf("prompt theme: %w", err)
 	}
 	ans.Theme = theme
 
@@ -622,7 +622,10 @@ func writeInitConfigTo(w io.Writer, cfg config.Config) error {
 	if err := enc.Encode(cfg); err != nil {
 		return fmt.Errorf("encode config: %w", err)
 	}
-	return enc.Close()
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("close yaml encoder: %w", err)
+	}
+	return nil
 }
 
 // validateBackendName rejects empty / whitespace / colliding

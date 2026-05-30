@@ -123,7 +123,7 @@ type Options struct {
 	Styles *theme.Styles
 	// Now injects the wall clock for the age column. nil falls
 	// back to time.Now.
-	Now func() time.Time
+	Now   func() time.Time
 	Scope string
 	// Clients is the per-tenant write surface for 's'; nil flashes a hint.
 	Clients map[string]silenceform.Client

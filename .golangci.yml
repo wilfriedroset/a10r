@@ -21,6 +21,7 @@ linters:
     - cyclop
     - decorder
     - depguard
+    - dupl
     - durationcheck
     - errcheck
     - errchkjson
@@ -31,6 +32,8 @@ linters:
     - fatcontext
     - forbidigo
     - forcetypeassert
+    - funlen
+    - gochecknoinits
     - gocheckcompilerdirectives
     - gochecksumtype
     - gocognit
@@ -82,6 +85,7 @@ linters:
     - usetesting
     - wastedassign
     - whitespace
+    - wrapcheck
     - zerologlint
 
   settings:
@@ -191,7 +195,7 @@ linters:
     gocyclo:
       min-complexity: 15
     gocognit:
-      min-complexity: 20
+      min-complexity: 15
     cyclop:
       max-complexity: 15
       package-average: 8
@@ -250,6 +254,24 @@ linters:
         - float-compare
         - go-require
 
+    dupl:
+      # 150 (the default) catches genuine copy-paste; lower values flag
+      # legitimate parallel-structure code (the per-section compile*
+      # funcs in theme/styles.go) where DRY-ing would need readability-
+      # harming generics.
+      threshold: 150
+
+    funlen:
+      lines: 60
+      statements: 40
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+
     unparam:
       check-exported: false
 
@@ -271,7 +293,11 @@ linters:
           - gocyclo
           - cyclop
           - dupl
+          - funlen
+          - gochecknoinits
+          - goconst
           - revive
+          - wrapcheck
       - path: cmd/
         linters:
           - gochecknoinits

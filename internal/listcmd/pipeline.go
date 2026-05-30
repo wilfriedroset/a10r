@@ -44,7 +44,7 @@ func Run[R any](ctx context.Context, spec Spec[R]) error {
 
 	rows, allFailed, fetchErrs := fanOut(ctx, spec, deps)
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("fetch cancelled: %w", err)
 	}
 
 	// Deterministic stderr ordering: errgroup completes goroutines in
@@ -71,7 +71,7 @@ func Run[R any](ctx context.Context, spec Spec[R]) error {
 		return err
 	}
 	if err := pager.Close(); err != nil {
-		return err
+		return fmt.Errorf("close pager: %w", err)
 	}
 
 	if spec.FailOnAny && len(rows) > 0 {

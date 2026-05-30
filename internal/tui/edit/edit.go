@@ -17,6 +17,7 @@ package edit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,7 +141,7 @@ func (r Resolver) cacheRoot() (string, error) {
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve cache dir: %w", err)
 	}
 	return ensureMode0700(filepath.Join(base, "a10r"))
 }
@@ -151,10 +152,10 @@ func (r Resolver) cacheRoot() (string, error) {
 // no-op when the directory was just created by MkdirAll.
 func ensureMode0700(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("chmod cache dir: %w", err)
 	}
 	return dir, nil
 }
@@ -260,7 +261,7 @@ var ErrTempfileNotRegular = errors.New("editor tempfile is not a regular file")
 func assertRegularFile(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat tempfile: %w", err)
 	}
 	if info.Mode()&os.ModeType != 0 {
 		return ErrTempfileNotRegular

@@ -45,30 +45,23 @@ func newSilencesCmd(flags *GlobalFlags) *cobra.Command {
 // when at least one row survived the filters; ExitOK (0) otherwise.
 func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 	var (
-		outputFmt   string
+		common      commonListFlags
 		state       string
 		matcherExpr string
-		failOnAny   bool
 	)
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List silences across configured backends",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSilencesList(cmd.Context(), cmd.OutOrStdout(), flags, silencesListOptions{
-				commonListFlags: commonListFlags{Output: outputFmt, FailOnAny: failOnAny},
-				State:           state,
-				Matcher:         matcherExpr,
-			})
-		},
+	cmd := newListCmd("List silences across configured backends",
+		"exit with code 10 when at least one silence matches the filters", &common)
+	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		return runSilencesList(cmd.Context(), cmd.OutOrStdout(), flags, silencesListOptions{
+			commonListFlags: common,
+			State:           state,
+			Matcher:         matcherExpr,
+		})
 	}
-	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
 	cmd.Flags().StringVar(&state, "state", "",
 		"keep only silences in the named state: active, pending, expired")
 	cmd.Flags().StringVar(&matcherExpr, "matcher", "",
 		`keep only silences whose matcher set contains the given Prom-style matcher (e.g. severity="critical")`)
-	cmd.Flags().BoolVar(&failOnAny, "fail", false,
-		"exit with code 10 when at least one silence matches the filters")
 	return cmd
 }
 
@@ -168,7 +161,7 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]silenceRow, error) {
 			silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("list silences: %w", err)
 			}
 			rows := make([]silenceRow, 0, len(silences))
 			for _, s := range silences {
@@ -272,15 +265,29 @@ func sortSilenceRows(rows []silenceRow) {
 	})
 }
 
-func renderSilenceJSON(out io.Writer, rows []silenceRow) error { return output.WriteJSON(out, rows) }
-func renderSilenceYAML(out io.Writer, rows []silenceRow) error { return output.WriteYAML(out, rows) }
+func renderSilenceJSON(out io.Writer, rows []silenceRow) error {
+	if err := output.WriteJSON(out, rows); err != nil {
+		return fmt.Errorf("write json: %w", err)
+	}
+	return nil
+}
+
+func renderSilenceYAML(out io.Writer, rows []silenceRow) error {
+	if err := output.WriteYAML(out, rows); err != nil {
+		return fmt.Errorf("write yaml: %w", err)
+	}
+	return nil
+}
 
 func renderSilenceTable(out io.Writer, rows []silenceRow) error {
 	tbl := output.Table{
 		Cols: []string{"tenant", "id", "state", "matchers", "ends-at"},
 		Rows: silenceTableRows(rows),
 	}
-	return tbl.Write(out)
+	if err := tbl.Write(out); err != nil {
+		return fmt.Errorf("write table: %w", err)
+	}
+	return nil
 }
 
 // silenceTableRows flattens to the column shape the Table helper

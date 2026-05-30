@@ -73,7 +73,7 @@ type doctorOptions struct {
 func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doctorOptions) error {
 	format, err := output.ParseFormat(opts.Output)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse output format: %w", err)
 	}
 
 	cfg, err := config.Load(loadOptsFromFlags(flags))
@@ -266,9 +266,15 @@ func selectCheckers(all []doctor.Checker, only []string) ([]doctor.Checker, erro
 func renderDoctor(out io.Writer, results []doctor.Result, format output.Format) error {
 	switch format {
 	case output.FormatJSON:
-		return output.WriteJSON(out, results)
+		if err := output.WriteJSON(out, results); err != nil {
+			return fmt.Errorf("write json: %w", err)
+		}
+		return nil
 	case output.FormatYAML:
-		return output.WriteYAML(out, results)
+		if err := output.WriteYAML(out, results); err != nil {
+			return fmt.Errorf("write yaml: %w", err)
+		}
+		return nil
 	case output.FormatTable:
 		// Fall through to the table path below.
 	}
@@ -278,7 +284,10 @@ func renderDoctor(out io.Writer, results []doctor.Result, format output.Format) 
 		Cols: []string{"backend", "check", "severity", "message"},
 		Rows: doctorRows(results),
 	}
-	return tbl.Write(out)
+	if err := tbl.Write(out); err != nil {
+		return fmt.Errorf("write table: %w", err)
+	}
+	return nil
 }
 
 // doctorRows flattens results to the column shape the Table helper

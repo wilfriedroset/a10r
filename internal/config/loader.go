@@ -201,8 +201,15 @@ func decodeStrict(b []byte) (*Config, error) {
 // the host's runtime so the test seams in loadWithEnv stay typed.
 // They are referenced — and only referenced — by Load and DefaultDir.
 func hostGetenv(name string) string { return os.Getenv(name) }
-func hostHomeDir() (string, error)  { return os.UserHomeDir() }
-func hostGOOS() string              { return runtime.GOOS }
+
+func hostHomeDir() (string, error) {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return dir, nil
+}
+func hostGOOS() string { return runtime.GOOS }
 
 // ResolveDir returns the directory Load would consult under the
 // ADR 0027 precedence (explicit > A10R_CONFIG_DIR env > OS default),

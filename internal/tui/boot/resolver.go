@@ -65,7 +65,7 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 func applyUserKeyOverrides(d *keys.Dispatcher, configDir string, load func(string, string) (config.KeyOverrides, error)) error {
 	overrides, err := load(configDir, config.DefaultKeysProfile)
 	if err != nil {
-		return err //nolint:wrapcheck // LoadKeys already wraps with the source path; double-wrapping just adds redundant prefixes
+		return err
 	}
 	if len(overrides) == 0 {
 		return nil
@@ -85,7 +85,7 @@ func applyUserKeyOverrides(d *keys.Dispatcher, configDir string, load func(strin
 func registerUserAliases(r *cmdbar.Resolver, configDir string, load func(string) (config.AliasMap, error)) (int, error) {
 	user, err := load(configDir)
 	if err != nil {
-		return 0, err //nolint:wrapcheck // LoadAliases already wraps with the source path; double-wrapping just adds "user aliases: user aliases" noise
+		return 0, err
 	}
 	for short, expanded := range user {
 		if err := r.RegisterUser(short, expanded); err != nil {
