@@ -464,6 +464,15 @@ func TestApp_FilterPromptShowsDetectedMode(t *testing.T) {
 	require.Contains(t, out, "[fuzzy]",
 		"a ~-prefixed filter must surface its detected mode in the title")
 
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "\\web.api" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[literal]",
+		"a \\-prefixed filter must surface the literal mode — the escape hatch "+
+			"that opts a regex-y body out of auto-detect")
+
 	// Regex is the only mode that flips on the body alone (no leading
 	// sigil), so it's the branch most likely to regress silently:
 	// two distinct metacharacters (`^` and `.`) trip auto-detect.

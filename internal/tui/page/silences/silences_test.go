@@ -181,11 +181,13 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 	t.Parallel()
 
 	// Read-only gate regression: each write keypress (`n`, `e`,
-	// `x`, `Ctrl+E`, `Ctrl+N`) must flash a Warn hint rather than
-	// push a form, open the editor, or open the confirm modal.
-	// The returned Cmd carries a footer.FlashShowMsg{Level:
+	// `x`, `Delete`, `Ctrl+E`, `Ctrl+N`) must flash a Warn hint
+	// rather than push a form, open the editor, or open the confirm
+	// modal. The returned Cmd carries a footer.FlashShowMsg{Level:
 	// FlashWarn}; no PushPageMsg, no edit.OpenedMsg, no
-	// modal.OpenMsg.
+	// modal.OpenMsg. `Delete` is the documented alias for `x`, so it
+	// must route through the same gate — proving the alias cannot
+	// expire a silence in a read-only run.
 	cases := []struct {
 		name string
 		key  tea.KeyPressMsg
@@ -193,6 +195,7 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 		{name: "n new", key: tea.KeyPressMsg{Code: 'n', Text: "n"}},
 		{name: "e edit", key: tea.KeyPressMsg{Code: 'e', Text: "e"}},
 		{name: "x expire", key: tea.KeyPressMsg{Code: 'x', Text: "x"}},
+		{name: "delete expire", key: tea.KeyPressMsg{Code: tea.KeyDelete}},
 		{name: "ctrl+e editor", key: tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}},
 		{name: "ctrl+n recreate", key: tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}},
 	}
