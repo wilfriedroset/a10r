@@ -19,7 +19,6 @@ linters:
     - contextcheck
     - copyloopvar
     - cyclop
-    - decorder
     - depguard
     - dupl
     - durationcheck
@@ -39,7 +38,6 @@ linters:
     - gocognit
     - goconst
     - gocritic
-    - gocyclo
     - goprintffuncname
     - gosec
     - gosmopolitan
@@ -130,6 +128,21 @@ linters:
       checks:
         - all
 
+    iface:
+      # opaque + unused are deliberately NOT enabled: both fight this
+      # codebase's DI-via-interface pattern (CLAUDE.md: "functions take
+      # interfaces"). `unused` only checks within-package, so every
+      # cross-package seam (clock.Clock, backend.Prober, modal.ResultMsg)
+      # reads as unused; `opaque` flags "constructor returns interface,
+      # one concrete impl" — which is exactly a test seam (tls.Dialer
+      # has two fakes in probe_test.go). The two kept analyzers are
+      # low-false-positive: identical catches duplicate interface defs,
+      # unexported catches an unexported interface leaking into the
+      # exported API.
+      enable:
+        - identical
+        - unexported
+
     revive:
       severity: error
       rules:
@@ -169,17 +182,10 @@ linters:
         - name: string-of-int
         - name: time-equal
         - name: unconditional-recursion
-        - name: unhandled-error
-          arguments:
-            - "fmt.Print.*"
-            - "fmt.Fprint.*"
-            # strings.Builder.WriteString / WriteByte / WriteRune are
-            # documented to always return nil — the error return is
-            # vestigial from the io.Writer interface.
-            - "strings.Builder.Write.*"
-            - "(\\*strings.Builder).Write.*"
-            - "bytes.Buffer.Write.*"
-            - "(\\*bytes.Buffer).Write.*"
+        # NOTE: the `unhandled-error` rule was removed; errcheck is the
+        # single source of truth for unchecked errors (see errcheck
+        # below). Keeping both meant maintaining two divergent ignore
+        # lists for the same diagnostic.
 
     gocritic:
       enabled-tags:
@@ -192,8 +198,6 @@ linters:
         - hugeParam
         - rangeValCopy
 
-    gocyclo:
-      min-complexity: 14
     gocognit:
       min-complexity: 14
     cyclop:
@@ -205,6 +209,15 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: false
+      # fmt.Print*, and the bytes.Buffer / strings.Builder Write* methods
+      # are already in errcheck's built-in default exclusions. The three
+      # entries below extend the ignore to fmt.Fprint* for *all* writers,
+      # preserving the behaviour previously expressed via revive's
+      # unhandled-error rule.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
 
     errorlint:
       errorf: true
@@ -290,7 +303,6 @@ linters:
           - errcheck
           - forcetypeassert
           - gocognit
-          - gocyclo
           - cyclop
           - dupl
           - funlen
