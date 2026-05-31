@@ -9,15 +9,14 @@
 //
 // Nil discipline mirrors ADR-0018: universal callbacks (none today;
 // all detail-page universals are message-only) panic on nil at the
-// moment of need; optional callbacks (SetTimeFormat, OnModalResult,
-// InitCmd) treat a nil hook as a fall-through (handled=false) so the
-// page's main switch sees the message unchanged.
+// moment of need; optional callbacks (SetTimeFormat, InitCmd) treat a
+// nil hook as a fall-through (handled=false) so the page's main switch
+// sees the message unchanged.
 package detailpage
 
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -50,15 +49,6 @@ type Base struct {
 	// HandleSidebandMsg returns handled=false in that case so the
 	// page's main switch sees the message unchanged. See ADR-0022.
 	SetTimeFormat func(timerender.Format)
-
-	// OnModalResult is invoked when a modal.ResultMsg arrives. The
-	// callback returns handled+cmd in the same shape as
-	// HandleSidebandMsg so a page that consumes a typed result (e.g.
-	// a future page that opens a yes/no confirm) can route it without
-	// re-implementing the marker-interface check. Nil on detail pages
-	// that never open modals; HandleSidebandMsg returns handled=false
-	// in that case. See ADR-0022.
-	OnModalResult func(modal.ResultMsg) (handled bool, cmd tea.Cmd)
 
 	// InitCmd is the optional periodic-refresh / lazy-fetch Cmd a
 	// detail page returns from Init. Nil on pages that have no
