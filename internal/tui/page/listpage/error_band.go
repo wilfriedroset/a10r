@@ -15,22 +15,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
-// ErrorBand returns the one-line message rendered above the table
-// when at least one in-scope tenant is reporting a transport
-// error. Empty when every in-scope tenant is healthy (or
-// unpolled) so the renderer can short-circuit.
-//
-// Single-tenant scope: surfaces that tenant's detail verbatim.
-// Multi-tenant scope with one offender: prefixes the tenant
-// name. Multi-tenant scope with several offenders: collapses to
-// a count plus the first detail (alphabetically) so the band
-// stays one line.
-//
-// All layouts get a `— retrying in <unit>` suffix; the same
-// alphabetically-first entry that sources the detail also
-// sources the NextAt clock the suffix counts down from.
-// Past-due (a tick is in flight) renders `— retrying now`. See
-// CONTEXT.md "Next attempt" and ADR-0014.
+// ErrorBand returns the one-line message above the table when an
+// in-scope tenant reports a transport error, "" when all are healthy
+// (or unpolled). Single-tenant scope shows the detail verbatim;
+// multi-tenant with one offender prefixes the name; several offenders
+// collapse to a count plus the alphabetically-first detail so the
+// band stays one line. Every layout gets a `— retrying …` suffix
+// counting down from that same entry's NextAt. See CONTEXT.md "Next
+// attempt" and ADR-0014.
 func (b *Base) ErrorBand(now time.Time) string {
 	type entry struct {
 		tenant string
@@ -50,15 +42,13 @@ func (b *Base) ErrorBand(now time.Time) string {
 	if len(bad) == 0 {
 		return ""
 	}
-	// Sort by tenant for deterministic output across runs (map
-	// iteration order is unspecified).
+	// Deterministic output: map iteration order is unspecified.
 	sort.Slice(bad, func(i, j int) bool { return bad[i].tenant < bad[j].tenant })
 	head := bad[0]
 	suffix := " — " + timerender.NextAttempt(now, head.nextAt)
 	if len(bad) == 1 {
-		// Single offender: tenant prefix only useful when scope
-		// covers >1 tenant (avoids "prod: …" noise on a
-		// single-tenant view).
+		// Tenant prefix only when scope spans >1 tenant — avoids
+		// "prod: …" noise on a single-tenant view.
 		if b.Scope == ScopeAll || strings.Contains(b.Scope, ",") {
 			return head.tenant + ": " + head.detail + suffix
 		}
@@ -67,13 +57,10 @@ func (b *Base) ErrorBand(now time.Time) string {
 	return fmt.Sprintf("%d backends erroring; %s: %s%s", len(bad), head.tenant, head.detail, suffix)
 }
 
-// RenderErrorBand returns the styled one-line band the page View
-// prepends, or "" when ErrorBand is empty. fg is the foreground
-// the page wants to paint the message in — usually the severity-
-// critical foreground from the page's styles. Wider than width is
-// clipped with format.SGRTruncate so a long upstream error never
-// breaks the layout. Background is intentionally not painted: the
-// chrome stays on the terminal default per the rendering memory.
+// RenderErrorBand returns the styled band the View prepends, "" when
+// ErrorBand is empty. Truncated to width so a long upstream error
+// never breaks the layout. Background is left unpainted so the chrome
+// stays on the terminal default (fg-only rendering memory).
 func (b *Base) RenderErrorBand(now time.Time, width int, fg color.Color) string {
 	msg := b.ErrorBand(now)
 	if msg == "" {

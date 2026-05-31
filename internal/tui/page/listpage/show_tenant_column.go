@@ -2,17 +2,12 @@
 
 package listpage
 
-// ShowTenantColumn reports whether the page should render a
-// leading TENANT column. True when the active scope is "all" and
-// the configured tenant fleet spans more than one backend —
-// mirroring k9s's namespace=all view.
-//
-// The configured count is preferred over the observed count so a
-// broken tenant (connection refused at first poll) still keeps
-// the column visible — exactly the moment the operator needs it
-// to spot the missing backend. observed is the fall-through when
-// no configured list was plumbed in (test paths that don't pin
-// Tenants).
+// ShowTenantColumn reports whether to render a leading TENANT
+// column: scope "all" over a >1-backend fleet, mirroring k9s's
+// namespace=all view. Configured count beats observed so a broken
+// tenant still keeps the column visible — the moment the operator
+// needs it to spot the missing backend. observed is the fall-through
+// when no configured list was plumbed in.
 func (b *Base) ShowTenantColumn(observed int) bool {
 	if b.Scope != ScopeAll {
 		return false

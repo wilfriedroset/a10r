@@ -9,45 +9,36 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
-// PollingUI holds the per-page polling-feedback state. Embedded by
-// list pages that present a refresh UI (alerts, silences, groups);
-// NOT embedded by receivers because receivers has no manual refresh,
-// no spinner-during-refresh, and no per-tenant refresh display. See
-// ADR 0013 for the rationale on splitting this off from Base.
-//
-// Fields are exported for the same cross-package promotion reason
-// as Base: embedders in sibling packages cannot access unexported
-// fields via promotion.
+// PollingUI holds per-page polling-feedback state. Split off Base and
+// embedded only by pages with a refresh UI (alerts, silences, groups),
+// not receivers, which has no manual refresh — see ADR 0013. Fields
+// are exported because sibling-package embedders can't reach
+// unexported fields via promotion.
 type PollingUI struct {
-	// Refreshing is true between an `r` press and the next in-scope
-	// poll.DataMsg arrival so the renderer keeps the spinner up
-	// while the caller's nudge is in flight. Cleared only on the
-	// first in-scope DataMsg afterward.
+	// Refreshing stays true between an `r` press and the next
+	// in-scope DataMsg so the spinner keeps up while the nudge is in
+	// flight.
 	Refreshing bool
-	// PausedRefresh, when true, signals "the next DataMsg is from
-	// an explicit r-press; honour it even though paused". Cleared
-	// after the first DataMsg consumes it — lets the operator hold
-	// pause but pull a single fresh snapshot on demand.
+	// PausedRefresh signals "honour the next DataMsg though paused";
+	// consumed by the first DataMsg, so a paused operator can still
+	// pull one fresh snapshot.
 	PausedRefresh bool
-	// PolledTenants is the set of tenants that have produced at
-	// least one DataMsg in this page's lifetime. Scope-aware so a
-	// fast out-of-scope tenant returning [] doesn't flip the page
-	// out of loading state before the in-scope tenant has answered.
+	// PolledTenants is the set of tenants that produced a DataMsg
+	// this lifetime. Scope-aware so a fast out-of-scope tenant
+	// returning [] doesn't drop the loading state early.
 	PolledTenants map[string]struct{}
-	// NextRefresh is the per-tenant DataMsg.NextAt timestamp. The
-	// footer collapses it into "next refresh Ns" by picking the
-	// soonest entry across in-scope tenants.
+	// NextRefresh is the per-tenant DataMsg.NextAt; the footer shows
+	// the soonest in-scope entry.
 	NextRefresh map[string]time.Time
-	// Spinner is the cold-start / refresh-in-flight indicator.
-	// Stopped (Tick chain broken) outside of those two windows; see
-	// each page's spinner.TickMsg branch in Update.
+	// Spinner is the cold-start / refresh-in-flight indicator,
+	// stopped outside those windows.
 	Spinner spinner.Model
 }
 
-// PolledInScope reports whether at least one in-scope tenant has
-// produced a DataMsg. The scope predicate is supplied by the caller
-// (typically `Base.ScopeIncludes`) so PollingUI stays unaware of
-// Base's scope/tenants fields — see ADR 0013's inclusion rule.
+// PolledInScope reports whether any in-scope tenant has produced a
+// DataMsg. The caller supplies the scope predicate (typically
+// Base.ScopeIncludes) so PollingUI stays unaware of Base — see
+// ADR 0013.
 func (u *PollingUI) PolledInScope(includes func(string) bool) bool {
 	for tenant := range u.PolledTenants {
 		if includes(tenant) {
@@ -57,18 +48,16 @@ func (u *PollingUI) PolledInScope(includes func(string) bool) bool {
 	return false
 }
 
-// SpinnerActive reports whether the loading affordance should
-// keep ticking — true during the cold-start window (no in-scope
-// DataMsg yet) and during a manual `r` refresh in flight. See
-// CONTEXT.md for the affordance vocabulary.
+// SpinnerActive reports whether the loading affordance should keep
+// ticking — during cold start (no in-scope DataMsg yet) or a manual
+// refresh in flight. See CONTEXT.md for the vocabulary.
 func (u *PollingUI) SpinnerActive(includes func(string) bool) bool {
 	return !u.PolledInScope(includes) || u.Refreshing
 }
 
-// SoonestNextRefresh returns the earliest DataMsg.NextAt among
-// in-scope tenants. Zero when no in-scope tenant has published a
-// NextAt; the refresh countdown caller renders that case as the
-// empty footer branch.
+// SoonestNextRefresh returns the earliest in-scope DataMsg.NextAt,
+// zero when none has published one (the countdown caller renders that
+// as the empty footer branch).
 func (u *PollingUI) SoonestNextRefresh(includes func(string) bool) time.Time {
 	var soonest time.Time
 	for tenant, ts := range u.NextRefresh {
@@ -82,19 +71,15 @@ func (u *PollingUI) SoonestNextRefresh(includes func(string) bool) time.Time {
 	return soonest
 }
 
-// LoadingTitle returns the loading affordance title used while
-// the page is in a loading window — `<spinner-frame> loading <noun>…`.
-// Pages compose it into their Title() by branching on SpinnerActive.
+// LoadingTitle returns the loading-window title `<frame> loading
+// <noun>…`, composed into Title() by branching on SpinnerActive.
 func (u *PollingUI) LoadingTitle(noun string) string {
 	return u.Spinner.View() + " loading " + noun + "…"
 }
 
-// RefreshCountdown returns the refresh-countdown footer for a polled
-// list page. Five branches, in priority order: paused (with or
-// without a manual refresh in flight), refreshing alone, pre-poll
-// (no in-scope tenant has answered yet), polled-without-NextAt, and
-// polled-with-NextAt (rendered via NextRefreshLabel). See CONTEXT.md
-// for the vocabulary.
+// RefreshCountdown returns the refresh-countdown footer, branching in
+// priority order: paused, refreshing, pre-poll, polled-without-NextAt,
+// polled-with-NextAt. See CONTEXT.md for the vocabulary.
 func RefreshCountdown(paused, refreshing, polled bool, soonest, now time.Time) string {
 	if paused {
 		if refreshing {
@@ -111,11 +96,9 @@ func RefreshCountdown(paused, refreshing, polled bool, soonest, now time.Time) s
 	return "next refresh " + NextRefreshLabel(now, soonest)
 }
 
-// NextRefreshLabel formats the bottom-border deadline used by the
-// refresh countdown ("next refresh 25s"). Past-due renders as
-// "due" so a slow tick reads honestly without flashing a negative
-// duration. Pure helper — kept in the listpage package because it
-// only makes sense for pages that present a refresh UI.
+// NextRefreshLabel formats the countdown deadline ("25s"). Past-due
+// renders "due" so a slow tick reads honestly instead of flashing a
+// negative duration.
 func NextRefreshLabel(now, next time.Time) string {
 	d := next.Sub(now)
 	if d <= 0 {

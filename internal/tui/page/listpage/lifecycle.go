@@ -8,9 +8,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 )
 
-// ToggleWatch flips Base.Paused for a list page. Coming out of
-// paused clears the PausedRefresh one-shot — paused→running is a
-// clean state, not a pending refresh.
+// ToggleWatch flips Base.Paused. Resuming clears the PausedRefresh
+// one-shot — paused→running is a clean state, not a pending refresh.
 func ToggleWatch(b *Base, ui *PollingUI) {
 	b.Paused = !b.Paused
 	if !b.Paused {
@@ -18,13 +17,11 @@ func ToggleWatch(b *Base, ui *PollingUI) {
 	}
 }
 
-// RequestRefresh emits a RefreshRequestedMsg for the named resource
-// and re-kicks the spinner Tick chain. When the page is paused, sets
-// PausedRefresh so the next incoming DataMsg is honoured exactly
-// once — the operator pulled it deliberately and expects to see
-// fresh data even though watch mode is off. Empty Scope normalises
-// to ScopeAll so the wiring layer sees the same value the renderer
-// uses.
+// RequestRefresh emits a RefreshRequestedMsg and re-kicks the spinner
+// Tick chain. When paused, sets PausedRefresh so the next DataMsg is
+// honoured exactly once — a deliberate pull should show fresh data
+// even with watch off. Empty Scope normalises to ScopeAll so the
+// wiring layer sees the value the renderer uses.
 func RequestRefresh(b *Base, ui *PollingUI, resource string) tea.Cmd {
 	ui.Refreshing = true
 	if b.Paused {
@@ -40,12 +37,10 @@ func RequestRefresh(b *Base, ui *PollingUI, resource string) tea.Cmd {
 	return tea.Batch(emit, ui.Spinner.Tick)
 }
 
-// ToggleMarkAtCursor toggles the mark for the cursor row's key in the
-// supplied marks map. No-ops when the cursor is past the view (empty
-// page) or the resolved key is empty (defensive — every row the live
-// backend emits has one, but the assertion belt-and-braces). keyFn
-// lets each page extract its own primary key (Fingerprint, ID, …)
-// without leaking the row type into listpage.
+// ToggleMarkAtCursor toggles the cursor row's key in marks. No-ops
+// when the cursor is past the view or the key is empty (defensive).
+// keyFn extracts each page's primary key (Fingerprint, ID, …) without
+// leaking the row type into listpage.
 func ToggleMarkAtCursor[E any](view []E, cursorIdx int, marks map[string]struct{}, keyFn func(E) string) {
 	if cursorIdx >= len(view) {
 		return

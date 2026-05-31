@@ -8,20 +8,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 )
 
-// HandleSidebandMsg consumes the five app-level cross-cutting
-// messages every list page sees but routes uniformly: scope
-// change, time-format toggle, state-format toggle, "go to first
-// row" chord completion, and global mark-clearing. Each list page's
-// Update calls this first and short-circuits when handled=true so
-// the main switch stays focused on page-specific routing.
-//
-// Optional cases (TimeFormatChangedMsg, StateFormatChangedMsg,
-// ClearMarksMsg) treat a nil callback as a fall-through
-// (handled=false) so pages without the corresponding feature —
-// groups and receivers don't render times; only the alerts list and
-// group detail render the state breakdown; groups and receivers
-// don't track marks — pass through without per-page switch
-// scaffolding. See ADR 0018.
+// HandleSidebandMsg routes the five cross-cutting messages every list
+// page handles uniformly (scope, time/state format, go-to-first-row,
+// mark-clear). Pages call it first and short-circuit on handled=true.
+// For the optional cases a nil callback is a fall-through
+// (handled=false), so pages lacking that feature pass through without
+// per-page switch scaffolding. See ADR 0018.
 func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {
 	case app.ScopeChangedMsg:

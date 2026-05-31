@@ -7,11 +7,10 @@ import "strings"
 // ScopeAll is the canonical "every configured tenant" scope label.
 const ScopeAll = "all"
 
-// ScopeIncludes reports whether tenant should appear in the view
-// given b.Scope. Empty / "all" includes everyone; otherwise the
-// scope is parsed as a comma-joined list (so a Ctrl+T multi-select
-// like "prod,staging" lights up both backends). Trims whitespace
-// around each entry so a pasted scope with spaces still matches.
+// ScopeIncludes reports whether tenant is in b.Scope. Empty / "all"
+// includes everyone; otherwise b.Scope is a comma-joined list (a
+// Ctrl+T multi-select like "prod,staging"), whitespace-trimmed per
+// entry so a pasted scope still matches.
 func (b *Base) ScopeIncludes(tenant string) bool {
 	scope := strings.TrimSpace(b.Scope)
 	if scope == "" || scope == ScopeAll {

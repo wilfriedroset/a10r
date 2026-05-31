@@ -8,24 +8,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
-// HandleFilterPrompt centralises the four filter-prompt lifecycle
-// messages so each page's Update stays focused on its own typed
-// data. Branches:
-//
-//   - Opened: snapshot the active filter and clear it so the user
-//     types against the unfiltered list (live filter rebuilds it
-//     keystroke-by-keystroke).
-//   - Changed: apply the in-flight value live.
-//   - Submitted: commit the typed value (possibly empty, meaning
-//     "clear the filter"); drop the pre-prompt snapshot.
-//   - Cancelled: restore the snapshot.
-//
-// Command-mode prompt messages slip through unchanged — pages
-// only own filter mode at this layer.
-//
-// Panics with a clear message when called before the page wires
-// Recompute. Each page constructor must set b.Recompute = p.recompute
-// (or the equivalent rebuild) before any filter prompt can arrive.
+// HandleFilterPrompt centralises the filter-prompt lifecycle so each
+// page's Update stays focused on its typed data. On open it snapshots
+// then clears the filter so the user types against the unfiltered
+// list; cancel restores that snapshot. Command-mode prompts pass
+// through unchanged — pages only own filter mode here. Panics on nil
+// Recompute, which a constructor must wire before any prompt arrives.
 func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 	if b.Recompute == nil {
 		panic("listpage.Base.HandleFilterPrompt: Recompute callback not wired by page constructor")
