@@ -14,15 +14,14 @@ type ConfirmDefault int
 
 const (
 	// ConfirmDefaultNo treats Enter as "no" — the safe default for
-	// destructive actions (silence expire etc.).
+	// destructive actions.
 	ConfirmDefaultNo ConfirmDefault = iota
-	// ConfirmDefaultYes treats Enter as "yes". Use sparingly; only
-	// for non-destructive confirmations.
+	// ConfirmDefaultYes treats Enter as "yes"; only for non-destructive
+	// confirmations.
 	ConfirmDefaultYes
 )
 
-// ConfirmResultMsg carries the user's answer. Cancelled is true on
-// Esc; otherwise Yes captures their choice.
+// ConfirmResultMsg carries the user's answer; Cancelled is true on Esc.
 type ConfirmResultMsg struct {
 	Yes       bool
 	Cancelled bool
@@ -31,29 +30,27 @@ type ConfirmResultMsg struct {
 // IsModalResult satisfies ResultMsg.
 func (ConfirmResultMsg) IsModalResult() {}
 
-// Confirm is a yes/no dialog. Default-No matches keybindings.md
-// where every destructive flow shows a confirm before acting.
+// Confirm is a yes/no dialog. Default-No matches keybindings.md, where
+// every destructive flow shows a confirm before acting.
 type Confirm struct {
 	question string
 	def      ConfirmDefault
 }
 
-// NewConfirm builds a confirm modal with the given question and
-// default choice.
+// NewConfirm builds a confirm modal with the given question and default
+// choice.
 func NewConfirm(question string, def ConfirmDefault) *Confirm {
 	return &Confirm{question: question, def: def}
 }
 
 func (*Confirm) Init() tea.Cmd { return nil }
 
-// Title implements Modal — the App renders this in the outer panel
-// border. The fixed label keeps the chrome predictable across every
-// confirm-flavoured prompt.
+// Title implements Modal.
 func (*Confirm) Title() string { return "confirm" }
 
-// Update implements Modal. Recognises y/Y, n/N, Enter (resolves
-// the default), Esc (cancel). Other keys are silently ignored so
-// a stray keystroke can't accidentally pick a destructive option.
+// Update implements Modal. Recognises y/Y, n/N, Enter (resolves the
+// default), Esc (cancel). Other keys are silently ignored so a stray
+// keystroke can't accidentally pick a destructive option.
 func (c *Confirm) Update(msg tea.Msg) (Modal, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {

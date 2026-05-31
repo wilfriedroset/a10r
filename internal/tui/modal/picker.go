@@ -17,37 +17,26 @@ import (
 type PickerMode int
 
 const (
-	// PickerSingle returns a one-item selection on Enter and
-	// ignores Space marks.
+	// PickerSingle returns a one-item selection on Enter and ignores
+	// Space marks.
 	PickerSingle PickerMode = iota
-	// PickerMulti accumulates Space-toggled marks and returns the
-	// full set on Enter. `a` toggles all currently filtered items.
+	// PickerMulti accumulates Space-toggled marks and returns the full set
+	// on Enter; `a` toggles all currently filtered items.
 	PickerMulti
 )
 
 // PickerSubmittedMsg is emitted when the user accepts the picker's
-// current selection. Selections are returned as the original item
-// strings (not indexes) so the caller can treat the picker as
-// stateless once the message arrives.
-//
-// Origin is an opaque tag stamped by the caller at construction time
-// (see Picker.WithOrigin). Multiple call sites can each emit their
-// own PickerSubmittedMsg; the App's lifecycle router uses Origin to
-// distinguish the global tenant-quick-switch picker (Origin=="scope")
-// from picker submissions a focused page wants to consume itself
-// (e.g. the silence form's tenant row). Empty Origin keeps the
-// historical default behaviour for callers that don't tag.
+// current selection. Origin is an opaque caller-stamped tag (see
+// WithOrigin) the App's lifecycle router uses to distinguish the global
+// tenant-quick-switch picker (Origin=="scope") from submissions a focused
+// page consumes itself; empty Origin keeps the default behaviour.
 type PickerSubmittedMsg struct {
 	Origin string
-	// Selections carries the selected item strings in original-input
-	// order. Convenient for callers that key off display text.
+	// Selections carries the selected item strings in original-input order.
 	Selections []string
-	// Indexes mirrors Selections, but in terms of the original input
-	// slice's indexes. Single-mode submits a 1-element slice with the
-	// row's index; multi-mode walks the marked indexes in input
-	// order. Callers wrapping the picker over a non-unique label set
-	// (e.g. silences whose rendered lines may match) must use Indexes
-	// to disambiguate — Selections collapses identical strings.
+	// Indexes mirrors Selections by original-input index. Callers wrapping
+	// the picker over a non-unique label set must use Indexes to
+	// disambiguate — Selections collapses identical strings.
 	Indexes []int
 }
 
@@ -55,9 +44,8 @@ type PickerSubmittedMsg struct {
 func (PickerSubmittedMsg) IsModalResult() {}
 
 // PickerCancelledMsg is emitted on Esc. Origin mirrors
-// PickerSubmittedMsg.Origin so the App can route cancellations the
-// same way as submissions — a cancelled form-side picker must reach
-// the form, not the global scope handler.
+// PickerSubmittedMsg.Origin so a cancelled form-side picker reaches the
+// form, not the global scope handler.
 type PickerCancelledMsg struct {
 	Origin string
 }
@@ -65,19 +53,11 @@ type PickerCancelledMsg struct {
 // IsModalResult satisfies ResultMsg.
 func (PickerCancelledMsg) IsModalResult() {}
 
-// Picker is the fuzzy-matched item picker (the k9s-style "type to
-// narrow, j/k to navigate" affordance). Items are rendered top-down
-// with the cursor highlighted; typing narrows the list via fuzzy
-// match, Up/Down (or j/k) walk it.
-//
-// The picker doesn't know it's the tenant picker — the same shape
-// will host receiver / silence picking later. The caller wraps it
-// in a thin Modal that knows the title and the message wiring.
-//
-// origin is the opaque tag stamped onto every emitted
-// PickerSubmittedMsg / PickerCancelledMsg so the App's lifecycle
-// router can tell a global picker apart from one a focused page
-// opened. Empty by default — callers opt in via WithOrigin.
+// Picker is the fuzzy-matched item picker (the k9s-style "type to narrow,
+// j/k to navigate" affordance). It is content-agnostic — the same shape
+// hosts tenant, receiver, or silence picking; the caller wraps it in a
+// thin Modal that knows the title and message wiring. origin is the
+// opaque tag stamped onto every emitted message (see WithOrigin).
 type Picker struct {
 	title  string
 	mode   PickerMode
@@ -90,9 +70,8 @@ type Picker struct {
 	matches []int            // filtered item indexes after Find
 }
 
-// NewPicker constructs a Picker over the supplied items. The
-// initial filtered set is the full input list and the cursor is
-// at the top.
+// NewPicker constructs a Picker over the supplied items, with the full
+// input list as the initial filtered set and the cursor at the top.
 func NewPicker(title string, items []string, mode PickerMode) *Picker {
 	p := &Picker{
 		title: title,
@@ -104,29 +83,23 @@ func NewPicker(title string, items []string, mode PickerMode) *Picker {
 	return p
 }
 
-// WithOrigin stamps the picker so every emitted submit / cancel
-// message carries the supplied tag. Returns the receiver so
-// constructors can chain `NewPicker(...).WithOrigin(...)`.
-//
-// The tag is opaque to the picker itself — the App's lifecycle
-// router and individual page Updates agree on the namespace
-// (e.g. "scope" for the global tenant quick-switch,
-// "silence-form-tenant" for the silence form's row).
+// WithOrigin stamps the picker so every emitted submit/cancel message
+// carries the supplied tag, and returns the receiver for chaining. The
+// tag is opaque to the picker; the App's router and page Updates agree on
+// the namespace (e.g. "scope", "silence-form-tenant").
 func (p *Picker) WithOrigin(origin string) *Picker {
 	p.origin = origin
 	return p
 }
 
-// Init implements Modal. The picker has no startup work.
+// Init implements Modal.
 func (*Picker) Init() tea.Cmd { return nil }
 
-// Title implements Modal — the App renders this in the outer panel
-// border so the user sees what the picker is for at a glance.
+// Title implements Modal.
 func (p *Picker) Title() string { return p.title }
 
-// Update implements Modal. Returns the same Modal pointer (no
-// derivative type) and an optional Cmd that emits the resolution
-// message on submit or cancel.
+// Update implements Modal. Returns the same pointer and an optional Cmd
+// that emits the resolution message on submit or cancel.
 func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd) {
 	keyMsg, ok := msg.(tea.KeyMsg)
 	if !ok {
@@ -142,9 +115,8 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd) {
 	return p, nil
 }
 
-// handleTerminalKey processes keys that resolve the modal (Enter,
-// Esc). Returns (cmd, true) when the key was terminal so the caller
-// can stop walking the keymap.
+// handleTerminalKey processes keys that resolve the modal (Enter, Esc).
+// Returns (cmd, true) when the key was terminal.
 func (p *Picker) handleTerminalKey(keyMsg tea.KeyMsg) (tea.Cmd, bool) {
 	switch keyMsg.String() {
 	case "enter":
@@ -157,8 +129,8 @@ func (p *Picker) handleTerminalKey(keyMsg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// handleNavOrEdit processes navigation, mark-toggle, and buffer-
-// edit keys. Returns true when the key was handled here.
+// handleNavOrEdit processes navigation, mark-toggle, and buffer-edit
+// keys. Returns true when the key was handled here.
 func (p *Picker) handleNavOrEdit(keyMsg tea.KeyMsg) bool {
 	switch keyMsg.String() {
 	case "up", "ctrl+p":
@@ -188,9 +160,8 @@ func (p *Picker) handleNavOrEdit(keyMsg tea.KeyMsg) bool {
 	return true
 }
 
-// handleQueryInput processes printable runes — either select-all
-// (multi mode, empty query, `a` key) or appending to the filter
-// buffer.
+// handleQueryInput processes printable runes — either select-all (multi
+// mode, empty query, `a` key) or appending to the filter buffer.
 func (p *Picker) handleQueryInput(keyMsg tea.KeyMsg) {
 	if p.mode == PickerMulti && keyMsg.String() == "a" && p.query == "" {
 		p.selectAllFiltered()
@@ -211,9 +182,9 @@ func (p *Picker) handleQueryInput(keyMsg tea.KeyMsg) {
 	p.refilter()
 }
 
-// submit returns the Cmd that emits a PickerSubmittedMsg with the
-// current selection. Single mode picks the cursor row; multi mode
-// returns every marked index in original-input order.
+// submit returns the Cmd emitting a PickerSubmittedMsg with the current
+// selection: single mode picks the cursor row, multi mode returns every
+// marked index in original-input order.
 func (p *Picker) submit() tea.Cmd {
 	origin := p.origin
 	var sel []string
@@ -238,7 +209,6 @@ func (p *Picker) submit() tea.Cmd {
 	return func() tea.Msg { return PickerSubmittedMsg{Origin: origin, Selections: sel, Indexes: idx} }
 }
 
-// toggleAt flips a mark in multi mode.
 func (p *Picker) toggleAt(idx int) {
 	if _, ok := p.marks[idx]; ok {
 		delete(p.marks, idx)
@@ -247,17 +217,16 @@ func (p *Picker) toggleAt(idx int) {
 	p.marks[idx] = struct{}{}
 }
 
-// selectAllFiltered marks every currently visible item. Re-running
-// it doesn't unmark — the caller can clear by Ctrl+U then `a`.
+// selectAllFiltered marks every currently visible item; re-running does
+// not unmark.
 func (p *Picker) selectAllFiltered() {
 	for _, i := range p.matches {
 		p.marks[i] = struct{}{}
 	}
 }
 
-// refilter rebuilds the matches slice from the current query and
-// clamps the cursor to the new range. Called whenever query
-// changes.
+// refilter rebuilds the matches slice from the current query and clamps
+// the cursor to the new range.
 func (p *Picker) refilter() {
 	if p.query == "" {
 		p.matches = p.matches[:0]
@@ -276,22 +245,18 @@ func (p *Picker) refilter() {
 	}
 }
 
-// View implements Modal. Renders title + query line + filtered items
-// with the cursor row prefixed by "▸ " and (in multi mode) marked
-// rows carrying "[x] ". Body is rendered plain-text — the cursor and
-// mark glyphs are readable on every terminal regardless of skin, and
-// the picker frame already inherits modal panel colours from the
-// outer App.View render. Adding a *theme.Styles seam would only let
-// the cursor glyph change colour, which the current ASCII arrow
-// communicates without colour at all.
+// View implements Modal, rendering the query line plus filtered items
+// with the cursor row prefixed "▸ " and (multi mode) marks "[x] ". Body
+// is plain-text on purpose: the glyphs read on every terminal and the
+// frame already inherits panel colours, so a *theme.Styles seam would buy
+// nothing the ASCII arrow doesn't already convey without colour.
 func (p *Picker) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
 
-	// Title is rendered by the App's outer panel border via
-	// Modal.Title(); the body just opens with the query line so we
-	// don't double-print the label.
+	// Title is painted by the App's panel border; the body opens with the
+	// query line to avoid double-printing the label.
 	var b strings.Builder
 	b.WriteString("> " + p.query + "_")
 	b.WriteString("\n\n")
