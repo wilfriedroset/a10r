@@ -98,7 +98,8 @@ backend list with capability flags.
 | `Ctrl+F` / `Ctrl+B` | Full page down / up (vim siblings of `Ctrl+D` / `Ctrl+U`) |
 | `Space` | Mark / unmark a row (multi-select) |
 | `s` | Silence (alerts page; Dangerous, hidden in read-only) |
-| `t` | Cycle state filter (alerts page) |
+| `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all (alerts page) |
+| `t` | Toggle timestamps between relative (`5m ago`) and absolute (ISO local) — app-wide |
 | `Tab` | Expand / collapse all (groups page) |
 | `Ctrl+T` | Tenant picker (multi-tenant deployments) |
 | `0` | Scope: every configured tenant |
