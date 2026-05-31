@@ -1,8 +1,8 @@
 ## 0032 — App private state split into named sub-structs
 
 `internal/tui/app.App` started life as a flat struct: by the time
-the audit at `docs/design/comment-audit-2026-05.md` landed, its
-private state carried eleven fields, five of which (`modal`,
+an earlier comment audit landed, its private state carried eleven
+fields, five of which (`modal`,
 `help`, `pollCache`, `statusCache`, `histories`) each justified a
 multi-paragraph doc comment. The bloat was a tell: the type was
 secretly several sub-systems sharing one struct, and readers had

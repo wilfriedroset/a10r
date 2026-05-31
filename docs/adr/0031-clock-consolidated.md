@@ -5,9 +5,9 @@ Three packages each declared their own `Clock` interface and
 `internal/tui/poll`, and `internal/doctor`. The keys and doctor
 variants were both just `Now() time.Time` plus a stdlib-backed impl;
 poll added `After(d)` and `NewTimer(d)` to cover the backoff loop's
-need to cancel a pending timer when the user manually refreshes. The
-audit at `docs/design/comment-audit-2026-05.md` flagged the rule-of-
-three: a fourth time-seam consumer (a future cache TTL, a delayed
+need to cancel a pending timer when the user manually refreshes. A
+comment audit flagged the rule-of-three: a fourth time-seam consumer
+(a future cache TTL, a delayed
 flash auto-clear, anything currently using bare `time.Now()` inside a
 testable function) would force the project to pick which of the three
 to copy from. Lift now so the question never arises.

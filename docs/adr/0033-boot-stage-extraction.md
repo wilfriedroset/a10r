@@ -4,9 +4,9 @@
 refactor the function spanned ~180 LOC across eleven blocks each
 prefixed with a `// Stage N — <name>. <rationale>.` multi-line
 comment that narrated what the next 4–8 lines would do plus the
-preconditions for the next stage. The audit at
-`docs/design/comment-audit-2026-05.md` flagged the shape directly:
-the prose was doing the work that function names should be doing,
+preconditions for the next stage. A comment audit flagged the shape
+directly: the prose was doing the work that function names should be
+doing,
 and a reader had to read both the comment and the code to follow
 startup.
 
