@@ -9,13 +9,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
-// Reader is the read-only subset of Client. Page models that only
-// render data (alerts list, silences list, receivers list, status
-// pane) accept *Reader* rather than the full Client so test fakes
-// implement six methods, not fourteen.
-//
-// Every method takes a context.Context. Cancellation propagates to
-// the underlying http.Request so a slow-responding backend does not
+// Reader is the read-only subset of Client. Read-only page models accept
+// Reader so test fakes implement six methods, not fourteen. Context
+// cancellation propagates to the http.Request so a slow backend cannot
 // stall the polling loop.
 type Reader interface {
 	ListAlerts(ctx context.Context, filter AlertFilter) ([]Alert, error)
@@ -26,93 +22,57 @@ type Reader interface {
 	Status(ctx context.Context) (Status, error)
 }
 
-// Writer is the silence-mutation subset. The silence form
-// accepts *Writer*; bulk silence and bulk expire on the alerts /
-// silences pages do too.
-//
-// All write methods are non-idempotent: replaying a CreateSilence is
-// a duplicate silence, replaying an ExpireSilence after a re-create
-// expires the wrong silence. The C1 backoff loop must NOT auto-retry
-// these on transient failures — the page UX prompts the user to
-// confirm a retry instead.
+// Writer is the silence-mutation subset. All write methods are
+// non-idempotent (replaying CreateSilence duplicates, replaying
+// ExpireSilence after a re-create expires the wrong silence), so the C1
+// backoff loop must NOT auto-retry these — the page UX prompts to confirm.
 type Writer interface {
 	CreateSilence(ctx context.Context, spec SilenceSpec) (id string, err error)
 	UpdateSilence(ctx context.Context, id string, spec SilenceSpec) error
 	ExpireSilence(ctx context.Context, id string) error
 }
 
-// Client is the unified surface every backend implementation
-// satisfies: vanilla Alertmanager v2, Mimir's prefixed v2 (with
-// optional tenant header), and the multi-tenant fan-out layer.
-//
-// Per ADR 0028 there is one constructor for both backends — the
-// Mimir wrapper composes a vanilla client with a prefix and tenant
-// header — so the interface deliberately does NOT expose backend
-// type. Capability-gated methods (config API, tenant admin, ring)
-// return ErrUnsupported on backends that do not enable them; callers
-// branch on Capabilities() before offering the action in the menu
-// rather than relying on the returned error to drive UX.
+// Client is the unified surface every backend satisfies (vanilla v2, Mimir
+// prefixed v2, and the multi-tenant fan-out). Per ADR 0028 one constructor
+// serves both backends, so the interface deliberately does NOT expose
+// backend type; callers branch on Capabilities() before offering an action
+// rather than driving UX off the returned ErrUnsupported.
 type Client interface {
 	Reader
 	Writer
 
-	// Capability-gated. Implementations return ErrUnsupported when
-	// the corresponding Caps flag is false.
-
+	// Capability-gated: return ErrUnsupported when the Caps flag is false.
 	GetConfig(ctx context.Context) (MimirConfig, error)
 	SetConfig(ctx context.Context, cfg MimirConfig) error
 	DeleteConfig(ctx context.Context) error
 	ListTenantConfigs(ctx context.Context) ([]TenantConfig, error)
 	RingStatus(ctx context.Context) (Ring, error)
 
-	// Capabilities returns the runtime caps the implementation was
-	// constructed with. The TUI uses this to filter menu actions
-	// before any RPC is attempted.
+	// Capabilities lets the TUI filter menu actions before any RPC.
 	Capabilities() Caps
 }
 
-// Caps is the runtime view of `Capabilities` from `a10r.yaml`.
-// Defined as a type alias so a rename or a new flag in the config
-// schema surfaces here at compile time — keeps the two views in
-// lockstep without a converter that could drift.
+// Caps is the runtime view of config.Capabilities. A type alias (not a new
+// type) so a config-schema rename or new flag surfaces here at compile time
+// without a converter that could drift.
 type Caps = config.Capabilities
 
-// Prober is the small surface `a10r doctor` consumes for
-// doctor-time probes (reachability, clock skew, and the
-// alertmanager-mount verification ADR 0039 introduced). Defined
-// separately from Reader so the existing test fakes (which
-// implement Reader) do not need to grow new methods, and so that
-// future probe-style consumers (e.g. a TUI status pane refresh
-// button) can take just this interface.
-//
-// vanilla.Client implements it. The mimir constructor wraps a
-// vanilla.Client, so Mimir backends satisfy Prober for free.
+// Prober is the small probe surface `a10r doctor` consumes (ADR 0039).
+// Kept separate from Reader so existing Reader fakes need not grow methods.
 type Prober interface {
-	// ProbeReady issues GET /-/ready against the backend's base URL
-	// and returns nil on a 2xx response. Non-2xx responses and
-	// transport errors surface as wrapped ErrUnreachable —
-	// callers should not assume a specific error type beyond
-	// "the backend is not currently serving".
+	// ProbeReady issues GET /-/ready; non-2xx and transport errors surface
+	// as wrapped ErrUnreachable, so callers must not assume a finer type.
 	ProbeReady(ctx context.Context) error
 
-	// ProbeReadyAt issues GET /api/v2/status and returns the parsed
-	// `Date` header as the server's view of "now". The doctor
-	// clock-skew check compares the returned time against the local
-	// clock; >30s drift in either direction warns.
-	//
-	// Missing or unparseable Date header surfaces as ErrNoDateHeader
-	// so the caller can render a Skipped row rather than a Warning.
-	// Transport / non-2xx failures surface through the same wrapped
-	// error contract as ProbeReady.
+	// ProbeReadyAt returns the GET /api/v2/status Date header as the
+	// server's "now" for the clock-skew check (>30s drift warns). A missing
+	// or unparseable header surfaces as ErrNoDateHeader so the caller
+	// renders Skipped rather than Warning.
 	ProbeReadyAt(ctx context.Context) (time.Time, error)
 
-	// ProbeAlertmanagerMount issues GET against
-	// `<BaseURL>/alertmanager/api/v2/status`, ignoring the client's
-	// configured prefix. Returns nil on a 2xx response, ErrUnauthorized
-	// on 401/403, ErrUnreachable on transport failure, and a plain
-	// wrapped status error otherwise. Used by the doctor AuthChecker
-	// to verify whether adding `prefix: /alertmanager` would fix a
-	// Status() 404 — only a nil return licenses the checker to claim
-	// a verified fix.
+	// ProbeAlertmanagerMount GETs <BaseURL>/alertmanager/api/v2/status
+	// ignoring the configured prefix; only a nil return licenses the doctor
+	// AuthChecker to claim that adding `prefix: /alertmanager` is a verified
+	// fix for a Status() 404.
 	ProbeAlertmanagerMount(ctx context.Context) error
 }
