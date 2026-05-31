@@ -323,9 +323,9 @@ strict-mode error naming the offending key.
 - End-user docs under `docs/end-users/`: quickstart, per-view
   keybindings cheat-sheet, configuration schema, troubleshooting
   recipes.
-- Design docs under `docs/design/`: open-questions resolutions
-  (sections A–P), keybindings catalogue, theming spec,
-  backend API audit, k9s look-and-feel notes.
+- Architecture decision records under `docs/adr/`: the decisions
+  that shaped the implementation and why. Contributor guides under
+  `docs/contributor/`.
 
 ### Caveats
 
