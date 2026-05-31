@@ -105,28 +105,38 @@ type initIO struct {
 	KVs    []string
 }
 
-// runInit drives the chosen flow and writes the YAML to the resolved config
-// path. Errors carry ExitConfigInvalid so CI can branch without parsing
-// stderr. --dry-run skips the write pipeline and emits YAML on env.Out.
-//
-//nolint:gocognit // cohesive top-level init flow (validate → dry-run-or-write → hints); the branches don't factor into independently-meaningful helpers
+// runInit validates the flag combination then dispatches to the dry-run
+// or write flow. Errors carry ExitConfigInvalid so CI can branch without
+// parsing stderr.
 func runInit(env initIO) error {
 	if len(env.KVs) > 0 && !env.OneShot {
 		return NewExitError(ExitConfigInvalid,
 			errors.New("--kv requires --one-shot — pass both or neither"))
 	}
-
 	if env.DryRun {
-		cfg, err := collectConfig(env)
-		if err != nil {
-			return err
-		}
-		if err := writeInitConfigTo(env.Out, cfg); err != nil {
-			return NewExitError(ExitConfigInvalid, err)
-		}
-		return nil
+		return runInitDryRun(env)
 	}
+	return runInitWrite(env)
+}
 
+// runInitDryRun emits the resolved YAML to env.Out without touching the
+// filesystem. It short-circuits before path resolution and the overwrite
+// guard so --dry-run works in a read-only/CI sandbox.
+func runInitDryRun(env initIO) error {
+	cfg, err := collectConfig(env)
+	if err != nil {
+		return err
+	}
+	if err := writeInitConfigTo(env.Out, cfg); err != nil {
+		return NewExitError(ExitConfigInvalid, err)
+	}
+	return nil
+}
+
+// runInitWrite resolves the config path, refuses to clobber an existing
+// file without --force, writes the collected config, and prints the
+// post-write hints.
+func runInitWrite(env initIO) error {
 	dir, err := config.ResolveDir(env.Flags.ConfigDir)
 	if err != nil {
 		return NewExitError(ExitConfigInvalid, fmt.Errorf("resolve config dir: %w", err))
@@ -144,19 +154,24 @@ func runInit(env initIO) error {
 	if err != nil {
 		return err
 	}
-
 	if err := writeInitConfig(path, cfg); err != nil {
 		return NewExitError(ExitConfigInvalid, err)
 	}
 
 	fmt.Fprintf(env.Out, "wrote %s\n", path)
+	printInitHints(env, cfg)
+	return nil
+}
+
+// printInitHints emits the post-write nudges (Mimir setup, plaintext
+// credential warning) to env.Err. Both skip silently when not applicable.
+func printInitHints(env initIO, cfg config.Config) {
 	if hint := mimirSetupHint(cfg.Backends[0].URL); hint != "" {
 		fmt.Fprintln(env.Err, hint)
 	}
 	if hint := plaintextCredentialHint(cfg); hint != "" {
 		fmt.Fprintln(env.Err, hint)
 	}
-	return nil
 }
 
 // mimirSetupHint returns the post-write nudge from ADR 0039. The prefix half
