@@ -1,4 +1,4 @@
-.PHONY: build test test-race cover vet prek lint run clean tidy am-up am-down am-logs smoke skins-sync fuzz fuzz-app fuzz-form help
+.PHONY: build test test-race cover vet prek lint lint-comments run clean tidy am-up am-down am-logs smoke skins-sync fuzz fuzz-app fuzz-form help
 
 GO ?= go
 BINARY := a10r
@@ -43,6 +43,9 @@ prek: ## Run all pre-commit hooks (canonical lint entrypoint)
 	prek run --all-files
 
 lint: prek ## Alias for `prek`
+
+lint-comments: ## Check per-package comment-density budget (ADR 0041)
+	scripts/lint-comments.sh
 
 run: build ## Build and run the binary
 	./$(BINARY)
