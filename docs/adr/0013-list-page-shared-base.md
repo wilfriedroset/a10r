@@ -8,10 +8,9 @@ backbone of nine type-independent fields (`cursor`, `topRow`,
 `bodyHeight`, `filter`, `preFilter`, `scope`, `paused`, `lastErrors`,
 `tenants`). Three of the four also carry a five-field polling-UI
 block (`refreshing`, `pausedRefresh`, `polledTenants`, `nextRefresh`,
-`spinner`) that `receivers` does not. The audit at
-`docs/design/page-duplication-audit.md` catalogued ~600–700 LOC of
-duplication outside bulk and ~800 LOC inside the two bulk
-implementations.
+`spinner`) that `receivers` does not. A prior page-duplication audit
+catalogued ~600–700 LOC of duplication outside bulk and ~800 LOC
+inside the two bulk implementations.
 
 This ADR introduces `internal/tui/page/listpage/` to hold a `Base`
 struct (the nine universal fields, embedded by all four pages) and a

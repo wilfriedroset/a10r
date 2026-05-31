@@ -35,9 +35,9 @@ A modern, fast, intuitive TUI for [Prometheus Alertmanager][am] and
   the OVHcloud Design System). Default is `catppuccin-mocha`. Any
   k9s skin works drop-in; user skins under `<config-dir>/skins/`
   shadow bundled by basename. See
-  [`docs/design/k9s-skins-dropin.md`](docs/design/k9s-skins-dropin.md)
-  for the schema and
-  [`docs/design/skin-authoring.md`](docs/design/skin-authoring.md)
+  [ADR 0030](docs/adr/0030-in-tree-bundled-skins.md) for the
+  bundled-skin policy and
+  [`docs/contributor/skin-authoring.md`](docs/contributor/skin-authoring.md)
   for adding a bundled skin.
 - **Two backends**: vanilla Alertmanager v2 (floor v0.28.1) and
   Grafana Mimir (v2.17+) via prefix + tenant header. Multi-tenant
@@ -107,7 +107,7 @@ backend list with capability flags.
 | `Esc` | Dismiss modal / prompt; pop the page stack |
 | `q` / `Ctrl+C` | Quit |
 
-End-user cheat-sheet (per view) in [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md). Full catalogue with the precedence stack and reserved keys in [`docs/design/keybindings.md`](docs/design/keybindings.md).
+End-user cheat-sheet (per view) in [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md). The keybinding contract — precedence stack, reserved keys, dangerous-action tagging — is recorded in [ADR 0043](docs/adr/0043-keybinding-contract.md).
 
 ## Configuration
 
@@ -145,7 +145,8 @@ Environment variables in any string field are expanded via
 - [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
 - [`docs/end-users/troubleshooting.md`](docs/end-users/troubleshooting.md) — common problems, diagnostic flags.
-- [`docs/design/`](docs/design/) — the design documents that drove the implementation. Useful for contributors.
+- [`docs/adr/`](docs/adr/) — architecture decision records: the decisions that shaped the implementation and why.
+- [`docs/contributor/`](docs/contributor/) — contributor guides (skin authoring, review prompt).
 
 ## Contributing
 

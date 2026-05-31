@@ -4,7 +4,7 @@ The silence creation/edit form (`internal/tui/form/silence`) previously
 took a single `Options.Client` resolved by the caller via
 `pickWriteTarget()` — cursor row's tenant, else first in-scope tenant
 alphabetically. That left the user blind to which tenant their submit
-would land on, and `docs/design/silence-write-surface.md` §196
+would land on, and an earlier silence-write-surface design
 explicitly deferred the "tenant prompt on `s` from a multi-tenant
 scope" as a future-modal concern. This ADR reverses that deferral:
 the form now takes `Options.Clients map[string]Client` plus an

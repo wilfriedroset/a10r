@@ -255,9 +255,8 @@ shell.
 Backend entries in `a10r.yaml` now use the same shape as Prometheus's
 [`remote_write`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write)
 block — paste a `remote_write` entry under `backends:`, adjust the
-`url:` path to your Alertmanager v2 root, and you are done. Detail
-in `docs/design/prometheus-remote-write-parity.md` (open-questions
-F4); migration notes for users coming from earlier development
+`url:` path to your Alertmanager v2 root, and you are done.
+Migration notes for users coming from earlier development
 builds:
 
 - Auth blocks moved from a nested `auth: { type, basic|bearer|header }`

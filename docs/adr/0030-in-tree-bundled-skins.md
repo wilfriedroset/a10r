@@ -1,7 +1,6 @@
 # 0030 — Bundled skin set permits in-tree-authored entries
 
-ADR 0024-era work (the `k9s-skins-dropin` migration, documented in
-`docs/design/k9s-skins-dropin.md`) established that
+ADR 0024-era work (the k9s-skins-dropin migration) established that
 `internal/tui/theme/skins/` is the bundled set, fed by `make
 skins-sync` from upstream sources pinned in `SOURCES.yaml`. The
 implicit reading was "bundled = synced from upstream"; the four
