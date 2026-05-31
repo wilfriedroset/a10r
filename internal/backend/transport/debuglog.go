@@ -11,21 +11,15 @@ import (
 	"time"
 )
 
-// WithDebugLog wraps base in a RoundTripper that logs every
-// request/response pair as structured slog attrs at LevelDebug.
-// log==nil short-circuits to base unchanged so callers can pass a
-// disabled logger without conditional plumbing.
+// WithDebugLog logs every request/response pair as slog attrs at
+// LevelDebug; nil log short-circuits to base unchanged.
 //
-// Header values are emitted raw — secret-bearing keys are masked
-// at slog handler-write time by internal/log's ReplaceAttr hook
-// (ADR 0008). Slot innermost in the chain (closest to wire),
-// between NewBase and NewAuth, so the log captures the final
-// request after every upstream layer (auth, headers, user-agent)
-// has injected its bits.
-//
-// No body capture: bodies are open-ended (free-form alert
-// annotations, silence comments) and a regex scrub layer is more
-// risk than the debugging value warrants — see ADR 0008.
+// Header values are emitted raw — secret-bearing keys are masked at
+// slog write time by internal/log's ReplaceAttr hook (ADR 0008). Slot
+// innermost (between NewBase and NewAuth) so the log captures the final
+// request after every upstream layer has injected its bits. Bodies are
+// not captured: open-ended content makes a scrub layer more risk than
+// value (ADR 0008).
 func WithDebugLog(base http.RoundTripper, log *slog.Logger) http.RoundTripper {
 	if base == nil {
 		base = http.DefaultTransport
@@ -41,13 +35,10 @@ type debugLogRT struct {
 	log  *slog.Logger
 }
 
-// RoundTrip implements http.RoundTripper. The log line is emitted
-// after the response (or error) so latency and status are captured
-// in the same record. On transport errors, the line still emits at
-// LevelDebug with status=0 + an error attr — the caller decides
-// whether the error is fatal. The req.Context is forwarded to
-// LogAttrs so handler-side request-scoped extraction (trace IDs,
-// span info) works; the context is not used for cancellation here.
+// RoundTrip emits the log line after the response (or error) so latency
+// and status share one record; errors still log at LevelDebug with
+// status=0. req.Context is forwarded to LogAttrs for handler-side
+// request-scoped extraction (trace IDs), not for cancellation.
 func (r *debugLogRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
 	resp, err := r.base.RoundTrip(req)
@@ -83,17 +74,11 @@ func (r *debugLogRT) logError(req *http.Request, latency time.Duration, err erro
 	)
 }
 
-// headersGroup flattens an http.Header into a slog.Group whose
-// nested attrs are (lowercase-key, joined-value) pairs. Each
-// nested attr passes through ReplaceAttr individually, so
-// Authorization and friends emerge as ***.
-//
-// Multi-valued headers are joined with ", " — RFC 9110 §5.3
-// equivalent form, matching what http.Header.Get already collapses
-// to. The single-pass range pairs each key with its value slice
-// directly, avoiding an http.CanonicalHeaderKey round-trip that
-// would silently drop non-canonical-keyed entries. Keys are sorted
-// so test output is deterministic.
+// headersGroup flattens an http.Header into a slog.Group of nested
+// attrs that each pass through ReplaceAttr individually, so
+// Authorization and friends emerge as ***. The direct range avoids an
+// http.CanonicalHeaderKey round-trip that would silently drop
+// non-canonical-keyed entries. Keys are sorted for deterministic tests.
 func headersGroup(label string, h http.Header) slog.Attr {
 	type kv struct {
 		key string
