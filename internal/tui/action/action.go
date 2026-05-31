@@ -1,71 +1,53 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package action holds the shared data type every page's Bindings()
-// returns and the read-only filter every page applies to its own
-// slice. There is no registry: pages emit []Action directly from
-// their Bindings() methods, and the help overlay's GENERAL column
-// is derived from the dispatcher (per ADR 0019) rather than from a
-// separate metadata store.
-//
-// Keeping Action and FilterDangerous in a leaf package lets every
-// page, the help overlay, and the dispatcher share the same shape
-// without pulling bubbletea or any UI dependency in.
+// Package action holds the shared keybinding metadata type pages emit
+// from Bindings() and the read-only filter they apply to it. Living in
+// a leaf package keeps it free of bubbletea or any UI dependency (per
+// ADR 0019).
 package action
 
-// Action is one keybinding's metadata. Run is intentionally NOT
-// part of this struct — coupling actions to tea.Cmd here would pull
-// bubbletea into a leaf package. The dispatcher in keys/ holds the
-// (layer, key) → handler map; this type carries the rendering
-// metadata the help overlay and the header hint strip read.
+// Action is one keybinding's metadata. Run is intentionally NOT part of
+// this struct: coupling actions to tea.Cmd would pull bubbletea into a
+// leaf package. The dispatcher in keys/ owns the (layer, key) → handler
+// map; this type carries only rendering metadata.
 type Action struct {
-	// Key is the wire-level binding string from keybindings.md
-	// (e.g. "s", "Ctrl+S", "Shift+E", "gg" for the chord). This is
-	// what the dispatcher matches against incoming key events.
+	// Key is the wire-level binding string from keybindings.md the
+	// dispatcher matches against incoming key events (e.g. "s",
+	// "Ctrl+S", "gg" for the chord).
 	Key string
 
-	// DisplayKey overrides the chip label every renderer paints
-	// when set; empty (the common case) falls back to Key. Used
-	// for bindings whose affordance label disagrees with the
-	// dispatched key — e.g. `:` triggering command mode renders
-	// as `:cmd` so the operator reads "type colon, then a command
-	// name". Callers must read via ChipKey rather than touch the
-	// fields directly so the precedence stays in one place.
+	// DisplayKey overrides the chip label when set; empty falls back to
+	// Key. For bindings whose affordance label disagrees with the
+	// dispatched key (e.g. `:` rendering as `:cmd`). Read via ChipKey so
+	// the precedence stays in one place.
 	DisplayKey string
 
-	// Description is shown in the header hint strip and the help
-	// overlay. Short imperative phrases ("silence alert", "expire
-	// silence", "refresh") read best in both contexts.
+	// Description is the short imperative phrase shown in the header hint
+	// strip and the help overlay.
 	Description string
 
-	// View is the per-view scope this action belongs to. Empty
-	// means "global" — visible across every view. Concrete view
-	// names match the page packages (alerts, silences, status,
-	// receivers, groups, alert, tenant, silence_form).
+	// View is the per-view scope; empty means global. Names match the
+	// page packages (alerts, silences, status, ...).
 	View string
 
-	// Dangerous flags actions filtered out when read-only mode is
-	// active: silence create / update / expire, future Mimir config
-	// writes, and any other state-mutating verb.
+	// Dangerous flags state-mutating verbs filtered out in read-only mode
+	// (silence create / update / expire, future Mimir config writes).
 	Dangerous bool
 
-	// Bulk flags actions that require prior Space-mark selection.
-	// The dispatcher surfaces a flash hint when a Bulk action
-	// fires with no rows marked rather than silently no-oping.
+	// Bulk flags actions requiring prior Space-mark selection. The
+	// dispatcher flashes a hint when one fires with no rows marked rather
+	// than silently no-oping.
 	Bulk bool
 
-	// Shared flags a cross-cutting binding a page declares for its
-	// hint strip but that is not view-specific — the table-wide
-	// `Space`/mark verb every list page reuses. Mirrors k9s's
-	// KeyAction.Shared: the help overlay folds these into the
-	// GENERAL column instead of RESOURCE so a shared verb reads once,
-	// under the cross-cutting heading, rather than per page. The
-	// footer hint strip ignores the flag and still lists the binding.
+	// Shared flags a cross-cutting binding (the table-wide Space/mark verb
+	// every list page reuses). Mirrors k9s's KeyAction.Shared: the help
+	// overlay folds these into GENERAL so the verb reads once, but the
+	// footer hint strip still lists it per page.
 	Shared bool
 }
 
-// ChipKey is the precedence point for chip rendering: DisplayKey
-// when set, Key otherwise. Single source so a future renderer can
-// not forget the fallback.
+// ChipKey is the precedence point for chip rendering: DisplayKey when
+// set, Key otherwise.
 func (a Action) ChipKey() string {
 	if a.DisplayKey != "" {
 		return a.DisplayKey
@@ -73,14 +55,9 @@ func (a Action) ChipKey() string {
 	return a.Key
 }
 
-// FilterDangerous returns a fresh slice containing every entry of
-// in whose Dangerous flag is unset. Pages call it on their
-// Bindings() output when read-only mode is active so the hint
-// strip and the help overlay drop the write verbs without each
+// FilterDangerous returns a fresh slice of the entries whose Dangerous
+// flag is unset, so read-only mode drops write verbs without every
 // consumer re-implementing the predicate.
-//
-// Returns the input slice's elements when none are Dangerous —
-// safe because callers treat the output as read-only.
 func FilterDangerous(in []Action) []Action {
 	out := make([]Action, 0, len(in))
 	for _, a := range in {
