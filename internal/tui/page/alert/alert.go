@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package alert renders the alert-detail page — a read-only view
-// of one cached backend.Alert pushed from the alerts list row.
-// There is no extra GET on push: the alerts list snapshot is
-// sufficient and a poll tick will refresh it on its own schedule.
+// Package alert renders a read-only detail view of one cached
+// backend.Alert pushed from the alerts list; no GET on push, poll
+// refreshes it.
 package alert
 
 import (
@@ -37,28 +36,26 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// Clipboard is the page's copy-to-clipboard seam. The returned Cmd
-// is run by the bubbletea loop (OSC52 must go through the renderer,
-// not a raw stdout write); OSC52 is fire-and-forget, so there is no
-// failure to report.
+// Clipboard is the copy-to-clipboard seam. The Cmd runs in the
+// bubbletea loop because OSC52 must go through the renderer, not a
+// raw stdout write; it is fire-and-forget, so no failure to report.
 type Clipboard interface {
 	Copy(s string) tea.Cmd
 }
 
-// Browser is the page's open-URL seam. Errors surface as flash
-// messages.
+// Browser is the open-URL seam; errors surface as flash messages.
 type Browser interface {
 	Open(url string) error
 }
 
-// osc52Clipboard is the default Clipboard: it sets the system
-// clipboard via the terminal's OSC52 sequence, which works over SSH
-// and without an X/Wayland display.
+// osc52Clipboard is the default Clipboard, using the terminal's
+// OSC52 sequence so it works over SSH and without an X/Wayland display.
 type osc52Clipboard struct{}
 
 func (osc52Clipboard) Copy(s string) tea.Cmd { return tea.SetClipboard(s) }
 
-// Options bundles the per-page dependencies.
+// Options bundles the per-page dependencies. The fields forwarded to
+// the silences page pushed by `S` mirror silences.Options of the same name.
 type Options struct {
 	Alert  backend.Alert
 	Tenant string
@@ -84,26 +81,18 @@ type Options struct {
 	ReadOnly bool
 	// EditorResolver handles the `Ctrl+E` round-trip on the restricted
 	// silences page pushed by `S` (N>1). Zero value flashes a hint.
-	// Matches silences.Options.EditorResolver.
 	EditorResolver edit.Resolver
-	// EditorCtx is the parent ctx the editor subprocess and bulk-
-	// expire fanout inherit on the pushed silences page.
-	// nil falls back to context.Background(). Matches silences.Options.EditorCtx.
+	// EditorCtx is the parent ctx the editor subprocess and bulk-expire
+	// fanout inherit; nil falls back to context.Background().
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	// BulkConcurrency caps the per-tenant worker pool for bulk
-	// operations on the restricted silences page. Zero resolves to
-	// the config default inside silences.New. Matches silences.Options.BulkConcurrency.
+	// BulkConcurrency caps the per-tenant bulk worker pool; zero resolves
+	// to the config default inside silences.New.
 	BulkConcurrency int
-	// Logger receives per-failure detail from bulk operations on the
-	// pushed silences page. Nil suppresses logging. Matches silences.Options.Logger.
+	// Logger receives per-failure detail from bulk operations; nil suppresses logging.
 	Logger *slog.Logger
-	// BulkCtx is the parent ctx the bulk-expire fanout inherits on
-	// the pushed silences page. nil falls back to context.Background().
-	// Matches silences.Options.BulkCtx.
+	// BulkCtx is the parent ctx the bulk-expire fanout inherits; nil falls back to context.Background().
 	BulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
-	// SubmitCtx is the parent ctx the silence form's submit ctx
-	// derives from on the pushed silences page. nil falls back to
-	// context.Background(). Matches silences.Options.SubmitCtx.
+	// SubmitCtx is the parent ctx the silence form's submit ctx derives from; nil falls back to context.Background().
 	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
@@ -113,18 +102,14 @@ const (
 	silenceExpired   = "expired"
 )
 
-// Implements app.Page.
 type Page struct {
 	*detailpage.Base
 
 	a backend.Alert
-	// silencedBy is the de-duplicated, order-preserving SilencedBy
-	// list. Stored separately from a.SilencedBy so a non-conforming
-	// upstream that emits the same ID twice cannot make the body
-	// (which walks this list) and the picker (which resolves IDs
-	// for `S`) disagree on how many distinct silences exist —
-	// dedup at one boundary keeps both renderers in lockstep
-	// without mutating the cached Alert.
+	// silencedBy is the de-duplicated, order-preserving SilencedBy list,
+	// stored separately from a.SilencedBy so a non-conforming upstream
+	// emitting an ID twice can't make the body and the `S` picker
+	// disagree on the count — dedup at one boundary, no mutation of the cached Alert.
 	silencedBy []string
 	tenant     string
 	styles     *theme.Styles
@@ -132,36 +117,26 @@ type Page struct {
 	browser    Browser
 	now        func() time.Time
 
-	// clients is the per-tenant write surface for `s`. See Options.
 	clients map[string]silenceform.Client
 	creator string
 
 	// timeFormat is flipped by app.TimeFormatChangedMsg so the detail reads the same shape as the list.
 	timeFormat timerender.Format
 
-	// silences caches the polled snapshot for p.tenant only, keyed
-	// by silence ID. Populated from poll.DataMsg{ResourceLabel:
-	// "silences"} arriving via the App's cache replay (on push) or
-	// a live tick. Per-tenant filtering happens at ingest so the
-	// per-page state stays minimal — silenced-by IDs in
-	// backend.Alert are not cross-tenant.
+	// silences caches the polled snapshot for p.tenant only, keyed by ID.
+	// Filtering to one tenant at ingest keeps state minimal; silenced-by
+	// IDs in backend.Alert are never cross-tenant.
 	silences map[string]backend.Silence
 
-	// readOnly mirrors Options.ReadOnly. Bindings() filters
-	// Dangerous entries when set; the `s` handler flashes a hint
-	// instead of pushing the silence form.
+	// readOnly filters Dangerous bindings and turns `s` into a flash hint.
 	readOnly bool
 
-	// rawYAML toggles the body between the structured render
-	// (default) and a raw alert payload dumped via output.WriteYAML.
-	// k9s-style escape hatch for "what does the API actually
-	// return?" debugging. The toggle is per-page (does not persist
-	// across pushes) so a fresh drill-in always opens structured —
-	// the structured view is the more legible default for triage.
+	// rawYAML toggles the body to a raw payload dump (k9s-style escape
+	// hatch). Per-page, not persisted across pushes, so a fresh drill-in
+	// always opens on the more legible structured view.
 	rawYAML bool
 
-	// editorResolver, editorCtx, bulkConcurrency, logger, bulkCtx,
-	// submitCtx are forwarded to the restricted silences page pushed
+	// These fields are forwarded to the restricted silences page pushed
 	// by `S` when the alert has N>1 silenced-by IDs (ADR 0035).
 	editorResolver  edit.Resolver
 	editorCtx       context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
@@ -214,7 +189,6 @@ func (*Page) PollResources() []string { return []string{resourceSilences} }
 
 func (*Page) Crumb() string { return "detail" }
 
-// Appends ' [raw yaml]' suffix when raw mode is active.
 func (p *Page) Title() string {
 	scope := p.tenant
 	if scope == "" {
@@ -227,8 +201,7 @@ func (p *Page) Title() string {
 	return base
 }
 
-// Bindings: `y` toggles the raw-YAML escape hatch (k9s
-// convention); `c` owns copy-to-clipboard. Dangerous (`s`) entries
+// Bindings returns the page's key bindings; Dangerous (`s`) entries
 // are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
 	out := []action.Action{
@@ -244,9 +217,9 @@ func (p *Page) Bindings() []action.Action {
 	return out
 }
 
-// Update implements app.Page. Esc is intentionally NOT handled
-// here — the App's global LayerGlobal Esc binding pops the stack,
-// which is exactly the right behaviour for a detail page.
+// Update implements app.Page. Esc is intentionally NOT handled here —
+// the App's global LayerGlobal Esc binding pops the stack, the right
+// behaviour for a detail page.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
@@ -256,9 +229,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.ingestSilences(m)
 		return p, nil
 	case silenceform.SubmittedMsg:
-		// Form auto-popped; flash the new silence ID so the user
-		// sees confirmation. Same shape the alerts list / silences
-		// page use.
+		// Form auto-popped; flash the new ID for confirmation, same
+		// shape the alerts list / silences page use.
 		slog.Default().Info("silence write succeeded",
 			slog.String("op", "created"),
 			slog.String("id", m.ID),
@@ -275,10 +247,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	key := keyMsg.String()
 	switch key {
 	case "y":
-		// Toggle the raw-YAML body. Resetting scroll keeps the
-		// switch unsurprising — a long structured view scrolled
-		// halfway down would otherwise land the user mid-document
-		// in a YAML payload of a different length.
+		// Reset scroll on toggle: a half-scrolled structured view
+		// would otherwise land the user mid-document in a YAML payload
+		// of a different length.
 		p.rawYAML = !p.rawYAML
 		p.Scroll = 0
 		return p, nil
@@ -303,11 +274,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 }
 
 // ingestSilences caches the silences poll snapshot for p.tenant.
-// Out-of-resource and out-of-tenant payloads are ignored — the
-// suppression renderer only resolves IDs that came from the
-// alert's own backend, and dropping the rest keeps the page's
-// state proportional to one tenant's silence count rather than the
-// whole multi-tenant fan-out.
+// Out-of-resource and out-of-tenant payloads are dropped so state
+// stays proportional to one tenant rather than the whole fan-out.
 func (p *Page) ingestSilences(m poll.DataMsg) {
 	if m.ResourceLabel != resourceSilences || m.Tenant != p.tenant {
 		return
@@ -323,7 +291,8 @@ func (p *Page) ingestSilences(m poll.DataMsg) {
 	p.silences = next
 }
 
-// Empty / unknown tenant flashes a hint; matches the alerts list 's' UX.
+// openSilenceForm pushes the silence form; an empty or unknown tenant
+// flashes a hint instead, matching the alerts list `s` UX.
 func (p *Page) openSilenceForm() tea.Cmd {
 	if len(p.clients) == 0 || p.tenant == "" {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
@@ -401,7 +370,6 @@ func isSafeBrowserURL(raw string) bool {
 	return false
 }
 
-// rawYAML toggle swaps to a raw-payload dump; scroll/styling machinery is shared.
 func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
@@ -413,19 +381,17 @@ func (p *Page) View(width, height int) string {
 		lines = p.bodyLines(width)
 	}
 	visible := p.Visible(lines, height)
-	// Apply skin's YAML.Key / .Value / .Punct foreground roles per
-	// line. yamlstyle short-circuits anything that doesn't look
-	// like a real `key: value` row — comment-only lines, blank
-	// separators, "(none)" placeholders, and (crucially) wrap
-	// continuations + \n-split annotation segments whose pre-`:`
-	// portion contains brackets/equals.
+	// yamlstyle applies the skin's Key/Value/Punct roles and
+	// short-circuits non-`key: value` lines (blanks, "(none)", wrap
+	// continuations, bracketed annotation segments).
 	for i, line := range visible {
 		visible[i] = yamlstyle.Line(line, p.styles)
 	}
 	return listpage.Wrap(width, strings.Join(visible, "\n"))
 }
 
-// Builds the structured line list so View can slice and scroll clamps to exact length.
+// bodyLines builds the structured line list View slices, so the scroll
+// clamp has an exact length.
 func (p *Page) bodyLines(width int) []string {
 	out := make([]string, 0, 32)
 	out = append(out, splitLines(p.renderSummary())...)
@@ -444,13 +410,10 @@ func (p *Page) bodyLines(width int) []string {
 	return out
 }
 
-// alertYAML is the shape rendered when the user toggles raw mode
-// with `y`. Field order and key names mirror the Alertmanager v2
-// /api/v2/alerts wire payload so the body reads close to what the
-// API actually returns — that's the whole point of the escape
-// hatch. Empty optional
-// collections elide via `omitempty` so a non-suppressed alert
-// doesn't carry empty silencedBy / inhibitedBy / mutedBy noise.
+// alertYAML is the raw-mode (`y`) shape. Field order and key names
+// mirror the Alertmanager v2 /api/v2/alerts wire payload so the body
+// reads close to what the API returns; omitempty elides empty optional
+// collections so a non-suppressed alert carries no silencedBy noise.
 type alertYAML struct {
 	Fingerprint  string             `yaml:"fingerprint,omitempty"`
 	State        backend.AlertState `yaml:"state"`
@@ -465,11 +428,9 @@ type alertYAML struct {
 	Receivers    []string           `yaml:"receivers,omitempty"`
 }
 
-// rawYAMLLines marshals the alert as raw-mode YAML and returns it
-// as a flat line slice for the structured render's scroll / style
-// pipeline. Marshal failures surface as a single descriptive line
-// so the page never blanks. WriteYAML keeps indent / encoder
-// choice consistent with the headless `--output=yaml` path.
+// rawYAMLLines marshals the alert as raw-mode YAML into a flat line
+// slice. Marshal failure surfaces as one descriptive line so the page
+// never blanks; WriteYAML matches the headless `--output=yaml` path.
 func (p *Page) rawYAMLLines() []string {
 	doc := alertYAML{
 		Fingerprint:  p.a.Fingerprint,
@@ -499,23 +460,15 @@ func (p *Page) rawYAMLLines() []string {
 	return strings.Split(body, "\n")
 }
 
-// suppressionLines renders the silenced-by / inhibited-by /
-// muted-by lists for a suppressed alert. The silenced-by section
-// resolves UUIDs against the polled silences snapshot to surface
-// expiry / createdBy / comment alongside each ID, so the user can
-// triage without round-tripping to the silences page.
-// Inhibited-by and muted-by remain raw lists per the original
-// shape — fingerprint resolution and time-interval enrichment are
-// intentional non-goals here. The fixed section order
-// (silenced → inhibited → muted) is preserved so the same
-// suppressed alert renders identically across refreshes.
+// suppressionLines renders the silenced/inhibited/muted lists for a
+// suppressed alert. Silenced-by IDs resolve against the polled snapshot
+// to surface expiry/createdBy/comment for in-place triage; inhibited-by
+// and muted-by stay raw (enrichment is an intentional non-goal). The
+// fixed section order is preserved so refreshes render identically.
 //
-// Defensive empty-state: a suppressed alert with all three lists
-// empty shouldn't happen against vanilla Alertmanager, but a
-// non-conforming proxy or upstream bug could surface it. Render
-// `(no reason reported by Alertmanager)` so the section header
-// has at least one line under it instead of looking like a
-// render glitch.
+// The empty-state line guards a non-conforming upstream: all three lists
+// empty shouldn't happen against vanilla Alertmanager, but a placeholder
+// keeps the section from looking like a render glitch.
 func (p *Page) suppressionLines(width int) []string {
 	out := make([]string, 0, 8)
 	if len(p.silencedBy) > 0 {
@@ -540,22 +493,14 @@ func (p *Page) suppressionLines(width int) []string {
 	return out
 }
 
-// silenceRowIndent is the leading indent for each silenced-by row
-// under the "  silenced by:" sub-header. Two cols past the section
-// indent so the rows visually nest under their header.
+// silenceRowIndent nests each silenced-by row two cols past its
+// "  silenced by:" sub-header.
 const silenceRowIndent = "    "
 
-// silencedByRow renders one row for a silenced-by ID. Cache hit
-// produces the dense single-line summary; cache miss produces the
-// degraded marker row. The comment is clipped (width-aware) so a
-// long incident note never wraps the row and breaks the column
-// alignment of subsequent rows in the block.
-//
-// Whitespace-only and effectively-empty comments drop the "— "
-// separator so the row never reads with a dangling em-dash, and
-// terminals so narrow that the prefix already fills the width
-// also drop the separator (rather than render "— " followed by
-// nothing).
+// silencedByRow renders one silenced-by row (cache miss yields a
+// degraded marker). The comment is width-clipped so a long note never
+// wraps and breaks column alignment of later rows; empty comments or a
+// width-filling prefix drop the "— " separator to avoid a dangling em-dash.
 func (p *Page) silencedByRow(id string, width int) string {
 	s, ok := p.silences[id]
 	if !ok {
@@ -574,12 +519,9 @@ func (p *Page) silencedByRow(id string, width int) string {
 	return prefix + sep + clip
 }
 
-// expiryField renders the "<label> <value>" middle column. Label
-// flips with the app-global TimeFormat — "expires in" reads as a
-// duration, "ends" reads as a wall-clock — so the row stays
-// semantically honest in either mode and matches the summary-block
-// pattern at renderSummary's age/started flip. Past-case `expired`
-// is an alert-domain UX label absorbed here so timerender.Remaining
+// expiryField renders the middle column, flipping label with TimeFormat
+// ("expires in" duration vs "ends" wall-clock) to stay semantically
+// honest. The past-case `expired` label lives here so timerender.Remaining
 // stays strictly forward-looking per CONTEXT.md.
 func (p *Page) expiryField(ts time.Time) string {
 	if p.timeFormat == timerender.Absolute {
@@ -591,17 +533,11 @@ func (p *Page) expiryField(ts time.Time) string {
 	return "expires in " + timerender.Remaining(p.now(), ts)
 }
 
-// clipComment truncates s so it fits within budget columns (never
-// exceeds — the multiline branch used to overflow by one column at
-// the boundary), appending an ellipsis ("…", one column) whenever
-// content was hidden. A multiline comment ALWAYS ends in "…" even
-// when the first line fits, because the user otherwise has no
-// signal that more text exists below the rendered row.
-//
-// budget ≤ 0 returns "" so the caller can drop the row's "— "
-// separator and avoid a dangling em-dash; budget 1 returns just
-// the ellipsis, since we can't fit even one comment rune plus the
-// marker.
+// clipComment truncates s to at most budget columns, appending "…"
+// when content was hidden. A multiline comment ALWAYS ends in "…" even
+// if the first line fits, else the user has no signal that more text
+// exists below the row. budget ≤ 0 returns "" so the caller can drop
+// the "— " separator; budget 1 returns just the ellipsis.
 func clipComment(s string, budget int) string {
 	if budget <= 0 {
 		return ""
@@ -623,12 +559,9 @@ func clipComment(s string, budget int) string {
 	return s[:cut] + "…"
 }
 
-// openSilencedByDetail handles the `S` binding. Zero silenced-by
-// entries flashes a soft Info hint. One entry pushes silence-detail
-// directly. Two or more push the silences list page restricted to
-// the alert's silenced-by IDs (ADR 0035): same chrome, sort, filter,
-// marks, and write verbs as the regular silences page, with the title
-// reading silences(<alertname>) to signal the restriction scope.
+// openSilencedByDetail handles `S`: zero entries flash a hint, one
+// pushes silence-detail, two-plus push the silences list restricted to
+// the alert's silenced-by IDs (ADR 0035) with a silences(<alertname>) title.
 func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no silences attached to this alert")
@@ -674,10 +607,8 @@ func (p *Page) openSilencedByDetail() tea.Cmd {
 	})
 }
 
-// dedupStrings preserves first-occurrence order. Pulled out so the
-// `S` binding's ingest matches whatever ordering choice we made
-// elsewhere — first-seen-first matches the stable section order
-// already enforced for silenced/inhibited/muted in the body.
+// dedupStrings preserves first-occurrence order to match the stable
+// silenced/inhibited/muted section order in the body.
 func dedupStrings(in []string) []string {
 	seen := make(map[string]struct{}, len(in))
 	out := make([]string, 0, len(in))
@@ -691,18 +622,13 @@ func dedupStrings(in []string) []string {
 	return out
 }
 
-// openSilenceDetail pushes the silence detail page for the given
-// ID, sourced from the polled snapshot. Cache miss flashes an
-// Info hint pointing the user at `:silences` — the rendered
-// degraded row in the body is space-constrained and only carries
-// "(silence not in snapshot)", so the recovery path lives in this
-// flash, fired the moment the user actually presses `S`.
+// openSilenceDetail pushes silence detail for id from the polled
+// snapshot. Cache miss flashes a `:silences` recovery hint, since the
+// space-constrained degraded body row can't carry it.
 //
-// Note on TimeFormat: silence detail (internal/tui/page/silence)
-// renders RFC3339 timestamps unconditionally and does not honour
-// the app-global TimeFormat toggle, so there's nothing to forward
-// here. If that page ever grows a relative-mode renderer, thread
-// p.timeFormat through silencepage.Options at that time.
+// silence detail renders RFC3339 unconditionally and ignores the
+// app-global TimeFormat, so nothing is forwarded; thread p.timeFormat
+// through if that page ever grows a relative-mode renderer.
 func (p *Page) openSilenceDetail(id string) tea.Cmd {
 	s, ok := p.silences[id]
 	if !ok {
@@ -719,12 +645,11 @@ func (p *Page) openSilenceDetail(id string) tea.Cmd {
 	})
 }
 
-// splitLines splits s on \n. Used so renderSummary's multi-line
-// output joins naturally with the section headers in bodyLines.
+// splitLines splits s on \n so renderSummary's output joins with the
+// section headers in bodyLines.
 func splitLines(s string) []string { return strings.Split(s, "\n") }
 
-// renderSummary is the top block: alertname, state, severity,
-// fingerprint, age. Each on its own line for readability.
+// renderSummary is the top block, one field per line.
 func (p *Page) renderSummary() string {
 	lines := []string{
 		"alertname:   " + p.a.Labels["alertname"],
@@ -737,10 +662,8 @@ func (p *Page) renderSummary() string {
 		lines = append(lines, "fingerprint: "+p.a.Fingerprint)
 	}
 	if stamp := p.formatTime(p.a.StartsAt); stamp != "" {
-		// "age" reads as a duration; in absolute mode the line
-		// shows a wall-clock, so the label flips to "started" to
-		// stay semantically honest. Same column width so the
-		// values column doesn't shift on toggle.
+		// Label flips age→started in absolute mode (duration vs
+		// wall-clock); same width so the values column doesn't shift.
 		label := "age:         "
 		if p.timeFormat == timerender.Absolute {
 			label = "started:     "
@@ -753,13 +676,10 @@ func (p *Page) renderSummary() string {
 	return strings.Join(lines, "\n")
 }
 
-// kvLines renders a map as sorted "  key: value" lines. Embedded
-// "\n" characters in a value (common in Prometheus-style
-// annotations like "VALUE = 0\nLABELS = …") are honoured —
-// each line of the value is rendered as its own row with the
-// same hanging indent as wrap continuations, so multi-line
-// values read as one visually-aligned block under the value
-// column. Empty maps render as a single "  (none)" line.
+// kvLines renders a map as sorted "  key: value" lines. Embedded "\n"
+// in a value (common in Prometheus annotations) becomes its own row at
+// the wrap-continuation hanging indent, so multi-line values align
+// under the value column. Empty maps render as "  (none)".
 func kvLines(m map[string]string, width int) []string {
 	if len(m) == 0 {
 		return []string{"  (none)"}
@@ -785,14 +705,11 @@ func kvLines(m map[string]string, width int) []string {
 	return out
 }
 
-// wrapHanging breaks s into lines that fit width columns, with
-// continuation lines indented by hangingCols spaces so wrapped
-// values stay visually aligned with the first line. Word-wraps
-// at whitespace where possible; falls back to a hard cut when a
-// single word exceeds the available column budget — or, crucially,
-// when the only whitespace in rest sits inside the hanging indent
-// (a long no-internal-whitespace value would otherwise loop
-// forever cutting only the indent and never the content).
+// wrapHanging wraps s to width columns, indenting continuations by
+// hangingCols. Word-wraps at whitespace, hard-cutting when a single
+// word overflows — or, crucially, when the only whitespace sits inside
+// the hanging indent, which would otherwise loop forever cutting only
+// the indent and never the content.
 func wrapHanging(s string, width, hangingCols int) []string {
 	if width <= 0 {
 		return []string{s}
@@ -807,10 +724,8 @@ func wrapHanging(s string, width, hangingCols int) []string {
 	limit := width
 	for lipgloss.Width(rest) > limit {
 		cut := bestBreakIndex(rest, limit)
-		// Forward-progress guard: a cut at or before the leading
-		// indent yields a no-content line and never shrinks rest.
-		// Force a hard cut at the limit in that case so the loop
-		// always makes progress.
+		// Forward-progress guard: a cut at/before the indent yields a
+		// no-content line that never shrinks rest, so hard-cut instead.
 		if cut <= hangingCols {
 			cut = hardCutAt(rest, limit)
 		}
@@ -824,10 +739,8 @@ func wrapHanging(s string, width, hangingCols int) []string {
 	return out
 }
 
-// hardCutAt returns the byte index in s at which the leading
-// slice fits within limit columns. Used as the forward-progress
-// fallback when bestBreakIndex's whitespace-aware result would
-// stall the wrap loop.
+// hardCutAt returns the byte index where s's leading slice fits within
+// limit columns; the forward-progress fallback when bestBreakIndex stalls.
 func hardCutAt(s string, limit int) int {
 	width := 0
 	for i, r := range s {
@@ -840,17 +753,13 @@ func hardCutAt(s string, limit int) int {
 	return len(s)
 }
 
-// bestBreakIndex returns the byte index in s at which to split
-// so the leading slice fits within limit columns. Prefers the
-// last whitespace boundary at-or-before the limit; falls back to
-// a hard cut at the limit when a single word overflows it.
+// bestBreakIndex returns the byte index to split s so the leading slice
+// fits within limit columns, preferring the last whitespace at-or-before
+// the limit and hard-cutting when a single word overflows.
 func bestBreakIndex(s string, limit int) int {
 	if lipgloss.Width(s) <= limit {
 		return len(s)
 	}
-	// Walk forward tracking width; remember the last whitespace
-	// position. When width passes limit, break at that whitespace
-	// or, failing that, at the current position.
 	width := 0
 	lastWS := -1
 	for i, r := range s {
@@ -869,9 +778,8 @@ func bestBreakIndex(s string, limit int) int {
 	return len(s)
 }
 
-// formatTime renders ts according to the page's active time
-// format. Mirrors the alerts / silences formatters so the three
-// views agree on how the toggle reads.
+// formatTime renders ts in the page's active time format, mirroring
+// the alerts/silences formatters so the three views agree.
 func (p *Page) formatTime(ts time.Time) string {
 	return timerender.Display(p.timeFormat, p.now(), ts)
 }
