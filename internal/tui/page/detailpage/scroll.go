@@ -6,15 +6,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 )
 
-// HandleScrollKey consumes the seven scroll motions every detail
-// page binds today (j/down, k/up, G, Ctrl+D, Ctrl+U, Ctrl+F, Ctrl+B)
-// and reports whether the key was claimed. Unknown keys return
-// handled=false so the caller's main switch sees them unchanged.
+// HandleScrollKey consumes the seven scroll motions (j/k, G,
+// Ctrl+D/U/F/B) and reports whether the key was claimed. Unknown keys
+// return handled=false.
 //
-// The post-G "1 << 30" sentinel relies on the renderer's
-// ReconcileScroll call to clamp the offset against the actual
-// body length on the next frame — every detail page's View
-// already pins this contract.
+// The G "1 << 30" sentinel relies on the next frame's ReconcileScroll
+// to clamp it against the actual body length.
 func (b *Base) HandleScrollKey(key string) (handled bool) {
 	switch key {
 	case "j", "down":
@@ -39,10 +36,8 @@ func (b *Base) HandleScrollKey(key string) (handled bool) {
 	return true
 }
 
-// ReconcileScroll clamps Scroll into [0, max(totalLines-height, 0)]
-// so the visible window stays within the body. Mirrors the list
-// pages' viewport reconciliation but operates on flat-line indices
-// instead of row indices.
+// ReconcileScroll clamps Scroll into [0, max(totalLines-height, 0)] so
+// the visible window stays within the body.
 func (b *Base) ReconcileScroll(totalLines, height int) {
 	if b.Scroll < 0 {
 		b.Scroll = 0
