@@ -361,7 +361,7 @@ func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	t.Parallel()
 
 	// Regression: a 500-char value with NO internal whitespace
-	// previously sent wrapHanging into an infinite loop because
+	// previously sent format.Hanging into an infinite loop because
 	// every iteration's cut landed inside the hanging indent.
 	// The render must complete in well under a second.
 	a := sample()
@@ -375,7 +375,7 @@ func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	case out := <-done:
 		require.NotEmpty(t, out)
 	case <-time.After(2 * time.Second):
-		t.Fatal("View blocked — wrapHanging likely looped on a no-whitespace value")
+		t.Fatal("View blocked — format.Hanging likely looped on a no-whitespace value")
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	silencespage "github.com/wilfriedroset/a10r/internal/tui/page/silences"
@@ -401,7 +402,7 @@ func (p *Page) bodyLines(width int) []string {
 	out = append(out, kvLines(p.a.Annotations, width)...)
 	if p.a.GeneratorURL != "" {
 		out = append(out, "")
-		out = append(out, wrapHanging("Generator URL: "+p.a.GeneratorURL, width, len("Generator URL: "))...)
+		out = append(out, format.Hanging("Generator URL: "+p.a.GeneratorURL, width, len("Generator URL: "))...)
 	}
 	if p.a.State == backend.AlertStateSuppressed {
 		out = append(out, "", "Suppression:")
@@ -480,12 +481,12 @@ func (p *Page) suppressionLines(width int) []string {
 	if len(p.a.InhibitedBy) > 0 {
 		prefix := "  inhibited by: "
 		hangCols := lipgloss.Width(prefix)
-		out = append(out, wrapHanging(prefix+strings.Join(p.a.InhibitedBy, ", "), width, hangCols)...)
+		out = append(out, format.Hanging(prefix+strings.Join(p.a.InhibitedBy, ", "), width, hangCols)...)
 	}
 	if len(p.a.MutedBy) > 0 {
 		prefix := "  muted by:     "
 		hangCols := lipgloss.Width(prefix)
-		out = append(out, wrapHanging(prefix+strings.Join(p.a.MutedBy, ", "), width, hangCols)...)
+		out = append(out, format.Hanging(prefix+strings.Join(p.a.MutedBy, ", "), width, hangCols)...)
 	}
 	if len(out) == 0 {
 		return []string{"  (no reason reported by Alertmanager)"}
@@ -555,7 +556,7 @@ func clipComment(s string, budget int) string {
 	if width+1 <= budget {
 		return s + "…"
 	}
-	cut := hardCutAt(s, budget-1)
+	cut := format.HardCut(s, budget-1)
 	return s[:cut] + "…"
 }
 
@@ -699,83 +700,10 @@ func kvLines(m map[string]string, width int) []string {
 			if vi == 0 {
 				leading = prefix
 			}
-			out = append(out, wrapHanging(leading+segment, width, hangCols)...)
+			out = append(out, format.Hanging(leading+segment, width, hangCols)...)
 		}
 	}
 	return out
-}
-
-// wrapHanging wraps s to width columns, indenting continuations by
-// hangingCols. Word-wraps at whitespace, hard-cutting when a single
-// word overflows — or, crucially, when the only whitespace sits inside
-// the hanging indent, which would otherwise loop forever cutting only
-// the indent and never the content.
-func wrapHanging(s string, width, hangingCols int) []string {
-	if width <= 0 {
-		return []string{s}
-	}
-	if lipgloss.Width(s) <= width {
-		return []string{s}
-	}
-	hang := strings.Repeat(" ", hangingCols)
-
-	var out []string
-	rest := s
-	limit := width
-	for lipgloss.Width(rest) > limit {
-		cut := bestBreakIndex(rest, limit)
-		// Forward-progress guard: a cut at/before the indent yields a
-		// no-content line that never shrinks rest, so hard-cut instead.
-		if cut <= hangingCols {
-			cut = hardCutAt(rest, limit)
-		}
-		if cut <= 0 {
-			break // pathological input; emit what we have
-		}
-		out = append(out, rest[:cut])
-		rest = hang + strings.TrimLeft(rest[cut:], " ")
-	}
-	out = append(out, rest)
-	return out
-}
-
-// hardCutAt returns the byte index where s's leading slice fits within
-// limit columns; the forward-progress fallback when bestBreakIndex stalls.
-func hardCutAt(s string, limit int) int {
-	width := 0
-	for i, r := range s {
-		rw := lipgloss.Width(string(r))
-		if width+rw > limit {
-			return i
-		}
-		width += rw
-	}
-	return len(s)
-}
-
-// bestBreakIndex returns the byte index to split s so the leading slice
-// fits within limit columns, preferring the last whitespace at-or-before
-// the limit and hard-cutting when a single word overflows.
-func bestBreakIndex(s string, limit int) int {
-	if lipgloss.Width(s) <= limit {
-		return len(s)
-	}
-	width := 0
-	lastWS := -1
-	for i, r := range s {
-		rw := lipgloss.Width(string(r))
-		if width+rw > limit {
-			if lastWS > 0 {
-				return lastWS
-			}
-			return i
-		}
-		if r == ' ' {
-			lastWS = i
-		}
-		width += rw
-	}
-	return len(s)
 }
 
 // formatTime renders ts in the page's active time format, mirroring
