@@ -1,9 +1,17 @@
 # a10r
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![CI](https://github.com/wilfriedroset/a10r/actions/workflows/ci.yml/badge.svg)](https://github.com/wilfriedroset/a10r/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/wilfriedroset/a10r)](https://goreportcard.com/report/github.com/wilfriedroset/a10r)
+[![Latest release](https://img.shields.io/github/v/release/wilfriedroset/a10r)](https://github.com/wilfriedroset/a10r/releases/latest)
 
-A modern, fast, intuitive TUI for [Prometheus Alertmanager][am] and
-[Grafana Mimir][mimir], inspired by [k9s][k9s].
+a10r is to Alertmanager what k9s is to Kubernetes — a fast,
+terminal-native TUI for people who live in tmux and would rather
+press `s` than click through a web UI to silence a flapping
+alert.
+
+Built for SREs, devs, and on-callers who want the alertmanager
+day-to-day to feel like kubectl day-to-day.
 
 ## Features
 
@@ -43,17 +51,63 @@ A modern, fast, intuitive TUI for [Prometheus Alertmanager][am] and
   Grafana Mimir (v2.17+) via prefix + tenant header. Multi-tenant
   fan-out with bounded goroutine pool.
 
+## Project status
+
+a10r is a spare-time project, built for fun and experimentation.
+Issues and PRs are reviewed when there's bandwidth — days,
+sometimes weeks. Contributions are very welcome (see
+CONTRIBUTING.md); the faster path to a feature is a
+well-tested PR, not a feature request.
+
+## Why a10r?
+
+If you live in tmux, dislike clicking through the Alertmanager
+web UI, and want fast vim-motion silencing across multiple
+tenants, a10r is for you.
+
+Prior art: [`pehlicd/amtui`][amtui] is another Alertmanager TUI
+worth knowing about — a different shape (different aesthetic,
+single-tenant focus). a10r exists because the multi-tenant +
+k9s-aesthetic niche was unfilled.
+
+## How a10r is built
+
+a10r is built with agentic coding — a human maintainer driving
+an LLM coding agent under a strict TDD loop with per-commit
+subagent review. Every commit lands with tests for the happy
+path and meaningful edge cases; no commit lands on `main`
+without review.
+
+The specific agent used at any given time is a maintainer
+detail, recorded honestly in commit trailers. Today it's Claude
+Code; tomorrow it might be something else.
+
 ## Install
+
+### `go install`
 
 ```sh
 go install github.com/wilfriedroset/a10r@v0.1.0
 ```
 
+### Release binaries
+
 Binary releases land on the [GitHub release page][rel] once the
 v0.1.0 tag is pushed: Linux (amd64, arm64, armv7), FreeBSD (amd64,
 arm64), Windows (amd64, arm64), and a single Darwin universal
 tarball (amd64+arm64 merged), plus deb / rpm / apk packages for
-linux amd64 / arm64 / arm.
+linux amd64 / arm64 / arm. The checksums file is cosign-signed
+(keyless via Sigstore); verify with `cosign verify-blob`.
+
+### Build from source
+
+```sh
+git clone https://github.com/wilfriedroset/a10r
+cd a10r
+make build      # produces ./a10r
+```
+
+Requires Go (see `go.mod` for the toolchain floor).
 
 ## Quickstart
 
@@ -145,6 +199,8 @@ Environment variables in any string field are expanded via
 - [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
 - [`docs/end-users/troubleshooting.md`](docs/end-users/troubleshooting.md) — common problems, diagnostic flags.
+- [`CONTEXT.md`](CONTEXT.md) — the domain glossary: alerts, silences, tenants, the vocabulary the code speaks.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — package layout and the birth-of-a-page / birth-of-a-backend-call walkthroughs.
 - [`docs/adr/`](docs/adr/) — architecture decision records: the decisions that shaped the implementation and why.
 - [`docs/contributor/`](docs/contributor/) — contributor guides (skin authoring, review prompt).
 
@@ -160,6 +216,18 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md). The TL;DR is:
   `go test -race ./...` must be green.
 - DCO sign-off required (`git commit -s`).
 
+## Acknowledgements
+
+a10r exists because [k9s][k9s] showed the shape of the thing.
+Where the design is good, the credit goes there; where it's bad,
+that's on us. The skin schema is a deliberate drop-in of k9s's,
+so your favourite k9s skin works here too.
+
+Also standing on the shoulders of [Bubble Tea][bt],
+[lipgloss][lg], [Catppuccin][cp], [gruvbox][gb], and the
+[Alertmanager][am] and [Mimir][mimir] teams who built the
+systems we sit on top of.
+
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
@@ -167,4 +235,9 @@ Apache 2.0. See [LICENSE](LICENSE).
 [am]: https://github.com/prometheus/alertmanager
 [mimir]: https://github.com/grafana/mimir
 [k9s]: https://github.com/derailed/k9s
+[bt]: https://github.com/charmbracelet/bubbletea
+[lg]: https://github.com/charmbracelet/lipgloss
+[cp]: https://github.com/catppuccin/catppuccin
+[gb]: https://github.com/morhetz/gruvbox
+[amtui]: https://github.com/pehlicd/amtui
 [rel]: https://github.com/wilfriedroset/a10r/releases
