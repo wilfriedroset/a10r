@@ -144,8 +144,8 @@ delete or update any that no longer match.
 
 - Mimir-specific actions beyond what v0.1 ships (config viewer,
   ring inspector). The capability flags are already plumbed.
-- More themes. The bundled three are intentionally minimal;
-  user skins under `<config-dir>/skins/` shadow them by basename.
+- More themes. The bundled twelve span two families (catppuccin and
+  ovhcloud); user skins under `<config-dir>/skins/` shadow them by basename.
 - Editor integrations beyond vi / vim / nano / notepad. The
   `Resolver.EditorEnv` shape supports anything `$EDITOR` accepts.
 - Localisation of the help overlay strings.

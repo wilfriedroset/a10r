@@ -4,7 +4,7 @@ package backend
 
 import "errors"
 
-// Sentinel errors define the three "interesting" failure modes the
+// Sentinel errors define the five "interesting" failure modes the
 // rest of the codebase branches on. Other failure types flow
 // through as plain errors and the caller treats them as one-shot
 // operational issues.
