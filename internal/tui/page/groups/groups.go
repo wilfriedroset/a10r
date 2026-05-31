@@ -40,11 +40,6 @@ const (
 
 const resourceGroups = "groups"
 
-const (
-	severityCritical = "critical"
-	severityWarning  = "warning"
-)
-
 // groupSortColumns returns the page's sortable axes. Count and
 // severity default DESC (noisiest / worst groups land first —
 // triage priority); name defaults ASC (alphabetical reading

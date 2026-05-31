@@ -70,11 +70,6 @@ const (
 // silently re-target label lookups.
 const labelAlertname = "alertname"
 
-const (
-	severityCritical = "critical"
-	severityWarning  = "warning"
-)
-
 // alertSortColumns returns the page's sortable column set, now keyed
 // on the alertname aggregate. Severity and count default DESC (worst /
 // largest first); alertname and age read naturally ascending. Every

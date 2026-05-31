@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"charm.land/lipgloss/v2"
-
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
@@ -134,7 +132,7 @@ func (p *Page) renderRow(r row, focused bool, width int) string {
 		// k9s parity: cursor bg tracks the row's semantic colour
 		// (max severity for groups) rather than the static
 		// cursorBgColor — see k9s select_table.go:128.
-		rowColor := severityStyleByRank(entry.severityRank, p.styles).GetForeground()
+		rowColor := p.styles.Severity.ForLabel(backend.SeverityLabel(entry.severityRank)).GetForeground()
 		return p.styles.Table.CursorOver(rowColor).Render(body)
 	}
 	return body
@@ -160,9 +158,9 @@ func (p *Page) writeGroupCells(b *strings.Builder, r row, entry groupEntry, focu
 	count := strconv.Itoa(len(entry.g.Alerts))
 	b.WriteString(format.PadRight(count, countW))
 
-	sev := severityLabelByRank(entry.severityRank)
+	sev := backend.SeverityLabel(entry.severityRank)
 	if !focused {
-		sev = severityStyleByRank(entry.severityRank, p.styles).Render(sev)
+		sev = p.styles.Severity.ForLabel(backend.SeverityLabel(entry.severityRank)).Render(sev)
 	}
 	b.WriteString(format.PadRight(sev, sevW))
 }
@@ -224,37 +222,6 @@ func (p *Page) columnWidths(width int) (tenant, name, count, sev int) {
 	sev = severityColWidth
 	name = max(width-tenant-treeColWidth-count-sev, 10)
 	return tenant, name, count, sev
-}
-
-// severityLabelByRank inverts backend.SeverityRank to the printable
-// label so the SEVERITY column reads consistently with the alerts
-// page's per-row severity cell. Unknown rank renders as `—` to
-// match alerts.severityOf.
-func severityLabelByRank(rank int) string {
-	switch rank {
-	case 3:
-		return severityCritical
-	case 2:
-		return severityWarning
-	case 1:
-		return "info"
-	}
-	return "—"
-}
-
-// severityStyleByRank picks the lipgloss style for the SEVERITY
-// cell, mirroring alerts.severityStyle so a "critical" cell tints
-// the same on both pages.
-func severityStyleByRank(rank int, styles *theme.Styles) lipgloss.Style {
-	switch rank {
-	case 3:
-		return styles.Severity.Critical
-	case 2:
-		return styles.Severity.Warning
-	case 1:
-		return styles.Severity.Info
-	}
-	return styles.Severity.Unknown
 }
 
 // labelSummary renders a "k=v, k=v" preview of a label-set so the

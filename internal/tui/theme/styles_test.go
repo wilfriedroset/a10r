@@ -50,3 +50,31 @@ func TestFgOnly_TerminalDefaultEmitsNoSGR(t *testing.T) {
 	require.NotContains(t, out, "\x1b[",
 		"FgOnly with the terminal-default sentinel must render without SGR escapes; got %q", out)
 }
+
+func TestSeverityStyle_ForLabel(t *testing.T) {
+	t.Parallel()
+
+	s := SeverityStyle{
+		Critical: FgOnly(lipgloss.Color("#f00")),
+		Warning:  FgOnly(lipgloss.Color("#fa0")),
+		Info:     FgOnly(lipgloss.Color("#0af")),
+		Unknown:  FgOnly(lipgloss.Color("#888")),
+	}
+	for _, tc := range []struct {
+		label string
+		want  lipgloss.Style
+	}{
+		{"critical", s.Critical},
+		{"Critical", s.Critical},
+		{"warning", s.Warning},
+		{"info", s.Info},
+		{"fatal", s.Unknown},
+		{"—", s.Unknown},
+		{"", s.Unknown},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want.GetForeground(), s.ForLabel(tc.label).GetForeground())
+		})
+	}
+}

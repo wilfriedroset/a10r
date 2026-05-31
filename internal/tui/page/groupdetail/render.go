@@ -14,7 +14,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
-	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -207,7 +206,7 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
 	// the result — colouring never changes the cell's width.
 	labels := ellipsizeMiddle(entry.distinguishSummary, flexW)
 	if colour {
-		sevCell = severityStyle(a, p.styles).Render(sevCell)
+		sevCell = p.styles.Severity.ForLabel(a.Labels["severity"]).Render(sevCell)
 		labels = p.styleDistinguish(labels)
 	}
 	prefix := "  "
@@ -218,7 +217,7 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
 	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 	switch {
 	case isCursor:
-		return p.styles.Table.CursorOver(severityStyle(a, p.styles).GetForeground()).Render(line)
+		return p.styles.Table.CursorOver(p.styles.Severity.ForLabel(a.Labels["severity"]).GetForeground()).Render(line)
 	case marked:
 		return p.styles.Table.MarkedFg.Render(line)
 	case !isActive:
@@ -407,19 +406,4 @@ func severityOf(a backend.Alert) string {
 		return v
 	}
 	return "—"
-}
-
-// severityStyle returns the lipgloss style for a's severity so the
-// SEVERITY cell can be foreground-tinted. Unknown / missing values
-// fall back to Severity.Unknown.
-func severityStyle(a backend.Alert, styles *theme.Styles) lipgloss.Style {
-	switch strings.ToLower(a.Labels["severity"]) {
-	case "critical":
-		return styles.Severity.Critical
-	case "warning":
-		return styles.Severity.Warning
-	case "info":
-		return styles.Severity.Info
-	}
-	return styles.Severity.Unknown
 }

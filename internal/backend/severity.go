@@ -34,3 +34,18 @@ func SeverityRank(labels map[string]string) int {
 	}
 	return 0
 }
+
+// SeverityLabel is the inverse of SeverityRank: it maps a rank back to
+// its printable label so a list cell can headline the worst severity
+// in a group. Rank 0 (no recognised severity) renders "—".
+func SeverityLabel(rank int) string {
+	switch rank {
+	case 3:
+		return severityCritical
+	case 2:
+		return severityWarning
+	case 1:
+		return severityInfo
+	}
+	return "—"
+}

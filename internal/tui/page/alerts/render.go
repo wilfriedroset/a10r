@@ -182,10 +182,10 @@ func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, s
 		mark = "✓"
 	}
 	rowStyled := i == p.Index() || marked || g.allSuppressed()
-	sevCell := severityLabelForRank(g.severityRank)
+	sevCell := backend.SeverityLabel(g.severityRank)
 	stateCell := p.stateCell(g, stateIdx, cols, rowStyled)
 	if !rowStyled {
-		sevCell = severityStyleForRank(g.severityRank, p.styles).Render(sevCell)
+		sevCell = p.styles.Severity.ForLabel(backend.SeverityLabel(g.severityRank)).Render(sevCell)
 	}
 	row := make([]string, 0, 6)
 	if showTenant {
@@ -207,7 +207,7 @@ func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, s
 	case i == p.Index():
 		// k9s parity: cursor bg tracks the row's semantic colour
 		// (max severity), not a static cursor colour.
-		rowColor := severityStyleForRank(g.severityRank, p.styles).GetForeground()
+		rowColor := p.styles.Severity.ForLabel(backend.SeverityLabel(g.severityRank)).GetForeground()
 		line = p.styles.Table.CursorOver(rowColor).Render(line)
 	case marked:
 		line = p.styles.Table.MarkedFg.Render(line)
@@ -383,7 +383,7 @@ func (p *Page) columnSpecs() []format.Column {
 		if w := lipgloss.Width(g.tenant); w > tenantContent {
 			tenantContent = w
 		}
-		if w := lipgloss.Width(severityLabelForRank(g.severityRank)); w > sevContent {
+		if w := lipgloss.Width(backend.SeverityLabel(g.severityRank)); w > sevContent {
 			sevContent = w
 		}
 		if w := lipgloss.Width(countCell(g)); w > countContent {
@@ -429,38 +429,6 @@ func (p *Page) columnSpecs() []format.Column {
 // three views agree on how the toggle reads.
 func (p *Page) formatTime(ts time.Time) string {
 	return timerender.Display(p.timeFormat, p.now(), ts)
-}
-
-// severityLabelForRank is the inverse of backend.SeverityRank: it
-// maps the group's max rank back to its printable label so the
-// SEVERITY cell headlines the worst severity in the group. Rank 0
-// (no recognised severity anywhere in the group) renders "—".
-func severityLabelForRank(rank int) string {
-	switch rank {
-	case 3:
-		return severityCritical
-	case 2:
-		return severityWarning
-	case 1:
-		return "info"
-	}
-	return "—"
-}
-
-// severityStyleForRank returns the lipgloss style for the group's max
-// severity rank so the renderer can foreground-tint the SEVERITY cell.
-// Rank 0 falls back to Severity.Unknown so every cell gets a
-// consistent palette ref rather than a bare default.
-func severityStyleForRank(rank int, styles *theme.Styles) lipgloss.Style {
-	switch rank {
-	case 3:
-		return styles.Severity.Critical
-	case 2:
-		return styles.Severity.Warning
-	case 1:
-		return styles.Severity.Info
-	}
-	return styles.Severity.Unknown
 }
 
 // stateBucket pairs a non-zero state tally with its rendering inputs.

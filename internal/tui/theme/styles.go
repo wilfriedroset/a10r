@@ -5,6 +5,7 @@ package theme
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 )
@@ -119,6 +120,21 @@ type SeverityStyle struct {
 	Warning  lipgloss.Style
 	Info     lipgloss.Style
 	Unknown  lipgloss.Style
+}
+
+// ForLabel returns the style for a severity label. Anything
+// unrecognised (including missing or the "—" placeholder) falls back
+// to Unknown so every cell gets a consistent palette ref.
+func (s SeverityStyle) ForLabel(label string) lipgloss.Style {
+	switch strings.ToLower(label) {
+	case "critical":
+		return s.Critical
+	case "warning":
+		return s.Warning
+	case "info":
+		return s.Info
+	}
+	return s.Unknown
 }
 
 // SilenceStateStyle colours silence rows by status.state.

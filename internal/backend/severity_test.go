@@ -31,3 +31,34 @@ func TestSeverityRank(t *testing.T) {
 		})
 	}
 }
+
+func TestSeverityLabel(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		rank int
+		want string
+	}{
+		{3, "critical"},
+		{2, "warning"},
+		{1, "info"},
+		{0, "—"},
+		{-1, "—"},
+		{99, "—"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, SeverityLabel(tc.rank))
+		})
+	}
+}
+
+func TestSeverityRankLabelRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	for _, sev := range []string{"critical", "warning", "info"} {
+		require.Equal(t, sev, SeverityLabel(SeverityRank(map[string]string{"severity": sev})),
+			"rank then label must round-trip a recognised severity")
+	}
+}
