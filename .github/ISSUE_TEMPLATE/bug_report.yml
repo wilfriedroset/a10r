@@ -1,0 +1,118 @@
+---
+name: Bug report
+description: Report something that does not work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please fill in as
+        much as you can — the version, environment, and reproduction
+        steps are what make a report actionable.
+
+  - type: input
+    id: a10r-version
+    attributes:
+      label: a10r version
+      description: Output of `a10r --version`.
+      placeholder: "v0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: "Only if you built from source: output of `go version`."
+      placeholder: "go1.25.0"
+    validations:
+      required: false
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / architecture
+      description: e.g. `Linux amd64`, `macOS arm64`, `FreeBSD amd64`.
+      placeholder: "Linux amd64"
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal emulator
+      description: e.g. `alacritty`, `kitty`, `tmux`, `iTerm2`, `Windows Terminal`.
+      placeholder: "tmux + alacritty"
+    validations:
+      required: true
+
+  - type: input
+    id: backend-version
+    attributes:
+      label: Alertmanager / Mimir version
+      description: The backend a10r was talking to, and which kind.
+      placeholder: "Alertmanager v0.28.1"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps that reliably trigger the bug.
+      placeholder: |
+        1. Start a10r against ...
+        2. Open the alerts page
+        3. Press ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: |
+        a10r writes to `$XDG_STATE_HOME/a10r/a10r.log` (default
+        `~/.local/state/a10r/a10r.log`); override with `A10R_LOG`.
+        Paste the relevant lines. Redact anything sensitive.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: text-copy
+    attributes:
+      label: Screen text-copy
+      description: |
+        Copy-pasted terminal text of the broken screen, if a
+        screenshot is not practical. Use a code block to preserve
+        layout.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: |
+        Screenshots of the broken screen make a TUI bug far easier
+        to understand than words alone. Please attach one or more if
+        you can — drag images directly into this box. Redact any
+        sensitive labels, tenants, or hostnames first.
+    validations:
+      required: false
