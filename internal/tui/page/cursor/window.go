@@ -3,22 +3,18 @@
 package cursor
 
 // Window bundles a list page's cursor, top-of-visible-window, and
-// body-height state under one type, with every state-changing
-// method reconciling topRow against (cursor, items, bodyHeight)
-// internally. The zero value is usable: cursor=0, topRow=0,
-// bodyHeight=0 with the fallback applied inside MoveCursor for
-// the pre-first-WindowSizeMsg case.
-//
-// See ADR-0016 for the rationale and the rejected alternatives.
+// body-height state, with every state-changing method reconciling
+// topRow internally. The zero value is usable (a step fallback handles
+// the pre-first-WindowSizeMsg case). See ADR-0016.
 type Window struct {
 	cursor     int
 	topRow     int
 	bodyHeight int
 }
 
-// NewWindow constructs a Window with the given seed state. Tests
-// use this to set up scenarios; production code embeds a zero-value
-// Window and lets SetViewport / MoveCursor populate it.
+// NewWindow constructs a Window with the given seed state. Production
+// code embeds a zero-value Window and lets SetViewport / MoveCursor
+// populate it.
 func NewWindow(cursor, topRow, bodyHeight int) Window {
 	return Window{cursor: cursor, topRow: topRow, bodyHeight: bodyHeight}
 }
@@ -29,13 +25,12 @@ func (w *Window) Index() int { return w.cursor }
 // TopRow returns the first visible row index.
 func (w *Window) TopRow() int { return w.topRow }
 
-// MoveCursor processes the vim-style table motion bindings
-// (j/down, k/up, G, Ctrl+D/U, Ctrl+F/B) and reconciles topRow.
+// MoveCursor processes the vim-style table motions (j/k, G,
+// Ctrl+D/U/F/B) and reconciles topRow.
 //
-// handled reports whether the key was consumed (keymap-walk gate);
-// changed reports whether the cursor index actually moved
-// (focus-snapshot gate). They diverge on j-at-last-row and
-// k-at-row-0: handled=true, changed=false.
+// handled is the keymap-walk gate (key consumed); changed is the
+// focus-snapshot gate (cursor index moved). They diverge on
+// j-at-last-row and k-at-row-0: handled=true, changed=false.
 func (w *Window) MoveCursor(key string, items int) (changed, handled bool) {
 	last := max(items-1, 0)
 	prev := w.cursor
