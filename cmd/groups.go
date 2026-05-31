@@ -102,8 +102,8 @@ func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts 
 		},
 		Renderers: map[output.Format]listcmd.Renderer[groupRow]{
 			output.FormatTable: renderGroupTable,
-			output.FormatJSON:  renderGroupJSON,
-			output.FormatYAML:  renderGroupYAML,
+			output.FormatJSON:  listcmd.JSONRenderer[groupRow],
+			output.FormatYAML:  listcmd.YAMLRenderer[groupRow],
 		},
 		Sort:          sortGroupRows,
 		ResourceLabel: "group",
@@ -184,20 +184,6 @@ func sortGroupRows(rows []groupRow) {
 		}
 		return rows[i].Count < rows[j].Count
 	})
-}
-
-func renderGroupJSON(out io.Writer, rows []groupRow) error {
-	if err := output.WriteJSON(out, rows); err != nil {
-		return fmt.Errorf("write json: %w", err)
-	}
-	return nil
-}
-
-func renderGroupYAML(out io.Writer, rows []groupRow) error {
-	if err := output.WriteYAML(out, rows); err != nil {
-		return fmt.Errorf("write yaml: %w", err)
-	}
-	return nil
 }
 
 func renderGroupTable(out io.Writer, rows []groupRow) error {

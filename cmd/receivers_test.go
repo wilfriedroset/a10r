@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 )
 
 func TestToReceiverRow_PreservesShape(t *testing.T) {
@@ -56,7 +57,7 @@ func TestRenderReceiverRows_JSONShape(t *testing.T) {
 		{Tenant: "prod", Name: "pager-duty"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderReceiverJSON(&buf, rows))
+	require.NoError(t, listcmd.JSONRenderer(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"name": "pager-duty"`)

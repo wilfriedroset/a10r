@@ -80,8 +80,8 @@ func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, op
 		},
 		Renderers: map[output.Format]listcmd.Renderer[receiverRow]{
 			output.FormatTable: renderReceiverTable,
-			output.FormatJSON:  renderReceiverJSON,
-			output.FormatYAML:  renderReceiverYAML,
+			output.FormatJSON:  listcmd.JSONRenderer[receiverRow],
+			output.FormatYAML:  listcmd.YAMLRenderer[receiverRow],
 		},
 		Sort:          sortReceiverRows,
 		ResourceLabel: "receiver",
@@ -105,20 +105,6 @@ func sortReceiverRows(rows []receiverRow) {
 		}
 		return rows[i].Name < rows[j].Name
 	})
-}
-
-func renderReceiverJSON(out io.Writer, rows []receiverRow) error {
-	if err := output.WriteJSON(out, rows); err != nil {
-		return fmt.Errorf("write json: %w", err)
-	}
-	return nil
-}
-
-func renderReceiverYAML(out io.Writer, rows []receiverRow) error {
-	if err := output.WriteYAML(out, rows); err != nil {
-		return fmt.Errorf("write yaml: %w", err)
-	}
-	return nil
 }
 
 func renderReceiverTable(out io.Writer, rows []receiverRow) error {

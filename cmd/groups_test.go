@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/listcmd"
 )
 
 func TestToGroupRow_DedupsAndSortsReceivers(t *testing.T) {
@@ -122,7 +123,7 @@ func TestRenderGroupRows_JSONIncludesLabelsMap(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, renderGroupJSON(&buf, rows))
+	require.NoError(t, listcmd.JSONRenderer(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, `"tenant": "prod"`)
 	require.Contains(t, out, `"team": "plat"`,

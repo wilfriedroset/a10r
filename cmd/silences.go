@@ -171,8 +171,8 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		},
 		Renderers: map[output.Format]listcmd.Renderer[silenceRow]{
 			output.FormatTable: renderSilenceTable,
-			output.FormatJSON:  renderSilenceJSON,
-			output.FormatYAML:  renderSilenceYAML,
+			output.FormatJSON:  listcmd.JSONRenderer[silenceRow],
+			output.FormatYAML:  listcmd.YAMLRenderer[silenceRow],
 		},
 		Sort:          sortSilenceRows,
 		ResourceLabel: "silence",
@@ -263,20 +263,6 @@ func sortSilenceRows(rows []silenceRow) {
 		}
 		return rows[i].ID < rows[j].ID
 	})
-}
-
-func renderSilenceJSON(out io.Writer, rows []silenceRow) error {
-	if err := output.WriteJSON(out, rows); err != nil {
-		return fmt.Errorf("write json: %w", err)
-	}
-	return nil
-}
-
-func renderSilenceYAML(out io.Writer, rows []silenceRow) error {
-	if err := output.WriteYAML(out, rows); err != nil {
-		return fmt.Errorf("write yaml: %w", err)
-	}
-	return nil
 }
 
 func renderSilenceTable(out io.Writer, rows []silenceRow) error {
