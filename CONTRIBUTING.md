@@ -4,6 +4,13 @@ Thanks for considering a contribution. a10r is a small project
 with a deliberately narrow surface and high quality bar — please
 read this document fully before opening a PR.
 
+## AI-assisted contributions
+
+AI-assisted contributions are welcome on the same terms as any
+other — DCO sign-off, tests, conventional commits, clean
+`prek -a`. Use whatever agent (or no agent) suits you. Tell us
+in the PR description; we're curious, not judgemental.
+
 ## DCO
 
 a10r enforces the [Developer Certificate of Origin][dco]. Every
@@ -83,10 +90,10 @@ need-work items are addressed before merging.
 
 The exact prompt the reviewer runs is in
 [`docs/contributor/review-prompt.md`](docs/contributor/review-prompt.md);
-copy it verbatim to reproduce the review with any tool. Claude
-Code users spawn it via the `code-reviewer` agent
-(`.claude/agents/code-reviewer.md`), which delegates to the same
-prompt under a read-only tool restriction.
+copy it verbatim to reproduce the review with whatever agent you
+drive, under a read-only tool restriction. Agents that load
+repo-local definitions will find a ready-made reviewer that
+delegates to the same prompt.
 
 Pure-doc / config-only commits skip the review but still pass
 `prek -a`.
