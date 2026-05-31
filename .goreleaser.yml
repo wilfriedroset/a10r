@@ -85,6 +85,18 @@ archives:
 checksum:
   name_template: checksums.sha256
 
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--yes"
+      - "--output-signature=${signature}"
+      - "--output-certificate=${certificate}"
+      - "${artifact}"
+    artifacts: checksum
+
 snapshot:
   version_template: "{{ .Tag }}-next"
 
@@ -99,8 +111,8 @@ changelog:
       - "Merge pull request"
 
 nfpms:
-  - file_name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
-    maintainer: Wilfried Roset <Wilfried.roset@ovhcloud.com>
+  - file_name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    maintainer: Wilfried Roset <a10r@duck.com>
     homepage: https://github.com/wilfriedroset/a10r
     description: |
       Modern, fast, intuitive TUI for Prometheus Alertmanager and Grafana Mimir.

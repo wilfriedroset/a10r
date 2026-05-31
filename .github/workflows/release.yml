@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  # Keyless cosign signing of the checksums file via Sigstore.
+  id-token: write
 
 jobs:
   release:
@@ -23,6 +25,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: stable
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
