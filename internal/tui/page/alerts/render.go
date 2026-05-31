@@ -19,31 +19,16 @@ import (
 )
 
 func (p *Page) View(width, height int) string {
-	if width <= 0 || height <= 0 {
-		return ""
-	}
-	band := p.RenderErrorBand(p.now(), width, p.styles.Severity.Critical.GetForeground())
-	bandLines := 0
-	if band != "" {
-		bandLines = 1
-	}
-	p.SetViewport(height-1-bandLines, len(p.groups))
-	if len(p.groups) == 0 {
-		// Render bg-less so the empty pane keeps the terminal
-		// default background that the populated frame uses.
-		body := p.emptyState()
-		if band != "" {
-			body = band + "\n" + body
-		}
-		return listpage.Pane(width, height, body)
-	}
-	headerLine := p.renderHeader(width)
-	rows := p.renderRows(width, height-1-bandLines)
-	body := headerLine + "\n" + rows
-	if band != "" {
-		body = band + "\n" + body
-	}
-	return listpage.Wrap(width, body)
+	return p.RenderListFrame(listpage.ListFrame{
+		Width:      width,
+		Height:     height,
+		Now:        p.now(),
+		CritColor:  p.styles.Severity.Critical.GetForeground(),
+		Count:      len(p.groups),
+		EmptyState: p.emptyState,
+		Header:     p.renderHeader,
+		Rows:       p.renderRows,
+	})
 }
 
 // emptyState is the body content shown when no alerts match. Two

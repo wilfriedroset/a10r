@@ -30,37 +30,33 @@ func (p *Page) emptyState() string {
 }
 
 func (p *Page) View(width, height int) string {
-	if width <= 0 || height <= 0 {
+	return p.RenderListFrame(listpage.ListFrame{
+		Width:      width,
+		Height:     height,
+		Now:        p.now(),
+		CritColor:  p.styles.Severity.Critical.GetForeground(),
+		Count:      len(p.rows()),
+		EmptyState: p.emptyState,
+		Header:     p.renderHeader,
+		Rows:       p.renderRows,
+	})
+}
+
+// renderRows joins the visible group / leaf rows for the current
+// viewport. TopRow + maxRows bounds the slice so off-screen rows cost
+// nothing to render. p.rows() is memoised, so the second call (the
+// first is Count) is free.
+func (p *Page) renderRows(width, maxRows int) string {
+	rows := p.rows()
+	if maxRows <= 0 || len(rows) == 0 {
 		return ""
 	}
-	band := p.RenderErrorBand(p.now(), width, p.styles.Severity.Critical.GetForeground())
-	bandLines := 0
-	if band != "" {
-		bandLines = 1
-	}
-	rows := p.rows()
-	p.SetViewport(height-1-bandLines, len(rows))
-	if len(rows) == 0 {
-		// Render bg-less so the empty pane keeps the terminal
-		// default background that the populated frame uses.
-		body := p.emptyState()
-		if band != "" {
-			body = band + "\n" + body
-		}
-		return listpage.Pane(width, height, body)
-	}
-	maxRows := min(height-1-bandLines, len(rows))
 	end := min(p.TopRow()+maxRows, len(rows))
-	out := make([]string, 0, end-p.TopRow()+2)
-	if band != "" {
-		out = append(out, band)
-	}
-	out = append(out, p.renderHeader(width))
+	out := make([]string, 0, end-p.TopRow())
 	for i := p.TopRow(); i < end; i++ {
-		r := rows[i]
-		out = append(out, p.renderRow(r, i == p.Index(), width))
+		out = append(out, p.renderRow(rows[i], i == p.Index(), width))
 	}
-	return listpage.Wrap(width, strings.Join(out, "\n"))
+	return strings.Join(out, "\n")
 }
 
 // renderHeader emits the column-title row. NAME / COUNT /
