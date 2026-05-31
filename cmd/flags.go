@@ -4,17 +4,8 @@ package cmd
 
 import "github.com/wilfriedroset/a10r/internal/config"
 
-// GlobalFlags is the type cobra binds persistent flags onto.
-//
-// It is a type alias for config.CLIFlags rather than a parallel
-// struct so the cobra binder (this package) and the precedence
-// resolver (internal/config.Resolve) share one shape and conversion
-// is a no-op. The struct definition lives in internal/config/resolve.go
-// because the resolver is the canonical consumer; cmd's role is just
-// to populate it via cobra.
-//
-// Do NOT extend this type by adding fields here — extend
-// config.CLIFlags instead. Adding fields on the alias side is a
-// compile error; this comment exists so a future contributor does
-// not "fix" the error by converting the alias into a new struct.
+// GlobalFlags is the type cobra binds persistent flags onto. Alias
+// (not a parallel struct) so the binder and config.Resolve share one
+// shape. Extend config.CLIFlags, never this side — converting the
+// alias into a new struct would split the shape the resolver expects.
 type GlobalFlags = config.CLIFlags

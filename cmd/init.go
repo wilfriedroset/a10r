@@ -20,17 +20,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/wizard"
 )
 
-// authMode constants. Shared by the interactive wizard and the
-// --kv parser so the accepted strings stay in one place.
+// authMode constants, shared by the wizard and the --kv parser.
 const (
 	authModeNone   = "none"
 	authModeBearer = "bearer"
 	authModeBasic  = "basic"
 )
 
-// Canonical accepted-value lists. Shared between the wizard's
-// Choice prompt and the one-shot --kv validator so adding an entry
-// is a one-line change.
+// Accepted-value lists, shared by the wizard prompt and the --kv validator.
 var (
 	validInitAuthModes = []string{authModeNone, authModeBearer, authModeBasic}
 	validInitThemes    = []string{
@@ -40,48 +37,24 @@ var (
 	}
 )
 
-// defaultPollInterval is the wizard's prompt default — kept at
-// "30s" rather than config.DefaultPollInterval (1m) because init
-// writes a starter config and the wizard has always offered 30s.
-// defaultTheme is the bundled theme the prompt suggests. Sharing
-// both with the --kv path means a wizard run and a `--one-shot`
-// run with the same explicit keys produce byte-identical YAML.
+// Prompt defaults, shared with the --kv path so matching inputs produce
+// byte-identical YAML. Poll stays "30s" (not config.DefaultPollInterval, 1m)
+// because the starter-config wizard has always offered 30s.
 const (
 	defaultPollInterval = "30s"
 	defaultTheme        = "catppuccin-mocha"
 )
 
-// recognised --kv keys. The slice is iterated for the
-// "unknown key" error so the message lists every accepted name.
-// Sorted alphabetically so the error echo is reading-order stable
-// without a sort at error time.
-//
-// Per ADR 0039 there is no `kind` key — the wizard no longer asks
-// for backend kind and the one-shot path mirrors. `prefix:` and
-// `tenant:` map directly to the YAML fields the loader consumes
-// (no kind gate), so the operator passes them in standalone when
-// the backend needs them.
+// recognised --kv keys, sorted so the "unknown key" error echo is stable.
+// No `kind` key per ADR 0039; prefix/tenant map straight to YAML fields.
 var recognisedInitKeys = []string{
 	"auth_mode", "basic_password", "basic_user", "bearer_token",
 	fieldName, "poll_interval", "prefix", fieldTenant, fieldTheme, fieldURL,
 }
 
-// newInitCmd returns the `a10r init` subcommand. Walks the user
-// through a small set of prompts (name, URL, auth, poll interval,
-// theme — see ADR 0039) and writes the result to the resolved XDG
-// config path.
-//
-// The `--force` flag overwrites an existing config file; without
-// it the command refuses rather than silently clobbering the
-// operator's hand-edited setup.
-//
-// The `--one-shot` / `--kv key=value` pair drives a headless flow:
-// no prompts, the Config is built from the kv pairs directly. The
-// pair is mandatory together — `--kv` without `--one-shot` fails
-// closed because the operator either wants an interactive run or a
-// fully scripted one; mixing the two would silently combine prompt
-// defaults with kv overrides and obscure which side filled which
-// field.
+// newInitCmd returns the `a10r init` subcommand (prompts per ADR 0039, or a
+// headless --one-shot --kv flow). --kv without --one-shot fails closed so
+// prompt defaults and kv overrides can't silently mix.
 func newInitCmd(flags *GlobalFlags) *cobra.Command {
 	var force bool
 	var oneShot bool
@@ -117,9 +90,8 @@ func newInitCmd(flags *GlobalFlags) *cobra.Command {
 	return cmd
 }
 
-// initIO bundles the host-side handles runInit consumes so tests
-// can inject a strings.Reader / bytes.Buffer pair without touching
-// os.Stdin / os.Stdout.
+// initIO bundles runInit's host handles so tests can inject readers/writers
+// instead of os.Stdin / os.Stdout.
 type initIO struct {
 	In      io.Reader
 	Out     io.Writer
@@ -127,25 +99,15 @@ type initIO struct {
 	Flags   *GlobalFlags
 	Force   bool
 	OneShot bool
-	// DryRun, when true, makes runInit print the resulting YAML to
-	// Out and return without touching the filesystem. Compatible with
-	// both the interactive wizard (prompts still run, YAML lands on
-	// stdout instead of disk) and `--one-shot --kv ...` (headless
-	// preview a CI pipeline can capture before committing the file).
+	// DryRun prints the resulting YAML to Out and returns without touching
+	// the filesystem, under both the wizard and one-shot flows.
 	DryRun bool
 	KVs    []string
 }
 
-// runInit drives the chosen flow (interactive or one-shot) and
-// writes the resulting YAML to the resolved config path. Wrapped
-// errors carry an ExitConfigInvalid code so a caller's CI pipeline
-// can branch on "init refused to write" without parsing stderr.
-//
-// --dry-run skips the path-resolve / existence check / write
-// pipeline entirely: the resulting YAML lands on env.Out and the
-// command returns. CI pipelines use this to preview a generated
-// config before committing it; the headless complement to the
-// wizard's "review before save" affordance.
+// runInit drives the chosen flow and writes the YAML to the resolved config
+// path. Errors carry ExitConfigInvalid so CI can branch without parsing
+// stderr. --dry-run skips the write pipeline and emits YAML on env.Out.
 //
 //nolint:gocognit // cohesive top-level init flow (validate → dry-run-or-write → hints); the branches don't factor into independently-meaningful helpers
 func runInit(env initIO) error {
@@ -197,12 +159,9 @@ func runInit(env initIO) error {
 	return nil
 }
 
-// mimirSetupHint returns the post-write discoverability nudge ADR
-// 0039 wires in. The prefix half is suppressed when the URL path
-// already ends with `/alertmanager` — the operator clearly engaged
-// with the path themselves — so the hint does not contradict their
-// explicit choice. The tenant half always prints because tenancy
-// cannot be encoded in the URL.
+// mimirSetupHint returns the post-write nudge from ADR 0039. The prefix half
+// is suppressed when the URL already ends in `/alertmanager` so the hint
+// can't contradict an explicit choice; the tenant half always prints.
 func mimirSetupHint(urlStr string) string {
 	var lines []string
 	if !urlPathHasAlertmanagerSuffix(urlStr) {
@@ -216,12 +175,9 @@ func mimirSetupHint(urlStr string) string {
 	return strings.Join(lines, "\n")
 }
 
-// urlPathHasAlertmanagerSuffix reports whether the URL's path ends
-// with `/alertmanager` (trailing slash tolerated). A nudge would
-// duplicate guidance the operator's URL already encodes, so the
-// hint suppresses the prefix half in this case. Garbage URLs fall
-// through to false so the helpful nudge still prints — the worst
-// outcome is one extra line.
+// urlPathHasAlertmanagerSuffix reports whether the URL path ends with
+// `/alertmanager` (trailing slash tolerated). Garbage URLs return false so
+// the nudge still prints; worst case is one extra line.
 func urlPathHasAlertmanagerSuffix(urlStr string) bool {
 	u, err := url.Parse(urlStr)
 	if err != nil {
@@ -230,14 +186,10 @@ func urlPathHasAlertmanagerSuffix(urlStr string) bool {
 	return strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/alertmanager")
 }
 
-// plaintextCredentialHint returns a one-line nudge when the rendered
-// config carries a literal credential (basic password or bearer
-// token) rather than a `${VAR}` interpolation. Empty string when the
-// config is interpolation-only or auth-less, so the caller can
-// fmt.Fprintln unconditionally without polluting the output stream.
-//
-// The CLI init flow is the only surface that writes credentials to
-// disk, so this is where the nudge actually reaches a user.
+// plaintextCredentialHint nudges when the config carries a literal credential
+// rather than a `${VAR}` interpolation; empty string otherwise so the caller
+// can Fprintln unconditionally. init is the only surface that writes
+// credentials to disk, so the nudge belongs here.
 func plaintextCredentialHint(cfg config.Config) string {
 	for _, be := range cfg.Backends {
 		if be.BearerToken != "" && !isEnvInterpolation(be.BearerToken) {
@@ -251,12 +203,8 @@ func plaintextCredentialHint(cfg config.Config) string {
 	return ""
 }
 
-// exportHintLine builds the operator-facing nudge string. Pure
-// helper so tests can assert on the literal substring without
-// reaching for the writer plumbing. The suffix lets the suggested
-// env-var name match the credential kind — copy-pasting
-// `_PASSWORD` for a bearer token would mislead operators following
-// the hint.
+// exportHintLine builds the nudge string. suffix matches the env-var name to
+// the credential kind so a bearer token isn't suggested as `_PASSWORD`.
 func exportHintLine(backendName, suffix string) string {
 	name := strings.ToUpper(backendName)
 	return "NOTE: credentials stored in plaintext. To use env-var interpolation instead, " +
@@ -264,27 +212,21 @@ func exportHintLine(backendName, suffix string) string {
 		"and export that variable. See docs."
 }
 
-// isEnvInterpolation reports whether s is a single `${VAR}` /
-// `${VAR:-default}` placeholder — the shape config.interpolateBytes
-// resolves at load time. Conservative: a value that *contains* a
-// placeholder but also a plaintext segment (e.g. `prefix-${TOKEN}`)
-// still counts as plaintext for the purposes of the nudge, because
-// the prefix leak is a leak.
+// isEnvInterpolation reports whether s is a single `${VAR}` placeholder.
+// Conservative: a value mixing a placeholder with plaintext (`prefix-${TOKEN}`)
+// counts as plaintext for the nudge, because the prefix leak is still a leak.
 func isEnvInterpolation(s string) bool {
 	t := strings.TrimSpace(s)
 	if !strings.HasPrefix(t, "${") || !strings.HasSuffix(t, "}") {
 		return false
 	}
-	// Reject embedded `${` or `}` so `${A}${B}` (two placeholders
-	// concatenated) and `${A}foo${B}` both fall through to the
-	// plaintext branch.
+	// Reject embedded `${`/`}` so concatenated placeholders count as plaintext.
 	inner := t[2 : len(t)-1]
 	return !strings.Contains(inner, "${") && !strings.Contains(inner, "}")
 }
 
-// collectConfig dispatches between the interactive wizard and the
-// headless one-shot path. Both funnel through buildInitConfig so the
-// generated YAML shape is identical for matching inputs.
+// collectConfig dispatches between the wizard and the one-shot path; both
+// funnel through buildInitConfig so matching inputs yield identical YAML.
 func collectConfig(env initIO) (config.Config, error) {
 	if env.OneShot {
 		answers, err := parseKVAnswers(env.KVs)
@@ -306,16 +248,10 @@ func collectConfig(env initIO) (config.Config, error) {
 	return cfg, nil
 }
 
-// initAnswers is the canonical payload both flows produce — the
-// wizard fills it from prompt input, the kv parser fills it from
-// flag input. buildInitConfig consumes it.
-//
-// PrefixSet / TenantSet distinguish "explicitly empty" from "not
-// supplied": an operator passing `--kv tenant=` (TenantSet=true,
-// Tenant="") wants the slot deliberately blank, distinct from
-// omitting `--kv tenant=` entirely. The wizard never prompts for
-// these (ADR 0039) so PrefixSet / TenantSet are only flipped by
-// the one-shot --kv path.
+// initAnswers is the payload both flows produce and buildInitConfig consumes.
+// PrefixSet / TenantSet distinguish `--kv tenant=` (explicitly empty) from an
+// omitted key; only the one-shot path flips them (the wizard never prompts,
+// per ADR 0039).
 type initAnswers struct {
 	Name      string
 	URL       string
@@ -331,15 +267,8 @@ type initAnswers struct {
 	Theme     string
 }
 
-// promptConfig walks the user through the prompt sequence and
-// returns the resulting Config. Pure logic on top of wizard so
-// tests can drive it directly with a strings.Reader fixture.
-//
-// The function gathers the prompt answers into an initAnswers and
-// hands off to buildInitConfig — that helper is the single place
-// that turns gathered answers into a Config so the one-shot path
-// (parseKVAnswers → buildInitConfig) emits a byte-identical YAML
-// file for matching inputs.
+// promptConfig walks the prompt sequence into an initAnswers and hands off to
+// buildInitConfig. Pure logic over wizard so tests drive it with a reader.
 func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 	p := wizard.From(in, out)
 
@@ -396,21 +325,11 @@ func promptConfig(in io.Reader, out io.Writer) (config.Config, error) {
 	return buildInitConfig(ans)
 }
 
-// buildInitConfig is the single place gathered answers turn into a
-// Config. Both promptConfig (interactive) and runInit's one-shot
-// branch funnel through it so a wizard run and a `--kv ...` run
-// with the same explicit inputs emit byte-identical YAML.
-//
-// Cross-field validation (auth mode requires its credential,
-// parseable poll_interval) lives here rather than in parseKVAnswers
-// because the wizard's prompt sequence already enforces these
-// structurally — but the helper stays defensive so a future
-// refactor of the wizard cannot drift from the kv path.
-//
-// Per ADR 0039, `prefix:` and `tenant:` pass straight through to
-// the Backend without any wizard-time gate. An explicit empty
-// tenant (TenantSet=true, Tenant="") keeps the tenant header
-// unset, otherwise Mimir would 400 on every request.
+// buildInitConfig is the single place answers turn into a Config, so both
+// flows emit byte-identical YAML for matching inputs. Cross-field validation
+// lives here (not in parseKVAnswers) to stay defensive against wizard drift.
+// Per ADR 0039 prefix/tenant pass straight through; an explicit empty tenant
+// keeps the header unset, else Mimir would 400 every request.
 func buildInitConfig(ans initAnswers) (config.Config, error) {
 	if err := validateInitAnswers(ans); err != nil {
 		return config.Config{}, err
@@ -453,14 +372,9 @@ func buildInitConfig(ans initAnswers) (config.Config, error) {
 	}, nil
 }
 
-// validateInitAnswers enforces the cross-field rules that turn a
-// half-filled set of answers into a structurally consistent Config:
-// required fields present, auth_mode in its allowed set, auth-mode-
-// specific credentials present, theme in the allowed set.
-//
-// The wizard enforces the same rules at prompt time; one-shot mode
-// hits the helper directly with a flat key=value bag, which is why
-// the validation has to live somewhere both paths reach.
+// validateInitAnswers enforces the cross-field rules (required fields, auth
+// mode + credentials, theme). It lives where both paths reach because
+// one-shot mode bypasses the wizard's prompt-time checks.
 func validateInitAnswers(ans initAnswers) error {
 	if err := validateRequired(ans); err != nil {
 		return err
@@ -486,9 +400,7 @@ func validateInitAnswers(ans initAnswers) error {
 	return nil
 }
 
-// validateRequired returns a precise "missing keys" error listing
-// every required field absent from the answers. Required keys are
-// name and url; everything else defaults or stays empty.
+// validateRequired errors listing any absent required key (name, url).
 func validateRequired(ans initAnswers) error {
 	var missing []string
 	if ans.Name == "" {
@@ -503,10 +415,8 @@ func validateRequired(ans initAnswers) error {
 	return nil
 }
 
-// validateInitAuth checks the auth-mode / credential consistency.
-// none → no credentials may be set; bearer → bearer_token required,
-// basic_user/basic_password forbidden; basic → both basic_user and
-// basic_password required, bearer_token forbidden.
+// validateInitAuth checks auth-mode / credential consistency: each mode
+// requires its own credentials and forbids the others'.
 //
 //nolint:gocognit,cyclop // the per-mode rules read clearest as one switch — it is the auth-model spec; splitting each case into a helper fragments that spec without simplifying it
 func validateInitAuth(ans initAnswers) error {
@@ -540,11 +450,8 @@ func validateInitAuth(ans initAnswers) error {
 	return nil
 }
 
-// parseKVAnswers turns repeated `--kv key=value` flags into an
-// initAnswers. Last write wins (so `--kv name=foo --kv name=bar`
-// yields name=bar, matching cobra's StringArrayVar semantics and
-// the operator's natural reading order). Unknown keys fail closed
-// with the recognised set echoed in the error.
+// parseKVAnswers turns repeated `--kv key=value` flags into an initAnswers.
+// Last write wins (matching cobra's StringArrayVar); unknown keys fail closed.
 func parseKVAnswers(kvs []string) (initAnswers, error) {
 	var ans initAnswers
 	for _, kv := range kvs {
@@ -556,8 +463,7 @@ func parseKVAnswers(kvs []string) (initAnswers, error) {
 		if key == "" {
 			return initAnswers{}, fmt.Errorf("malformed --kv %q: empty key", kv)
 		}
-		// value is NOT trimmed: a basic_password ending in
-		// whitespace is legal, and a deliberate empty (`tenant=`)
+		// value is NOT trimmed: a whitespace password is legal and `tenant=`
 		// must round-trip as empty.
 		if err := applyKVAnswer(&ans, key, value); err != nil {
 			return initAnswers{}, err
@@ -566,9 +472,8 @@ func parseKVAnswers(kvs []string) (initAnswers, error) {
 	return ans, nil
 }
 
-// applyKVAnswer writes one key=value into ans. Centralised so the
-// recognised-key list and the field-mapping live in one place; the
-// unknown-key error echoes the accepted set sorted for readability.
+// applyKVAnswer writes one key=value into ans, keeping the key list and field
+// mapping in one place; the unknown-key error echoes the accepted set.
 func applyKVAnswer(ans *initAnswers, key, value string) error {
 	switch key {
 	case fieldName:
@@ -600,10 +505,8 @@ func applyKVAnswer(ans *initAnswers, key, value string) error {
 	return nil
 }
 
-// writeInitConfig serialises cfg to path with 2-space indent
-// (matching the file-side convention) and 0o600 permissions —
-// the file may carry credentials, so it must not be world-
-// readable. Creates intermediate directories.
+// writeInitConfig serialises cfg to path at 0o600 — the file may carry
+// credentials, so it must not be world-readable. Creates parent dirs.
 func writeInitConfig(path string, cfg config.Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -616,10 +519,8 @@ func writeInitConfig(path string, cfg config.Config) error {
 	return writeInitConfigTo(f, cfg)
 }
 
-// writeInitConfigTo serialises cfg into w with the same 2-space
-// indent the file path uses. Shared between writeInitConfig (file
-// destination, real run) and runInit's --dry-run branch (stdout
-// destination, preview) so the byte shape stays identical.
+// writeInitConfigTo serialises cfg into w at 2-space indent. Shared by the
+// real write and the --dry-run preview so the byte shape stays identical.
 func writeInitConfigTo(w io.Writer, cfg config.Config) error {
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
@@ -632,8 +533,6 @@ func writeInitConfigTo(w io.Writer, cfg config.Config) error {
 	return nil
 }
 
-// validateBackendName rejects empty / whitespace / colliding
-// names. Length cap matches the schema constraint.
 func validateBackendName(s string) error {
 	if strings.TrimSpace(s) == "" {
 		return errors.New("name cannot be empty")
@@ -644,7 +543,6 @@ func validateBackendName(s string) error {
 	return nil
 }
 
-// validateURL ensures the value parses as a URL with a scheme.
 func validateURL(s string) error {
 	if strings.TrimSpace(s) == "" {
 		return errors.New("URL cannot be empty")
@@ -659,8 +557,6 @@ func validateURL(s string) error {
 	return nil
 }
 
-// validateDuration accepts every value time.ParseDuration would
-// accept.
 func validateDuration(s string) error {
 	if _, err := time.ParseDuration(s); err != nil {
 		return fmt.Errorf("not a valid duration: %w", err)
@@ -668,8 +564,6 @@ func validateDuration(s string) error {
 	return nil
 }
 
-// nonEmpty returns a validator that rejects empty / whitespace
-// input with a field-named error message.
 func nonEmpty(field string) func(string) error {
 	return func(s string) error {
 		if strings.TrimSpace(s) == "" {

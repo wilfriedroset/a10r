@@ -2,59 +2,33 @@
 
 package cmd
 
-// Exit codes returned by the a10r CLI. Documented as a stable
-// contract in docs/end-users/exit-codes.md and ADR 0009; CI/CD
-// wrappers branch on these values to distinguish remediation
-// types (fix-credentials vs fix-network vs fix-config) without
-// having to parse stderr.
-//
-// A future code MUST be appended (never inserted between
-// existing values) — every wrapper script in a user's CI is a
-// consumer.
+// Exit codes returned by the a10r CLI. Stable contract per ADR 0009 and
+// docs/end-users/exit-codes.md; CI wrappers branch on these. Append new
+// codes, never insert between existing values — wrapper scripts are
+// consumers. Per-backend partial failures exit ExitOK with stderr warnings.
 const (
 	ExitOK = 0
 
-	// ExitRuntimeError is the catch-all for unexpected failures
-	// that do not fit any of the more specific buckets below.
-	// cobra's default exit on a non-typed error.
+	// ExitRuntimeError is cobra's default exit for any non-typed error.
 	ExitRuntimeError = 1
 
-	// ExitConfigInvalid signals that a10r.yaml could not be
-	// parsed or failed schema validation. Operator action: fix
-	// the config file.
+	// ExitConfigInvalid means a10r.yaml failed to parse or validate.
 	ExitConfigInvalid = 2
 
-	// ExitUnreachable signals that every backend in the active
-	// scope failed to respond at the network level (DNS,
-	// timeout, connection refused). Operator action: fix
-	// network connectivity. Partial failures (some tenants ok,
-	// some unreachable) exit ExitOK with stderr warnings — see
-	// ADR 0009.
+	// ExitUnreachable means every backend in scope failed at the network level.
 	ExitUnreachable = 3
 
-	// ExitAuthFailed signals that every backend in the active
-	// scope rejected the configured credentials with 401/403.
-	// Operator action: fix credentials. Same partial-failure
-	// rule as ExitUnreachable.
+	// ExitAuthFailed means every backend in scope rejected credentials (401/403).
 	ExitAuthFailed = 4
 
-	// ExitFailMatched is returned when --fail is set on a
-	// list-style command (alerts list, silences list) and at
-	// least one row matched the filter. Lets on-call wrappers
-	// do `a10r alerts list --severity=critical --fail ||
-	// page-oncall` without parsing the output.
+	// ExitFailMatched means --fail was set and at least one row matched, so
+	// on-call wrappers can page without parsing output.
 	ExitFailMatched = 10
 )
 
-// ExitError wraps an underlying error with a specific exit code
-// for main() to translate. Subcommands return one of these
-// instead of a plain error when the failure mode maps onto a
-// table entry above; main() type-switches on it via errors.As.
-//
-// Plain (non-ExitError) errors fall through to ExitRuntimeError.
-// This shape keeps the per-subcommand RunE local — they don't
-// have to thread an exit-code parameter through helpers — while
-// still letting main own the os.Exit call.
+// ExitError wraps an error with an exit code for main() to translate via
+// errors.As. Plain errors fall through to ExitRuntimeError. Keeps RunE local
+// (no threaded exit-code param) while main owns the os.Exit call.
 type ExitError struct {
 	Code int
 	Err  error
@@ -67,10 +41,8 @@ func (e *ExitError) Error() string {
 	return e.Err.Error()
 }
 
-// Unwrap exposes the wrapped error for errors.Is / errors.As
-// chains. Lets a caller match on both ExitError (for the code)
-// and any sentinel further down (for context-specific
-// handling).
+// Unwrap exposes the wrapped error so callers can match both ExitError
+// (for the code) and any sentinel further down the chain.
 func (e *ExitError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -78,11 +50,8 @@ func (e *ExitError) Unwrap() error {
 	return e.Err
 }
 
-// NewExitError is the constructor subcommands call when wrapping
-// a more-specific failure mode. nil err returns nil so callers
-// can compose without if-nil dance:
-//
-//	return cmd.NewExitError(cmd.ExitConfigInvalid, validate(cfg))
+// NewExitError wraps a failure mode in an exit code. nil err returns nil so
+// callers can compose without an if-nil dance.
 func NewExitError(code int, err error) error {
 	if err == nil {
 		return nil
