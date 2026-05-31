@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package tenant renders the tenant table: one row per
-// configured backend with NAME / URL / VERSION columns and
-// connection / count metadata. The table is read-only — Enter
-// drills into the per-tenant config inspector (tenantconfig
-// package); scope selection lives entirely on the global numeric
-// quick-switch.
+// Package tenant renders a read-only table of configured backends
+// (NAME / URL / VERSION); Enter drills into the per-tenant config
+// inspector (tenantconfig package).
 package tenant
 
 import (
@@ -26,11 +23,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// Sort column keys. Stable identifiers handed to the tablesort
-// helper. Default sort is NAME ASC so the visible order matches
-// the canonical order on first paint — the digit annotations
-// align with their visible row positions until the user actively
-// sorts another way.
+// Sort column keys handed to the tablesort helper. Default NAME ASC
+// matches the canonical order so digit annotations align with row
+// positions on first paint.
 const (
 	sortKeyName    = "name"
 	sortKeyURL     = "url"
@@ -39,14 +34,10 @@ const (
 
 const scopeAll = "all"
 
-// tenantSortColumns returns the page's sortable columns. URL and
-// VERSION default ASC for consistency with NAME; the version
-// comparator is semver-aware so "0.27.0" sorts after "0.9.0"
-// (the lexical mistake a default string compare would make is
-// exactly what the operator scanning for stale backends needs to
-// see right). Empty version strings sort LAST in ASC mode —
-// "unknown" rather than "lowest" — so concrete versions surface
-// at the top regardless of direction.
+// tenantSortColumns returns the page's sortable columns. The version
+// comparator is semver-aware ("0.27.0" sorts after "0.9.0"), and
+// empty versions sort LAST ("unknown", not "lowest") so concrete
+// versions surface at the top regardless of direction.
 func tenantSortColumns() []tablesort.Column[Row] {
 	return []tablesort.Column[Row]{
 		{
@@ -80,13 +71,10 @@ func tenantSortColumns() []tablesort.Column[Row] {
 	}
 }
 
-// semverLess is a semver-flavoured string comparator. It strips
-// a leading "v", splits on ".", and compares each dotted segment
-// as int when both sides parse — falling back to a lexical
-// remainder compare on the first non-numeric segment. Handles
-// the "1.10.0 > 1.2.0" case a default string compare gets wrong;
-// release-candidate / build-metadata tails ("0.27.0-rc.1") fall
-// through to lexical so the order is at least deterministic.
+// semverLess compares dotted segments numerically when both parse,
+// handling the "1.10.0 > 1.2.0" case a string compare gets wrong;
+// non-numeric tails ("0.27.0-rc.1") fall through to a lexical
+// remainder compare so the order stays deterministic.
 func semverLess(a, b string) bool {
 	a = strings.TrimPrefix(a, "v")
 	b = strings.TrimPrefix(b, "v")
@@ -107,13 +95,9 @@ func semverLess(a, b string) bool {
 	return len(aParts) < len(bParts)
 }
 
-// Row is one tenant's renderable state. The wiring layer rebuilds
-// the slice on every redraw from the configured backends + the
-// startup-fetched version map. Conn / Alerts / Silence are
-// deliberately absent — the read-only inspector drops them rather
-// than render zero-valued placeholders that the user would read
-// as "every backend is connected with zero alerts" by accident
-// (header.ConnState's zero value is ConnConnected).
+// Row is one tenant's renderable state. Conn / Alerts / Silence are
+// deliberately absent: their zero values (header.ConnState zero is
+// ConnConnected) would read as "connected, zero alerts" by accident.
 type Row struct {
 	Name    string
 	URL     string
@@ -122,15 +106,10 @@ type Row struct {
 
 // Options bundles the constructor inputs.
 type Options struct {
-	// Styles is the compiled theme.
 	Styles *theme.Styles
-	// DrillFactory builds the destination page when the user
-	// presses Enter on a row. Returning a non-nil error makes the
-	// page flash the message instead of pushing — useful when
-	// the named backend is misconfigured (e.g. factory.Build
-	// failed at startup so the inspector would render against a
-	// nil fetcher). Required: nil DrillFactory makes Enter a
-	// silent no-op the user has no way to debug.
+	// DrillFactory builds the destination page on Enter; a non-nil
+	// error flashes instead of pushing (misconfigured backend).
+	// Required: a nil factory makes Enter a silent, undebuggable no-op.
 	DrillFactory func(name string) (app.Page, error)
 }
 
@@ -139,27 +118,20 @@ type Page struct {
 	styles *theme.Styles
 	drill  func(name string) (app.Page, error)
 
-	// sorter governs the visible row order. Default NAME ASC matches
-	// the canonical alphabetical order so first-paint puts the
-	// digit-annotated rows in their digit slots; the user can
-	// re-sort by URL / VERSION via Shift+letter without affecting
-	// the canonical digit binding (annotations key off
-	// canonicalRows, not the visible sort).
+	// sorter governs the visible row order; digit annotations key off
+	// canonicalRows, not the visible sort, so re-sorting by URL /
+	// VERSION leaves the canonical digit binding intact.
 	sorter *tablesort.Sorter[Row]
 
 	rows []Row
-	// window owns the cursor, topRow, and bodyHeight invariants per
-	// ADR-0016. Held as a value field rather than embedded because
-	// this page does not embed listpage.Base (ADR-0013).
+	// window owns the cursor / topRow / bodyHeight invariants per
+	// ADR-0016. A value field rather than embedded because this page
+	// does not embed listpage.Base (ADR-0013).
 	window cursor.Window
 
-	// scope tracks the active tenant scope as observed from
-	// app.ScopeChangedMsg — "all" includes every row; a single
-	// name flags exactly that row as in-scope; comma-joined names
-	// flag each one. The page does NOT mutate the scope itself
-	// (the global numeric quick-switch owns that); it only mirrors
-	// what the App announced so the user can see at a glance which
-	// row is currently fanned-out.
+	// scope mirrors the active tenant scope from app.ScopeChangedMsg.
+	// The page does NOT mutate it (the numeric quick-switch owns
+	// that); it only reflects the App's announcement.
 	scope string
 }
 
@@ -172,10 +144,9 @@ func New(opts Options) *Page {
 	}
 }
 
-// SetRows replaces the rendered rows. Used by the wiring layer
-// instead of a poll.DataMsg path because tenant rows are derived
-// from configuration + every (backend, resource) poller — there's
-// no single DataMsg shape that fits.
+// SetRows replaces the rendered rows. Used instead of a poll.DataMsg
+// path because tenant rows derive from config plus every (backend,
+// resource) poller, with no single DataMsg shape that fits.
 func (p *Page) SetRows(rows []Row) {
 	p.rows = rows
 	p.window.Clamp(len(rows))
@@ -187,10 +158,7 @@ func (*Page) Close() tea.Cmd { return nil }
 
 func (*Page) Crumb() string { return "tenant" }
 
-// Title implements app.Page. Mirrors the rest of the list pages:
-// `tenants(<scope>)[<count>]`. Scope is the active selection so
-// the title carries the same scope label the user sees in the top
-// panel.
+// Title mirrors the other list pages: `tenants(<scope>)[<count>]`.
 func (p *Page) Title() string {
 	scope := p.scope
 	if scope == "" {
@@ -199,17 +167,12 @@ func (p *Page) Title() string {
 	return fmt.Sprintf("tenants(%s)[%d]", scope, len(p.rows))
 }
 
-// HeaderContent implements app.Page. Tenant table is read-only;
-// nothing live to surface in the subtitle line.
 func (*Page) HeaderContent() string { return "" }
 
-// Footer implements app.Page. Tenant table doesn't surface
-// ambient state in the bottom border.
 func (*Page) Footer() string { return "" }
 
-// Bindings implements app.Page. Sort shortcuts come from the
-// tablesort helper so the convention reads identically to alerts /
-// silences / groups / receivers.
+// Bindings sources sort shortcuts from the tablesort helper so the
+// convention matches alerts / silences / groups / receivers.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("tenant")
 	out := make([]action.Action, 0, 1+len(sortBindings))
@@ -224,10 +187,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.window.SetIndex(0, len(p.rows))
 		return p, nil
 	case app.ScopeChangedMsg:
-		// The App's LayerGlobal numeric quick-switch (`<0>` all,
-		// `<1>`-`<9>` per backend) emits this. Mirroring it here
-		// lets the table show the user which row is fanned-out
-		// without forcing them to glance at the top panel.
+		// Emitted by the App's LayerGlobal numeric quick-switch;
+		// mirrored here so the table shows the fanned-out row.
 		p.scope = m.Scope
 		return p, nil
 	}
@@ -235,8 +196,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if !ok {
 		return p, nil
 	}
-	// Sort shortcuts run first so Shift+N (sort) doesn't collide
-	// with anything else. h/l walk also routes through the helper.
+	// Sort shortcuts run first so Shift+N doesn't collide downstream.
 	if p.handleSort(keyMsg) {
 		return p, nil
 	}
@@ -247,35 +207,23 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		cmd := p.drillToConfig()
 		return p, cmd
 	}
-	// Numeric quick-switch (`0`, `1`-`9`) is owned by the App's
-	// LayerGlobal binding (see app.registerTenantBindings) — it
-	// emits ScopeChangedMsg so every page reacts the same way.
-	// The tenant page therefore does NOT bind the digits locally;
-	// the dispatcher consumes them before forwardToTop runs.
+	// Numeric quick-switch (0, 1-9) is owned by the App's LayerGlobal
+	// binding (app.registerTenantBindings), consumed before
+	// forwardToTop runs, so the page does NOT bind the digits locally.
 	return p, nil
 }
 
-// handleSort routes the page's sort hotkeys (h/l walk, Shift+N/U/V)
-// through the tablesort helper. Returns true when the key was
-// consumed. User-initiated re-sort is k9s-positional: the cursor
-// stays at the row index it was at, which, with the rows reordered,
-// puts a different backend under the cursor. Tenant data doesn't
-// poll, so there's no equivalent of the alerts page's
-// focusFingerprint-restore branch — index-stable IS the only
-// behaviour the page implements.
+// handleSort routes sort hotkeys through the tablesort helper,
+// returning true when consumed. Re-sort is k9s-positional (cursor
+// stays at its index); tenant data doesn't poll, so there's no
+// fingerprint-restore branch like the alerts page has.
 func (p *Page) handleSort(m tea.KeyPressMsg) bool {
 	return p.sorter.HandleKey(m.String())
 }
 
-// drillToConfig pushes the tenantconfig page produced by the
-// drill factory, or flashes the factory's error if the named
-// backend is misconfigured. Reads from rowsSorted (the rendered
-// order) so the drill matches the row the user sees under the
-// cursor — the unsorted p.rows would silently disagree on every
-// backend list whose insertion order isn't already alphabetical.
-// nil factory or empty rows are silent no-ops; both are
-// constructor configuration errors the user has no way to fix
-// from inside this page.
+// drillToConfig pushes the factory's page, or flashes its error.
+// Reads rowsSorted (not p.rows) so the drill matches the row under
+// the cursor; nil factory or empty rows are silent no-ops.
 func (p *Page) drillToConfig() tea.Cmd {
 	if p.drill == nil {
 		return nil
@@ -297,8 +245,8 @@ func (p *Page) View(width, height int) string {
 		return ""
 	}
 	if len(p.rows) == 0 {
-		// Render bg-less so the empty pane keeps the terminal
-		// default background that the populated frame uses.
+		// bg-less so the empty pane keeps the terminal default the
+		// populated frame uses.
 		return listpage.Pane(width, height, "no backends configured")
 	}
 	headerLine := p.renderHeader(width)
@@ -312,19 +260,14 @@ func (p *Page) View(width, height int) string {
 	canonical := canonicalDigits(p.canonicalRows())
 	for i := p.window.TopRow(); i < end; i++ {
 		row := rows[i]
-		// Scope glyph indicates whether the row is part of the
-		// active global scope (the numeric quick-switch state).
-		// `●` reads at a glance against the row body.
+		// ● marks rows in the active global scope.
 		scopeGlyph := " "
 		if p.scopeIncludes(row.Name) {
 			scopeGlyph = "●"
 		}
-		// Canonical-digit annotation for the first 9 backends in
-		// alphabetical order — the same order the global numeric
-		// quick-switch <1>-<9> binds to. Lets the user read the
-		// digit a backend is reachable by without counting rows.
-		// Always 4 cols wide ("[N] " or "    ") so row alignment
-		// is stable whether or not a digit is shown.
+		// Digit annotation for the first 9 backends, matching the
+		// quick-switch <1>-<9> binding. Always 4 cols ("[N] " or
+		// "    ") so alignment holds whether or not a digit shows.
 		digitGlyph := p.styles.Table.DimmedFg.Render(canonical[row.Name])
 		version := row.Version
 		if version == "" {
@@ -343,11 +286,9 @@ func (p *Page) View(width, height int) string {
 		line := format.PadRight(prefix+body, width)
 		switch {
 		case i == p.window.Index():
-			// k9s parity: cursor bg tracks the row's semantic
-			// colour. Tenant rows have no severity / state, so we
-			// use Severity.Info (which maps to k9s's StdColor =
-			// frame.status.newColor) — the same default k9s uses
-			// for resource pages without a row colorer.
+			// k9s parity: tenant rows have no severity, so the cursor
+			// bg uses Severity.Info (k9s's StdColor), the default for
+			// resource pages without a row colorer.
 			rowColor := p.styles.Severity.Info.GetForeground()
 			line = p.styles.Table.CursorOver(rowColor).Render(line)
 		case p.scopeIncludes(row.Name):
@@ -358,9 +299,8 @@ func (p *Page) View(width, height int) string {
 	return listpage.Wrap(width, strings.Join(out, "\n"))
 }
 
-// renderHeader returns the styled column-title row with active-
-// column tint + arrow glyph. Mirrors the alerts / silences /
-// groups pages' header convention.
+// renderHeader returns the styled column-title row with active-column
+// tint and arrow glyph, mirroring the other list pages.
 func (p *Page) renderHeader(width int) string {
 	cols := []struct {
 		label string
@@ -370,9 +310,8 @@ func (p *Page) renderHeader(width int) string {
 		{label: "URL", key: sortKeyURL},
 		{label: "VERSION", key: sortKeyVersion},
 	}
-	// fg-only so the header keeps the terminal default background
-	// — painted palette bg in the unstyled body frame creates a
-	// coloured stripe.
+	// fg-only: painting a palette bg in the unstyled body frame would
+	// leave a coloured stripe.
 	headerFg := p.styles.Table.HeaderFg
 	activeFg := p.styles.Table.HeaderActiveFg
 	parts := make([]string, len(cols))
@@ -389,17 +328,14 @@ func (p *Page) renderHeader(width int) string {
 			parts[i] = headerFg.Render(padded)
 		}
 	}
-	// Match the per-row prefix region so columns align with their
-	// headers; tenantRowPrefixCols owns the canonical width.
+	// Match the per-row prefix region (tenantRowPrefixCols) so columns
+	// align with their headers.
 	return strings.Repeat(" ", tenantRowPrefixCols) + strings.Join(parts, "")
 }
 
-// canonicalDigits returns a name → "[N] " glyph map for the first
-// 9 backends in the supplied (alphabetical-by-name) row slice;
-// rows past index 8 map to "    " so the per-row layout stays
-// constant width. Computed once per render — small enough that a
-// single allocation per redraw beats threading more state through
-// the renderer.
+// canonicalDigits maps name → "[N] " for the first 9 backends (by
+// name); the rest map to "    " so the per-row layout stays constant
+// width.
 func canonicalDigits(rows []Row) map[string]string {
 	out := make(map[string]string, len(rows))
 	for i, r := range rows {
@@ -412,22 +348,17 @@ func canonicalDigits(rows []Row) map[string]string {
 	return out
 }
 
-// tenant column widths. URL gets the flex column since the visible
-// host/port string is the most variable; the other two are fixed.
-// tenantRowPrefixCols accounts for the per-row decoration before
-// the data columns: "▸ " (cursor, 2) + "[N] " (canonical digit, 4)
-// + "●" (scope glyph, 1) + " " (separator, 1). Both renderHeader
-// and tenantColumnWidths reference this so the two stay aligned —
-// drift between them shoves headers and rows out of sync.
+// Column widths; URL is the flex column. tenantRowPrefixCols is the
+// per-row decoration width: "▸ "(2) + "[N] "(4) + "●"(1) + " "(1).
+// Both renderHeader and tenantColumnWidths reference it; drift would
+// shove headers and rows out of sync.
 const (
 	tenantColName       = 16
 	tenantColVersion    = 14
 	tenantRowPrefixCols = 8
 )
 
-// padTenantColumns lays out a row across NAME / URL (flex) /
-// VERSION columns at fixed widths with URL absorbing the
-// remaining width.
+// padTenantColumns lays out a row across NAME / URL (flex) / VERSION.
 func (p *Page) padTenantColumns(parts []string, width int) string {
 	if len(parts) == 0 {
 		return ""
@@ -445,21 +376,17 @@ func (p *Page) padTenantColumns(parts []string, width int) string {
 }
 
 // tenantColumnWidths returns the per-column widths (NAME, URL flex,
-// VERSION) the header and per-row layouts both reference. Extracted
-// so renderHeader can pad each column to its individual width before
-// applying per-cell styling — padTenantColumns concatenates raw
-// padded strings, but per-cell styling needs widths separately.
+// VERSION) shared by the header and per-row layouts. Extracted so
+// renderHeader can pad each column before applying per-cell styling.
 func tenantColumnWidths(width int) []int {
 	used := tenantColName + tenantColVersion + tenantRowPrefixCols
 	flex := max(width-used, 16)
 	return []int{tenantColName, flex, tenantColVersion}
 }
 
-// scopeIncludes reports whether the named tenant is part of the
-// active global scope. "all" / empty includes everyone; otherwise
-// the scope is matched against the comma-joined name list (so the
-// future Ctrl+T multi-select path "prod,staging" lights up both
-// rows).
+// scopeIncludes reports whether the named tenant is in the active
+// global scope. "all" / empty includes everyone; otherwise the name
+// is matched against the comma-joined scope list.
 func (p *Page) scopeIncludes(name string) bool {
 	scope := strings.TrimSpace(p.scope)
 	if scope == "" || scope == scopeAll {
@@ -473,20 +400,10 @@ func (p *Page) scopeIncludes(name string) bool {
 	return false
 }
 
-// rowsSorted returns the rows ordered by the active sort column +
-// direction. Defaults to NAME ASC (matching the canonical /
-// quick-switch order) so a fresh page paints with digit
-// annotations aligned to row positions; user re-sort by URL /
-// VERSION reorders the visible rows independently while the
-// canonical digit annotations stay anchored to alphabetical-by-
-// name order via canonicalRows.
-//
-// VERSION sort post-processes empty Version rows to the bottom of
-// the slice in BOTH directions: empty is "unknown", not "lowest"
-// or "highest", and Sorter.Apply's argument-flip alone can't
-// express "always last" without direction-aware Less. The hard
-// pin here is what makes the operator-priority "concrete versions
-// at the top" UX hold under DESC as well as ASC.
+// rowsSorted returns rows in the active sort order. VERSION sort
+// pins empty-Version rows to the end in BOTH directions: empty is
+// "unknown", not "lowest"/"highest", which Sorter.Apply's
+// argument-flip alone can't express without direction-aware Less.
 func (p *Page) rowsSorted() []Row {
 	out := make([]Row, len(p.rows))
 	copy(out, p.rows)
@@ -497,11 +414,9 @@ func (p *Page) rowsSorted() []Row {
 	return out
 }
 
-// pinEmptyVersionsToEnd reorders rows so any Row with an empty
-// Version sits after every Row with a non-empty Version, while
-// preserving the relative order Sorter.Apply produced within each
-// group. Stable in the sense that callers can compose it with the
-// helper's stable Apply without losing tie-break determinism.
+// pinEmptyVersionsToEnd moves empty-Version rows after non-empty
+// ones, preserving the relative order within each group so it
+// composes with Sorter.Apply's stable tie-break.
 func pinEmptyVersionsToEnd(rows []Row) []Row {
 	out := make([]Row, 0, len(rows))
 	tail := make([]Row, 0)
@@ -515,11 +430,9 @@ func pinEmptyVersionsToEnd(rows []Row) []Row {
 	return append(out, tail...)
 }
 
-// canonicalRows returns the rows sorted alphabetically by Name —
-// the canonical order the global numeric quick-switch <1>-<9>
-// binds to, regardless of the user's visible sort. Used to build
-// the digit-annotation map so the digit a backend wears stays
-// stable across visible re-sorts.
+// canonicalRows returns rows sorted by Name — the order the numeric
+// quick-switch <1>-<9> binds to regardless of the visible sort, so a
+// backend's digit annotation stays stable across re-sorts.
 func (p *Page) canonicalRows() []Row {
 	out := make([]Row, len(p.rows))
 	copy(out, p.rows)
