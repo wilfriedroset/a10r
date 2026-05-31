@@ -1,4 +1,4 @@
-# 0038 — Alerts page aggregates by alertname
+# 0040 — Alerts page aggregates by alertname
 
 The alerts list was a flat table, one row per **alert instance**
 (one fingerprint). When N instances share an alertname — 567 hosts

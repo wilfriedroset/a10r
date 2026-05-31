@@ -5,7 +5,7 @@
 // (tenant, alertname)), not per instance: every backend.Alert
 // sharing an alertname rolls up into one alertGroup carrying a
 // COUNT, a per-state breakdown, the max severity, and the oldest
-// age. See CONTEXT.md "Alert aggregation" and ADR 0038.
+// age. See CONTEXT.md "Alert aggregation" and ADR 0040.
 //
 //   - Vim motions (j/k/g/G/Ctrl+D/Ctrl+U/Ctrl+F/Ctrl+B) plus arrow keys.
 //   - Substring filter via the `/` prompt (App routes

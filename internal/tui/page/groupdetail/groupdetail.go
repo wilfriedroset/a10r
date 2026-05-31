@@ -20,7 +20,7 @@
 // Polling lives in the wiring layer: a poll loop emits
 // DataMsg{Resource: []backend.Alert} for the page's tenant; the page
 // keeps only the instances whose alertname matches and recomputes.
-// See CONTEXT.md "Alert drill-down" and ADR 0038.
+// See CONTEXT.md "Alert drill-down" and ADR 0040.
 package groupdetail
 
 import (
@@ -70,7 +70,7 @@ func instanceSortColumns() []tablesort.Column[instanceEntry] {
 			// Severity is the default column, so it needs no direct
 			// hotkey — reachable via h/l. Crucially, `Shift+S` and `S`
 			// share one KeyPressMsg.String() ("S") in bubbletea v2, and
-			// ADR 0038 pins `S` to "open silences" as the verb that
+			// ADR 0040 pins `S` to "open silences" as the verb that
 			// stays consistent across L2/L3. A severity Hotkey of 'S'
 			// would shadow that verb, so the column carries no hotkey
 			// and DefaultAsc stays true: SeverityRank already ranks

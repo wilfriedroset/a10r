@@ -324,7 +324,7 @@ func TestSortHotkeys_InstanceAndAgeReachable_SeverityViaWalk(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'A', Text: "A", Mod: tea.ModShift})
 	require.Equal(t, sortKeyAge, p.sorter.ActiveKey(), "Shift+A sorts by age")
 
-	// `S` must NOT be intercepted by the sorter (ADR 0038: S = open
+	// `S` must NOT be intercepted by the sorter (ADR 0040: S = open
 	// silences). Walking back to severity uses h/l instead.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'h', Text: "h"})
