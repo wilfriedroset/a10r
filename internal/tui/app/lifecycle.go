@@ -14,8 +14,7 @@ import (
 )
 
 // Update implements tea.Model. Routes the message to whichever
-// subcomponent owns it; falls back to the dispatcher for plain key
-// events. Returns the model verbatim and the resulting command.
+// subcomponent owns it; falls back to the dispatcher for plain key events.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, handled := a.handleLifecycle(msg); handled {
 		return a, cmd
@@ -24,31 +23,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 	if _, ok := msg.(help.ClosedMsg); ok {
-		// Help close runs through its own branch rather than the
-		// modal.ResultMsg fan-out: viewer overlays don't satisfy
-		// ResultMsg (per ADR 0020), and no page needs to observe
-		// the dismissal — the overlay only renders information.
+		// Own branch, not the modal.ResultMsg fan-out: viewer overlays
+		// don't satisfy ResultMsg (ADR 0020) and no page observes the close.
 		a.overlays.help = nil
 		return a, nil
 	}
 	if isModalResult(msg) {
 		a.closeModal()
-		// Tenant picker submissions tagged with the scope origin
-		// (Ctrl+T) translate into a global ScopeChangedMsg so every
-		// page reacts the same way as for the `<0>` / `<1>`-`<9>`
-		// quick-switch. Pickers opened by pages — e.g. the silence
-		// form's tenant row — carry a different Origin and fall
-		// through to forwardToTop so the page Update consumes them.
-		// Empty selection (no marks → falls through to the cursor
-		// row, which we treat as "all") and the literal "all"
-		// selection both resolve to scope=="all".
+		// Scope-origin (Ctrl+T) submissions become a global
+		// ScopeChangedMsg; other Origins fall through to the page that
+		// opened the picker. Empty and "all" both resolve to scope "all".
 		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginScope {
 			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
 			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
 		}
 		if pc, ok := msg.(modal.PickerCancelledMsg); ok && pc.Origin == PickerOriginScope {
-			// Cancelling the global scope picker is a no-op; the page
-			// doesn't need to see it. Pickers with any other Origin
+			// Cancelling the global scope picker is a no-op; other Origins
 			// fall through so the originator can react.
 			return a, nil
 		}
@@ -56,11 +46,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 	if _, ok := msg.(AutoPopMsg); ok {
-		// Forms emit submitted / cancelled messages tagged with
-		// AutoPopMsg. The App pops the form off the stack first so
-		// the parent page is on top, then forwards the message so
-		// the parent can react (success flash, list refresh, …).
-		// Symmetrical with the modal-result path above.
+		// Pop the form first so the parent is on top, then forward so the
+		// parent can react. Symmetrical with the modal-result path above.
 		closeCmd := a.popPage()
 		fwdCmd := a.forwardToTop(msg)
 		return a, tea.Batch(closeCmd, fwdCmd)
@@ -79,12 +66,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
-// handleLifecycle covers the App's own message types: window
-// resize, quit, chord-timer, page stack ops, modal slot ops.
-// Returns (cmd, true) when handled. The dispatch fans out into
-// three clusters so each switch stays small and the conceptual
-// grouping (session lifecycle vs poll snapshotting vs stack/modal
-// ops) is explicit.
+// handleLifecycle covers the App's own message types, returning
+// (cmd, true) when handled. It fans out into three clusters (session,
+// poll snapshotting, stack/modal) so each switch stays small.
 func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	if cmd, handled := a.handleSessionMsg(msg); handled {
 		return cmd, true
@@ -95,11 +79,8 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	return a.handleStackMsg(msg)
 }
 
-// handleSessionMsg covers session-level lifecycle messages:
-// window resize, quit (both the bubbletea-native QuitMsg and the
-// App's QuitRequestedMsg precursor that runs page Close()s first),
-// chord-timer expiry, and refresh requests forwarded to the wiring
-// layer.
+// handleSessionMsg covers session-level lifecycle messages: window
+// resize, quit, chord-timer expiry, and refresh requests.
 func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -109,25 +90,17 @@ func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 		a.quitting = true
 		return nil, true
 	case QuitRequestedMsg:
-		// Page-stack tear-down + tea.Quit, in that order. See
-		// QuitRequestedMsg's doc for why this can't be a plain
-		// tea.Quit return from the quit bindings.
+		// Page-stack tear-down before tea.Quit; see QuitRequestedMsg's doc.
 		return a.quitWithCleanup(), true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
 	case StateFormatToggleMsg:
-		// Page-emitted (Shift+T on alerts / group detail). The App
-		// owns the canonical density and broadcasts the flip so a page
-		// that was below the stack during an earlier toggle still
-		// flips from the current value. Parallels the `t` time toggle,
-		// which is dispatcher-owned because its key is a global.
+		// The App owns the canonical density and broadcasts the flip so a
+		// page below the stack during an earlier toggle stays in step.
 		return a.toggleStateFormatCmd(), true
 	case RefreshRequestedMsg:
-		// Translate page-level refresh requests into poller nudges
-		// via the wiring-layer handler. Nil-handler runs (headless
-		// tests, no-config wizard) silently no-op so an early `r`
-		// press doesn't crash. The page is free to surface a flash
-		// of its own — the App stays out of UX feedback for refresh.
+		// Nil handler (headless tests, no-config wizard) no-ops so an early
+		// `r` press doesn't crash.
 		if a.refresh != nil {
 			a.refresh(m.Resource, m.Scope)
 		}
@@ -136,22 +109,14 @@ func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// handlePollMsg snapshots poll payloads before forwarding to the
-// top page. The cache lets a page push that lands later — e.g.
-// PushPage from a key handler running in the same Update tick —
-// hydrate from the freshest payload via replayCachedDataMsgs
-// instead of waiting up to a full poll interval.
+// handlePollMsg snapshots poll payloads before forwarding to the top page,
+// so a page pushed later in the same tick hydrates without waiting a full
+// poll interval.
 //
-// DataMsg: the labelled-cache write fires only when the poll
-// layer stamped ResourceLabel; legacy DataMsgs from tests skip
-// the cache and just forward.
-//
-// BackendStatusMsg: emitted only on STATE CHANGES, so a backend
-// already in the failing state when a page lands would otherwise
-// never light up the band on that page. The per-tenant snapshot
-// fixes that; empty Detail (recovery transition) prunes the entry
-// so a flapping backend that recovered before the push doesn't
-// drag a stale error onto the new page.
+// DataMsg: the cache write fires only when ResourceLabel is stamped;
+// unlabelled DataMsgs (tests) just forward. BackendStatusMsg is emitted
+// only on state changes, so the per-tenant snapshot lets a page landing
+// mid-outage still light the band; empty Detail prunes the entry.
 func (a *App) handlePollMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case poll.DataMsg:
@@ -189,10 +154,8 @@ func (a *App) handleStackMsg(msg tea.Msg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// forwardToTop delivers msg to the top-of-stack page (if any). The
-// page is value-typed in the stack so the new derivative replaces
-// the slot in-place. Returns the page's Cmd or nil when the stack
-// is empty.
+// forwardToTop delivers msg to the top-of-stack page, swapping in the
+// derivative it returns. Returns nil when the stack is empty.
 func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
 	if len(a.stack) == 0 {
 		return nil
@@ -203,12 +166,9 @@ func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// pushPage adds a new page on top, runs its Init, and refreshes the
-// crumb strip. Returns the page's Init Cmd so callers can chain
-// follow-ups (e.g. an alerts page kicking off a poll). After Init,
-// cached poll snapshots are replayed into the new page so it
-// hydrates from the freshest data immediately rather than waiting
-// up to a full poll interval for the next tick.
+// pushPage adds a new page on top, runs its Init, refreshes crumbs, and
+// replays cached poll snapshots so it hydrates without waiting for the
+// next tick. Returns the batched Init and replay Cmds.
 func (a *App) pushPage(factory func() Page) tea.Cmd {
 	if factory == nil {
 		return nil
@@ -224,38 +184,16 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	return tea.Batch(initCmd, replayCmd)
 }
 
-// quitWithCleanup walks the page stack invoking Close() on each
-// page so any background work (bulk fanout workers, in-flight
-// silence-form Create/UpdateSilence, tenantconfig Status fetch,
-// silences editor UpdateSilence) is signalled to cancel before
-// bubbletea tears the program down. The returned Cmd batches the
-// per-page Close cmds with a terminating tea.Quit so the program
-// still exits.
+// quitWithCleanup walks the page stack top-first invoking Close() to
+// cancel background work, then batches a terminating tea.Quit. An empty
+// stack still emits tea.Quit so a cold-start quit exits cleanly.
 //
-// Order is top-of-stack first, mirroring popPage's contract: the
-// frontmost page typically holds the most recent in-flight work.
-// In practice every Close in this codebase returns nil and just
-// fires its stored cancel func synchronously, so the ordering is
-// observational; the contract stays explicit so a future Close
-// that does emit a Cmd (e.g. an audit-log flush) ships in the
-// right order.
-//
-// Empty stack — pre-PushPage cold-start, or a hypothetical Esc
-// loop that popped every page — still emits tea.Quit so a quit
-// keystroke during cold start exits cleanly.
-//
-// CRITICAL: a.quitting is flipped HERE, before the batch returns,
-// not in handleLifecycle's `case tea.QuitMsg` branch (which is
-// dead code in production — bubbletea's eventLoop catches
-// tea.QuitMsg BEFORE dispatching to Update; see vendor
-// charm.land/bubbletea/v2 tea.go eventLoop). The cleanup-cascade
-// path's terminating tea.Quit emits a QuitMsg into bubbletea's
-// message channel; the wiring-layer filter (cmd/tui.go's
-// newQuitFilter) reads a.Quitting() to decide pass-through vs.
-// rewrite-to-QuitRequestedMsg. Without the flip here, the filter
-// would loop QuitMsg back into QuitRequestedMsg forever and the
-// program would never exit. The dead case in handleLifecycle stays
-// as belt-and-braces.
+// CRITICAL: a.quitting is flipped HERE, not in handleLifecycle's
+// `case tea.QuitMsg` (dead code in production — bubbletea's eventLoop
+// catches tea.QuitMsg before dispatching to Update). The terminating
+// tea.Quit emits a QuitMsg the wiring-layer filter (cmd/tui.go's
+// newQuitFilter) inspects via a.Quitting(); without the flip the filter
+// would rewrite QuitMsg back to QuitRequestedMsg forever and never exit.
 func (a *App) quitWithCleanup() tea.Cmd {
 	a.quitting = true
 	cmds := make([]tea.Cmd, 0, len(a.stack)+1)
@@ -268,11 +206,9 @@ func (a *App) quitWithCleanup() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// popPage removes the top page when the stack has more than one
-// entry, calling Close on it so pollers and other background work
-// can wind down. Popping the last page is a no-op so the home view
-// always stays visible — a keybindings.md "Esc on home view does
-// nothing" is friendlier than ejecting the user into a black screen.
+// popPage removes the top page when the stack has more than one entry,
+// calling Close so its background work winds down. Popping the last page
+// is a no-op so the home view always stays visible.
 func (a *App) popPage() tea.Cmd {
 	if len(a.stack) <= 1 {
 		return nil
@@ -283,12 +219,9 @@ func (a *App) popPage() tea.Cmd {
 	return departing.Close()
 }
 
-// replacePage swaps the top page for the factory's output. The
-// displaced page's Close runs so its background work tears down
-// before the new page's Init starts; the two Cmds run sequentially
-// to keep that ordering deterministic. When the stack is empty,
-// replacePage falls back to push so a user can always launch a
-// fresh view from a no-page state.
+// replacePage swaps the top page for the factory's output, sequencing the
+// displaced page's Close before the new page's Init so teardown finishes
+// first. An empty stack falls back to push.
 func (a *App) replacePage(factory func() Page) tea.Cmd {
 	if factory == nil {
 		return nil
@@ -308,9 +241,8 @@ func (a *App) replacePage(factory func() Page) tea.Cmd {
 	return tea.Batch(cmd, replayCmd)
 }
 
-// cacheDataMsg stores the latest DataMsg per (ResourceLabel,
-// Tenant) tuple. Subsequent ticks for the same tuple overwrite —
-// the cache is a snapshot, not a history.
+// cacheDataMsg stores the latest DataMsg per (ResourceLabel, Tenant);
+// later ticks overwrite, since the cache is a snapshot not a history.
 func (a *App) cacheDataMsg(m poll.DataMsg) {
 	bucket := a.caches.poll[m.ResourceLabel]
 	if bucket == nil {
@@ -320,12 +252,9 @@ func (a *App) cacheDataMsg(m poll.DataMsg) {
 	bucket[m.Tenant] = m
 }
 
-// cacheStatusMsg stores the latest BackendStatusMsg per tenant.
-// Empty Detail signals a recovery transition; pruning the entry
-// keeps the cache aligned with the per-page error-band semantics
-// (every page's BackendStatusMsg handler does the same delete-on-
-// empty-Detail). Subsequent transitions for the same tenant
-// overwrite — the cache is a snapshot, not a history.
+// cacheStatusMsg stores the latest BackendStatusMsg per tenant. Empty
+// Detail is a recovery transition: pruning keeps the cache aligned with
+// the per-page delete-on-empty-Detail error-band semantics.
 func (a *App) cacheStatusMsg(m poll.BackendStatusMsg) {
 	if m.Detail == "" {
 		delete(a.caches.status, m.Tenant)
@@ -334,36 +263,12 @@ func (a *App) cacheStatusMsg(m poll.BackendStatusMsg) {
 	a.caches.status[m.Tenant] = m
 }
 
-// replayCachedDataMsgs feeds cached snapshots into the top-of-
-// stack page through its Update so a freshly-pushed page can
-// build its byTenant map without waiting for the next poll tick.
-//
-// Replay is filtered by resource label when the top page
-// implements PollAwarePage: only labels the page declared via
-// PollResources() are replayed, so a silences page push doesn't
-// re-walk the alerts / receivers / groups cache. Pages that don't
-// implement the interface receive every cached payload — they
-// already type-assert and ignore wrong shapes, so nothing breaks;
-// the filter just trims the noise for opted-in pages.
-//
-// Cmds returned from each replayed Update are collected and folded
-// into a tea.Batch so they survive: every production page returns
-// nil from DataMsg today, so the batch is degenerate, but a future
-// page wiring DataMsg → kick a follow-up Cmd would otherwise lose
-// the kick on the first push.
-//
-// BackendStatusMsg entries are replayed unconditionally — the error
-// band is a page-level UX every list page (alerts / silences /
-// groups / receivers) wants to render the same way, and a page
-// that doesn't care drops the message in its Update's type switch
-// at near-zero cost. Filtering them by PollResources would require
-// every list page to also list "status" in its label set, which
-// would couple the error-band wiring to an unrelated concept.
-//
-// The inner-loop write to a.stack[len-1] is safe because the App's
-// Update path is single-threaded by bubbletea — replay runs
-// inside the same Update call that pushed the page, so no other
-// goroutine reads or writes the stack while this loop runs.
+// replayCachedDataMsgs feeds cached snapshots into the top page so it
+// builds its byTenant map without waiting for the next poll tick. Poll
+// payloads are label-filtered for PollAwarePage pages (others get all).
+// Returned Cmds are batched so a future DataMsg→Cmd page doesn't lose its
+// kick. BackendStatusMsg is replayed unconditionally: filtering it by
+// PollResources would couple the error-band wiring to an unrelated label.
 func (a *App) replayCachedDataMsgs() tea.Cmd {
 	if len(a.stack) == 0 {
 		return nil
@@ -384,8 +289,8 @@ func (a *App) replayCachedDataMsgs() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// dispatchAppend feeds m to the top page, swaps in the page it
-// returns, and appends any non-nil command to cmds.
+// dispatchAppend feeds m to the top page, swaps in its derivative, and
+// appends any non-nil command to cmds.
 func (a *App) dispatchAppend(cmds []tea.Cmd, m tea.Msg) []tea.Cmd {
 	top, cmd := a.stack[len(a.stack)-1].Update(m)
 	a.stack[len(a.stack)-1] = top
@@ -395,12 +300,9 @@ func (a *App) dispatchAppend(cmds []tea.Cmd, m tea.Msg) []tea.Cmd {
 	return cmds
 }
 
-// replayLabelFilter returns a predicate reporting whether cached poll
-// messages for a resource label should be replayed into the freshly-
-// pushed page. A page that declares its polled resources via
-// PollAwarePage replays only those (an empty declaration replays
-// nothing); a page that doesn't implement it replays everything
-// cached.
+// replayLabelFilter returns a predicate for which cached poll labels to
+// replay: a PollAwarePage page replays only its declared resources (empty
+// = none); a page that doesn't implement it replays everything.
 func (a *App) replayLabelFilter() func(label string) bool {
 	pa, ok := a.stack[len(a.stack)-1].(PollAwarePage)
 	if !ok {
