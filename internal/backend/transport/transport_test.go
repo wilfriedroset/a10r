@@ -429,8 +429,8 @@ Wf86aX6PepsntZv2GYlA5UpabfT2EZICICpJ5h/iI+i341gBmLiAFQOyTDT+/wQc
 }
 
 // TestNewAuth_BasicAuth_HostPinDropsOnMismatch exercises the
-// host-pin guard: when AuthOptions.ExpectedHost is set, basicRT
-// must skip the SetBasicAuth call on any request whose req.URL.Host
+// host-pin guard: when AuthOptions.ExpectedHost is set, the
+// basic-auth RT must skip the SetBasicAuth call on any request whose req.URL.Host
 // doesn't match. This is the single most important regression test
 // in the package — the prior behaviour replayed credentials onto
 // an attacker-controlled redirect target.
@@ -455,7 +455,7 @@ func TestNewAuth_BasicAuth_HostPinDropsOnMismatch(t *testing.T) {
 
 // TestNewAuth_BasicAuth_HostPinAppliesOnMatch is the positive
 // counterpart: when the expected host equals the request host
-// (case-insensitive), basicRT continues to inject Authorization.
+// (case-insensitive), the basic-auth RT continues to inject Authorization.
 func TestNewAuth_BasicAuth_HostPinAppliesOnMatch(t *testing.T) {
 	t.Parallel()
 

@@ -93,7 +93,13 @@ func WithHostPinnedHeaders(base http.RoundTripper, headers map[string]string, ex
 	// Snapshot so later caller mutation cannot leak into in-flight requests.
 	snap := make(map[string]string, len(headers))
 	maps.Copy(snap, headers)
-	return &headersRT{base: base, headers: snap, expectedHost: expectedHost}
+	// One RT applying the whole map, not N chained single-header RTs:
+	// chaining would Clone the request once per header.
+	return &mutatingRT{base: base, expectedHost: expectedHost, mutate: func(r *http.Request) {
+		for k, v := range snap {
+			r.Header.Set(k, v)
+		}
+	}}
 }
 
 // WithUserAgent sets the User-Agent header (RFC 9110 §10.1.5),
@@ -107,7 +113,11 @@ func WithUserAgent(base http.RoundTripper, ua string) http.RoundTripper {
 	if ua == "" {
 		return base
 	}
-	return &userAgentRT{base: base, ua: ua}
+	// No host pin: the User-Agent is not a secret, so it is injected on
+	// every hop including redirects.
+	return &mutatingRT{base: base, mutate: func(r *http.Request) {
+		r.Header.Set("User-Agent", ua)
+	}}
 }
 
 // BaseOptions bundles the TLS / proxy knobs plumbed through to the
@@ -157,14 +167,20 @@ func newBasic(spec *config.BasicAuth, expectedHost string, base http.RoundTrippe
 	if spec.Username == "" || spec.Password == "" {
 		return nil, ErrMissingBasicCreds
 	}
-	return &basicRT{base: base, user: spec.Username, pass: spec.Password, expectedHost: expectedHost}, nil
+	user, pass := spec.Username, spec.Password
+	return &mutatingRT{base: base, expectedHost: expectedHost, mutate: func(r *http.Request) {
+		r.SetBasicAuth(user, pass)
+	}}, nil
 }
 
 func newBearer(token, expectedHost string, base http.RoundTripper) (http.RoundTripper, error) {
 	if token == "" {
 		return nil, ErrMissingBearerToken
 	}
-	return &addHeaderRT{base: base, name: headerAuthorization, value: bearerPrefix + token, expectedHost: expectedHost}, nil
+	value := bearerPrefix + token
+	return &mutatingRT{base: base, expectedHost: expectedHost, mutate: func(r *http.Request) {
+		r.Header.Set(headerAuthorization, value)
+	}}, nil
 }
 
 func newAuthorization(spec *config.Authorization, expectedHost string, base http.RoundTripper) (http.RoundTripper, error) {
@@ -175,7 +191,10 @@ func newAuthorization(spec *config.Authorization, expectedHost string, base http
 	if t == "" {
 		t = config.DefaultAuthorizationType
 	}
-	return &addHeaderRT{base: base, name: headerAuthorization, value: t + " " + spec.Credentials, expectedHost: expectedHost}, nil
+	value := t + " " + spec.Credentials
+	return &mutatingRT{base: base, expectedHost: expectedHost, mutate: func(r *http.Request) {
+		r.Header.Set(headerAuthorization, value)
+	}}, nil
 }
 
 func buildTLSConfig(spec *config.TLSConfig) (*tls.Config, error) {
@@ -315,55 +334,23 @@ func splitComma(s string) []string {
 	return parts
 }
 
-// basicRT injects HTTP Basic auth. Non-empty expectedHost skips
-// injection on a mismatched host so a redirect chain cannot replay
-// the credentials at an attacker-controlled origin.
-type basicRT struct {
+// mutatingRT clones each request, applies mutate when the request host
+// matches expectedHost, and forwards to base. Empty expectedHost always
+// injects (the unpinned path); a non-empty value skips injection on a
+// mismatched host so a redirect chain cannot replay credentials or
+// tenant headers at an attacker-controlled origin. The single closure
+// shape replaces the per-purpose wrapper types (basic / bearer / header
+// map / user-agent) that differed only in what they wrote onto the clone.
+type mutatingRT struct {
 	base         http.RoundTripper
-	user, pass   string
 	expectedHost string
+	mutate       func(*http.Request)
 }
 
-func (rt *basicRT) RoundTrip(req *http.Request) (*http.Response, error) {
+func (rt *mutatingRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	cloned := req.Clone(req.Context())
 	if hostMatches(rt.expectedHost, cloned.URL.Host) {
-		cloned.SetBasicAuth(rt.user, rt.pass)
-	}
-	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
-}
-
-// addHeaderRT sets a single header on every request (bearer and
-// generic Authorization). expectedHost gates injection as in basicRT.
-type addHeaderRT struct {
-	base         http.RoundTripper
-	name, value  string
-	expectedHost string
-}
-
-func (rt *addHeaderRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	if hostMatches(rt.expectedHost, cloned.URL.Host) {
-		cloned.Header.Set(rt.name, rt.value)
-	}
-	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
-}
-
-// headersRT applies a fixed header map, distinct from addHeaderRT to
-// avoid O(N) Clone calls from chaining N single-header RTs.
-// expectedHost gates injection as in basicRT, so tenant / auth headers
-// do not leak across redirects.
-type headersRT struct {
-	base         http.RoundTripper
-	headers      map[string]string
-	expectedHost string
-}
-
-func (rt *headersRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	if hostMatches(rt.expectedHost, cloned.URL.Host) {
-		for k, v := range rt.headers {
-			cloned.Header.Set(k, v)
-		}
+		rt.mutate(cloned)
 	}
 	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }
@@ -377,17 +364,4 @@ func hostMatches(expected, reqHost string) bool {
 		return true
 	}
 	return strings.EqualFold(expected, reqHost)
-}
-
-// userAgentRT injects a fixed User-Agent, unconditionally overriding
-// the value Go's http stack would otherwise auto-populate.
-type userAgentRT struct {
-	base http.RoundTripper
-	ua   string
-}
-
-func (rt *userAgentRT) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.Header.Set("User-Agent", rt.ua)
-	return rt.base.RoundTrip(cloned) //nolint:wrapcheck // RoundTripper contract: errors propagate as-is
 }
