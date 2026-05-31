@@ -39,9 +39,10 @@ func newGroupsCmd(flags *GlobalFlags) *cobra.Command {
 // the named receiver. This keeps the predicate simple to reason
 // about and matches the natural "show me groups feeding pager-duty"
 // question. --fail returns ExitFailMatched (10) when at least one
-// group survived the filters; ExitOK (0) otherwise. Label-selector
-// filtering is deferred to a follow-up — see TODO in the package
-// docs.
+// group survived the filters; ExitOK (0) otherwise. Group filtering
+// is receiver-only: the headless command answers the receiver-routing
+// question ("which groups feed pager-duty"), while label exploration
+// belongs to the interactive groups page.
 func newGroupsListCmd(flags *GlobalFlags) *cobra.Command {
 	var (
 		common   commonListFlags
