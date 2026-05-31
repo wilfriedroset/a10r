@@ -291,17 +291,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 	if len(pending.targets) == 0 {
 		return nil
 	}
-	if p.cancelBulk != nil {
-		// Cancel any prior in-flight round before starting a new one.
-		// Idempotent: the prior round's deferred cancel() is a no-op if
-		// it already ran.
-		p.cancelBulk()
-	}
-	parent := p.bulkCtx
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := bulkop.BeginRound(p.bulkCtx, p.cancelBulk)
 	p.cancelBulk = cancel
 	clients := p.clients
 	specBase := backend.SilenceSpec{
@@ -326,13 +316,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		return c.CreateSilence(ctx, spec)
 	}
 	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
-	return func() tea.Msg {
-		// Local cancel: releases this round's ctx subtree the moment
-		// dispatch returns, regardless of whether p.cancelBulk has since
-		// been overwritten by a newer round.
-		defer cancel()
-		return dispatch()
-	}
+	return bulkop.RunRound(cancel, dispatch)
 }
 
 // handleBulkSilenceDone applies a completed bulk silence-all fanout.
@@ -365,25 +349,5 @@ func (p *Page) handleBulkSilenceDone(m bulkop.DoneMsg[string]) tea.Cmd {
 			)
 		}
 	}
-	return flashBulkSilenceResult(total, successes, total-successes)
-}
-
-// flashBulkSilenceResult formats the success / partial / total-failure
-// flash text for a completed bulk silence-all round. N=1 reads
-// "silence created" (matching the single-form success flash); N≥2 uses
-// count-based wording.
-func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
-	if total == 1 {
-		if success == 1 {
-			return footer.ShowFlash(footer.FlashSuccess, "silence created")
-		}
-		return footer.ShowFlash(footer.FlashError, "silence failed")
-	}
-	if failed == 0 {
-		return footer.ShowFlash(footer.FlashSuccess, fmt.Sprintf("silenced %d alerts", success))
-	}
-	if success == 0 {
-		return footer.ShowFlash(footer.FlashError, fmt.Sprintf("silence failed for %d alerts", failed))
-	}
-	return footer.ShowFlash(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
+	return bulkop.SilenceResultFlash(total, successes, total-successes, "alerts")
 }

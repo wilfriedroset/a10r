@@ -7,21 +7,25 @@
 // a rule-of-three inclusion bar, and bulk is intentionally below
 // that threshold. ADR 0013 documents the boundary.
 //
-// The package owns three responsibilities:
+// The package owns four responsibilities:
 //
 //  1. Group ops by tenant.
 //  2. Run a per-tenant bounded worker pool with a caller-supplied
 //     Writer closure (the write call differs per page: CreateSilence
 //     for alerts, ExpireSilence for silences).
 //  3. Aggregate results into a DoneMsg the page emits as a tea.Msg.
+//  4. The per-round cancellation lifecycle (BeginRound / RunRound):
+//     cancel the prior in-flight round and release a completed round's
+//     ctx subtree, the invariant all three call sites share.
 //
 // Page-specific orchestration stays at the call site:
 //
 //   - modal/form flows (alerts goes alert -> form -> fan-out;
 //     silences goes silence -> confirm -> fan-out)
 //   - per-page pending state structs and resolution
-//   - flash wording (verbs differ: "silenced N alerts" vs
-//     "expired N silences")
+//   - bulk-expire flash wording (its verb differs); bulk-silence flash
+//     is shared via SilenceResultFlash (only the noun differs:
+//     "alerts" vs "instances")
 //   - failure logging field names (alert_fingerprint vs silence_id)
 //
 // Generic over K to keep the page's key type (alert fingerprint vs

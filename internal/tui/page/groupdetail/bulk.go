@@ -160,14 +160,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 	if len(pending.targets) == 0 {
 		return nil
 	}
-	if p.cancelBulk != nil {
-		p.cancelBulk()
-	}
-	parent := p.bulkCtx
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := bulkop.BeginRound(p.bulkCtx, p.cancelBulk)
 	p.cancelBulk = cancel
 	clients := p.clients
 	tenant := p.tenant
@@ -193,10 +186,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		return c.CreateSilence(ctx, spec)
 	}
 	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
-	return func() tea.Msg {
-		defer cancel()
-		return dispatch()
-	}
+	return bulkop.RunRound(cancel, dispatch)
 }
 
 // handleBulkSilenceDone applies a completed fanout: successes drop
@@ -224,23 +214,5 @@ func (p *Page) handleBulkSilenceDone(m bulkop.DoneMsg[string]) tea.Cmd {
 			)
 		}
 	}
-	return flashBulkSilenceResult(total, successes, total-successes)
-}
-
-// flashBulkSilenceResult formats the success / partial / failure
-// flash for a completed round.
-func flashBulkSilenceResult(total, success, failed int) tea.Cmd {
-	if total == 1 {
-		if success == 1 {
-			return footer.ShowFlash(footer.FlashSuccess, "silence created")
-		}
-		return footer.ShowFlash(footer.FlashError, "silence failed")
-	}
-	if failed == 0 {
-		return footer.ShowFlash(footer.FlashSuccess, fmt.Sprintf("silenced %d instances", success))
-	}
-	if success == 0 {
-		return footer.ShowFlash(footer.FlashError, fmt.Sprintf("silence failed for %d instances", failed))
-	}
-	return footer.ShowFlash(footer.FlashWarn, fmt.Sprintf("silenced %d of %d — %d failed", success, total, failed))
+	return bulkop.SilenceResultFlash(total, successes, total-successes, "instances")
 }

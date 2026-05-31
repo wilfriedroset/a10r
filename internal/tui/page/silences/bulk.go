@@ -166,18 +166,7 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	if m.Cancelled || !m.Yes || len(pending.ids) == 0 {
 		return nil
 	}
-	if p.cancelBulk != nil {
-		// A second confirm landing while a prior fanout hasn't
-		// drained replaces its context. The prior round's in-flight
-		// workers see Done and skip the rest; its own deferred
-		// cancel() is then a no-op (idempotent).
-		p.cancelBulk()
-	}
-	parent := p.bulkCtx
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := bulkop.BeginRound(p.bulkCtx, p.cancelBulk)
 	p.cancelBulk = cancel
 	clients := p.clients
 	bulk := pending.bulk
@@ -193,14 +182,10 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		return "", c.ExpireSilence(ctx, op.Key)
 	}
 	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
-	return func() tea.Msg {
-		// Local cancel: releases this round's ctx subtree the moment
-		// dispatch returns, regardless of whether p.cancelBulk has
-		// since been overwritten by a newer round.
-		defer cancel()
+	return bulkop.RunRound(cancel, func() tea.Msg {
 		done, _ := dispatch().(bulkop.DoneMsg[string])
 		return bulkExpireDoneMsg{bulk: bulk, done: done}
-	}
+	})
 }
 
 // handleBulkExpireDone applies a completed bulk-expire fanout.
