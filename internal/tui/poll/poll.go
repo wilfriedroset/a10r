@@ -1,18 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package poll runs one (backend, resource) poll loop with
-// backoff, jitter, and asymmetric connection-state emission:
-// per-tick during a failure run so consumers can re-render against
-// the running counter and next-attempt clock; transition-only on
-// the success path because per-tick UI is already driven by
-// DataMsg. See ADR-0014.
-//
-// The poller is goroutine-based — bubbletea v2 supports external
-// goroutines via Program.Send, which is the channel the poller
-// uses to publish DataMsg / BackendStatusMsg into the program
-// loop. Per the project's containedctx guidance, ctx is accepted
-// as a Start argument and never stored; only the derived cancel
-// func lives on the struct.
+// Package poll runs one (backend, resource) poll loop with backoff, jitter,
+// and asymmetric connection-state emission (per-tick on failure, transition-only
+// on success). See ADR-0014. Per containedctx guidance, ctx is a Start argument,
+// never stored; only the derived cancel func lives on the struct.
 package poll
 
 import (
@@ -30,93 +21,60 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 )
 
-// minPollInterval is the floor New applies to opts.Interval. The
-// config layer should already have validated upstream — this is a
-// final safety net so a regression there cannot drive the loop
-// faster than 100 ms × N backends, which would saturate both the
-// terminal and the alertmanager without anyone noticing.
+// minPollInterval floors opts.Interval: a safety net so a config-layer regression
+// can't drive the loop faster than 100ms × N backends and saturate the terminal
+// and the backend unnoticed.
 const minPollInterval = 100 * time.Millisecond
 
-// FetchFunc is the per-tick callback that performs the actual
-// backend work. It returns a typed payload (the poller treats it
-// as opaque any) plus an optional error. ctx propagation is the
-// caller's contract — the poller passes its own cancellable ctx
-// through.
+// FetchFunc is the per-tick worker; the poller treats the returned payload as
+// opaque any and passes its own cancellable ctx through.
 type FetchFunc func(ctx context.Context) (any, error)
 
-// SendFunc publishes a tea.Msg into the bubbletea program loop.
-// In production this is *tea.Program.Send; in tests it's a small
-// channel-backed recorder.
+// SendFunc publishes a tea.Msg into the bubbletea program loop (*tea.Program.Send).
 type SendFunc func(tea.Msg)
 
-// DataMsg is emitted on every successful poll tick. Resource is
-// the typed payload returned by FetchFunc — pages type-assert it
-// to the shape they expect ([]backend.Alert etc.). Tenant is the
-// per-tenant tag the poller was constructed with so a multi-tenant
-// page can route the result. ResourceLabel is the resource bucket
-// the poller was constructed with ("alerts", "silences", …) — it
-// lets the App-level snapshot cache key by (label, tenant) so a
-// freshly-pushed page can hydrate from the cached payload of its
-// own resource without receiving payloads it doesn't care about.
-// Empty in tests that build DataMsg by hand. At marks when the
-// fetch completed (clock.Now after the fetch) so pages can render
-// "last refresh 5s ago" without a parallel ticker. NextAt marks
-// when the next tick is scheduled — pages render the countdown
-// straight from it. Both are zero-valued in tests that don't care.
+// DataMsg is emitted on every successful poll tick.
 type DataMsg struct {
-	Resource      any
-	Tenant        string
+	// Resource is the opaque payload from FetchFunc; pages type-assert it.
+	Resource any
+	// Tenant routes the result on multi-tenant pages.
+	Tenant string
+	// ResourceLabel keys the App-level snapshot cache by (label, tenant).
 	ResourceLabel string
-	At            time.Time
-	NextAt        time.Time
+	// At is when the fetch completed, for "last refresh Ns ago".
+	At time.Time
+	// NextAt is when the next tick is scheduled, for the countdown.
+	NextAt time.Time
 }
 
-// BackendStatusMsg is emitted asymmetrically: per failed tick so
-// downstream consumers can re-render against a fresh next-attempt
-// clock, but transition-only on the success path because DataMsg
-// already drives the success-case UI. See ADR-0014.
-//
-// Detail carries a short, operator-facing error message — empty
-// on transitions to ConnConnected (the success case has no
-// diagnostic to show). The string is the err.Error() form
-// returned by the fetch and is therefore subject to redaction at
-// the underlying transport layer (ADR 0008): no caller may pass a
-// raw bearer token here because the transport's auth wrapper
-// prefixes a sanitised form upstream.
-//
-// Failures is the running count of consecutive failed fetches.
-// Zero on recovery emissions.
-//
-// NextAt is the clock time the poller will attempt the next fetch
-// at. Zero on recovery emissions. Computed once per tick alongside
-// the loop's actual sleep so a consumer rendering "next - now"
-// stays in lockstep with the goroutine's real wait.
+// BackendStatusMsg is emitted per failed tick but transition-only on success,
+// since DataMsg already drives the success-case UI. See ADR-0014.
 type BackendStatusMsg struct {
-	Tenant   string
-	State    header.ConnState
-	Detail   string
+	Tenant string
+	State  header.ConnState
+	// Detail is the operator-facing err.Error(), empty on recovery. Already
+	// redacted at the transport layer (ADR-0008): never pass a raw bearer token.
+	Detail string
+	// Failures is the consecutive-failure count; zero on recovery.
 	Failures int
-	NextAt   time.Time
+	// NextAt is the next attempt time, zero on recovery. Computed once per tick
+	// alongside the loop's sleep so "next - now" stays in lockstep with the wait.
+	NextAt time.Time
 }
 
-// Backoff controls how the poller spaces out attempts after a
-// failure. The fields are public so callers can tune per backend
-// (a flaky upstream might want a longer cap) but the zero value
-// produces sane defaults via DefaultBackoff.
+// Backoff spaces out attempts after a failure. Fields are public for per-backend
+// tuning; the zero value falls back to defaultBackoff.
 type Backoff struct {
 	// Base is the first delay after a failure.
 	Base time.Duration
 	// CapMultiplier caps the delay at CapMultiplier × interval.
 	CapMultiplier int
-	// JitterFraction is the ±fraction of the delay added as jitter
-	// (0.1 = ±10%). Zero means no jitter.
+	// JitterFraction is the ±fraction added as jitter (0.1 = ±10%); zero disables.
 	JitterFraction float64
 }
 
-// defaultBackoff is the project default: 1s base, capped at 6×
-// interval, ±10% jitter — matches the k9s audit's reconnection
-// cadence. A function (not a var) so callers can't accidentally
-// mutate the package-level schedule.
+// defaultBackoff is the project default (1s base, 6× cap, ±10% jitter), matching
+// the k9s reconnection cadence. A func so callers can't mutate a shared schedule.
 func defaultBackoff() Backoff {
 	return Backoff{
 		Base:           time.Second,
@@ -125,22 +83,14 @@ func defaultBackoff() Backoff {
 	}
 }
 
-// Options bundles the construction inputs. Exposed as a struct so
-// the constructor stays additive: a future field (auth handle,
-// per-tenant rate limit) lands without touching every test.
+// Options bundles construction inputs; a struct so the constructor stays additive.
 type Options struct {
-	// Tenant is the tag baked into every emitted message so pages
-	// can route by source backend.
+	// Tenant tags every emitted message so pages can route by source backend.
 	Tenant string
-	// Resource labels what the poller fetches ("alerts", "silences",
-	// "receivers", "groups"). The poller does not interpret it; the
-	// wiring layer uses it to bucket pollers so manual `r` refresh
-	// can target a specific resource for the active scope.
+	// Resource labels what the poller fetches; the wiring layer buckets pollers
+	// by it so manual `r` refresh targets a specific resource.
 	Resource string
-	// Interval is the desired success-case tick spacing. The
-	// configuration default is 1 minute (see config.DefaultPollInterval);
-	// the poller does NOT enforce a floor — tests use sub-second
-	// intervals freely.
+	// Interval is the success-case tick spacing (config default 1 minute).
 	Interval time.Duration
 	// Fetch is the per-tick worker. Must not be nil.
 	Fetch FetchFunc
@@ -148,22 +98,13 @@ type Options struct {
 	Send SendFunc
 	// Clock injects time. nil defaults to clock.System.
 	Clock clock.Clock
-	// Backoff is the failure-mode delay schedule. Zero value falls
-	// back to DefaultBackoff.
+	// Backoff is the failure-mode delay schedule; zero value uses defaultBackoff.
 	Backoff Backoff
 }
 
-// Poller is one (backend, resource) loop. Construct via New, drive
-// via Start / Stop. The intended model is one goroutine per Poller:
-//
-//   - state, failures, and the rest of the per-tick fields are read
-//     and written ONLY from the loop goroutine. Don't add an
-//     external Snapshot() without first promoting them under mu.
-//   - Start spawns the goroutine if no previous goroutine is alive.
-//     Calling Start again while the loop is running is a no-op.
-//   - Stop signals cancel and joins the goroutine before returning,
-//     so a Stop → Start sequence is race-free: the new goroutine
-//     starts with a clean state field set the same way New does.
+// Poller is one (backend, resource) loop. Construct via New, drive via Start/Stop.
+// Per-tick fields (state, failures) are read and written ONLY from the loop
+// goroutine — don't add an external Snapshot() without promoting them under mu.
 type Poller struct {
 	tenant   string
 	resource string
@@ -173,41 +114,25 @@ type Poller struct {
 	clock    clock.Clock
 	backoff  Backoff
 
-	// state tracks the last connection state we emitted. The
-	// recovery emit gates on it (skip when already Connected);
-	// failure ticks set it but never gate on it (they emit
-	// per-tick regardless of prior state). Born in
-	// ConnUnreachable so the cold-start success tick naturally
-	// fires its first recovery emission (Connected != Unreachable).
-	// Loop-goroutine only — see the type doc.
+	// state is the last emitted conn state; born ConnUnreachable so the
+	// cold-start success tick fires its first recovery emission. Loop-goroutine only.
 	state header.ConnState
-	// failures counts consecutive errors since the last success;
-	// drives the exponential backoff. Loop-goroutine only.
+	// failures counts consecutive errors since last success; drives backoff.
 	failures int
 
-	// refresh wakes the loop early when Refresh is called. Buffered
-	// at 1 so a Refresh during an in-flight fetch lands a single
-	// queued nudge — additional Refresh calls coalesce into the same
-	// pending wake-up. Drained inside the select; never closed.
+	// refresh wakes the loop early. Buffered at 1 so concurrent Refresh calls
+	// coalesce into one pending nudge. Drained in the select; never closed.
 	refresh chan struct{}
 
-	// mu protects cancel / done. The loop goroutine never touches
-	// either after Start returns; only the public lifecycle methods
-	// do.
+	// mu protects cancel/done, touched only by the public lifecycle methods.
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
-// New constructs a Poller. Required fields (Resource, Interval,
-// Fetch, Send) are validated; missing ones panic because they
-// indicate programmer error rather than runtime conditions.
-// Tenant is allowed empty for tests that don't fan out across
-// backends, but Resource is mandatory: it's what lets the App-
-// level snapshot cache key payloads by resource so a freshly-
-// pushed page hydrates from the right bucket. A poller that
-// forgot to set Resource would silently bypass the cache —
-// catching it at construction beats debugging "loading…" later.
+// New constructs a Poller. Required fields (Resource, Interval, Fetch, Send) are
+// validated and panic when missing, since that's programmer error. Resource is
+// mandatory: a poller missing it would silently bypass the snapshot cache.
 func New(opts Options) *Poller {
 	if opts.Interval <= 0 {
 		panic("poll.New: Interval must be positive")
@@ -229,17 +154,12 @@ func New(opts Options) *Poller {
 	if bo.Base == 0 {
 		bo = defaultBackoff()
 	}
-	// Defence in depth: floor the interval at minPollInterval. The
-	// config layer should have validated this already, but a future
-	// regression that passed through e.g. 50ms across 10 backends
-	// would melt the operator's terminal and the upstream backend
-	// before anyone noticed. Tests passing intentionally tiny
-	// intervals stay above the floor.
+	// Defence in depth: re-floor at minPollInterval so a config-layer regression
+	// (e.g. 50ms × 10 backends) can't melt the terminal and the backend unnoticed.
 	interval := opts.Interval
 	if interval < minPollInterval {
-		// Loud-but-not-fatal: log so an operator sees the silent
-		// clamp instead of wondering why the configured 50ms
-		// behaves like 100ms.
+		// Loud-but-not-fatal so an operator sees the clamp rather than wondering
+		// why a configured 50ms behaves like 100ms.
 		slog.Warn("poll: interval below floor; clamping",
 			slog.String("tenant", opts.Tenant),
 			slog.String("resource", opts.Resource),
@@ -257,44 +177,30 @@ func New(opts Options) *Poller {
 		clock:    clk,
 		backoff:  bo,
 		refresh:  make(chan struct{}, 1),
-		// Cold-start sentinel: Unreachable so a first-tick success
-		// trips transitionToConnected's prior-state check and the
-		// initial recovery emission fires. A first-tick failure
-		// emits unconditionally on the per-tick branch regardless
-		// of this value.
+		// Cold-start sentinel: Unreachable so a first-tick success trips
+		// transitionToConnected and fires the initial recovery emission.
 		state: header.ConnUnreachable,
 	}
 }
 
-// Tenant returns the tenant tag this poller was constructed with.
-// Read-only; intended for the wiring layer that needs to bucket
-// pollers by (resource, tenant) for refresh routing.
+// Tenant returns the tenant tag, for the wiring layer's refresh routing.
 func (p *Poller) Tenant() string { return p.tenant }
 
-// Resource returns the resource label this poller was constructed
-// with. Read-only; intended for the wiring layer.
+// Resource returns the resource label, for the wiring layer.
 func (p *Poller) Resource() string { return p.resource }
 
-// Refresh nudges the loop to fetch immediately, replacing the
-// next scheduled wake-up. Non-blocking: a Refresh during an
-// in-flight fetch coalesces into the buffered slot, so several
-// presses of `r` in quick succession trigger a single early tick.
-// Failure backoff is left intact — a manual refresh against a
-// down backend doesn't reset the failure counter.
+// Refresh nudges the loop to fetch immediately, replacing the next scheduled
+// wake-up. Non-blocking and coalescing. Failure backoff is left intact.
 func (p *Poller) Refresh() {
 	select {
 	case p.refresh <- struct{}{}:
 	default:
-		// Slot already full; the queued nudge will fire on the
-		// next select pass.
 	}
 }
 
-// Start spawns the polling goroutine. Cancellable via Stop or via
-// the parent ctx being cancelled. Calling Start while a previous
-// goroutine is still running is a no-op; Start after a successful
-// Stop spawns a fresh goroutine and resets per-tick state so the
-// caller sees the same behaviour as a freshly-constructed Poller.
+// Start spawns the polling goroutine, cancellable via Stop or the parent ctx.
+// A no-op while a goroutine is alive; after Stop it resets per-tick state so the
+// caller sees freshly-constructed behaviour.
 func (p *Poller) Start(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -305,9 +211,7 @@ func (p *Poller) Start(ctx context.Context) {
 	done := make(chan struct{})
 	p.cancel = cancel
 	p.done = done
-	// Reset per-tick state so Stop → Start starts as if freshly
-	// constructed. No data race: the previous goroutine is joined
-	// in Stop before this point is reachable.
+	// No data race: the previous goroutine was joined in Stop before reaching here.
 	p.state = header.ConnUnreachable
 	p.failures = 0
 	go func() {
@@ -316,10 +220,8 @@ func (p *Poller) Start(ctx context.Context) {
 	}()
 }
 
-// Stop signals the polling goroutine to exit and waits for it to
-// finish. Idempotent: safe to call multiple times. Joining the
-// goroutine here means Stop → Start is race-free — the new run
-// begins with a clean state.
+// Stop signals the goroutine to exit and joins it, making Stop → Start race-free.
+// Idempotent.
 func (p *Poller) Stop() {
 	p.mu.Lock()
 	cancel := p.cancel
@@ -337,9 +239,7 @@ func (p *Poller) Stop() {
 
 // run is the polling loop. Exits when ctx is cancelled.
 func (p *Poller) run(ctx context.Context) {
-	// Tick immediately on start so the page doesn't wait one full
-	// interval to see its first data — matches k9s "load now, then
-	// poll" UX.
+	// Tick immediately so the page sees data without waiting a full interval.
 	delay, ok := p.tickOnce(ctx)
 	if !ok {
 		return
@@ -353,12 +253,8 @@ func (p *Poller) run(ctx context.Context) {
 			}
 			return
 		case <-p.refresh:
-			// Manual refresh: skip the scheduled wait and tick now.
-			// We deliberately do not reset p.failures — a refresh
-			// against a flaky upstream shouldn't pretend the previous
-			// failures didn't happen. Stop the timer so a pressed
-			// refresh against a tenant in backoff doesn't leave a
-			// runtime timer outstanding for the full backoff window.
+			// Manual refresh: tick now without resetting p.failures. Stop the timer
+			// so a refresh during backoff doesn't leave one outstanding.
 			if !t.Stop() {
 				<-t.C()
 			}
@@ -371,25 +267,19 @@ func (p *Poller) run(ctx context.Context) {
 	}
 }
 
-// tickOnce performs one fetch, emits the resulting messages, and
-// returns the delay before the next scheduled tick. The same delay
-// value is published as DataMsg.NextAt so the on-screen countdown
-// stays in lockstep with the loop's actual sleep — computing
-// Backoff.Delay twice would produce two different jitter draws
-// and drift the displayed "next refresh in N" off the real wait.
-//
-// Returns (_, false) when ctx is done so the loop can exit
-// promptly. A refresh nudge that landed during the fetch is
-// drained here — we already satisfied it with this tick.
+// tickOnce performs one fetch, emits the messages, and returns the next delay.
+// The same delay is published as NextAt so the countdown matches the actual
+// sleep — computing Backoff.Delay twice would draw different jitter and drift it.
+// Returns (_, false) when ctx is done. A refresh nudge landed during the fetch
+// is drained here, satisfied by this tick.
 func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	if ctx.Err() != nil {
 		return 0, false
 	}
 	res, err := p.fetch(ctx)
 	if ctx.Err() != nil {
-		// ctx cancelled mid-fetch — drop the result silently and
-		// exit. Don't transition the state because the user asked
-		// us to stop, not because the backend is down.
+		// Cancelled mid-fetch: don't transition state — the user stopped us, the
+		// backend isn't down.
 		return 0, false
 	}
 	select {
@@ -425,13 +315,9 @@ func (p *Poller) tickOnce(ctx context.Context) (time.Duration, bool) {
 	return delay, true
 }
 
-// transitionToConnected emits the recovery BackendStatusMsg only
-// when the prior state was not already connected — the cold-start
-// state is ConnUnreachable, so the first successful tick fires the
-// emission naturally. Detail / Failures / NextAt are zero: the
-// success-path UI is driven by DataMsg, so the recovery ping
-// carries no diagnostic and must not hijack downstream consumers
-// that read NextAt for their own success-case cadence.
+// transitionToConnected emits the recovery BackendStatusMsg only on a real
+// transition. Detail/Failures/NextAt stay zero so the ping can't hijack consumers
+// that read NextAt for their own success cadence (DataMsg drives that UI).
 func (p *Poller) transitionToConnected() {
 	if p.state == header.ConnConnected {
 		return
@@ -440,12 +326,8 @@ func (p *Poller) transitionToConnected() {
 	p.send(BackendStatusMsg{Tenant: p.tenant, State: header.ConnConnected})
 }
 
-// Delay returns the wait before the next scheduled tick.
-// failures==0 (success path) yields the supplied interval ±jitter.
-// failures>0 produces exponential growth (base, base×2, base×4, …)
-// capped at CapMultiplier × interval, also ±jitter. Goroutine-safe
-// only insofar as math/rand/v2 is — Backoff itself carries no
-// mutable state.
+// Delay returns the wait before the next tick: interval ±jitter on success,
+// exponential growth capped at CapMultiplier × interval ±jitter on failure.
 func (b Backoff) Delay(failures int, interval time.Duration) time.Duration {
 	if failures == 0 {
 		return b.applyJitter(interval)
@@ -458,20 +340,16 @@ func (b Backoff) Delay(failures int, interval time.Duration) time.Duration {
 	return b.applyJitter(d)
 }
 
-// applyJitter perturbs d by ±JitterFraction. Zero JitterFraction
-// returns d unchanged. Random source is package-level rand/v2 —
-// no caller varies on randomness today, and the production jitter
-// envelope is verified end-to-end by TestPoller_JitterEnvelope.
+// applyJitter perturbs d by ±JitterFraction; zero returns d unchanged.
 func (b Backoff) applyJitter(d time.Duration) time.Duration {
 	if b.JitterFraction <= 0 {
 		return d
 	}
 	span := float64(d) * b.JitterFraction
-	// rand/v2 is goroutine-safe per docs; one source per Go runtime.
 	delta := (rand.Float64()*2 - 1) * span //nolint:gosec // jitter only
 	out := time.Duration(float64(d) + delta)
 	if out < 0 {
-		// Defensive: a negative duration would never fire.
+		// A negative duration would never fire.
 		return 0
 	}
 	return out
