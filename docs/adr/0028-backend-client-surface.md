@@ -18,7 +18,7 @@ operators can change `-http.alertmanager-http-prefix`, and the tenant
 header is configurable because a Mimir run with
 `-auth.multitenancy-enabled=false` ships no header at all (and other
 multi-tenant fronts might use a different name). The schema mirrors
-Prometheus's `remote_write` block (see ADR 0004) so the same paste-
+Prometheus's `remote_write` block (see [ADR 0044](0044-mimir-config-mirrors-remote-write.md)) so the same paste-
 and-edit muscle memory applies — `prefix:` and `tenant_header:` slot
 alongside the auth blocks rather than living under a
 `type: vanilla|mimir` discriminator.
@@ -50,3 +50,15 @@ already encoded by the prefix/header pair; (d) generating the client
 from go-swagger — pulls in a large dependency, freezes the surface
 to whatever the upstream OpenAPI spec exposes, and the hand-rolled
 client is small enough to maintain directly.
+
+## Consequences
+
+Adding a new capability-gated method follows the seam: declare it on the
+`backend.Client` interface; have `vanilla.Client` return
+`backend.ErrUnsupported` (the safe default for any backend that does not
+serve it); add or flip the gating flag in `config.Capabilities` so the
+constructor that should expose it materialises a backend whose
+`Capabilities()` reports it on; and gate the TUI entry point on
+`Client.Capabilities()` so the action never lights up against a backend
+that would refuse it. A Mimir-specific override replaces the vanilla stub
+when the real implementation lands — the interface shape does not move.
