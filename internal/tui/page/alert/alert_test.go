@@ -27,18 +27,38 @@ import (
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 
-// fakeClipboard records every Copy call. Nil err on success;
-// callers can flip wantErr to simulate a failure path.
+// fakeClipboard records every Copy call.
 type fakeClipboard struct {
-	last    string
-	calls   int
-	wantErr error
+	last  string
+	calls int
 }
 
-func (f *fakeClipboard) Copy(s string) error {
+func (f *fakeClipboard) Copy(s string) tea.Cmd {
 	f.calls++
 	f.last = s
-	return f.wantErr
+	return nil
+}
+
+// flashFrom runs cmd and returns the FlashShowMsg it produces,
+// unwrapping a tea.Batch (copy emits SetClipboard + flash together).
+func flashFrom(t *testing.T, cmd tea.Cmd) footer.FlashShowMsg {
+	t.Helper()
+	require.NotNil(t, cmd)
+	switch m := cmd().(type) {
+	case footer.FlashShowMsg:
+		return m
+	case tea.BatchMsg:
+		for _, c := range m {
+			if c == nil {
+				continue
+			}
+			if fm, ok := c().(footer.FlashShowMsg); ok {
+				return fm
+			}
+		}
+	}
+	t.Fatalf("cmd produced no FlashShowMsg")
+	return footer.FlashShowMsg{}
 }
 
 // fakeBrowser records every Open call.
@@ -186,32 +206,18 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 		Clipboard: clip,
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-	require.NotNil(t, cmd)
-	msg := cmd().(footer.FlashShowMsg)
+	msg := flashFrom(t, cmd)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
 	require.Equal(t, 1, clip.calls)
 	require.Equal(t, "abc123", clip.last)
 }
 
-func TestPage_CopyFingerprintWithoutClipboardFlashesWarn(t *testing.T) {
+func TestPage_DefaultsClipboardAndBrowser(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-	msg := cmd().(footer.FlashShowMsg)
-	require.Equal(t, footer.FlashWarn, msg.Level)
-	require.Contains(t, msg.Text, "clipboard")
-}
-
-func TestPage_CopyFingerprintErrorFlashesError(t *testing.T) {
-	t.Parallel()
-
-	clip := &fakeClipboard{wantErr: errors.New("display server unreachable")}
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Clipboard: clip})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-	msg := cmd().(footer.FlashShowMsg)
-	require.Equal(t, footer.FlashError, msg.Level)
-	require.Contains(t, msg.Text, "display server unreachable")
+	require.NotNil(t, p.clip, "nil Clipboard must default to a real impl, not stay nil")
+	require.NotNil(t, p.browser, "nil Browser must default to a real impl, not stay nil")
 }
 
 func TestPage_OpenURLSuccess(t *testing.T) {
@@ -250,15 +256,6 @@ func TestPage_OpenURLErrorFlashesError(t *testing.T) {
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
 	require.Contains(t, msg.Text, "no display server")
-}
-
-func TestPage_OpenURLWithoutBrowserFlashesWarn(t *testing.T) {
-	t.Parallel()
-
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
-	msg := cmd().(footer.FlashShowMsg)
-	require.Equal(t, footer.FlashWarn, msg.Level)
 }
 
 // TestPage_OpenURLRejectsNonHTTPSchemes pins that the generator URL

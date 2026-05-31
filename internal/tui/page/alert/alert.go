@@ -23,6 +23,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/browser"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -36,10 +37,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// Clipboard is the page's copy-to-clipboard seam. Errors surface as
-// flash messages.
+// Clipboard is the page's copy-to-clipboard seam. The returned Cmd
+// is run by the bubbletea loop (OSC52 must go through the renderer,
+// not a raw stdout write); OSC52 is fire-and-forget, so there is no
+// failure to report.
 type Clipboard interface {
-	Copy(s string) error
+	Copy(s string) tea.Cmd
 }
 
 // Browser is the page's open-URL seam. Errors surface as flash
@@ -48,16 +51,22 @@ type Browser interface {
 	Open(url string) error
 }
 
+// osc52Clipboard is the default Clipboard: it sets the system
+// clipboard via the terminal's OSC52 sequence, which works over SSH
+// and without an X/Wayland display.
+type osc52Clipboard struct{}
+
+func (osc52Clipboard) Copy(s string) tea.Cmd { return tea.SetClipboard(s) }
+
 // Options bundles the per-page dependencies.
 type Options struct {
 	Alert  backend.Alert
 	Tenant string
 	Styles *theme.Styles
-	// Clipboard handles `c` (copy fingerprint); nil disables the
-	// binding — keypress flashes a "no clipboard" hint. `y` is
-	// reserved for the raw-YAML toggle.
+	// Clipboard handles `c` (copy fingerprint); nil defaults to OSC52.
 	Clipboard Clipboard
-	// Browser handles `o` (open generatorURL); nil disables.
+	// Browser handles `o` (open generatorURL); nil defaults to the
+	// platform launcher (xdg-open / open / start).
 	Browser Browser
 	// Now is the clock for the age line; nil falls back to time.Now.
 	Now func() time.Time
@@ -167,14 +176,22 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
+	clip := opts.Clipboard
+	if clip == nil {
+		clip = osc52Clipboard{}
+	}
+	br := opts.Browser
+	if br == nil {
+		br = browser.System{}
+	}
 	p := &Page{
 		Base:            &detailpage.Base{},
 		a:               opts.Alert,
 		silencedBy:      dedupStrings(opts.Alert.SilencedBy),
 		tenant:          opts.Tenant,
 		styles:          opts.Styles,
-		clip:            opts.Clipboard,
-		browser:         opts.Browser,
+		clip:            clip,
+		browser:         br,
 		now:             now,
 		clients:         opts.Clients,
 		creator:         opts.Creator,
@@ -337,18 +354,14 @@ func (p *Page) openSilenceForm() tea.Cmd {
 
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
-// nil clipboard flashes a "not configured" hint.
 func (p *Page) copyFingerprint() tea.Cmd {
-	if p.clip == nil {
-		return footer.ShowFlash(footer.FlashWarn, "clipboard not configured")
-	}
 	if p.a.Fingerprint == "" {
 		return footer.ShowFlash(footer.FlashWarn, "alert has no fingerprint")
 	}
-	if err := p.clip.Copy(p.a.Fingerprint); err != nil {
-		return footer.ShowFlash(footer.FlashError, "copy failed: "+err.Error())
-	}
-	return footer.ShowFlash(footer.FlashSuccess, "fingerprint copied")
+	return tea.Batch(
+		p.clip.Copy(p.a.Fingerprint),
+		footer.ShowFlash(footer.FlashSuccess, "fingerprint copied"),
+	)
 }
 
 // openGeneratorURL asks the browser integration to open the
@@ -362,9 +375,6 @@ func (p *Page) copyFingerprint() tea.Cmd {
 func (p *Page) openGeneratorURL() tea.Cmd {
 	if p.a.GeneratorURL == "" {
 		return footer.ShowFlash(footer.FlashInfo, "this alert has no generator URL")
-	}
-	if p.browser == nil {
-		return footer.ShowFlash(footer.FlashWarn, "browser not configured")
 	}
 	if !isSafeBrowserURL(p.a.GeneratorURL) {
 		return footer.ShowFlash(footer.FlashError, "refusing to open non-http(s) URL")
