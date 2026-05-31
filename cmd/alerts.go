@@ -81,11 +81,10 @@ type alertRow struct {
 }
 
 // runAlertsList hands the alerts-specific Fetcher + filter wiring to
-// runListRecipe; the filter logic runs inside the per-backend goroutine
-// so the pipeline never sees an unfiltered slice.
+// runList; the filter logic runs inside the per-backend goroutine so
+// the pipeline never sees an unfiltered slice.
 func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts alertsListOptions) error {
-	return runListRecipe(ctx, out, flags, listRecipe[alertRow]{
-		Format: opts.Output,
+	return runList(ctx, out, flags, opts.Output, listcmd.Spec[alertRow]{
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]alertRow, error) {
 			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
 			if err != nil {

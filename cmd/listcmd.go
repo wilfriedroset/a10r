@@ -43,26 +43,13 @@ func newListCmd(short, failHelp string, common *commonListFlags) *cobra.Command 
 	return cmd
 }
 
-// listRecipe is the per-command shape runListRecipe lifts into a
-// listcmd.Spec. Holds the bits each subcommand customises while the
-// helper bolts on the cross-cutting wiring (config load, factory,
-// pager, stderr, mapPipelineExit).
-type listRecipe[R any] struct {
-	Format        string
-	Fetcher       listcmd.Fetcher[R]
-	Renderers     map[output.Format]listcmd.Renderer[R]
-	Sort          func([]R)
-	ResourceLabel string
-	FailOnAny     bool
-}
-
-// runListRecipe is the shared wrapper around listcmd.Run for every
-// list subcommand. Owns the cross-cutting scaffolding (ParseFormat,
-// loadCmdConfig, buildClientFactory + defer-close, Spec assembly,
-// mapPipelineExit) so each command just hands the per-command bits
-// in via listRecipe.
-func runListRecipe[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, r listRecipe[R]) error {
-	format, err := output.ParseFormat(r.Format)
+// runList is the shared wrapper around listcmd.Run for every list
+// subcommand. The caller hands a Spec carrying the per-command bits;
+// runList parses rawFormat and injects the cross-cutting seams (config,
+// client factory + defer-close, pager, stderr) before mapping the
+// pipeline's sentinels to exit codes.
+func runList[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, rawFormat string, spec listcmd.Spec[R]) error {
+	format, err := output.ParseFormat(rawFormat)
 	if err != nil {
 		return fmt.Errorf("parse output format: %w", err)
 	}
@@ -76,18 +63,11 @@ func runListRecipe[R any](ctx context.Context, out io.Writer, flags *GlobalFlags
 	}
 	defer func() { _ = closer.Close() }()
 
-	spec := listcmd.Spec[R]{
-		Config:        cfg,
-		Format:        format,
-		Fetcher:       r.Fetcher,
-		Renderers:     r.Renderers,
-		Sort:          r.Sort,
-		ResourceLabel: r.ResourceLabel,
-		FailOnAny:     r.FailOnAny,
-		NoPager:       flags.NoPager,
-		Out:           out,
-		Deps:          listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr},
-	}
+	spec.Config = cfg
+	spec.Format = format
+	spec.NoPager = flags.NoPager
+	spec.Out = out
+	spec.Deps = listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr}
 	return mapPipelineExit(listcmd.Run(ctx, spec))
 }
 

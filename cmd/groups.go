@@ -84,11 +84,10 @@ type groupRow struct {
 }
 
 // runGroupsList hands the groups-specific Fetcher + filter wiring to
-// runListRecipe; the filter runs inside the per-backend goroutine so
-// the pipeline never sees an unfiltered slice.
+// runList; the filter runs inside the per-backend goroutine so the
+// pipeline never sees an unfiltered slice.
 func runGroupsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts groupsListOptions) error {
-	return runListRecipe(ctx, out, flags, listRecipe[groupRow]{
-		Format: opts.Output,
+	return runList(ctx, out, flags, opts.Output, listcmd.Spec[groupRow]{
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]groupRow, error) {
 			groups, err := c.ListAlertGroups(ctx, backend.AlertFilter{})
 			if err != nil {

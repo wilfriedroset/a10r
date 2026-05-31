@@ -61,12 +61,11 @@ type receiverRow struct {
 	Name   string `json:"name" yaml:"name"`
 }
 
-// runReceiversList hands the receivers Fetcher to runListRecipe.
-// Receivers carry no per-command filter so the Fetcher just flattens
-// the wire response.
+// runReceiversList hands the receivers Fetcher to runList. Receivers
+// carry no per-command filter so the Fetcher just flattens the wire
+// response.
 func runReceiversList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts receiversListOptions) error {
-	return runListRecipe(ctx, out, flags, listRecipe[receiverRow]{
-		Format: opts.Output,
+	return runList(ctx, out, flags, opts.Output, listcmd.Spec[receiverRow]{
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]receiverRow, error) {
 			recvs, err := c.ListReceivers(ctx)
 			if err != nil {

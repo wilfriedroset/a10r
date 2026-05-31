@@ -142,7 +142,7 @@ func validateSilenceState(in string) (string, error) {
 
 // runSilencesList validates --state and --matcher (so a typo errors
 // without HTTP traffic) then hands the silence-specific Fetcher +
-// filter wiring to runListRecipe.
+// filter wiring to runList.
 func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts silencesListOptions) error {
 	state, err := validateSilenceState(opts.State)
 	if err != nil {
@@ -156,8 +156,7 @@ func runSilencesList(ctx context.Context, out io.Writer, flags *GlobalFlags, opt
 		}
 		matcherFilter = &m
 	}
-	return runListRecipe(ctx, out, flags, listRecipe[silenceRow]{
-		Format: opts.Output,
+	return runList(ctx, out, flags, opts.Output, listcmd.Spec[silenceRow]{
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]silenceRow, error) {
 			silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
 			if err != nil {
