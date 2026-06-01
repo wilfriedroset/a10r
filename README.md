@@ -13,6 +13,46 @@ alert.
 Built for SREs, devs, and on-callers who want the alertmanager
 day-to-day to feel like kubectl day-to-day.
 
+## Demo
+
+A ~90s tour — cold start, navigation, filtering, silencing, and
+tenant switching:
+
+[![asciicast](https://asciinema.org/a/lyJ4hw26wpgNWtBV.svg)](https://asciinema.org/a/lyJ4hw26wpgNWtBV)
+
+The two screens you live in: the alerts list and the silence form.
+
+![Alerts list — severity column, state, count, and age per row](docs/screenshots/alerts-list.png)
+
+![Silence form — multi-line matchers, duration shorthand, line-precise validation](docs/screenshots/silence-form.png)
+
+<details>
+<summary>More screenshots</summary>
+
+![First-run wizard prompting for a backend URL](docs/screenshots/a10r-init.png)
+
+![Alerts list with an active substring filter](docs/screenshots/alerts-list-filtered.png)
+
+![Alert detail view](docs/screenshots/alert-details.png)
+
+![Silences list sorted by soonest-expiring](docs/screenshots/silences-list.png)
+
+![Silence detail view](docs/screenshots/silence-details.png)
+
+![Receivers list — Enter drills into the receiver's alerts](docs/screenshots/receivers-list.png)
+
+![Tenant table for multi-backend setups](docs/screenshots/tenants-list.png)
+
+![Status pane — cluster state, version info, and raw config](docs/screenshots/status.png)
+
+![Help overlay built from the active page's bindings](docs/screenshots/help.png)
+
+![a10r doctor preflight checks](docs/screenshots/a10r-doctor.png)
+
+![Non-interactive list subcommands with json / yaml / table output](docs/screenshots/cli-lists.png)
+
+</details>
+
 ## Features
 
 - **Alerts list** with vim motions, substring filter, sort-column
