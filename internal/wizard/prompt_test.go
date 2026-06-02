@@ -1,0 +1,205 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package wizard
+
+import (
+	"bytes"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestPrompter_StringUsesDefaultOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := New(strings.NewReader("\n"), &out)
+	got, err := p.String("name", "prod", nil)
+	require.NoError(t, err)
+	require.Equal(t, "prod", got)
+	require.Contains(t, out.String(), "[prod]")
+}
+
+func TestPrompter_StringReturnsTrimmedInput(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("  staging  \n"), &bytes.Buffer{})
+	got, err := p.String("name", "", nil)
+	require.NoError(t, err)
+	require.Equal(t, "staging", got)
+}
+
+func TestPrompter_StringRetriesOnInvalid(t *testing.T) {
+	t.Parallel()
+
+	in := strings.NewReader("bad\nok\n")
+	var out bytes.Buffer
+	p := New(in, &out)
+	got, err := p.String("name", "", func(s string) error {
+		if s == "bad" {
+			return errors.New("reserved word")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ok", got)
+	require.Contains(t, out.String(), "invalid: reserved word")
+}
+
+func TestPrompter_StringEOFErrors(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader(""), &bytes.Buffer{})
+	_, err := p.String("name", "", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EOF")
+}
+
+func TestPrompter_ChoiceAcceptsValid(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("bearer\n"), &bytes.Buffer{})
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
+	require.NoError(t, err)
+	require.Equal(t, "bearer", got)
+}
+
+func TestPrompter_ChoiceUsesDefaultOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("\n"), &bytes.Buffer{})
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
+	require.NoError(t, err)
+	require.Equal(t, "none", got)
+}
+
+func TestPrompter_ChoiceRejectsUnknown(t *testing.T) {
+	t.Parallel()
+
+	in := strings.NewReader("bogus\nbearer\n")
+	var out bytes.Buffer
+	p := New(in, &out)
+	got, err := p.Choice("authentication", []string{"none", "bearer", "basic"}, "none")
+	require.NoError(t, err)
+	require.Equal(t, "bearer", got)
+	require.Contains(t, out.String(), "invalid:")
+}
+
+func TestPrompter_BoolParses(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		def  bool // default if input were empty — never reached because every case is a real answer
+		want bool
+	}{
+		{name: "y", in: "y\n", want: true},
+		{name: "yes", in: "yes\n", want: true},
+		{name: "Y", in: "Y\n", want: true},
+		{name: "YES", in: "YES\n", want: true},
+		{name: "n", in: "n\n", def: true, want: false},
+		{name: "no", in: "no\n", def: true, want: false},
+		{name: "N", in: "N\n", def: true, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(strings.NewReader(tc.in), &bytes.Buffer{})
+			got, err := p.Bool("ok", tc.def)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got, "input %q must parse to %v", tc.in, tc.want)
+		})
+	}
+}
+
+func TestPrompter_BoolEmptyUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("\n"), &bytes.Buffer{})
+	got, err := p.Bool("ok", true)
+	require.NoError(t, err)
+	require.True(t, got)
+}
+
+func TestEnableColor_DisabledWhenStdoutIsNotATerminal(t *testing.T) {
+	// Pipe ⇒ not a TTY ⇒ color must be off regardless of env.
+	// No t.Parallel(): t.Setenv requires the test stay serial.
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer func() {
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+	require.False(t, enableColor(w),
+		"pipe handle isn't a TTY — color must be off")
+}
+
+func TestFrom_NonFileHandlesRouteToPlainConstructor(t *testing.T) {
+	t.Parallel()
+
+	// strings.Reader / bytes.Buffer aren't *os.File → must land
+	// on the plain constructor, which means color is off and the
+	// rendered prompt is byte-identical to the pre-styling era.
+	var out bytes.Buffer
+	p := From(strings.NewReader("\n"), &out)
+	_, err := p.String("name", "prod", nil)
+	require.NoError(t, err)
+	require.NotContains(t, out.String(), "\x1b[",
+		"non-file handles must produce a colour-off prompter; got %q", out.String())
+}
+
+func TestPrompter_SecretReturnsLineInNonTTYFallback(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader("hunter2\n"), &bytes.Buffer{})
+	got, err := p.Secret("token")
+	require.NoError(t, err)
+	require.Equal(t, "hunter2", got)
+}
+
+func TestPrompter_SecretRepromptsOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	// Constructed via New (not From) so the styler is forced
+	// off and the rendered prompt is plain bytes — otherwise
+	// the "invalid: cannot be empty" substring assertion would
+	// be brittle against the colour-on path's ANSI wrapping.
+	var out bytes.Buffer
+	p := New(strings.NewReader("\nfilled\n"), &out)
+	got, err := p.Secret("token")
+	require.NoError(t, err)
+	require.Equal(t, "filled", got)
+	require.Contains(t, out.String(), "invalid: cannot be empty")
+}
+
+func TestPrompter_SecretEOFErrors(t *testing.T) {
+	t.Parallel()
+
+	p := New(strings.NewReader(""), &bytes.Buffer{})
+	_, err := p.Secret("token")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EOF")
+}
+
+func TestPrompter_BoolHintReflectsDefault(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	p := New(strings.NewReader("\n"), &out)
+	_, err := p.Bool("ok", true)
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "[Y/n]")
+
+	out.Reset()
+	p = New(strings.NewReader("\n"), &out)
+	_, err = p.Bool("ok", false)
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "[y/N]")
+}

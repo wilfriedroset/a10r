@@ -416,20 +416,20 @@ func TestApp_PromptPanelRendersAboveBody(t *testing.T) {
 	out = testutil.StripStyle(a.View().Content)
 	require.Equal(t, 2, strings.Count(out, "┌"),
 		"open prompt adds its own bordered panel above the body")
-	require.Contains(t, out, "🐩>",
-		"filter mode renders the poodle emoji prefix per the k9s mirror")
+	require.Contains(t, out, "🔬>",
+		"filter mode renders the microscope emoji prefix")
 	require.Contains(t, out, "hi")
 	require.Contains(t, out, "</hi>",
 		"the body title carries the live filter value while typed")
 
-	// Command mode uses the dog emoji and does NOT touch the title.
+	// Command mode uses the salute emoji and does NOT touch the title.
 	a.prompt = a.prompt.Open(footer.PromptCommand)
 	for _, r := range "sil" {
 		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	out = testutil.StripStyle(a.View().Content)
-	require.Contains(t, out, "🐶>",
-		"command mode renders the dog emoji prefix")
+	require.Contains(t, out, "🫡>",
+		"command mode renders the salute emoji prefix")
 	require.NotContains(t, out, "</sil>",
 		"command-mode prompt must not bleed into the body title")
 }
