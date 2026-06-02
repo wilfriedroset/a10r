@@ -1,0 +1,333 @@
+---
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  go: "1.25"
+
+linters:
+  default: none
+
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - cyclop
+    - depguard
+    - dupl
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - exptostd
+    - fatcontext
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - gochecknoinits
+    - gocheckcompilerdirectives
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - iface
+    - inamedparam
+    - ineffassign
+    - intrange
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
+    - modernize
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nosprintfhostport
+    - perfsprint
+    - prealloc
+    - predeclared
+    - protogetter
+    - reassign
+    - recvcheck
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - testableexamples
+    - testifylint
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+    - wrapcheck
+    - zerologlint
+
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: "Use errors or fmt instead of github.com/pkg/errors (deprecated)"
+            - pkg: github.com/stretchr/testify/assert
+              desc: "Use github.com/stretchr/testify/require for fail-fast tests"
+            - pkg: gopkg.in/yaml.v2
+              desc: "Use gopkg.in/yaml.v3"
+            - pkg: io/ioutil
+              desc: "Deprecated; use io and os equivalents"
+            - pkg: golang.org/x/exp/slices
+              desc: "Use stdlib slices (Go 1.21+)"
+            - pkg: golang.org/x/exp/maps
+              desc: "Use stdlib maps (Go 1.21+)"
+
+    forbidigo:
+      # TUI chrome renders inside an unstyled, transparent frame
+      # (panel.RenderFrame / RenderBody). The skin's bg-carrying role
+      # styles paint a palette stripe when one fragment is rendered
+      # there; every chrome fragment must use the fg-only *Fg sibling
+      # (theme.FgOnly). Only Cursor and Crumbs.*Pill carry a distinct
+      # chip bg by design (cursorBg / pill colour) and are not listed;
+      # Marked's bg is bodyBg, so it belongs here despite the name.
+      forbid:
+        - pattern: 'styles\.(Body|Header)\.Default\.Render'
+          msg: "chrome is transparent: render the .DefaultFg sibling, not the bg-carrying Default"
+        - pattern: 'styles\.Table\.(Header|HeaderActive|Row|Marked|Dimmed)\.Render'
+          msg: "chrome is transparent: render the *Fg sibling (HeaderFg/MarkedFg/...), not the bg-carrying parent"
+
+    staticcheck:
+      checks:
+        - all
+
+    iface:
+      # opaque + unused are deliberately NOT enabled: both fight this
+      # codebase's DI-via-interface pattern (CLAUDE.md: "functions take
+      # interfaces"). `unused` only checks within-package, so every
+      # cross-package seam (clock.Clock, backend.Prober, modal.ResultMsg)
+      # reads as unused; `opaque` flags "constructor returns interface,
+      # one concrete impl" — which is exactly a test seam (tls.Dialer
+      # has two fakes in probe_test.go). The two kept analyzers are
+      # low-false-positive: identical catches duplicate interface defs,
+      # unexported catches an unexported interface leaking into the
+      # exported API.
+      enable:
+        - identical
+        - unexported
+
+    revive:
+      severity: error
+      rules:
+        - name: var-declaration
+        - name: package-comments
+        - name: dot-imports
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: bool-literal-in-expr
+        - name: confusing-naming
+        - name: confusing-results
+        - name: defer
+        - name: early-return
+        - name: identical-branches
+        - name: modifies-value-receiver
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: string-of-int
+        - name: time-equal
+        - name: unconditional-recursion
+        # NOTE: the `unhandled-error` rule was removed; errcheck is the
+        # single source of truth for unchecked errors (see errcheck
+        # below). Keeping both meant maintaining two divergent ignore
+        # lists for the same diagnostic.
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - hugeParam
+        - rangeValCopy
+
+    gocognit:
+      min-complexity: 14
+    cyclop:
+      max-complexity: 14
+      package-average: 8
+    nestif:
+      min-complexity: 5
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      # fmt.Print*, and the bytes.Buffer / strings.Builder Write* methods
+      # are already in errcheck's built-in default exclusions. The three
+      # entries below extend the ignore to fmt.Fprint* for *all* writers,
+      # preserving the behaviour previously expressed via revive's
+      # unhandled-error rule.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    gosec:
+      excludes:
+        - G104
+
+    nakedret:
+      max-func-lines: 0
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-no-explanation: []
+
+    perfsprint:
+      strconcat: false
+
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+
+    sloglint:
+      no-mixed-args: true
+      kv-only: false
+      attr-only: true
+      static-msg: true
+      no-raw-keys: false
+      key-naming-case: snake
+      args-on-sep-lines: false
+      forbidden-keys:
+        - time
+        - level
+        - msg
+        - source
+
+    testifylint:
+      enable-all: true
+      disable:
+        - float-compare
+        - go-require
+
+    dupl:
+      # 150 (the default) catches genuine copy-paste; lower values flag
+      # legitimate parallel-structure code (the per-section compile*
+      # funcs in theme/styles.go) where DRY-ing would need readability-
+      # harming generics.
+      threshold: 150
+
+    funlen:
+      lines: 60
+      statements: 40
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+
+    unparam:
+      check-exported: false
+
+  exclusions:
+    generated: lax
+    warn-unused: true
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - forcetypeassert
+          - gocognit
+          - cyclop
+          - dupl
+          - funlen
+          - gochecknoinits
+          - goconst
+          - revive
+          - wrapcheck
+      - path: cmd/
+        linters:
+          - gochecknoinits
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/wilfriedroset/a10r
+    gofumpt:
+      extra-rules: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+severity:
+  default: error

@@ -1,0 +1,54 @@
+---
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          check-latest: true
+
+      - name: Set up Python (prek runtime)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install govulncheck (prek system hook)
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+
+      - name: Install prek
+        run: pip install prek
+
+      - name: Run pre-commit hooks
+        run: prek run --all-files --show-diff-on-failure
+
+      - name: Verify modules
+        run: go mod verify
+
+      - name: Tests with race detector
+        run: make test-race
+
+      - name: Build
+        run: make build
+
+      - name: Validate goreleaser config
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
