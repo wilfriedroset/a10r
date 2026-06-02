@@ -4,7 +4,7 @@ All notable changes to a10r are documented in this file. The
 format is based on [Keep a Changelog][kac]; the project adheres
 to [Semantic Versioning][semver].
 
-## [v0.1.0] — TBD
+## [v0.1.0] — 2026-06-03
 
 First public release. a10r is a terminal UI for Prometheus
 Alertmanager and Grafana Mimir, shaped like k9s — vim motions,
@@ -13,7 +13,7 @@ the shape of the shipped history, one bullet per area.
 
 - **Project bootstrap** — repo scaffolding, Apache 2.0 license,
   Makefile, `go.mod`, prek hooks, golangci-lint config, and the
-  CI / fuzz / release (goreleaser + cosign-signed checksums)
+  CI / fuzz / release (goreleaser + build-provenance attestations)
   pipelines.
 - **Config loader** — YAML schema with XDG resolution, env-var
   interpolation (`${VAR}`, `${VAR:-default}`), CLI / env / file
