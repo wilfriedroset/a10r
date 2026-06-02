@@ -1,0 +1,116 @@
+# ovhcloud-light — a10r skin inspired by the OVHcloud Design System
+# (https://github.com/ovh/design-system, Apache-2.0).
+#
+# a10r is an independent open-source project and is not affiliated
+# with, endorsed by, or supported by OVHcloud or OVH SAS. The
+# "OVHcloud" name is used nominatively to identify the visual
+# inspiration. Authoring rules: docs/contributor/skin-authoring.md.
+k9s:
+  body:
+    fgColor: '#4d5592'      # ods-palette-twilight (ods-color-text)
+    bgColor: '#ffffff'      # ods-palette-white
+    logoColor: '#000e9c'    # ods-color-brand-masterbrand (blue-700)
+  prompt:
+    fgColor: '#4d5592'
+    bgColor: '#f9f9f9'      # ods-palette-gray-025 (elevated above body)
+    suggestColor: '#808080' # ods-palette-gray-500
+  help:
+    fgColor: '#4d5592'
+    bgColor: '#ffffff'
+    sectionColor: '#000e9c' # brand-masterbrand
+    keyColor: '#00185e'     # ods-palette-deep-sapphire
+    numKeyColor: '#ed733d'  # brand-orange (dusty-orange)
+  frame:
+    title:
+      fgColor: '#4d5592'
+      bgColor: '#ffffff'
+      highlightColor: '#00185e' # deep-sapphire
+      counterColor: '#ed733d'   # brand-orange
+      filterColor: '#a6d64d'    # brand-green (kiwi)
+    border:
+      fgColor: '#cccccc'    # ods-palette-gray-200 (subdued chrome)
+      focusColor: '#000e9c' # brand-masterbrand
+    menu:
+      fgColor: '#4d5592'
+      keyColor: '#000e9c'
+      numKeyColor: '#00185e'
+    crumbs:
+      # Pills: fg is white so the same text reads on both the
+      # inactive pill (twilight, ods-color-text used as bg) and
+      # the active pill (deep-sapphire). activeColor matches
+      # cursor.bgColor — "current focus" is the same
+      # deep-sapphire across cursor and crumbs.
+      fgColor: '#ffffff'    # white text on dark pills
+      bgColor: '#4d5592'    # twilight (inactive pill ribbon)
+      activeColor: '#00185e' # deep-sapphire (matches table cursor)
+    status:
+      # Severity / silence-state / flash derive from these five
+      # (newColor, errorColor, addColor, killColor, highlightColor)
+      # per the k9s skin schema. Light-mode shade rule:
+      # ods-<scale>-500 (see docs/contributor/skin-authoring.md).
+      newColor: '#0050d7'       # ods-information-500 → severity.info, flash.info
+      modifyColor: '#157eea'    # ods-information-400 (not load-bearing today)
+      addColor: '#2b8000'       # ods-success-500 → silence.active, flash.success
+      pendingColor: '#ff8b00'   # ods-warning-500 (k9s-only; a10r re-uses highlightColor)
+      errorColor: '#bf0020'     # ods-critical-500 → severity.critical, flash.error
+      highlightColor: '#ff8b00' # ods-warning-500 → severity.warning, silence.pending, flash.warn
+      killColor: '#808080'      # ods-neutral-500 → severity.unknown, silence.expired
+      completedColor: '#b3b3b3' # ods-neutral-300 (not load-bearing today)
+  info:
+    fgColor: '#000e9c'
+    sectionColor: '#4d5592'
+  views:
+    table:
+      fgColor: '#4d5592'
+      bgColor: '#ffffff'
+      cursorFgColor: '#ffffff' # white on deep-sapphire for high contrast
+      cursorBgColor: '#00185e' # deep-sapphire — survives both opaque and transparent bg
+      markColor: '#ed733d'     # brand-orange
+      header:
+        fgColor: '#00185e'     # deep-sapphire (sort emphasis)
+        bgColor: '#ffffff'
+        sorterColor: '#ed733d' # brand-orange
+    xray:
+      fgColor: '#4d5592'
+      bgColor: '#ffffff'
+      cursorColor: '#00185e'
+      cursorTextColor: '#ffffff'
+      graphicColor: '#000e9c'
+    charts:
+      bgColor: '#ffffff'
+      chartBgColor: '#ffffff'
+      dialBgColor: '#ffffff'
+      defaultDialColors:
+        - '#2b8000'
+        - '#bf0020'
+      defaultChartColors:
+        - '#2b8000'
+        - '#bf0020'
+      resourceColors:
+        cpu:
+          - '#000e9c'
+          - '#0050d7'
+        mem:
+          - '#ff8b00'
+          - '#ed733d'
+    yaml:
+      keyColor: '#000e9c'   # brand-masterbrand
+      valueColor: '#4d5592'
+      colonColor: '#808080' # gray-500
+    logs:
+      fgColor: '#4d5592'
+      bgColor: '#ffffff'
+      indicator:
+        fgColor: '#000e9c'
+        bgColor: '#ffffff'
+        toggleOnColor: '#2b8000'
+        toggleOffColor: '#808080'
+  dialog:
+    fgColor: '#4d5592'
+    bgColor: '#f9f9f9'
+    buttonFgColor: '#ffffff'
+    buttonBgColor: '#4d5592'
+    buttonFocusFgColor: '#ffffff'
+    buttonFocusBgColor: '#000e9c'
+    labelFgColor: '#4d5592'
+    fieldFgColor: '#4d5592'

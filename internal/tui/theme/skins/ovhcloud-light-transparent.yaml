@@ -1,0 +1,111 @@
+# ovhcloud-light-transparent — a10r skin inspired by the OVHcloud
+# Design System (https://github.com/ovh/design-system, Apache-2.0).
+#
+# a10r is an independent open-source project and is not affiliated
+# with, endorsed by, or supported by OVHcloud or OVH SAS. The
+# "OVHcloud" name is used nominatively to identify the visual
+# inspiration. Authoring rules: docs/contributor/skin-authoring.md.
+#
+# Derived mechanically from ovhcloud-light: every flat-surface bg →
+# `default` (terminal-native); cursor bgs preserved so selection
+# stays visible; every fg unchanged.
+k9s:
+  body:
+    fgColor: '#4d5592'
+    bgColor: default
+    logoColor: '#000e9c'
+  prompt:
+    fgColor: '#4d5592'
+    bgColor: default
+    suggestColor: '#808080'
+  help:
+    fgColor: '#4d5592'
+    bgColor: default
+    sectionColor: '#000e9c'
+    keyColor: '#00185e'
+    numKeyColor: '#ed733d'
+  frame:
+    title:
+      fgColor: '#4d5592'
+      bgColor: default
+      highlightColor: '#00185e'
+      counterColor: '#ed733d'
+      filterColor: '#a6d64d'
+    border:
+      fgColor: '#cccccc'
+      focusColor: '#000e9c'
+    menu:
+      fgColor: '#4d5592'
+      keyColor: '#000e9c'
+      numKeyColor: '#00185e'
+    crumbs:
+      fgColor: '#ffffff'
+      bgColor: default
+      activeColor: '#00185e'
+    status:
+      newColor: '#0050d7'
+      modifyColor: '#157eea'
+      addColor: '#2b8000'
+      pendingColor: '#ff8b00'
+      errorColor: '#bf0020'
+      highlightColor: '#ff8b00'
+      killColor: '#808080'
+      completedColor: '#b3b3b3'
+  info:
+    fgColor: '#000e9c'
+    sectionColor: '#4d5592'
+  views:
+    table:
+      fgColor: '#4d5592'
+      bgColor: default
+      cursorFgColor: '#ffffff'
+      cursorBgColor: '#00185e' # preserved: cursor must remain visible against terminal bg
+      markColor: '#ed733d'
+      header:
+        fgColor: '#00185e'
+        bgColor: default
+        sorterColor: '#ed733d'
+    xray:
+      fgColor: '#4d5592'
+      bgColor: default
+      cursorColor: '#00185e' # preserved: xray cursor must remain visible
+      cursorTextColor: '#ffffff'
+      graphicColor: '#000e9c'
+    charts:
+      bgColor: default
+      chartBgColor: default
+      dialBgColor: default
+      defaultDialColors:
+        - '#2b8000'
+        - '#bf0020'
+      defaultChartColors:
+        - '#2b8000'
+        - '#bf0020'
+      resourceColors:
+        cpu:
+          - '#000e9c'
+          - '#0050d7'
+        mem:
+          - '#ff8b00'
+          - '#ed733d'
+    yaml:
+      keyColor: '#000e9c'
+      valueColor: '#4d5592'
+      colonColor: '#808080'
+    logs:
+      fgColor: '#4d5592'
+      bgColor: default
+      indicator:
+        fgColor: '#000e9c'
+        bgColor: default
+        toggleOnColor: '#2b8000'
+        toggleOffColor: '#808080'
+  dialog:
+    fgColor: '#4d5592'
+    bgColor: default
+    buttonFgColor: '#ffffff'
+    buttonBgColor: default
+    buttonFocusFgColor: '#ffffff'
+    buttonFocusBgColor: '#000e9c'
+    labelFgColor: '#4d5592'
+    fieldFgColor: '#4d5592'
