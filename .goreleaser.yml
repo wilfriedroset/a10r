@@ -85,18 +85,6 @@ archives:
 checksum:
   name_template: checksums.sha256
 
-signs:
-  - cmd: cosign
-    signature: "${artifact}.sig"
-    certificate: "${artifact}.pem"
-    args:
-      - "sign-blob"
-      - "--yes"
-      - "--output-signature=${signature}"
-      - "--output-certificate=${certificate}"
-      - "${artifact}"
-    artifacts: checksum
-
 snapshot:
   version_template: "{{ .Tag }}-next"
 

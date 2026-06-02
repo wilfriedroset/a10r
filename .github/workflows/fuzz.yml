@@ -40,7 +40,7 @@ jobs:
             name: FuzzSilenceForm
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -54,7 +54,7 @@ jobs:
       # exploration deepens over weeks. testdata/fuzz/ is for
       # checked-in regression repros only — different concern.
       - name: Restore fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/go-build/fuzz
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
@@ -66,7 +66,7 @@ jobs:
 
       - name: Upload crash repros on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-crash-repros
           path: ${{ matrix.package }}testdata/fuzz/

@@ -1,0 +1,9 @@
+---
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help
+    url: https://github.com/wilfriedroset/a10r/discussions/categories/q-a
+    about: Ask usage questions in Discussions Q&A, not the issue tracker.
+  - name: Ideas and open-ended discussion
+    url: https://github.com/wilfriedroset/a10r/discussions/categories/ideas
+    about: Float an idea before it is a concrete feature request.
