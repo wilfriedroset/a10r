@@ -1,0 +1,27 @@
+{
+  "cluster": {
+    "status": "ready",
+    "peers": [
+      {
+        "name": "node-1",
+        "address": "10.0.0.1:9094"
+      },
+      {
+        "name": "node-2",
+        "address": "10.0.0.2:9094"
+      }
+    ]
+  },
+  "versionInfo": {
+    "version": "0.28.1",
+    "revision": "abcdef0",
+    "branch": "main",
+    "buildUser": "ci",
+    "buildDate": "2026-01-15T00:00:00Z",
+    "goVersion": "go1.25"
+  },
+  "config": {
+    "original": "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n"
+  },
+  "uptime": "2026-04-24T12:00:00Z"
+}

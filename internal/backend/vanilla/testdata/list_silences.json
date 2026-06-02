@@ -1,0 +1,44 @@
+[
+  {
+    "id": "sil-789",
+    "matchers": [
+      {
+        "name": "alertname",
+        "value": "DiskFull",
+        "isRegex": false,
+        "isEqual": true
+      },
+      {
+        "name": "severity",
+        "value": "warning|info",
+        "isRegex": true
+      }
+    ],
+    "startsAt": "2026-04-25T10:00:00Z",
+    "endsAt": "2026-04-26T10:00:00Z",
+    "createdBy": "alice",
+    "comment": "scheduled maintenance",
+    "status": {
+      "state": "active"
+    },
+    "updatedAt": "2026-04-25T10:00:00Z"
+  },
+  {
+    "id": "sil-100",
+    "matchers": [
+      {
+        "name": "service",
+        "value": "api",
+        "isRegex": false
+      }
+    ],
+    "startsAt": "2026-04-20T00:00:00Z",
+    "endsAt": "2026-04-21T00:00:00Z",
+    "createdBy": "bob",
+    "comment": "old",
+    "status": {
+      "state": "expired"
+    },
+    "updatedAt": "2026-04-21T00:00:00Z"
+  }
+]
