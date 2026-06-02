@@ -1,0 +1,1061 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package alert
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
+	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
+)
+
+var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+
+// fakeClipboard records every Copy call.
+type fakeClipboard struct {
+	last  string
+	calls int
+}
+
+func (f *fakeClipboard) Copy(s string) tea.Cmd {
+	f.calls++
+	f.last = s
+	return nil
+}
+
+// flashFrom runs cmd and returns the FlashShowMsg it produces,
+// unwrapping a tea.Batch (copy emits SetClipboard + flash together).
+func flashFrom(t *testing.T, cmd tea.Cmd) footer.FlashShowMsg {
+	t.Helper()
+	require.NotNil(t, cmd)
+	switch m := cmd().(type) {
+	case footer.FlashShowMsg:
+		return m
+	case tea.BatchMsg:
+		for _, c := range m {
+			if c == nil {
+				continue
+			}
+			if fm, ok := c().(footer.FlashShowMsg); ok {
+				return fm
+			}
+		}
+	}
+	t.Fatalf("cmd produced no FlashShowMsg")
+	return footer.FlashShowMsg{}
+}
+
+// fakeBrowser records every Open call.
+type fakeBrowser struct {
+	last    string
+	calls   int
+	wantErr error
+}
+
+func (f *fakeBrowser) Open(u string) error {
+	f.calls++
+	f.last = u
+	return f.wantErr
+}
+
+// sample is the per-package detail-page fixture: a HighCPU/critical
+// alert with the GeneratorURL field populated (so OpenURL tests
+// can witness it) and a 5-minute age (so age-line tests have an
+// unambiguous "5m ago" string to assert on). Built on top of
+// pagetest.Alert so the Labels/severity/state defaults stay in one
+// place; GeneratorURL isn't part of AlertOptions because it's
+// detail-page-specific.
+func sample() backend.Alert {
+	a := pagetest.Alert(pagetest.AlertOptions{
+		Name:        "HighCPU",
+		Severity:    "critical",
+		State:       backend.AlertStateActive,
+		Age:         5 * time.Minute,
+		Fingerprint: "abc123",
+		Labels:      map[string]string{"instance": "host-1"},
+		Annotations: map[string]string{"summary": "CPU is hot"},
+	})
+	a.GeneratorURL = "https://example.test/graph?abc"
+	return a
+}
+
+func TestPage_OpensInPushTimeFormat(t *testing.T) {
+	t.Parallel()
+
+	// A page pushed *after* the user toggled `t` to absolute must
+	// open already in absolute mode — without this, a detail page
+	// drilled from the alerts list would briefly read 5m ago while
+	// the parent showed an ISO timestamp behind it.
+	p := New(Options{
+		Alert:      sample(),
+		Tenant:     "prod",
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		TimeFormat: timerender.Absolute,
+	})
+	out := testutil.StripStyle(p.View(120, 30))
+	require.Contains(t, out, "started:",
+		"absolute mode swaps the age label to started")
+	require.Contains(t, out, "2026-",
+		"absolute mode renders ISO local on first View")
+}
+
+func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	out := testutil.StripStyle(p.View(120, 30))
+	require.Contains(t, out, "5m ago")
+	require.NotContains(t, out, "2026-",
+		"relative mode must not surface the absolute date")
+
+	_, _ = p.Update(app.TimeFormatChangedMsg{Format: timerender.Absolute})
+	out = testutil.StripStyle(p.View(120, 30))
+	require.NotContains(t, out, "5m ago")
+	require.Contains(t, out, "2026-",
+		"absolute mode must surface the ISO local date prefix on the age line")
+}
+
+func TestPage_RenderAppliesYAMLKeyAndValueStyles(t *testing.T) {
+	t.Parallel()
+
+	styles := pagetest.Styles(t)
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: styles,
+		Now:    func() time.Time { return fixedNow },
+	})
+	raw := p.View(120, 30)
+
+	// Sanity: stripped output keeps the underlying YAML-shaped lines.
+	require.Contains(t, testutil.StripStyle(raw), "alertname:")
+	require.Contains(t, testutil.StripStyle(raw), "severity:")
+
+	// The "Labels:" and "Annotations:" section headers — and every
+	// "key: value" pair underneath — must paint the foreground via
+	// the skin's YAML.Key role. Easiest portable proof: the rendered
+	// substring for a known key ("alertname") matches what
+	// styles.YAML.Key.Render produces when called in isolation.
+	require.Contains(t, raw, styles.YAML.Key.Render("alertname"),
+		"alert detail must colour `alertname` with the skin's YAML.Key foreground")
+	require.Contains(t, raw, styles.YAML.Key.Render("Labels"),
+		"section headers must paint the foreground via YAML.Key")
+}
+
+func TestPage_RenderShowsAllSections(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	out := testutil.StripStyle(p.View(120, 30))
+	for _, want := range []string{
+		"HighCPU", "active", "critical", "abc123",
+		"5m ago", "host-1", "CPU is hot",
+		"https://example.test/graph?abc", "prod",
+	} {
+		require.Contains(t, out, want, "missing %q in render", want)
+	}
+}
+
+func TestPage_HeaderContentIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Alert:  sample(),
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+	})
+	require.Empty(t, p.HeaderContent(),
+		"title shows <tenant>/<alertname> and the summary surfaces state + "+
+			"tenant on their own lines — a header subtitle would duplicate both")
+}
+
+func TestPage_CopyFingerprintSuccess(t *testing.T) {
+	t.Parallel()
+
+	clip := &fakeClipboard{}
+	p := New(Options{
+		Alert:     sample(),
+		Styles:    pagetest.Styles(t),
+		Clipboard: clip,
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+	msg := flashFrom(t, cmd)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Equal(t, 1, clip.calls)
+	require.Equal(t, "abc123", clip.last)
+}
+
+func TestPage_DefaultsClipboardAndBrowser(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	require.NotNil(t, p.clip, "nil Clipboard must default to a real impl, not stay nil")
+	require.NotNil(t, p.browser, "nil Browser must default to a real impl, not stay nil")
+}
+
+func TestPage_OpenURLSuccess(t *testing.T) {
+	t.Parallel()
+
+	br := &fakeBrowser{}
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashSuccess, msg.Level)
+	require.Equal(t, 1, br.calls)
+	require.Equal(t, "https://example.test/graph?abc", br.last)
+}
+
+func TestPage_OpenURLMissingIsInfoNoBrowserCall(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.GeneratorURL = ""
+	br := &fakeBrowser{}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level,
+		"missing generator URL must be a soft Info, not an error")
+	require.Equal(t, 0, br.calls,
+		"browser must NOT be invoked when there's no URL to open")
+}
+
+func TestPage_OpenURLErrorFlashesError(t *testing.T) {
+	t.Parallel()
+
+	br := &fakeBrowser{wantErr: errors.New("no display server")}
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashError, msg.Level)
+	require.Contains(t, msg.Text, "no display server")
+}
+
+// TestPage_OpenURLRejectsNonHTTPSchemes pins that the generator URL
+// path refuses anything other than http(s). A malicious upstream
+// (or compromised relabel config) can stamp javascript:/file:/data:
+// URLs onto an alert; passing those to xdg-open / open / start lets
+// the OS pick a handler that could execute arbitrary code or read
+// arbitrary files. Restrict to http(s) here — the browser is the
+// only sensible handler for an alert link.
+func TestPage_OpenURLRejectsNonHTTPSchemes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"javascript", "javascript:alert(1)"},
+		{"file", "file:///etc/passwd"},
+		{"data", "data:text/html,<script>alert(1)</script>"},
+		{"vbscript", "vbscript:msgbox(1)"},
+		{"ssh", "ssh://attacker.example/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := sample()
+			a.GeneratorURL = tc.url
+			br := &fakeBrowser{}
+			p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br})
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
+			msg := cmd().(footer.FlashShowMsg)
+			require.Equal(t, footer.FlashError, msg.Level,
+				"non-http(s) schemes must be refused before handing to the OS")
+			require.Equal(t, 0, br.calls,
+				"browser must NOT be invoked for non-http(s) schemes — OS handler could execute arbitrary code")
+		})
+	}
+}
+
+func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: pagetest.Styles(t)})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend",
+		"`s` with no clients must explain rather than push a broken form")
+}
+
+func TestPage_SilencePushesFormWhenClientsAreConfigured(t *testing.T) {
+	t.Parallel()
+	p := New(Options{
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd, "`s` must produce a Cmd that pushes the form")
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "`s` with clients must push the form, not flash")
+}
+
+func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
+	t.Parallel()
+	// User drilled in from a tenant the silenceClients map doesn't
+	// cover (e.g. the tenant config went away mid-session). Flash
+	// rather than crash.
+	p := New(Options{
+		Alert:   sample(),
+		Tenant:  "ghost",
+		Styles:  pagetest.Styles(t),
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Contains(t, msg.Text, "no writeable backend")
+}
+
+// TestPage_SilenceFormSubmittedFlashesSuccess: the
+// silenceform.SubmittedMsg → footer.FlashShowMsg{Success, "silence
+// created: <id>"} contract is identical across alerts/groups/
+// alert-detail and is pinned canonically by
+// internal/tui/page/alerts/alerts_test.go:TestPage_SilenceFormSubmittedFlashesSuccess.
+// The detail page's Update routes the message through the same
+// flash helper; no detail-specific wiring to witness.
+
+// fakeSilenceClient satisfies silenceform.Client so the `s`
+// push test can construct a non-nil Clients map. The detail
+// page never actually invokes its methods in tests.
+type fakeSilenceClient struct{}
+
+func (*fakeSilenceClient) CreateSilence(_ context.Context, _ backend.SilenceSpec) (string, error) {
+	return "fake-silence-id", nil
+}
+
+func (*fakeSilenceClient) UpdateSilence(_ context.Context, _ string, _ backend.SilenceSpec) error {
+	return nil
+}
+
+func (*fakeSilenceClient) ExpireSilence(context.Context, string) error { return nil }
+
+func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
+	t.Parallel()
+
+	// Regression: a 500-char value with NO internal whitespace
+	// previously sent format.Hanging into an infinite loop because
+	// every iteration's cut landed inside the hanging indent.
+	// The render must complete in well under a second.
+	a := sample()
+	long := strings.Repeat("X", 500)
+	a.Annotations = map[string]string{"description": long}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+
+	done := make(chan string, 1)
+	go func() { done <- p.View(80, 30) }()
+	select {
+	case out := <-done:
+		require.NotEmpty(t, out)
+	case <-time.After(2 * time.Second):
+		t.Fatal("View blocked — format.Hanging likely looped on a no-whitespace value")
+	}
+}
+
+func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.Annotations = map[string]string{
+		// Promql-templated annotation — the description value
+		// contains a literal newline between the two facts.
+		"description": "VALUE = 0\nLABELS = map[__name__:up cluster:EU]",
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	out := testutil.StripStyle(p.View(120, 50))
+	lines := strings.Split(out, "\n")
+
+	// Find the description line and the next line after.
+	var startIdx int
+	for i, l := range lines {
+		if strings.HasPrefix(l, "  description: ") {
+			startIdx = i
+			break
+		}
+	}
+	require.Positive(t, startIdx)
+	require.Greater(t, len(lines), startIdx+1)
+
+	// "  description: " is 15 cols. The continuation segment
+	// (the part after the embedded \n) must hang-indent by the
+	// same column count so it visually nests under the value.
+	cont := lines[startIdx+1]
+	require.True(t, strings.HasPrefix(cont, strings.Repeat(" ", 15)),
+		"line after the embedded newline must hang-indent by 15 cols, got %q", cont)
+	require.Contains(t, cont, "LABELS = ",
+		"the second segment of the multi-line value must appear")
+}
+
+func TestPage_ScrollsViewport(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	// Pad annotations with many short keys so the body exceeds a
+	// short height and j must scroll the viewport.
+	a.Annotations = map[string]string{}
+	for i := range 20 {
+		a.Annotations["k"+string(rune('a'+i))] = "v" + string(rune('a'+i))
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	// Render at a tiny height that won't show the full body.
+	out := testutil.StripStyle(p.View(80, 10))
+	require.NotContains(t, out, "kt: vt",
+		"with a small viewport the bottom annotations must NOT appear yet")
+
+	// G jumps to the bottom; the last keys must come into view.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	out = testutil.StripStyle(p.View(80, 10))
+	require.Contains(t, out, "kt: vt",
+		"after G the bottom of the body must be visible")
+}
+
+func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	a := backend.Alert{
+		Labels: map[string]string{"alertname": "Bare"},
+		State:  backend.AlertStateActive,
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	out := testutil.StripStyle(p.View(80, 20))
+	require.Contains(t, out, "Bare")
+	require.Contains(t, out, "(none)",
+		"empty annotations must render as (none) so the section is not blank")
+}
+
+// suppressedSample builds the canonical suppressed Alert used by
+// the Suppression-block tests. Optional buckets default to nil so
+// callers can construct any subset of the three reason categories.
+func suppressedSample(silencedBy, inhibitedBy, mutedBy []string) backend.Alert {
+	a := sample()
+	a.State = backend.AlertStateSuppressed
+	a.SilencedBy = silencedBy
+	a.InhibitedBy = inhibitedBy
+	a.MutedBy = mutedBy
+	return a
+}
+
+func renderSuppressed(t *testing.T, a backend.Alert, width int) string {
+	t.Helper()
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	return testutil.StripStyle(p.View(width, 30))
+}
+
+func TestPage_SuppressionBlockOnlyForSuppressed(t *testing.T) {
+	t.Parallel()
+	// Active alert: no Suppression header, regardless of whether
+	// SilencedBy/InhibitedBy/MutedBy happen to be populated.
+	a := sample()
+	a.SilencedBy = []string{"never-rendered"}
+	out := renderSuppressed(t, a, 100)
+	require.NotContains(t, out, "Suppression:",
+		"non-suppressed state must NOT render the Suppression block")
+}
+
+func TestPage_SuppressionBlockSilencedByOnly(t *testing.T) {
+	t.Parallel()
+	// Cache miss path (no silences ingested) — the section header
+	// renders, IDs appear one per row under it with the
+	// not-in-snapshot marker. Enriched-row coverage lives in its
+	// own test that feeds a poll.DataMsg.
+	out := renderSuppressed(t, suppressedSample([]string{"s1", "s2"}, nil, nil), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "silenced by:")
+	require.Contains(t, out, "    s1  (silence not in snapshot)")
+	require.Contains(t, out, "    s2  (silence not in snapshot)")
+	require.NotContains(t, out, "inhibited by:")
+	require.NotContains(t, out, "muted by:")
+}
+
+func TestPage_SuppressionBlockInhibitedByOnly(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(nil, []string{"fp1"}, nil), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "inhibited by: fp1")
+	require.NotContains(t, out, "silenced by:")
+	require.NotContains(t, out, "muted by:")
+}
+
+func TestPage_SuppressionBlockMutedByOnly(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(nil, nil, []string{"out-of-hours"}), 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "muted by:     out-of-hours")
+	require.NotContains(t, out, "silenced by:")
+	require.NotContains(t, out, "inhibited by:")
+}
+
+func TestPage_SuppressionBlockAllThreeInStableOrder(t *testing.T) {
+	t.Parallel()
+	out := renderSuppressed(t, suppressedSample(
+		[]string{"s1"},
+		[]string{"fp1"},
+		[]string{"out-of-hours"},
+	), 120)
+	silencedAt := strings.Index(out, "silenced by:")
+	inhibitedAt := strings.Index(out, "inhibited by:")
+	mutedAt := strings.Index(out, "muted by:")
+	require.Positive(t, silencedAt)
+	require.Greater(t, inhibitedAt, silencedAt,
+		"inhibited-by must follow silenced-by")
+	require.Greater(t, mutedAt, inhibitedAt,
+		"muted-by must follow inhibited-by")
+}
+
+func TestPage_SuppressionBlockEmptyFallback(t *testing.T) {
+	t.Parallel()
+	// State == suppressed but every bucket empty — defensive
+	// fallback so the user sees an explanation rather than a
+	// dangling header.
+	a := sample()
+	a.State = backend.AlertStateSuppressed
+	out := renderSuppressed(t, a, 120)
+	require.Contains(t, out, "Suppression:")
+	require.Contains(t, out, "(no reason reported by Alertmanager)")
+}
+
+// silenceDataMsg builds a poll.DataMsg the alert page accepts as a
+// silences-resource snapshot for the given tenant. Used by tests
+// that need the suppression block to render enriched rows.
+func silenceDataMsg(tenant string, sils []backend.Silence) poll.DataMsg {
+	return poll.DataMsg{
+		ResourceLabel: "silences",
+		Tenant:        tenant,
+		Resource:      sils,
+	}
+}
+
+func TestPage_SilencedByEnrichedFromCache(t *testing.T) {
+	t.Parallel()
+	// The polled silences snapshot for p.tenant must enrich the
+	// silenced-by row with expiry / by / comment. Comment is the
+	// last column so a quick scan lands on the human reason.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(2*time.Hour + 13*time.Minute),
+		CreatedBy: "alice",
+		Comment:   "investigating spike",
+		State:     backend.SilenceStateActive,
+	}}))
+	out := testutil.StripStyle(p.View(120, 30))
+
+	require.Contains(t, out, "    sil-1  expires in 2h13m  by alice  — investigating spike",
+		"enriched row must inline id, expiry, creator, and comment with — separator")
+	require.NotContains(t, out, "(silence not in snapshot)",
+		"cache hit must not surface the degraded marker")
+}
+
+func TestPage_SilencedByOnlyTenantTrustedFromCache(t *testing.T) {
+	t.Parallel()
+	// A silences snapshot for a *different* tenant must NOT enrich
+	// the row — silenced-by IDs are not cross-tenant, and trusting
+	// a stranger tenant's snapshot would surface incorrect details.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// Same ID, but ingested under a different tenant tag.
+	_, _ = p.Update(silenceDataMsg("staging", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "mallory",
+		Comment:   "wrong-tenant payload",
+	}}))
+	out := testutil.StripStyle(p.View(120, 30))
+
+	require.Contains(t, out, "(silence not in snapshot)",
+		"the page must drop foreign-tenant payloads — they could attribute the wrong reason to a silence")
+	require.NotContains(t, out, "wrong-tenant payload")
+}
+
+func TestPage_SilencedByDegradedRowOnCacheMiss(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"missing-id"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// Ingest a snapshot that doesn't contain the alert's silenced-by
+	// ID — represents a cold start, recently-expired silence still
+	// referenced by the alert, or backend asymmetry.
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{ID: "other-id"}}))
+	out := testutil.StripStyle(p.View(120, 30))
+	require.Contains(t, out, "    missing-id  (silence not in snapshot)")
+}
+
+func TestPage_SilencedByCommentClippedNoWrap(t *testing.T) {
+	t.Parallel()
+	// At a narrow width a long comment must clip with "…" rather
+	// than wrap onto a second line — wrapping would push the next
+	// silence row out of column alignment, exactly the UI mess the
+	// design explicitly avoids.
+	a := suppressedSample([]string{"sil-long"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-long",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   strings.Repeat("X", 500),
+	}}))
+	// Render with a generous height so we always see the row plus
+	// the line after it; without this guard a small viewport could
+	// place the silenced-by row at the visible bottom and there'd
+	// be no "next line" to inspect.
+	out := testutil.StripStyle(p.View(80, 200))
+	lines := strings.Split(out, "\n")
+
+	var rowIdx int
+	for i, l := range lines {
+		if strings.Contains(l, "sil-long") {
+			rowIdx = i
+			break
+		}
+	}
+	require.Positive(t, rowIdx, "silenced-by row must appear in render")
+	row := lines[rowIdx]
+	require.Contains(t, row, "…",
+		"clipped comment must end with the ellipsis marker")
+	require.LessOrEqual(t, lipgloss.Width(row), 80,
+		"clipped row must fit within the rendered width — wrapping the comment is the bug we're guarding against")
+	// No subsequent line may carry the clipped comment payload.
+	// Walking every following line catches a hang-wrap regardless
+	// of whether the row happens to be the last one in the body.
+	for i := rowIdx + 1; i < len(lines); i++ {
+		require.NotContains(t, lines[i], "X",
+			"clipped comment must not bleed into a later line, got %q", lines[i])
+	}
+}
+
+func TestPage_SilencedByCommentTruncatedAtFirstNewline(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-multi"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-multi",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "headline\nfollow-up detail nobody needs in the row",
+	}}))
+	out := testutil.StripStyle(p.View(160, 30))
+	require.Contains(t, out, "— headline…",
+		"first line must surface with ellipsis indicating hidden continuation")
+	require.NotContains(t, out, "follow-up detail",
+		"second-line content must NOT appear in the row")
+}
+
+func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:      a,
+		Tenant:     "prod",
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		TimeFormat: timerender.Absolute,
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "x",
+	}}))
+	out := testutil.StripStyle(p.View(160, 30))
+	require.Contains(t, out, "ends ",
+		"absolute mode must label the column 'ends '")
+	require.NotContains(t, out, "expires in",
+		"absolute mode must drop the relative-mode label")
+}
+
+func TestPage_PollResourcesIncludesSilences(t *testing.T) {
+	t.Parallel()
+	// The page must opt in to the silences feed so the App's cache
+	// replay hydrates a freshly-pushed detail view immediately.
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	require.Equal(t, []string{"silences"}, p.PollResources())
+}
+
+func TestPage_OpenSilenceFlashesWhenNoSilencedBy(t *testing.T) {
+	t.Parallel()
+	// Active alert with no silenced-by IDs: `S` is a soft no-op.
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "no silences")
+}
+
+func TestPage_OpenSilenceN1PushesDetail(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+	}}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	// pushPageMsg is unexported in the app package, so we assert on
+	// the type *name* rather than direct match. Stronger than a
+	// "not flash" check: a regression that swapped the N=1 / N>1
+	// branches would emit openModalMsg here and slip past the
+	// looser assertion.
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "pushPageMsg",
+		"single silence must push silence detail, not open a modal or flash")
+}
+
+func TestPage_OpenSilenceCacheMissFlashesInfo(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"missing-id"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	// No DataMsg ingested — cache miss.
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Contains(t, msg.Text, "missing-id")
+	require.Contains(t, msg.Text, ":silences",
+		"hint must point the user at the silences page so the affordance reads consistently with the rendered degraded row")
+}
+
+// TestPage_OpenSilenceN2PushesRestrictedSilencesPage pins the ADR 0035
+// decision: when the alert has two or more silenced-by IDs, `S` must
+// push the silences list page restricted to those IDs — not open the
+// retired modal picker. pushPageMsg is unexported, so we assert on the
+// type name. The stronger type-name assertion catches a regression that
+// would swap branches: "openModalMsg" here would mean the retired modal
+// path re-emerged; a flash would mean the N>1 path silently became a no-op.
+func TestPage_OpenSilenceN2PushesRestrictedSilencesPage(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-1", "sil-2"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{
+		{ID: "sil-1", EndsAt: fixedNow.Add(time.Hour), CreatedBy: "alice"},
+		{ID: "sil-2", EndsAt: fixedNow.Add(2 * time.Hour), CreatedBy: "bob"},
+	}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "N>1 must not flash")
+	require.Contains(t, fmt.Sprintf("%T", cmd()), "pushPageMsg",
+		"N>1 must push the restricted silences page (ADR 0035), not open a modal")
+}
+
+func TestPage_SilencedByNarrowWidthDropsEmDashSeparator(t *testing.T) {
+	t.Parallel()
+	// At a width too tight to fit any comment after the prefix, the
+	// row must drop the "  — " separator entirely rather than render
+	// "  — " followed by nothing — a dangling em-dash reads as a
+	// rendering bug.
+	a := suppressedSample([]string{"sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "a comment that does not fit at all",
+	}}))
+	// 40 cols is wide enough for the prefix ("    sil-1  expires in 1h
+	// by alice") but not for the separator + meaningful comment.
+	out := testutil.StripStyle(p.View(40, 30))
+	require.NotRegexp(t, `—\s*$`, out,
+		"no row may end in a dangling em-dash")
+	require.NotContains(t, out, "—  \n",
+		"no row may render the em-dash separator with empty content")
+}
+
+func TestPage_SilencedByDedupesDuplicateIDs(t *testing.T) {
+	t.Parallel()
+	// A non-conforming upstream that emits the same silence ID twice
+	// in SilencedBy must not produce two visually-identical picker
+	// rows that both drill to the same silence — confusing UX. The
+	// page de-duplicates at the boundary, so two-of-the-same-id
+	// degrades to the single-silence direct-push path.
+	a := suppressedSample([]string{"sil-1", "sil-1"}, nil, nil)
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-1",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "alice",
+		Comment:   "x",
+	}}))
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash,
+		"duplicate IDs collapsing to one must follow the single-silence direct-push path, not flash")
+}
+
+func TestClipComment_NeverExceedsBudget(t *testing.T) {
+	t.Parallel()
+	// Boundary table: every output must satisfy lipgloss.Width(out)
+	// ≤ budget. Multiline at the budget boundary used to overflow
+	// by one column (the "…" was appended without making room for
+	// it); this test pins the corrected contract.
+	cases := []struct {
+		name    string
+		s       string
+		budget  int
+		wantMax int
+	}{
+		{"single-line short fits", "ok", 10, 10},
+		{"single-line at budget", "abcde", 5, 5},
+		{"single-line over budget cuts", "abcdefgh", 5, 5},
+		{"multiline short adds ellipsis", "ok\nmore", 10, 10},
+		{"multiline at budget cuts to leave room for ellipsis", "abcde\nmore", 5, 5},
+		{"multiline over budget cuts", "abcdefgh\nmore", 5, 5},
+		{"budget 1 returns ellipsis", "abc", 1, 1},
+		{"budget 0 returns empty", "abc", 0, 0},
+		{"budget negative returns empty", "abc", -3, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := clipComment(tc.s, tc.budget)
+			require.LessOrEqual(t, lipgloss.Width(got), tc.wantMax,
+				"clipComment(%q, %d) returned %q (width %d) — must not exceed budget",
+				tc.s, tc.budget, got, lipgloss.Width(got))
+		})
+	}
+}
+
+// TestPage_ExpiryField_PastCaseLabel pins the alert-domain "expired"
+// label expiryField now absorbs in place of the old formatRemaining
+// past-case string. timerender.Remaining stays strictly forward-
+// looking per CONTEXT.md, so the past-case label must live next to
+// the only caller that wants it.
+func TestPage_ExpiryField_PastCaseLabel(t *testing.T) {
+	t.Parallel()
+
+	now := fixedNow
+	newPageAt := func() *Page {
+		return New(Options{
+			Alert:  sample(),
+			Styles: pagetest.Styles(t),
+			Now:    func() time.Time { return now },
+		})
+	}
+
+	cases := []struct {
+		name string
+		ts   time.Time
+		want string
+	}{
+		{name: "past renders expired", ts: now.Add(-time.Hour), want: "expired"},
+		{name: "zero ts renders expired", ts: time.Time{}, want: "expired"},
+		{name: "now renders expired", ts: now, want: "expired"},
+		{name: "future renders expires-in", ts: now.Add(2*time.Hour + 13*time.Minute), want: "expires in 2h13m"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPageAt()
+			require.Equal(t, tc.want, p.expiryField(tc.ts))
+		})
+	}
+}
+
+func TestPage_RawYAMLToggleSwapsBody(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.SilencedBy = []string{"sil-A", "sil-B", "sil-A"}
+	a.InhibitedBy = []string{"fp-1"}
+	p := New(Options{
+		Alert:  a,
+		Tenant: "prod",
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+	})
+
+	// Default render is the structured view: section headers and
+	// the human-friendly age line are present, the YAML wire-shape
+	// keys (`generatorURL:`, `silencedBy:`) are not.
+	structured := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, structured, "Labels:",
+		"structured view must surface the section header")
+	require.Contains(t, structured, "alertname:   HighCPU",
+		"structured view formats the summary block")
+	require.NotContains(t, structured, "generatorURL:",
+		"structured view must not surface camelCase wire keys")
+
+	// Press y → raw mode. The raw payload uses the AM v2 wire keys
+	// and lists fingerprint / state / generatorURL inline.
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Nil(t, cmd, "the yaml toggle is local state — no Cmd expected")
+	raw := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, raw, "fingerprint: abc123")
+	require.Contains(t, raw, "generatorURL: https://example.test/graph?abc")
+	require.Contains(t, raw, "state: active")
+	require.NotContains(t, raw, "Labels:",
+		"raw view drops the structured section headers")
+	require.NotContains(t, raw, "5m ago",
+		"raw view replaces the relative age with an RFC3339 timestamp")
+	require.Contains(t, raw, "startsAt:")
+
+	// SilencedBy in the raw payload reflects the constructor-deduped
+	// list — `sil-A` appears once even though the upstream alert
+	// repeats it. Locks in that the two body modes share the same
+	// canonical list (the structured render walks p.silencedBy too).
+	require.Contains(t, raw, "silencedBy:",
+		"raw view must surface the silencedBy section when the list is non-empty")
+	require.Equal(t, 1, strings.Count(raw, "sil-A"),
+		"raw silencedBy list must mirror the dedup applied to the structured view")
+	require.Contains(t, raw, "sil-B")
+
+	// Press y again → back to structured. The toggle is symmetric.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	again := testutil.StripStyle(p.View(120, 40))
+	require.Contains(t, again, "Labels:")
+	require.NotContains(t, again, "generatorURL:")
+}
+
+func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
+	t.Parallel()
+
+	// Pad annotations so the structured view exceeds a small
+	// viewport and a non-zero scroll offset is meaningful.
+	a := sample()
+	a.Annotations = map[string]string{}
+	for i := range 50 {
+		a.Annotations[fmt.Sprintf("k%02d", i)] = fmt.Sprintf("v%02d", i)
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	// G pins past the end; the next View clamps it to a positive offset.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	_ = p.View(80, 15)
+	require.Positive(t, p.Scroll, "G must scroll the structured body")
+
+	// Toggling y must reset scroll so the user lands at the top of
+	// the new mode rather than mid-document at an offset that came
+	// from a body of a different length.
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Equal(t, 0, p.Scroll, "raw toggle resets scroll")
+}
+
+func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {
+	t.Parallel()
+
+	// A bare active alert (no annotations, no suppression-related
+	// lists) must NOT carry empty collection keys in the raw view —
+	// noisy `silencedBy: []` lines on every active alert defeat the
+	// "what does the API actually return?" framing.
+	a := backend.Alert{
+		Labels: map[string]string{"alertname": "Bare"},
+		State:  backend.AlertStateActive,
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	out := testutil.StripStyle(p.View(80, 30))
+
+	require.Contains(t, out, "alertname: Bare",
+		"labels always carry at least the alertname")
+	require.Contains(t, out, "state: active")
+	for _, key := range []string{
+		"annotations:",
+		"silencedBy:",
+		"inhibitedBy:",
+		"mutedBy:",
+		"receivers:",
+		"generatorURL:",
+		"fingerprint:",
+	} {
+		require.NotContains(t, out, key,
+			"empty / zero-value field %q must elide via omitempty", key)
+	}
+}
+
+// TestPage_TitleMarksRawYAMLMode pins the title's raw-mode marker.
+// Without it, structured and raw modes look identical apart from the
+// body and the operator has no signal which is active. Title appends
+// ` [raw yaml]` exactly when rawYAML is on; the marker drops on a
+// second toggle.
+func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"structured mode must not carry the raw indicator")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.Contains(t, p.Title(), "[raw yaml]",
+		"raw mode must surface the indicator so the operator can tell which view is active")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	require.NotContains(t, p.Title(), "[raw yaml]",
+		"a second toggle drops the indicator alongside the body flip")
+}
