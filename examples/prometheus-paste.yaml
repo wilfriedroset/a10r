@@ -1,0 +1,79 @@
+---
+# Demonstrates the Mimir-config-mirrors-remote-write decision
+# (docs/adr/0044-mimir-config-mirrors-remote-write.md): every
+# entry under `backends:` below was lifted from a real
+# `prometheus.yml` `remote_write:` block and dropped here unchanged
+# except for the `url:` path (Alertmanager v2 root rather than the
+# remote-write receive endpoint) and the addition of an a10r-specific
+# `name:`.
+#
+# Field-by-field, the entries below mirror Prometheus's
+# https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write
+# schema:
+#
+#   - basic_auth: { username, password }      # Prometheus
+#   - bearer_token                            # Prometheus
+#   - authorization: { type, credentials }    # Prometheus
+#   - tls_config: { ca, server_name, ... }    # Prometheus
+#   - proxy_url, no_proxy                     # Prometheus
+#   - headers (map)                           # Prometheus
+#   - remote_timeout                          # Prometheus
+#
+# `*_file` and `*_ref` keys are intentionally not supported —
+# credentials live in env vars referenced via ${VAR}. See
+# docs/end-users/configuration.md for the supported-field list.
+
+defaults:
+  poll_interval: 30s
+  log_format: logfmt
+
+theme:
+  name: catppuccin-mocha
+
+backends:
+  # 1) The simplest paste: HTTPS endpoint behind a basic-auth gateway.
+  - name: prod
+    url: https://alertmanager.prod.internal
+    basic_auth:
+      username: a10r-bot
+      password: ${A10R_PROD_PASSWORD}
+    remote_timeout: 15s
+
+  # 2) Bearer-token gateway with a custom CA and a strict TLS floor.
+  #    The CA bundle is inline PEM; expand the block scalar with as
+  #    many certificates as you need.
+  - name: staging
+    url: https://alertmanager.staging.internal
+    bearer_token: ${A10R_STAGING_TOKEN}
+    tls_config:
+      ca: |
+        -----BEGIN CERTIFICATE-----
+        # paste your internal CA bundle here
+        -----END CERTIFICATE-----
+      server_name: alertmanager.staging.internal
+      min_version: TLS12
+
+  # 3) Mimir multi-tenant via an arbitrary header — same shape
+  #    Prometheus uses, no a10r-specific translation. The factory
+  #    layer also accepts the `tenant_header:` / `tenant:` sugar
+  #    (see two-tenants-basic-auth.yaml) for users who prefer
+  #    a10r-native keys.
+  - name: mimir-tenant-a
+    url: https://mimir.internal
+    prefix: /alertmanager
+    authorization:
+      type: Bearer
+      credentials: ${A10R_MIMIR_TOKEN}
+    headers:
+      X-Scope-OrgID: tenant-a
+      X-Trace-Id: a10r
+
+  # 4) Behind a corporate egress proxy with a no_proxy bypass list
+  #    for in-cluster traffic.
+  - name: behind-proxy
+    url: https://alertmanager.example
+    basic_auth:
+      username: proxy-user
+      password: ${A10R_PROXY_PASSWORD}
+    proxy_url: http://proxy.internal:3128
+    no_proxy: 127.0.0.1,localhost,.svc.cluster.local

@@ -1,0 +1,28 @@
+---
+# Two-tenant a10r.yaml using HTTP Basic auth.
+#
+# Both tenants point at the same Alertmanager v2 base URL — swap
+# in distinct URLs if your environment exposes one AM per tenant.
+# Credentials read from the environment so this file is safe to
+# commit / share; export A10R_PRIMARY_PASSWORD and
+# A10R_SECONDARY_PASSWORD before launching a10r.
+
+defaults:
+  poll_interval: 30s
+  log_format: logfmt
+
+theme:
+  name: catppuccin-mocha
+
+backends:
+  - name: primary
+    url: https://alertmanager.example
+    basic_auth:
+      username: primary-ops
+      password: ${A10R_PRIMARY_PASSWORD}
+
+  - name: secondary
+    url: https://alertmanager.example
+    basic_auth:
+      username: secondary-ops
+      password: ${A10R_SECONDARY_PASSWORD}

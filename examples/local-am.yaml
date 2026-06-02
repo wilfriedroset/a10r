@@ -1,0 +1,15 @@
+---
+# Sample a10r.yaml for the docker-backed local Alertmanager started
+# by `make am-up`. Point a10r at this file with --config-dir or copy
+# it into your XDG config dir.
+
+defaults:
+  poll_interval: 10s
+  log_format: logfmt
+
+theme:
+  name: catppuccin-mocha
+
+backends:
+  - name: local
+    url: http://localhost:9093

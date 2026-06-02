@@ -1,0 +1,43 @@
+---
+# Demo a10r.yaml pointing at the Prometheus project's public
+# Alertmanager. No auth required — the endpoint is open.
+#
+# This is a *public* shared instance: anyone reading the silences
+# list sees what you create. Treat it as read-only for anything
+# you wouldn't paste into a public chat. The defaults below force
+# read-only at the config layer; remove `read_only: true` if you
+# specifically want to exercise the write paths against the demo.
+#
+# Run with:
+#   a10r -c examples/demo.yaml
+# or:
+#   a10r --read-only -c examples/demo.yaml   # belt-and-braces
+
+defaults:
+  poll_interval: 30s
+  read_only: true
+  log_format: logfmt
+  # bulk_concurrency caps the per-tenant worker pool used by bulk
+  # silence-create (s with marks on :alerts) and bulk silence-expire
+  # (x with marks on :silences). Tenants always run in parallel; this
+  # knob limits the inner pool size per tenant. 0 means "use the
+  # built-in default of 4"; 1 collapses to fully sequential per tenant.
+  # bulk_concurrency: 4
+
+theme:
+  # `catppuccin-mocha` (default) is a dark skin that paints its own
+  # background. If your terminal is configured with a custom bg
+  # you'd like to keep, switch to `catppuccin-mocha-transparent` —
+  # the foreground colours stay, but bg is left to the terminal.
+  # Frappe / Latte / Macchiato are the other catppuccin flavours,
+  # each with a `-transparent` sibling.
+  #
+  # Drop any k9s skin into <config-dir>/skins/<name>.yaml and set
+  # name: <name> here — a10r consumes k9s skins drop-in. See
+  # docs/contributor/skin-authoring.md.
+  name: catppuccin-mocha
+
+backends:
+  - name: prometheus-demo
+    # Bare AM root — the client appends /api/v2 itself.
+    url: https://alertmanager.demo.prometheus.io
