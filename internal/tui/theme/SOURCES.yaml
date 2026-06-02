@@ -1,0 +1,45 @@
+# Inventory for the bundled skin set under internal/tui/theme/skins/.
+# Two regimes coexist (see docs/adr/0030-in-tree-bundled-skins.md):
+#
+#   sources[]   — skins synced verbatim from an upstream repo at the
+#                 pinned commit. `make skins-sync` clones each repo,
+#                 copies the listed files into this directory, and
+#                 fails if the working tree shows untracked diffs so
+#                 every refresh lands as a reviewable commit.
+#
+#   authored[]  — skins hand-written in-tree. `make skins-sync`
+#                 ignores this block entirely; it exists as
+#                 provenance so the directory listing is not
+#                 ambiguous about which files are mirrored vs
+#                 authored. The optional palette_source block pins
+#                 the upstream version of the design system the
+#                 hex anchors were taken from so future readers
+#                 can detect drift.
+#
+# License notes are informational; the upstream LICENSE governs each
+# embedded file's redistribution terms.
+sources:
+  - repo: https://github.com/catppuccin/k9s
+    commit: fdbec82284744a1fc2eb3e2d24cb92ef87ffb8b4
+    license: MIT
+    files:
+      - dist/catppuccin-frappe.yaml
+      - dist/catppuccin-frappe-transparent.yaml
+      - dist/catppuccin-latte.yaml
+      - dist/catppuccin-latte-transparent.yaml
+      - dist/catppuccin-macchiato.yaml
+      - dist/catppuccin-macchiato-transparent.yaml
+      - dist/catppuccin-mocha.yaml
+      - dist/catppuccin-mocha-transparent.yaml
+
+authored:
+  - palette_source:
+      repo: https://github.com/ovh/design-system
+      commit: e78c7542b1ddd395c60990d7e940455634bf0bd5
+      license: Apache-2.0
+      file: packages/themes/src/default/_variables.scss
+    files:
+      - ovhcloud-dark.yaml
+      - ovhcloud-dark-transparent.yaml
+      - ovhcloud-light.yaml
+      - ovhcloud-light-transparent.yaml

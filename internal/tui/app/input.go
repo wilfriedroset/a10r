@@ -1,0 +1,461 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package app
+
+import (
+	"errors"
+	"strconv"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/help"
+	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
+)
+
+// toggleTimeFormatCmd flips the app's TimeFormat and emits the
+// announcement message + a flash. Pages that don't observe the
+// message ignore it (the dispatcher fires regardless of which
+// page is on top of the stack).
+func (a *App) toggleTimeFormatCmd() tea.Cmd {
+	if a.timeFormat == timerender.Relative {
+		a.timeFormat = timerender.Absolute
+	} else {
+		a.timeFormat = timerender.Relative
+	}
+	captured := a.timeFormat
+	return tea.Batch(
+		func() tea.Msg { return TimeFormatChangedMsg{Format: captured} },
+		func() tea.Msg {
+			return footer.FlashShowMsg{
+				Level: footer.FlashInfo,
+				Text:  "time: " + captured.String(),
+			}
+		},
+	)
+}
+
+// toggleStateFormatCmd flips the app's StateFormat and emits the
+// announcement message + a flash. Driven by a StateFormatToggleMsg
+// a page emits on `Shift+T` (not a dispatcher global like the time
+// toggle), so the flip reads the canonical app value rather than the
+// emitting page's possibly-stale copy. Pages that don't observe the
+// announcement ignore it.
+func (a *App) toggleStateFormatCmd() tea.Cmd {
+	if a.stateFormat == stateformat.Full {
+		a.stateFormat = stateformat.Compact
+	} else {
+		a.stateFormat = stateformat.Full
+	}
+	captured := a.stateFormat
+	return tea.Batch(
+		func() tea.Msg { return StateFormatChangedMsg{Format: captured} },
+		func() tea.Msg {
+			return footer.FlashShowMsg{
+				Level: footer.FlashInfo,
+				Text:  "state: " + captured.String(),
+			}
+		},
+	)
+}
+
+// registerTenantBindings wires the numeric quick-switch keys
+// (`0` for all-tenants, `1`-`9` for the Nth configured backend)
+// at LayerGlobal. Pressing one emits a ScopeChangedMsg the top
+// page consumes to filter its view and update its title.
+func (a *App) registerTenantBindings() {
+	a.dispatcher.Set(keys.LayerGlobal, "0", func() tea.Cmd {
+		return func() tea.Msg { return ScopeChangedMsg{Scope: scopeAll} }
+	})
+	for i, name := range a.tenants {
+		if i >= 9 {
+			break // numeric quick-switch tops out at 1-9
+		}
+		captured := name
+		a.dispatcher.Set(keys.LayerGlobal, strconv.Itoa(i+1), func() tea.Cmd {
+			return func() tea.Msg { return ScopeChangedMsg{Scope: captured} }
+		})
+	}
+}
+
+// registerGlobalBindings wires the keybindings.md §Global entries
+// the app shell owns directly. Tenant quick-switch ships with its
+// own subsystem so it can be unit-tested in isolation.
+//
+// User-extensible bindings go through SetAction with the stable
+// action names documented in `<config-dir>/keys/<profile>.yaml`
+// (per ADR 0010); chord prefixes and dispatcher hooks stay on Set
+// because the user schema only lets users target named globals.
+//
+// Call order is the help-overlay GENERAL-column display order:
+// `globalsCatalog` derives that column from Dispatcher.Bindings
+// (per ADR 0019) which preserves registration order, so a future
+// contributor adding a global must insert at the right slot rather
+// than appending blindly.
+func (a *App) registerGlobalBindings() {
+	// `:` opens the command bar; `/` opens the filter prompt. The
+	// dispatcher only fires the open; the resulting PromptSubmitted
+	// / PromptCancelled messages are handled by handleInput later.
+	// `:` renders in the help overlay as `<:cmd>  Command mode`
+	// (ADR 0038) so the operator reads "type colon, then a command
+	// name" — the trigger key stays a single colon.
+	a.dispatcher.SetAction(keys.LayerGlobal, "command", "Command mode", ":", a.openPromptCmd(footer.PromptCommand))
+	a.dispatcher.SetActionDisplayKey("command", ":cmd")
+	a.dispatcher.SetAction(keys.LayerGlobal, "filter", "filter", "/", a.openPromptCmd(footer.PromptFilter))
+	// `?` opens the k9s-style help overlay. The bindings are
+	// composed at open-time so the RESOURCE column always reflects
+	// whichever page is on top of the stack. The help overlay owns
+	// its own routing slot on the app (per ADR 0020) — viewer
+	// surfaces are not async-result modals.
+	a.dispatcher.SetAction(keys.LayerGlobal, "help", "help", "?", func() tea.Cmd {
+		return OpenHelp(help.Options{
+			PageName:     a.activeViewLabel(),
+			PageBindings: a.activePageBindings(),
+			Globals:      a.globalsCatalog(),
+			TableMotions: tableMotionsCatalog(),
+			Tenants:      a.tenants,
+			Commands:     a.cmdbar.Groups(),
+			UserCommands: a.cmdbar.UserAliases(),
+			ReadOnly:     a.readOnly,
+			Styles:       a.styles,
+		})
+	})
+	// `t` flips the app-global time-format toggle; alerts' state-
+	// filter cycle moved to Shift+F to free this slot. Emits
+	// TimeFormatChangedMsg so every page that renders durations
+	// re-renders, and a flash so the user sees the switch took
+	// effect.
+	a.dispatcher.SetAction(keys.LayerGlobal, "time-format", "time format", "t", a.toggleTimeFormatCmd)
+	// `Esc` falls through to "pop stack" at the global layer per
+	// keybindings.md. Modal / prompt layers shadow this when active
+	// so Esc dismisses them first.
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
+	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
+	// `Ctrl+T` opens the tenant picker — fuzzy search over
+	// the configured backends with multi-select. Resulting
+	// PickerSubmittedMsg is translated into a ScopeChangedMsg in
+	// handleLifecycle so every list page reacts the same way as
+	// for the numeric quick-switch.
+	a.dispatcher.SetAction(keys.LayerGlobal, "tenant-picker", "tenant picker", "Ctrl+T", func() tea.Cmd {
+		return OpenModal(func() modal.Modal {
+			// Tagged "scope" so the lifecycle router knows this
+			// submission feeds the global scope; pickers opened by
+			// pages (e.g. the silence form's tenant row) carry a
+			// different Origin and are forwarded to the page instead.
+			return modal.NewPicker("tenants", a.tenants, modal.PickerMulti).
+				WithOrigin(PickerOriginScope)
+		})
+	})
+}
+
+// pickerSelectionsToScope folds the tenant picker's submitted
+// selections into the scope string the rest of the app uses.
+// Empty input or a selection covering every configured tenant
+// both resolve to "all" so the title stays uniform across the
+// numeric quick-switch and the picker submit paths. A subset is
+// rendered as a stable comma-joined list in `tenants` order so
+// `<1>` / `<2>` per-row glyphs on the tenant page render
+// predictably.
+func pickerSelectionsToScope(selections, tenants []string) string {
+	if len(selections) == 0 || len(selections) == len(tenants) {
+		return scopeAll
+	}
+	picked := make(map[string]struct{}, len(selections))
+	for _, s := range selections {
+		picked[s] = struct{}{}
+	}
+	out := make([]string, 0, len(picked))
+	for _, t := range tenants {
+		if _, ok := picked[t]; ok {
+			out = append(out, t)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+// globalsCatalog is the GENERAL-column list rendered in the help
+// overlay, derived from the dispatcher's LayerGlobal registrations
+// (per ADR 0019). Two kinds of curated rows are folded in:
+//
+//   - the `~` / `\` filter-mode sigils, inserted right after `/`.
+//     The prompt auto-detects fuzzy (`~`) and literal (`\`) from a
+//     leading prefix (regex auto-detects from the body, no sigil).
+//     They are not dispatcher keys — the operator types them inside
+//     a `/` filter — but the overlay is the only always-on surface
+//     that teaches them; the tips bar that also advertises them is
+//     off by default.
+//   - `r` (refresh): documented as global in keybindings.md but
+//     implemented per-page (each page handles `r` in its own Update
+//     and surfaces it via Bindings()). Kept explicit here, rather
+//     than buried, as a marker for the next deepening — folding
+//     refresh into the dispatcher as a real LayerGlobal entry that
+//     emits RefreshRequestedMsg.
+func (a *App) globalsCatalog() []action.Action {
+	globals := a.dispatcher.Bindings(keys.LayerGlobal)
+	sigils := []action.Action{
+		{Key: "~", Description: "fuzzy filter"},
+		{Key: "\\", Description: "literal filter"},
+	}
+	out := make([]action.Action, 0, len(globals)+len(sigils)+1)
+	inserted := false
+	for _, g := range globals {
+		out = append(out, g)
+		if g.Key == "/" {
+			out = append(out, sigils...)
+			inserted = true
+		}
+	}
+	if !inserted {
+		out = append(out, sigils...)
+	}
+	return append(out, action.Action{Key: "r", Description: "refresh"})
+}
+
+// tableMotionsCatalog is the NAVIGATION-column list: pure cursor
+// movement, matching the k9s column split where NAVIGATION holds
+// motions only. The table-context verbs `Enter`/drill and
+// `Space`/mark live elsewhere — drill is view-specific (each page's
+// Bindings() lands it in RESOURCE) and mark is a Shared verb the help
+// overlay folds into GENERAL — so listing them here too would render
+// each chip in two columns.
+func tableMotionsCatalog() []action.Action {
+	return []action.Action{
+		{Key: "j", Description: keyDescDown},
+		{Key: "k", Description: "up"},
+		{Key: "h", Description: "prev column"},
+		{Key: "l", Description: "next column"},
+		{Key: "gg", Description: "top"},
+		{Key: "G", Description: "bottom"},
+		{Key: "Ctrl+D", Description: "half page down"},
+		{Key: "Ctrl+U", Description: "half page up"},
+		{Key: "Ctrl+F", Description: "page down"},
+		{Key: "Ctrl+B", Description: "page up"},
+	}
+}
+
+// activePageBindings returns the top-of-stack page's Bindings(),
+// or nil when no page is pushed (the empty-app placeholder body).
+func (a *App) activePageBindings() []action.Action {
+	if p := a.topPage(); p != nil {
+		return p.Bindings()
+	}
+	return nil
+}
+
+// openPromptCmd returns a Handler that opens the bottom-strip
+// prompt in the given mode. State mutation runs synchronously when
+// the dispatcher fires; for filter mode, an Opened message
+// reaches the top page so it can snapshot pre-filter state per
+// PromptOpenedMsg's contract.
+//
+// The matching history ring is picked at open-time (not at
+// constructor time) because `/` on the silences page walks a
+// different ring than `/` on the alerts page — the active page is
+// only known when the user presses the key.
+func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
+	return func() tea.Cmd {
+		hist := a.histories.historyFor(mode, a.activeViewLabel())
+		a.prompt = a.prompt.OpenWithHistory(mode, hist)
+		if mode == footer.PromptFilter {
+			return func() tea.Msg { return footer.PromptOpenedMsg{Mode: mode} }
+		}
+		return nil
+	}
+}
+
+// handleInput covers the input pipeline: prompt results, paste,
+// key-release / paste-framing no-ops, and key presses. Returns
+// (cmd, true) when handled.
+func (a *App) handleInput(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case footer.PromptSubmittedMsg:
+		return a.handlePromptSubmitted(m), true
+	case footer.PromptCancelledMsg:
+		// Filter cancellations flow through to the top page so a
+		// page that snapshotted its filter state on prompt-open can
+		// roll back. Command cancellations terminate at the App;
+		// no observable state change.
+		if m.Mode == footer.PromptFilter {
+			return a.forwardToTop(m), true
+		}
+		return nil, true
+	case tea.PasteMsg:
+		if a.prompt.IsOpen() {
+			var cmd tea.Cmd
+			a.prompt, cmd = a.prompt.Update(m)
+			return cmd, true
+		}
+		return a.forwardToTop(m), true
+	case tea.KeyReleaseMsg, tea.PasteStartMsg, tea.PasteEndMsg:
+		// Bubbletea v2 emits release events alongside key presses
+		// when key-release reporting is enabled, plus paste-start /
+		// paste-end framing around bracketed paste. The app shell
+		// has no use for either today; explicit no-ops keep them out
+		// of the flash catch-all so the routing intent is auditable.
+		return nil, true
+	case tea.MouseWheelMsg:
+		return a.handleMouseWheel(m), true
+	case tea.MouseClickMsg, tea.MouseReleaseMsg, tea.MouseMotionMsg:
+		// Keyboard-first contract: the app enables mouse cell-motion
+		// only to receive wheel ticks. Click / release / motion are
+		// captured by the terminal in this mode but we explicitly
+		// drop them rather than implementing click-to-focus or
+		// drag-select. Explicit no-op so they don't fall through to
+		// forwardToTop, where a misinterpreting page could attach
+		// behaviour we don't want.
+		return nil, true
+	case tea.KeyPressMsg:
+		_, cmd := a.handleKey(m)
+		return cmd, true
+	}
+	return nil, false
+}
+
+// handleMouseWheel routes a wheel event. Precedence mirrors
+// handleKey: an open modal (modals ignore the event), then
+// an open help overlay (scrolls its content), then prompt /
+// input-capture (suppress so the wheel doesn't grow a phantom
+// motion behind a typing user), then the top page (translate
+// up/down ticks into a synthetic 'k'/'j' key press so the page's
+// existing vim-motion path runs without per-page wheel plumbing).
+// Left/right wheel ticks are ignored — pages don't bind h/l to a
+// wheel motion and the horizontal-wheel hardware is rare enough
+// that surprising the user with column walks is worse than
+// dropping the event.
+func (a *App) handleMouseWheel(m tea.MouseWheelMsg) tea.Cmd {
+	if a.overlays.modal != nil {
+		next, cmd := a.overlays.modal.Update(m)
+		a.overlays.modal = next
+		return cmd
+	}
+	if a.overlays.help != nil {
+		next, cmd := a.overlays.help.Update(m)
+		a.overlays.help = next
+		return cmd
+	}
+	if a.prompt.IsOpen() || a.topPageCapturesInput() {
+		return nil
+	}
+	key, ok := wheelToKey(m)
+	if !ok {
+		return nil
+	}
+	return a.forwardToTop(key)
+}
+
+// wheelToKey maps a vertical wheel tick to the synthetic key press
+// each page's vim-motion handler consumes. Horizontal ticks return
+// (zero, false) so the caller can drop them. Kept package-private
+// so the mapping table lives next to the dispatcher seam that uses
+// it; tested via TestApp_MouseWheel*.
+func wheelToKey(m tea.MouseWheelMsg) (tea.KeyPressMsg, bool) {
+	switch m.Button {
+	case tea.MouseWheelUp:
+		return tea.KeyPressMsg{Code: 'k', Text: "k"}, true
+	case tea.MouseWheelDown:
+		return tea.KeyPressMsg{Code: 'j', Text: "j"}, true
+	}
+	return tea.KeyPressMsg{}, false
+}
+
+// handlePromptSubmitted routes a prompt's submission. Command
+// values go through cmdbar.Resolve; unknown / ambiguous errors
+// surface as Warn flashes; empty input is silent so the user can
+// back out of an open `:` prompt by pressing Enter without typing.
+// Filter values flow through to the top page, which decides what a
+// filter string means in its own context.
+func (a *App) handlePromptSubmitted(m footer.PromptSubmittedMsg) tea.Cmd {
+	if m.Mode == footer.PromptFilter {
+		return a.forwardToTop(m)
+	}
+	cmd, err := a.cmdbar.Resolve(m.Value)
+	if err == nil {
+		return cmd
+	}
+	if errors.Is(err, cmdbar.ErrEmpty) {
+		return nil
+	}
+	return showFlash(footer.FlashWarn, err.Error())
+}
+
+// showFlash returns a tea.Cmd that emits a FlashShowMsg with the
+// given level and text. Used by the global bindings the app shell
+// owns so they can drop a hint without holding a Flash reference.
+func showFlash(level footer.FlashLevel, text string) tea.Cmd {
+	return func() tea.Msg {
+		return footer.FlashShowMsg{Level: level, Text: text}
+	}
+}
+
+// quitRequestedCmd is the Cmd every quit binding returns instead
+// of a bare tea.Quit. The App's handleLifecycle consumes the
+// resulting QuitRequestedMsg, Close()s every page on the stack to
+// cancel in-flight background work, and emits tea.Quit. See
+// QuitRequestedMsg's doc for the bubbletea-runtime detail (QuitMsg
+// short-circuits before Update, so the precursor is the only place
+// the cleanup can run).
+func quitRequestedCmd() tea.Cmd {
+	return func() tea.Msg { return QuitRequestedMsg{} }
+}
+
+// handleKey routes a single key event. Precedence:
+//
+//  1. Open modal — captures every key including Esc.
+//  2. Open help overlay — same rule for the `?` viewer; lives in
+//     its own slot per ADR 0020. modal wins when both are
+//     non-nil (structurally impossible at runtime because the
+//     keys that open modals are dispatcher-gated and the
+//     dispatcher is bypassed while help is open, but the
+//     precedence stays explicit).
+//  3. Open prompt — same rule for the bottom-strip prompt.
+//  4. Top page in input-capture mode (forms) — raw keys so the
+//     user can type globally-bound chars into fields.
+//  5. Dispatcher (modal > prompt > view > table > global).
+//  6. Top page — final catch-all for vim motions and per-page
+//     shortcuts that don't need pre-registration.
+//
+// Unconsumed keys drop silently.
+func (a *App) handleKey(m tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if a.overlays.modal != nil {
+		next, cmd := a.overlays.modal.Update(m)
+		a.overlays.modal = next
+		return a, cmd
+	}
+	if a.overlays.help != nil {
+		next, cmd := a.overlays.help.Update(m)
+		a.overlays.help = next
+		return a, cmd
+	}
+	if a.prompt.IsOpen() {
+		var cmd tea.Cmd
+		a.prompt, cmd = a.prompt.Update(m)
+		return a, cmd
+	}
+	if a.topPageCapturesInput() {
+		// Bypass dispatcher entirely so global bindings (q, :, /,
+		// ?, digits) don't shadow text input on the form.
+		cmd := a.forwardToTop(m)
+		return a, cmd
+	}
+
+	keyName := normalizeKey(m)
+	if keyName == "" {
+		return a, nil
+	}
+	consumed, cmd := a.dispatcher.Dispatch(keyName)
+	if consumed {
+		return a, cmd
+	}
+	// Unbound at the dispatcher: forward to the top page so it can
+	// react (vim motions, custom shortcuts) without the app shell
+	// pre-knowing every page's binding set.
+	cmd = a.forwardToTop(m)
+	return a, cmd
+}
