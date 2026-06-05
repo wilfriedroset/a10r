@@ -139,12 +139,28 @@ linux amd64 / arm64 / arm. Release artifacts carry keyless build
 provenance attestations (Sigstore via GitHub OIDC); verify with
 `gh attestation verify <file> --repo wilfriedroset/a10r`.
 
+### Docker
+
+Multi-arch images (amd64, arm64) are published to the GitHub
+Container Registry on each release:
+
+```sh
+docker run --rm -it \
+  -v ~/.config/a10r:/home/nonroot/.config/a10r:ro \
+  ghcr.io/wilfriedroset/a10r:latest
+```
+
+The image is distroless (`gcr.io/distroless/static`): no shell, runs
+as a non-root user, and contains only the a10r binary plus CA
+certificates and tzdata.
+
 ### Build from source
 
 ```sh
 git clone https://github.com/wilfriedroset/a10r
 cd a10r
 make build      # produces ./a10r
+docker build -t a10r .   # or as a container image
 ```
 
 Requires Go (see `go.mod` for the toolchain floor).

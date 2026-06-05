@@ -1,0 +1,9 @@
+# Used by goreleaser only: the build context carries the release
+# binaries under per-platform directories. For local builds use
+# Dockerfile.
+FROM gcr.io/distroless/static-debian13:nonroot
+
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/a10r /usr/local/bin/a10r
+
+ENTRYPOINT ["/usr/local/bin/a10r"]

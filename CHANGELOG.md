@@ -4,6 +4,14 @@ All notable changes to a10r are documented in this file. The
 format is based on [Keep a Changelog][kac]; the project adheres
 to [Semantic Versioning][semver].
 
+## [Unreleased]
+
+### Added
+
+- **Docker images** — multi-arch (amd64, arm64) distroless images
+  pushed to `ghcr.io/wilfriedroset/a10r` by the release pipeline,
+  plus a standalone build-from-source `Dockerfile`.
+
 ## [v0.1.0] — 2026-06-03
 
 First public release. a10r is a terminal UI for Prometheus
