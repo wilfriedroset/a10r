@@ -20,6 +20,11 @@ func Hanging(s string, width, hangingCols int) []string {
 	if lipgloss.Width(s) <= width {
 		return []string{s}
 	}
+	// hangingCols >= width: indent reconstruction already overflows the
+	// limit on every iteration — loop can never make progress.
+	if hangingCols >= width {
+		return []string{s}
+	}
 	hang := strings.Repeat(" ", hangingCols)
 
 	var out []string

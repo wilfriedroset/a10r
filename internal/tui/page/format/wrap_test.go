@@ -48,6 +48,14 @@ func TestHanging(t *testing.T) {
 			width: 0,
 			want:  []string{"anything goes"},
 		},
+		{
+			// hangingCols >= width loops forever without this guard (fuzz corpus 7c0f6150e9d49953).
+			name:        "indent wider than wrap width returns input verbatim",
+			s:           "             HighCPU",
+			width:       2,
+			hangingCols: 13,
+			want:        []string{"             HighCPU"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
