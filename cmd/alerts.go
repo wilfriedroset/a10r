@@ -6,12 +6,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -26,6 +29,35 @@ func newAlertsCmd(flags *GlobalFlags) *cobra.Command {
 		Args:    cobra.NoArgs,
 	}
 	cmd.AddCommand(newAlertsListCmd(flags))
+	cmd.AddCommand(newAlertsGetCmd(flags))
+	return cmd
+}
+
+// newAlertsGetCmd is the headless complement to the TUI instance-detail
+// (L3) page: fetch one alert instance by fingerprint and render its
+// full payload — labels, annotations, generatorURL, and the suppression
+// block (silenced-by / inhibited-by / muted-by). Fingerprint is the
+// only stable instance identity Alertmanager exposes; alertname is a
+// label, so "silence every HighCPU" is `silences create --matcher
+// 'alertname="HighCPU"'`, not a get.
+//
+// The lookup is lenient across the in-scope backends (the same
+// fingerprint can fire in several tenants when an alert is mirrored):
+// every match is rendered, tenant-tagged. No match while some backend
+// answered exits ExitNotFound; no match because every backend failed
+// exits ExitUnreachable.
+func newAlertsGetCmd(flags *GlobalFlags) *cobra.Command {
+	var outputFormat string
+	cmd := &cobra.Command{
+		Use:   "get <fingerprint>",
+		Short: "Show full detail for one alert instance by fingerprint",
+		Args:  exactlyOneArg("an alert fingerprint"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAlertGet(cmd.Context(), cmd.OutOrStdout(), flags, args[0], outputFormat)
+		},
+	}
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "",
+		"output format: json, yaml (default: yaml on a terminal, json in a pipe)")
 	return cmd
 }
 
@@ -68,6 +100,37 @@ type alertsListOptions struct {
 	State    string
 }
 
+// allowedAlertStates is the case-insensitive accept-list for --state.
+// Validated up front (like silences list) so a typo such as `--state
+// activ` errors instead of silently matching nothing — which on the
+// `--fail` on-call path would read as an all-clear false negative.
+var allowedAlertStates = []backend.AlertState{
+	backend.AlertStateActive,
+	backend.AlertStateSuppressed,
+	backend.AlertStateUnprocessed,
+}
+
+// validateAlertState returns the canonical state when in is empty (no
+// filter) or matches an allowed value case-insensitively, and a
+// descriptive error otherwise.
+func validateAlertState(in string) (string, error) {
+	if in == "" {
+		return "", nil
+	}
+	low := strings.ToLower(strings.TrimSpace(in))
+	for _, s := range allowedAlertStates {
+		if string(s) == low {
+			return low, nil
+		}
+	}
+	allowed := make([]string, 0, len(allowedAlertStates))
+	for _, s := range allowedAlertStates {
+		allowed = append(allowed, string(s))
+	}
+	return "", fmt.Errorf("unknown state %q (want one of %s)",
+		in, strings.Join(allowed, ", "))
+}
+
 // alertRow is the row shape JSON / YAML / table all flatten the
 // alert payload into. Struct tags pin the JSON key set per
 // docs/end-users/output-formats.md.
@@ -84,6 +147,11 @@ type alertRow struct {
 // runList; the filter logic runs inside the per-backend goroutine so
 // the pipeline never sees an unfiltered slice.
 func runAlertsList(ctx context.Context, out io.Writer, flags *GlobalFlags, opts alertsListOptions) error {
+	state, err := validateAlertState(opts.State)
+	if err != nil {
+		return err
+	}
+	opts.State = state
 	return runList(ctx, out, flags, opts.Output, listcmd.Spec[alertRow]{
 		Fetcher: func(ctx context.Context, name string, c backend.Client) ([]alertRow, error) {
 			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
@@ -159,7 +227,7 @@ func sortAlertRows(rows []alertRow) {
 
 func renderAlertTable(out io.Writer, rows []alertRow) error {
 	tbl := output.Table{
-		Cols: []string{fieldTenant, fieldName, fieldSeverity, "state"},
+		Cols: []string{fieldTenant, "fingerprint", fieldName, fieldSeverity, "state"},
 		Rows: alertTableRows(rows),
 	}
 	if err := tbl.Write(out); err != nil {
@@ -173,7 +241,94 @@ func renderAlertTable(out io.Writer, rows []alertRow) error {
 func alertTableRows(rows []alertRow) [][]string {
 	out := make([][]string, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, []string{r.Tenant, r.Name, r.Severity, string(r.State)})
+		out = append(out, []string{r.Tenant, r.Fingerprint, r.Name, r.Severity, string(r.State)})
 	}
 	return out
+}
+
+// alertDetail is the full instance payload `alerts get` renders. Unlike
+// alertRow (the list-column projection) it carries annotations, the
+// generatorURL, and the suppression block, mirroring the TUI L3 page.
+// omitempty keeps the rendered document tight when a field is absent
+// (e.g. an active alert has no silenced-by list).
+type alertDetail struct {
+	Tenant       string             `json:"tenant" yaml:"tenant"`
+	Fingerprint  string             `json:"fingerprint" yaml:"fingerprint"`
+	State        backend.AlertState `json:"state" yaml:"state"`
+	StartsAt     time.Time          `json:"startsAt" yaml:"startsAt"`
+	EndsAt       time.Time          `json:"endsAt" yaml:"endsAt"`
+	GeneratorURL string             `json:"generatorURL,omitempty" yaml:"generatorURL,omitempty"`
+	Labels       map[string]string  `json:"labels" yaml:"labels"`
+	Annotations  map[string]string  `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+	SilencedBy   []string           `json:"silencedBy,omitempty" yaml:"silencedBy,omitempty"`
+	InhibitedBy  []string           `json:"inhibitedBy,omitempty" yaml:"inhibitedBy,omitempty"`
+	MutedBy      []string           `json:"mutedBy,omitempty" yaml:"mutedBy,omitempty"`
+	Receivers    []string           `json:"receivers,omitempty" yaml:"receivers,omitempty"`
+}
+
+func toAlertDetail(tenant string, a backend.Alert) alertDetail {
+	return alertDetail{
+		Tenant:       tenant,
+		Fingerprint:  a.Fingerprint,
+		State:        a.State,
+		StartsAt:     a.StartsAt,
+		EndsAt:       a.EndsAt,
+		GeneratorURL: a.GeneratorURL,
+		Labels:       a.Labels,
+		Annotations:  a.Annotations,
+		SilencedBy:   a.SilencedBy,
+		InhibitedBy:  a.InhibitedBy,
+		MutedBy:      a.MutedBy,
+		Receivers:    a.Receivers,
+	}
+}
+
+// runAlertGet is the cobra-facing entry: load+scope config, build the
+// real client factory, then delegate to alertGet. The split keeps
+// alertGet free of config/factory wiring so it is unit-testable with an
+// injected fake factory.
+func runAlertGet(ctx context.Context, out io.Writer, flags *GlobalFlags, fingerprint, rawFormat string) error {
+	format, err := resolveDetailFormat(rawFormat, isStdoutTerminal(out))
+	if err != nil {
+		return err
+	}
+	cfg, err := loadCmdConfig(flags)
+	if err != nil {
+		return err
+	}
+	build, closer, err := buildClientFactory(flags)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+	return alertGet(ctx, out, os.Stderr, cfg, build, fingerprint, format)
+}
+
+// alertGet fans out a fingerprint lookup across the in-scope backends
+// and renders every match. AM v2 has no get-by-fingerprint endpoint, so
+// each backend lists and filters client-side; a backend contributes at
+// most one match (fingerprint is unique within an Alertmanager).
+func alertGet(
+	ctx context.Context,
+	out, errOut io.Writer,
+	cfg *config.Config,
+	build listcmd.ClientFactory,
+	fingerprint string,
+	format output.Format,
+) error {
+	results := fanOutBackends(ctx, cfg, build,
+		func(ctx context.Context, tenant string, c backend.Client) ([]alertDetail, error) {
+			alerts, err := c.ListAlerts(ctx, backend.AlertFilter{})
+			if err != nil {
+				return nil, fmt.Errorf("list alerts: %w", err)
+			}
+			var found []alertDetail
+			for _, a := range alerts {
+				if a.Fingerprint == fingerprint {
+					found = append(found, toAlertDetail(tenant, a))
+				}
+			}
+			return found, nil
+		})
+	return emitDetail(out, errOut, results, "alert", fingerprint, format)
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -38,7 +39,7 @@ func newListCmd(short, failHelp string, common *commonListFlags) *cobra.Command 
 		Short: short,
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVar(&common.Output, "output", "", "output format: table, json, yaml")
+	cmd.Flags().StringVarP(&common.Output, "output", "o", "", "output format: table, json, yaml")
 	cmd.Flags().BoolVar(&common.FailOnAny, "fail", false, failHelp)
 	return cmd
 }
@@ -75,12 +76,73 @@ func runList[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, rawF
 // that owns the ExitConfigInvalid mapping. Pipeline stays unaware
 // of cmd's exit-code table; every list command routes through this
 // helper so the mapping is set once.
+//
+// --tenant narrows cfg.Backends to the in-scope subset here so every
+// headless command (reads and silence writes alike) shares one
+// targeting story: a single tenant, a comma-list, or all. A scope
+// naming no configured backend is a usage error, not a silent empty
+// result — surfacing it stops a typo'd `--tenant prdo` from quietly
+// becoming a no-op (or, for a write fan-out, hitting the wrong set).
 func loadCmdConfig(flags *GlobalFlags) (*config.Config, error) {
 	cfg, err := config.Load(loadOptsFromFlags(flags))
 	if err != nil {
 		return nil, NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
 	}
+	if err := applyTenantScope(cfg, flags.Tenant); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// loadWriteConfig is loadCmdConfig's sibling for the silence write
+// verbs. It additionally runs config.Resolve so the effective read-only
+// knob (--read-only / A10R_READ_ONLY / defaults.read_only) is honoured,
+// returning it alongside the scoped config for the fail-closed gate.
+// The read commands skip this because they never mutate, so the knob is
+// irrelevant to them.
+func loadWriteConfig(flags *GlobalFlags) (*config.Config, bool, error) {
+	cfg, err := config.Load(loadOptsFromFlags(flags))
+	if err != nil {
+		return nil, false, NewExitError(ExitConfigInvalid, fmt.Errorf("load config: %w", err))
+	}
+	eff, err := config.Resolve(*flags, os.Getenv, *cfg)
+	if err != nil {
+		return nil, false, NewExitError(ExitConfigInvalid, fmt.Errorf("resolve config: %w", err))
+	}
+	resolved := eff.Config
+	if err := applyTenantScope(&resolved, flags.Tenant); err != nil {
+		return nil, false, err
+	}
+	// A write verb needs at least one backend to act on. An empty backend
+	// set (a config with no backends — a non-empty --tenant that matches
+	// nothing already errored in applyTenantScope) would otherwise fan out
+	// to nothing and exit 0 silently, which reads as success.
+	if len(resolved.Backends) == 0 {
+		return nil, false, NewExitError(ExitConfigInvalid,
+			errors.New("no backends configured; add a backend to a10r.yaml before writing silences"))
+	}
+	return &resolved, resolved.Defaults.ReadOnly, nil
+}
+
+// applyTenantScope narrows cfg.Backends to the --tenant subset in place.
+// Every named element must match a configured backend: a scope like
+// `prod,bogus` errors naming `bogus` rather than silently narrowing to
+// prod, since a typo'd element would otherwise drop a tenant the operator
+// believed was in scope. Validation is skipped for an empty config so the
+// empty-config read path stays a no-op (the write path rejects an empty
+// backend set separately in loadWriteConfig).
+func applyTenantScope(cfg *config.Config, tenant string) error {
+	if len(cfg.Backends) > 0 {
+		if unknown := config.UnknownScopeTenants(cfg.Backends, tenant); len(unknown) > 0 {
+			quoted := make([]string, len(unknown))
+			for i, u := range unknown {
+				quoted[i] = fmt.Sprintf("%q", u)
+			}
+			return fmt.Errorf("no configured backend matches --tenant %s", strings.Join(quoted, ", "))
+		}
+	}
+	cfg.Backends = config.ScopeBackends(cfg.Backends, tenant)
+	return nil
 }
 
 // buildClientFactory returns the listcmd.ClientFactory the pipeline

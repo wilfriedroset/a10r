@@ -14,6 +14,35 @@ When `--output` is unset, a10r picks `table` if stdout is a
 terminal and `json` if it is a pipe — so `a10r alerts list | jq`
 "just works" without an explicit flag.
 
+## Detail commands (`get`)
+
+`a10r alerts get <fingerprint>` and `a10r silences get <id>` render
+one record, not a row grid, so their defaults differ from the list
+commands: `yaml` on a TTY (a record reads and diffs better as a
+document than as a one-row table) and `json` in a pipe — the silence
+spec fields (matchers, starts/ends, comment, createdBy) line up with
+the TUI's editor buffer, though the rendered record also carries
+read-only context (tenant, state) that is not part of that buffer.
+`--output=table` is rejected — pass `json` or
+`yaml`. When the same identity resolves in several tenants (a
+mirrored alert, a mirrored silence id) the output becomes a sequence
+of all matches; a single match renders as one document.
+
+## Write commands (`create` / `update` / `expire` / `recreate`)
+
+The silence write verbs emit the machine-usable result on stdout and
+keep human narration / errors on stderr, so a pipeline stays clean:
+
+- Default: one `tenant<TAB>id` line per silence written, on stdout.
+  `a10r silences create --tenant prod --matcher 'severity="critical"'
+  --comment maint | cut -f2` yields just the new id.
+- `--output=json` / `--output=yaml`: the full result array, one
+  `{tenant, id, status, error}` per target (so a partial bulk failure
+  reports what landed and what did not). `--output=table` is rejected.
+- Any failed write makes the command exit non-zero — unlike the read
+  fan-out, a write is never silently lenient. See
+  [exit-codes.md](exit-codes.md).
+
 ## Pager
 
 When `--output=table` (the default on a TTY) renders to a
@@ -48,7 +77,7 @@ release.
 - HTML escaping is disabled: URLs in alert annotations / labels
   retain literal `&`, `<`, `>` so jq pipelines see human-readable
   values rather than `&`-style escapes.
-- YAML output uses 2-space indent (set explicitly to match the
-  file-side `a10r.yaml` convention) and yaml.v3's default key
-  ordering; a `--output=yaml` snippet can usually be pasted into
-  `a10r.yaml` without reformatting.
+- YAML output uses 2-space indent (matching the file-side `a10r.yaml`
+  convention) and yaml.v3's default key ordering, so it reads and
+  diffs cleanly. It is a view of the resource, not the config schema —
+  it is not meant to be pasted into `a10r.yaml`.

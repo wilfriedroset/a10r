@@ -227,7 +227,7 @@ func TestPage_SilencePushesFormPrefilledWithCommonLabels(t *testing.T) {
 // guard against silencing EVERYTHING when a group has no common
 // labels (or, degenerately, no alerts at all). commonLabels of an
 // empty / heterogeneous group returns an empty map; without this
-// guard, MatchersFromLabels produces an empty matcher list and the
+// guard, matcher.FromLabels produces an empty matcher list and the
 // form is pushed; a Submit would create an alertmanager silence
 // matching every alert in the fleet.
 func TestPage_SilenceOnGroupWithNoMatchersFlashesError(t *testing.T) {

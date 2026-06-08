@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -209,7 +210,7 @@ func (p *Page) openSilenceForS() tea.Cmd {
 }
 
 // openSilenceFormForCursor pushes the silence-one form prefilled with
-// the cursor instance's full labels (MatchersFromLabels drops the
+// the cursor instance's full labels (matcher.FromLabels drops the
 // synthetic __name__). No scope note — silence-one is exactly-scoped.
 func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	if len(p.clients) == 0 {
@@ -222,7 +223,7 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no instance under the cursor")
 	}
 	entry := p.view[p.Index()]
-	matchers := silenceform.MatchersFromLabels(entry.a.Labels)
+	matchers := matcher.FromLabels(entry.a.Labels)
 	creator := p.creator
 	if creator == "" {
 		creator = "a10r"

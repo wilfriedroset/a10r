@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
@@ -301,7 +302,7 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	if _, ok := p.clients[p.tenant]; !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
-	matchers := silenceform.MatchersFromLabels(p.a.Labels)
+	matchers := matcher.FromLabels(p.a.Labels)
 	creator := p.creator
 	if creator == "" {
 		creator = "a10r"

@@ -254,8 +254,8 @@ type Options struct {
 	// "silences(<scope>)". Only meaningful alongside RestrictIDs.
 	AlertName string
 	// AlertLabels, when non-empty, seeds the silence form's matcher
-	// list on `n` via silenceform.MatchersFromLabels — same prefill
-	// as alert-detail `s`. Only meaningful alongside RestrictIDs.
+	// list on `n` via matcher.FromLabels — same prefill as
+	// alert-detail `s`. Only meaningful alongside RestrictIDs.
 	AlertLabels map[string]string
 }
 

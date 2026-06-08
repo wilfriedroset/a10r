@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -523,7 +524,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	submitCtx := p.submitCtx
 	var matchers []backend.Matcher
 	if len(p.alertLabels) > 0 {
-		matchers = silenceform.MatchersFromLabels(p.alertLabels)
+		matchers = matcher.FromLabels(p.alertLabels)
 	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{

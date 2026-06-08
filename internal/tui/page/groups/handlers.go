@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -173,7 +174,7 @@ func (p *Page) onSilence(rows []row) (app.Page, tea.Cmd) {
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return p, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
-	matchers := silenceform.MatchersFromLabels(backend.CommonLabels(entry.g.Alerts))
+	matchers := matcher.FromLabels(backend.CommonLabels(entry.g.Alerts))
 	if len(matchers) == 0 {
 		// An empty matcher list submitted to alertmanager silences
 		// EVERY alert. Refuse to push the form rather than let the

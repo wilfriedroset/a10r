@@ -12,6 +12,7 @@ types without parsing stderr — for example `a10r alerts list
 | `2`  | Config invalid. `a10r.yaml` could not be parsed or failed schema validation. Operator action: fix the config file. |
 | `3`  | Backend unreachable. Every configured backend in the active scope failed to respond at the network layer (DNS, timeout, connection refused). Operator action: fix network connectivity. |
 | `4`  | Backend authentication failed. Every configured backend in the active scope rejected the credentials with 401/403. Operator action: fix credentials. |
+| `5`  | Not found. A `get` / `update` / `expire` / `recreate` command named a resource (alert fingerprint, silence id) that no backend in scope confirmed, while at least one backend answered. Distinct from `3` so a script can tell "the resource is gone" (e.g. recreate it) from "I could not reach a backend to check" (retry later). |
 | `10` | `--fail` predicate matched. A list-style command (`alerts list`, `silences list`) was invoked with `--fail` and at least one row matched the filter. |
 
 ## Partial failure (multi-tenant)

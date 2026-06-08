@@ -4,8 +4,10 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
@@ -27,7 +30,84 @@ func newSilencesCmd(flags *GlobalFlags) *cobra.Command {
 		Args:    cobra.NoArgs,
 	}
 	cmd.AddCommand(newSilencesListCmd(flags))
+	cmd.AddCommand(newSilencesGetCmd(flags))
+	cmd.AddCommand(newSilencesCreateCmd(flags))
+	cmd.AddCommand(newSilencesUpdateCmd(flags))
+	cmd.AddCommand(newSilencesExpireCmd(flags))
+	cmd.AddCommand(newSilencesRecreateCmd(flags))
 	return cmd
+}
+
+// newSilencesGetCmd is the headless complement to the TUI
+// silence-detail page: fetch one silence by id and render its full
+// payload. The rendered shape reuses silenceRow, so a silence reads the
+// same whether it arrived via `silences list` or `silences get`, and
+// its spec fields (matchers, starts/ends, comment, createdBy) line up
+// with the editor buffer the TUI round-trips.
+//
+// The lookup is lenient across in-scope backends. A clean miss
+// (ErrNotFound) on a backend is "the silence is not here", not a
+// failure, so the absent backends stay silent and an everywhere-absent
+// id exits ExitNotFound — distinct from the ExitUnreachable a genuine
+// transport failure on every backend produces.
+func newSilencesGetCmd(flags *GlobalFlags) *cobra.Command {
+	var outputFormat string
+	cmd := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Show full detail for one silence by id",
+		Args:  exactlyOneArg("a silence id"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSilenceGet(cmd.Context(), cmd.OutOrStdout(), flags, args[0], outputFormat)
+		},
+	}
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", "",
+		"output format: json, yaml (default: yaml on a terminal, json in a pipe)")
+	return cmd
+}
+
+// runSilenceGet is the cobra-facing entry: load+scope config, build the
+// real client factory, then delegate to silenceGet. The split keeps
+// silenceGet unit-testable with an injected fake factory.
+func runSilenceGet(ctx context.Context, out io.Writer, flags *GlobalFlags, id, rawFormat string) error {
+	format, err := resolveDetailFormat(rawFormat, isStdoutTerminal(out))
+	if err != nil {
+		return err
+	}
+	cfg, err := loadCmdConfig(flags)
+	if err != nil {
+		return err
+	}
+	build, closer, err := buildClientFactory(flags)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = closer.Close() }()
+	return silenceGet(ctx, out, os.Stderr, cfg, build, id, format)
+}
+
+// silenceGet fans out GetSilence by id across the in-scope backends,
+// mapping ErrNotFound to an empty per-backend result (see the cobra
+// command doc for why a clean miss is not a failure).
+func silenceGet(
+	ctx context.Context,
+	out, errOut io.Writer,
+	cfg *config.Config,
+	build listcmd.ClientFactory,
+	id string,
+	format output.Format,
+) error {
+	results := fanOutBackends(ctx, cfg, build,
+		func(ctx context.Context, tenant string, c backend.Client) ([]silenceRow, error) {
+			s, err := c.GetSilence(ctx, id)
+			if errors.Is(err, backend.ErrNotFound) {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, fmt.Errorf("get silence: %w", err)
+			}
+			return []silenceRow{toSilenceRow(tenant, s)}, nil
+		})
+	return emitDetail(out, errOut, results, "silence", id, format)
 }
 
 // newSilencesListCmd is the headless complement to the silences page.

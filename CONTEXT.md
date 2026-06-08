@@ -144,6 +144,17 @@ the future → rendered as `in X`.
 A silence whose window has elapsed (EndsAt ≤ now). ENDS is in the past
 → rendered as `X ago`.
 
+**Recreate**:
+Derive a new silence from an existing one: matchers and comment are
+copied; the window resets (starts at now) and the expiry must be
+restated, never assumed — re-applying a stale window silently is the
+failure mode the verb exists to prevent. Creator resets to the acting
+user. The source silence is untouched and may be in any lifecycle
+state. Distinct from updating, which mutates a silence in place and
+is only possible while it is **active** or **pending**.
+_Avoid_: clone / copy (imply the window is carried over too), re-arm,
+restore, edit (in-place mutation).
+
 **Restricted silences view**:
 The silences list page pushed from the alert-detail `S` binding,
 scoped to the alert's silenced-by IDs (frozen at push time). Same

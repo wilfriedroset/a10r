@@ -21,6 +21,13 @@ const (
 	// ExitAuthFailed means every backend in scope rejected credentials (401/403).
 	ExitAuthFailed = 4
 
+	// ExitNotFound means a get/expire/update targeted a resource (alert
+	// fingerprint, silence id) that no backend in scope confirmed, while at
+	// least one backend answered. Distinct from ExitUnreachable so a script
+	// can tell "the thing is gone" (recreate it) from "I couldn't look"
+	// (retry later).
+	ExitNotFound = 5
+
 	// ExitFailMatched means --fail was set and at least one row matched, so
 	// on-call wrappers can page without parsing output.
 	ExitFailMatched = 10

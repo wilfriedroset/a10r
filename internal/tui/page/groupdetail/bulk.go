@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -89,7 +90,7 @@ func (p *Page) resolveBulkSilenceTargets() []bulkSilenceTarget {
 		}
 		targets = append(targets, bulkSilenceTarget{
 			Fingerprint: a.Fingerprint,
-			Matchers:    silenceform.MatchersFromLabels(a.Labels),
+			Matchers:    matcher.FromLabels(a.Labels),
 		})
 	}
 	sort.Slice(targets, func(i, j int) bool {

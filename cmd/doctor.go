@@ -53,7 +53,7 @@ the result from CI/CD scripts.`,
 			})
 		},
 	}
-	cmd.Flags().StringVar(&outputFmt, "output", "", "output format: table, json, yaml")
+	cmd.Flags().StringVarP(&outputFmt, "output", "o", "", "output format: table, json, yaml")
 	cmd.Flags().StringSliceVar(&only, "only", nil,
 		"run only the named checks (comma-separated; default: full battery)")
 	return cmd

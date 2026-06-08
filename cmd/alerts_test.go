@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,51 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 )
+
+func TestValidateAlertState(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty is no-op", in: "", want: ""},
+		{name: "active", in: "active", want: "active"},
+		{name: "mixed case folds", in: "Suppressed", want: "suppressed"},
+		{name: "unprocessed", in: "unprocessed", want: "unprocessed"},
+		{name: "trim", in: "  active  ", want: "active"},
+		// A silences-state value is not an alert state — guards against
+		// the typo that previously matched nothing and exited 0.
+		{name: "pending is not an alert state", in: "pending", wantErr: true},
+		{name: "typo fails closed", in: "activ", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := validateAlertState(tc.in)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestRunAlertsList_RejectsBadStateBeforeFanOut locks that the --state
+// gate runs ahead of any backend work: a bogus state errors even with a
+// config that would otherwise be loaded and fanned out.
+func TestRunAlertsList_RejectsBadStateBeforeFanOut(t *testing.T) {
+	t.Parallel()
+
+	err := runAlertsList(context.Background(), &bytes.Buffer{}, &GlobalFlags{},
+		alertsListOptions{State: "activ"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown state")
+}
 
 func TestToAlertRow_PullsLabels(t *testing.T) {
 	t.Parallel()
@@ -89,15 +135,18 @@ func TestRenderAlertRows_TableHeaderAndCells(t *testing.T) {
 	t.Parallel()
 
 	rows := []alertRow{
-		{Tenant: "prod", Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive},
+		{Tenant: "prod", Fingerprint: "3b15fd163d70e9cc", Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive},
 	}
 	var buf bytes.Buffer
 	require.NoError(t, renderAlertTable(&buf, rows))
 	out := buf.String()
 	require.Contains(t, out, "TENANT")
+	require.Contains(t, out, "FINGERPRINT")
 	require.Contains(t, out, "NAME")
 	require.Contains(t, out, "HighCPU")
 	require.Contains(t, out, "critical")
+	require.Contains(t, out, "3b15fd163d70e9cc",
+		"fingerprint is shown so `alerts get <fingerprint>` is discoverable from the list")
 }
 
 func TestRenderAlertRows_JSONIncludesLabels(t *testing.T) {
@@ -123,9 +172,9 @@ func TestAlertTableRows_OrderMatchesCols(t *testing.T) {
 	t.Parallel()
 
 	rows := []alertRow{
-		{Tenant: "prod", Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive},
+		{Tenant: "prod", Fingerprint: "3b15fd163d70e9cc", Name: "HighCPU", Severity: "critical", State: backend.AlertStateActive},
 	}
 	got := alertTableRows(rows)
 	require.Len(t, got, 1)
-	require.Equal(t, []string{"prod", "HighCPU", "critical", "active"}, got[0])
+	require.Equal(t, []string{"prod", "3b15fd163d70e9cc", "HighCPU", "critical", "active"}, got[0])
 }
