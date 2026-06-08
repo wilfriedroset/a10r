@@ -120,7 +120,7 @@ or a detected agent), a10r renders the error as a structured envelope on
 **stderr** — stdout stays empty:
 
 ```
-{ "error": "validate config: backend \"prod\": at most one of basic_auth, authorization, bearer_token may be configured", "code": 2 }
+{ "error": "validate config: backend \"prod\": url is required", "code": 2 }
 ```
 
 `code` mirrors the exit code (see [exit-codes.md](exit-codes.md)). Under

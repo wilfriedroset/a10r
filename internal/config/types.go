@@ -166,8 +166,24 @@ func (b *Backend) Validate() error {
 // The first error wins — a single misconfigured field halts startup so
 // the user sees one problem at a time rather than a wall.
 func (c *Config) Validate() error {
+	seen := make(map[string]bool, len(c.Backends))
 	for i := range c.Backends {
-		if err := c.Backends[i].Validate(); err != nil {
+		b := &c.Backends[i]
+		// A nameless or url-less backend is unusable — every command that
+		// touches it fails at client-build time — so reject it here rather
+		// than let `a10r validate` return a false green. The index keys a
+		// nameless backend; duplicate names make tenant selection ambiguous.
+		if strings.TrimSpace(b.Name) == "" {
+			return fmt.Errorf("backends[%d]: name is required", i)
+		}
+		if seen[b.Name] {
+			return fmt.Errorf("backend %q: duplicate name (backend names must be unique)", b.Name)
+		}
+		seen[b.Name] = true
+		if strings.TrimSpace(b.URL) == "" {
+			return fmt.Errorf("backend %q: url is required", b.Name)
+		}
+		if err := b.Validate(); err != nil {
 			return err
 		}
 	}

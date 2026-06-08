@@ -147,6 +147,53 @@ func TestDefaults_BulkConcurrencyRejectsNegative(t *testing.T) {
 	require.Contains(t, err.Error(), "bulk_concurrency must be >= 0")
 }
 
+func TestConfig_ValidateRejectsUnusableBackends(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{
+			name:    "backend missing url",
+			cfg:     Config{Backends: []Backend{{Name: "prod"}}},
+			wantErr: "url is required",
+		},
+		{
+			name:    "backend missing name",
+			cfg:     Config{Backends: []Backend{{URL: "http://x:9093"}}},
+			wantErr: "name is required",
+		},
+		{
+			name: "duplicate backend names",
+			cfg: Config{Backends: []Backend{
+				{Name: "prod", URL: "http://a:9093"},
+				{Name: "prod", URL: "http://b:9093"},
+			}},
+			wantErr: "duplicate name",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.cfg.Validate()
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestConfig_ValidateAcceptsWellFormedBackends(t *testing.T) {
+	t.Parallel()
+
+	c := Config{Backends: []Backend{
+		{Name: "prod", URL: "http://a:9093"},
+		{Name: "staging", URL: "http://b:9093"},
+	}}
+	require.NoError(t, c.Validate())
+}
+
 func TestTUI_DefaultIsTipsOff(t *testing.T) {
 	t.Parallel()
 
