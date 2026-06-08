@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
@@ -29,6 +30,11 @@ type writeTarget struct {
 // the unchanged id for update/expire).
 type writeOp func(ctx context.Context, c backend.Client, t writeTarget) (string, error)
 
+// writeHint builds the next-step hint (ADR 0045) for a verb's outcomes, or
+// "" to emit none. It receives every result; the builders read only the
+// successes.
+type writeHint func(results []writeResult) string
+
 // runWrites is the shared executor for every silence write verb: build
 // at most one client per tenant, apply op to each target, and render the
 // per-target outcomes under status (the success word). A target with a
@@ -36,6 +42,10 @@ type writeOp func(ctx context.Context, c backend.Client, t writeTarget) (string,
 // are captured per target rather than aborting, so a partial failure
 // still reports what landed and what did not. The fail-closed gate runs
 // before this — by the time op fires, every target is known writable.
+//
+// After rendering, hint emits an undo/verify next-step to stderr (in every
+// output mode) so a caller — human or agent — gets the reverse command for
+// what just landed; stdout stays the pure result.
 func runWrites(
 	ctx context.Context,
 	out, errOut io.Writer,
@@ -44,6 +54,7 @@ func runWrites(
 	format output.Format,
 	status string,
 	targets []writeTarget,
+	hint writeHint,
 	op writeOp,
 ) error {
 	beByName := make(map[string]config.Backend, len(cfg.Backends))
@@ -90,7 +101,13 @@ func runWrites(
 		results = append(results, writeResult{Tenant: t.tenant, ID: id, Status: status})
 		opErrs = append(opErrs, nil)
 	}
-	return emitWriteResults(out, errOut, format, results, opErrs)
+	err := emitWriteResults(out, errOut, format, results, opErrs)
+	if hint != nil {
+		if msg := hint(results); msg != "" {
+			fmt.Fprintln(errOut, msg)
+		}
+	}
+	return err
 }
 
 // targetTenants returns the distinct tenant names in targets, preserving

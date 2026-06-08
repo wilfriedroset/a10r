@@ -8,6 +8,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -71,7 +72,14 @@ func Execute() error {
 	var flags GlobalFlags
 	rootCmd := newRootCmd(&flags, nil)
 	registerSubcommands(rootCmd, &flags)
-	return rootCmd.ExecuteContext(ctx) //nolint:wrapcheck // surfaced verbatim by main(); an "execute:" wrap would be user-facing noise, and the ExitError chain is preserved for errors.As
+	// ExecuteContextC hands back the command that actually ran so the error
+	// renderer can read its --output to decide between a structured envelope
+	// and a plain message (ADR 0045). main() owns the os.Exit mapping.
+	executed, err := rootCmd.ExecuteContextC(ctx)
+	if err != nil {
+		renderExecError(executed, err, os.Getenv, os.Stderr)
+	}
+	return err //nolint:wrapcheck // surfaced by main() for exit mapping; the ExitError chain is preserved for errors.As
 }
 
 // registerSubcommands attaches every a10r subcommand to root. Shared

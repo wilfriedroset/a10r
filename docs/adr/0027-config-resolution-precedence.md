@@ -11,7 +11,10 @@ subsystem ever inspects raw flags or raw file values, and a missed
 fold step manifests at startup rather than as a silent ignore. The
 env-slot for `ConfigDir` is `A10R_CONFIG_DIR`; the OS defaults under
 it are `$XDG_CONFIG_HOME/a10r` on Unix, `~/Library/Application
-Support/a10r` on macOS, and `%LOCALAPPDATA%\a10r` on Windows.
+Support/a10r` on macOS, and `%LOCALAPPDATA%\a10r` on Windows. The
+output format follows the same shape with one extra layer for agents —
+`--output` flag → `A10R_OUTPUT` env → agent detection → TTY-derived
+default; see ADR 0045.
 
 `--read-only` is "loud over silent": any `true` source forces the
 whole session read-only and cannot be reverted by a later source in

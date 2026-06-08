@@ -71,24 +71,3 @@ func ParseFormat(s string) (Format, error) {
 	return "", fmt.Errorf("%w: %q (want one of %s)",
 		ErrUnknownFormat, s, strings.Join(quoted, ", "))
 }
-
-// Resolve picks a default when format is empty: FormatTable when
-// stdout is a TTY, FormatJSON otherwise. Pipes get JSON because
-// they are almost always feeding a downstream tool (jq, awk, sh)
-// that wants structured input; humans at a terminal want table.
-//
-// Resolve does NOT re-validate format: callers must pass either a
-// zero Format or a value previously returned by ParseFormat. A
-// non-empty unrecognised value is passed through unchanged so the
-// caller's downstream switch surfaces the problem at the precise
-// place the unrecognised value would be acted on, rather than
-// silently defaulting (which would mask configuration errors).
-func Resolve(format Format, ttyStdout bool) Format {
-	if format != "" {
-		return format
-	}
-	if ttyStdout {
-		return FormatTable
-	}
-	return FormatJSON
-}

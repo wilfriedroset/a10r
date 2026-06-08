@@ -18,6 +18,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -31,6 +32,7 @@ type silenceCreateOptions struct {
 	Comment   string
 	CreatedBy string
 	Output    string
+	DryRun    bool
 }
 
 // newSilencesCreateCmd is the headless complement to the TUI silence
@@ -51,7 +53,15 @@ func newSilencesCreateCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create one or more silences from matchers or an alert fingerprint",
-		Args:  cobra.NoArgs,
+		Example: `  # Silence by matchers in one tenant
+  a10r silences create --tenant prod --matcher 'severity="critical"' --comment maintenance
+
+  # Silence an alert instance by fingerprint, ending in 4h
+  a10r silences create --alert 1a2b3c4d5e6f7890 --ends 4h --comment "deploy in progress"
+
+  # Preview the plan without writing, as JSON
+  a10r silences create --tenant prod --matcher 'job="api"' --comment x --dry-run -o json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSilenceCreate(cmd.Context(), cmd.OutOrStdout(), flags, opts)
 		},
@@ -68,7 +78,9 @@ func newSilencesCreateCmd(flags *GlobalFlags) *cobra.Command {
 	f.StringVar(&opts.Comment, "comment", "", "silence comment (required)")
 	f.StringVar(&opts.CreatedBy, "created-by", "", "silence author (default: $USER, else a10r)")
 	f.StringVarP(&opts.Output, "output", "o", "",
-		"output format: default tab-separated tenant<TAB>id, or json, yaml")
+		"output format: default tab-separated tenant<TAB>id, or json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
+	f.BoolVar(&opts.DryRun, "dry-run", false,
+		"resolve and print what would be written, without making any change")
 	return cmd
 }
 
@@ -87,9 +99,13 @@ func runSilenceCreate(ctx context.Context, out io.Writer, flags *GlobalFlags, op
 	defer func() { _ = closer.Close() }()
 
 	creator := resolveCreator(opts.CreatedBy, os.Getenv("USER"))
+	format, err := resolveWriteFormat(opts.Output, os.Getenv)
+	if err != nil {
+		return err
+	}
 	explicitTenant := strings.TrimSpace(flags.Tenant) != ""
 	return silenceCreate(ctx, out, os.Stderr, cfg, globalReadOnly, build,
-		time.Now(), explicitTenant, opts, creator)
+		time.Now(), explicitTenant, opts, creator, format)
 }
 
 // silenceCreate validates the flags, resolves the target set, fails
@@ -104,11 +120,8 @@ func silenceCreate(
 	explicitTenant bool,
 	opts silenceCreateOptions,
 	creator string,
+	format output.Format,
 ) error {
-	format, err := resolveWriteFormat(opts.Output)
-	if err != nil {
-		return err
-	}
 	if err := validateCreateFlags(opts); err != nil {
 		return err
 	}
@@ -128,10 +141,13 @@ func silenceCreate(
 	if err != nil {
 		return err
 	}
+	if opts.DryRun {
+		return runDryRun(out, errOut, cfg, format, "create", targets, globalReadOnly)
+	}
 	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
 		return err
 	}
-	return runWrites(ctx, out, errOut, cfg, build, format, writeStatusCreated, targets,
+	return runWrites(ctx, out, errOut, cfg, build, format, writeStatusCreated, targets, createdHint,
 		func(ctx context.Context, c backend.Client, t writeTarget) (string, error) {
 			return c.CreateSilence(ctx, t.spec)
 		})

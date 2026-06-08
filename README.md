@@ -257,6 +257,8 @@ Environment variables in any string field are expanded via
 
 - [`docs/end-users/quickstart.md`](docs/end-users/quickstart.md) — the 60-second tour.
 - [`docs/end-users/cli.md`](docs/end-users/cli.md) — the headless command surface: read verbs and the silence lifecycle.
+- [`docs/end-users/output-formats.md`](docs/end-users/output-formats.md) — `--output`, agent mode / `A10R_OUTPUT`, next-step hints, the error envelope, and `--dry-run` plans.
+- [`docs/end-users/exit-codes.md`](docs/end-users/exit-codes.md) — the exit-code table CI/agent wrappers branch on.
 - [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
 - [`docs/end-users/troubleshooting.md`](docs/end-users/troubleshooting.md) — common problems, diagnostic flags.

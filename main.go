@@ -5,7 +5,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/wilfriedroset/a10r/cmd"
@@ -16,12 +15,11 @@ func main() {
 	if err == nil {
 		return
 	}
-	fmt.Fprintln(os.Stderr, err)
-
-	// Translate typed exit errors to their declared code; plain
-	// errors fall through to ExitRuntimeError so cobra-default
-	// failures continue to exit 1. See cmd/exit.go and
-	// docs/end-users/exit-codes.md (ADR 0009).
+	// cmd.Execute already wrote the failure (a structured envelope or a
+	// plain message, per ADR 0045); main only maps it to an exit code.
+	// Translate typed exit errors to their declared code; plain errors
+	// fall through to ExitRuntimeError so cobra-default failures continue
+	// to exit 1. See cmd/exit.go and docs/end-users/exit-codes.md (ADR 0009).
 	var ee *cmd.ExitError
 	if errors.As(err, &ee) {
 		os.Exit(ee.Code)

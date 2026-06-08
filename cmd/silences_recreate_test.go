@@ -58,9 +58,11 @@ func TestSilenceRecreate_CopiesMatchersAndCommentResetsRest(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tsil-new\n", out.String())
+	require.Equal(t, "expire with: a10r silences expire sil-new\n", errOut.String(),
+		"recreate emits the expire undo hint for the new id")
 	require.NotNil(t, client.created)
 	require.Equal(t, "disk pressure", client.created.Comment, "comment copied")
 	require.Len(t, client.created.Matchers, 1)
@@ -79,7 +81,7 @@ func TestSilenceRecreate_EndsRequired(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{}, "alice")
+		silenceRecreateOptions{}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "--ends")
 	require.Nil(t, client.created, "no window assumed; nothing created without --ends")
@@ -94,7 +96,7 @@ func TestSilenceRecreate_CommentOverride(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h", Comment: "follow-up"}, "alice")
+		silenceRecreateOptions{Ends: "2h", Comment: "follow-up"}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "follow-up", client.created.Comment)
 }
@@ -115,7 +117,7 @@ func TestSilenceRecreate_MirroredAcrossTenants(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tp-new\nstaging\ts-new\n", out.String())
 	require.NotNil(t, prod.created)
@@ -133,7 +135,7 @@ func TestSilenceRecreate_EmptyCommentNoOverrideAborts(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "comment")
 	require.Nil(t, client.created)
@@ -148,7 +150,7 @@ func TestSilenceRecreate_NotFoundExits5(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "ghost",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -164,7 +166,7 @@ func TestSilenceRecreate_ReadOnlyTargetFailsClosed(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prod")
 	require.Nil(t, client.created)
@@ -179,7 +181,7 @@ func TestSilenceRecreate_GlobalReadOnlyFailsClosed(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceRecreate(context.Background(), &out, &errOut, cfg, true, build, testNow, "sil-old",
-		silenceRecreateOptions{Ends: "2h"}, "alice")
+		silenceRecreateOptions{Ends: "2h"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read-only")
 	require.Nil(t, client.created)

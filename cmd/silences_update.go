@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
+	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 // silenceUpdateOptions bundles the update flags. Every field is an
@@ -28,6 +29,7 @@ type silenceUpdateOptions struct {
 	Comment   string
 	CreatedBy string
 	Output    string
+	DryRun    bool
 }
 
 // hasMutation reports whether any override was supplied. An update with
@@ -51,7 +53,12 @@ func newSilencesUpdateCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update <id>",
 		Short: "Patch an existing silence in place (active or pending only)",
-		Args:  exactlyOneArg("a silence id"),
+		Example: `  # Extend a silence's window, keeping everything else
+  a10r silences update a1b2c3d4 --ends 8h
+
+  # Preview the merged result without writing
+  a10r silences update a1b2c3d4 --comment "extended for incident" --dry-run`,
+		Args: exactlyOneArg("a silence id"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSilenceUpdate(cmd.Context(), cmd.OutOrStdout(), flags, args[0], opts)
 		},
@@ -64,7 +71,9 @@ func newSilencesUpdateCmd(flags *GlobalFlags) *cobra.Command {
 	f.StringVar(&opts.Comment, "comment", "", "new comment")
 	f.StringVar(&opts.CreatedBy, "created-by", "", "new author")
 	f.StringVarP(&opts.Output, "output", "o", "",
-		"output format: default tab-separated tenant<TAB>id, or json, yaml")
+		"output format: default tab-separated tenant<TAB>id, or json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
+	f.BoolVar(&opts.DryRun, "dry-run", false,
+		"resolve and print what would be written, without making any change")
 	return cmd
 }
 
@@ -78,7 +87,11 @@ func runSilenceUpdate(ctx context.Context, out io.Writer, flags *GlobalFlags, id
 		return err
 	}
 	defer func() { _ = closer.Close() }()
-	return silenceUpdate(ctx, out, os.Stderr, cfg, globalReadOnly, build, time.Now(), id, opts)
+	format, err := resolveWriteFormat(opts.Output, os.Getenv)
+	if err != nil {
+		return err
+	}
+	return silenceUpdate(ctx, out, os.Stderr, cfg, globalReadOnly, build, time.Now(), id, opts, format)
 }
 
 // silenceUpdate resolves the id, merges the overrides onto each found
@@ -92,11 +105,8 @@ func silenceUpdate(
 	now time.Time,
 	id string,
 	opts silenceUpdateOptions,
+	format output.Format,
 ) error {
-	format, err := resolveWriteFormat(opts.Output)
-	if err != nil {
-		return err
-	}
 	if !opts.hasMutation() {
 		return errors.New(
 			"nothing to update: pass at least one of --matcher, --starts, --ends, --comment, --created-by")
@@ -123,10 +133,13 @@ func silenceUpdate(
 		targets = append(targets, t)
 	}
 
+	if opts.DryRun {
+		return runDryRun(out, errOut, cfg, format, "update", targets, globalReadOnly)
+	}
 	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
 		return err
 	}
-	return runWrites(ctx, out, errOut, cfg, build, format, "updated", targets,
+	return runWrites(ctx, out, errOut, cfg, build, format, "updated", targets, updatedHint,
 		func(ctx context.Context, c backend.Client, t writeTarget) (string, error) {
 			if err := c.UpdateSilence(ctx, t.id, t.spec); err != nil {
 				return "", fmt.Errorf("update silence: %w", err)

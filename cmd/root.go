@@ -37,7 +37,18 @@ func newRootCmd(flags *GlobalFlags, runFn RootRunFn) *cobra.Command {
 		Long: `a10r is a modern, fast, intuitive TUI for Prometheus Alertmanager
 and Grafana Mimir, inspired by k9s.
 
-Run with no subcommand to launch the TUI.`,
+Run with no subcommand to launch the TUI. With a subcommand it runs
+headless, for scripts, CI, and AI agents.
+
+Output: headless commands print human-readable output on a terminal and
+JSON when piped. a10r auto-selects JSON when it detects an AI coding
+agent (CLAUDECODE, CURSOR_TRACE_ID, CODEX_SANDBOX, AI_AGENT, ...) so an
+agent gets parseable results and {error,code} failures with no extra
+flags. Override per command with --output=table|json|yaml, or set a
+session default with the A10R_OUTPUT environment variable.
+
+Reference: https://github.com/wilfriedroset/a10r/tree/main/docs/end-users
+(output-formats, exit-codes, configuration).`,
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -74,7 +85,7 @@ Run with no subcommand to launch the TUI.`,
 	f.BoolVar(&flags.Debug, "debug", false,
 		"set log level to debug")
 	f.BoolVar(&flags.Quiet, "quiet", false,
-		"set log level to warn (silences info)")
+		"lower log verbosity to warnings; does not suppress command output (use --output for that)")
 	f.BoolVar(&flags.DebugHTTP, "debug-http", false,
 		"log every HTTP request/response with redacted credentials (implies --debug)")
 	f.BoolVar(&flags.NoPager, "no-pager", false,

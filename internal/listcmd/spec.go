@@ -53,6 +53,10 @@ type Spec[R any] struct {
 	// Format is the pre-parsed --output value; empty resolves per TTY-vs-pipe.
 	Format output.Format
 
+	// Getenv reads A10R_OUTPUT and the agent-detection markers during
+	// format resolution (ADR 0045); nil is treated as an empty environment.
+	Getenv func(string) string
+
 	Fetcher Fetcher[R]
 
 	// Renderers maps each supported format to its writer; an unmatched format

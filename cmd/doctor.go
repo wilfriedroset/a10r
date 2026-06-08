@@ -53,7 +53,8 @@ the result from CI/CD scripts.`,
 			})
 		},
 	}
-	cmd.Flags().StringVarP(&outputFmt, "output", "o", "", "output format: table, json, yaml")
+	cmd.Flags().StringVarP(&outputFmt, "output", "o", "",
+		"output format: table, json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
 	cmd.Flags().StringSliceVar(&only, "only", nil,
 		"run only the named checks (comma-separated; default: full battery)")
 	return cmd
@@ -99,7 +100,9 @@ func runDoctor(ctx context.Context, out io.Writer, flags *GlobalFlags, opts doct
 	results = append(buildFailures, results...)
 
 	tty := isStdoutTerminal(out)
-	resolved := output.Resolve(format, tty)
+	resolved := output.ResolveAgentAware(format, os.Getenv, tty,
+		[]output.Format{output.FormatTable, output.FormatJSON, output.FormatYAML},
+		output.FormatTable, output.FormatJSON)
 	pager, err := NewPager(ctx, out, tty && resolved == output.FormatTable, flags.NoPager)
 	if err != nil {
 		return err
@@ -160,13 +163,17 @@ func doctorExitFromResults(backends []config.Backend, results []doctor.Result) e
 	// unreachable if EVERY backend's failure was reachability-only;
 	// otherwise generic ExitRuntimeError so the operator inspects
 	// the table.
+	// The doctor report (table/json/yaml) is already on stdout by the time
+	// these fire, so the exit errors are Emitted: the structured detail is
+	// the report itself, and the top-level renderer must not add a
+	// duplicating {error,code} envelope (ADR 0045).
 	switch {
 	case len(authFailed) == len(backends) && len(unreachable) == 0:
-		return NewExitError(ExitAuthFailed, errDoctorAllAuthFailed)
+		return newEmittedError(ExitAuthFailed, errDoctorAllAuthFailed)
 	case len(unreachable) == len(backends) && len(authFailed) == 0:
-		return NewExitError(ExitUnreachable, errDoctorAllUnreachable)
+		return newEmittedError(ExitUnreachable, errDoctorAllUnreachable)
 	default:
-		return NewExitError(ExitRuntimeError, errDoctorChecksFailed)
+		return newEmittedError(ExitRuntimeError, errDoctorChecksFailed)
 	}
 }
 

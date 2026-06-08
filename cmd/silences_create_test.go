@@ -14,6 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/backendtest"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 var testNow = time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
@@ -97,9 +98,11 @@ func TestSilenceCreate_MatcherSingleTenant(t *testing.T) {
 			Matchers: []string{`severity="critical"`},
 			Ends:     "2h",
 			Comment:  "maint",
-		}, "alice")
+		}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tnew-1\n", out.String())
+	require.Equal(t, "expire with: a10r silences expire new-1\n", errOut.String(),
+		"create emits the undo hint on stderr")
 	require.NotNil(t, client.created)
 	require.Equal(t, "alice", client.created.CreatedBy)
 	require.Equal(t, "maint", client.created.Comment)
@@ -116,7 +119,7 @@ func TestSilenceCreate_MatcherMultiTenantNeedsExplicitTenant(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Matchers: []string{`severity="critical"`}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Matchers: []string{`severity="critical"`}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "--tenant")
 }
@@ -136,7 +139,7 @@ func TestSilenceCreate_MatcherFanOutWhenTenantExplicit(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`severity="critical"`}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Matchers: []string{`severity="critical"`}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tp1\nstaging\ts1\n", out.String())
 }
@@ -156,7 +159,7 @@ func TestSilenceCreate_AlertDerivesMatchersFromLabels(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.NoError(t, err)
 	require.NotNil(t, client.created)
 	// __name__ dropped, sorted: alertname, instance
@@ -174,7 +177,7 @@ func TestSilenceCreate_AlertNotFoundExits5(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Alerts: []string{"ghost"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Alerts: []string{"ghost"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -196,7 +199,7 @@ func TestSilenceCreate_AlertPartialMissAbortsNothingWritten(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Alerts: []string{"fp1", "fp2"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Alerts: []string{"fp1", "fp2"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -215,7 +218,7 @@ func TestSilenceCreate_AlertMissWhileBackendUnreachableIsUnreachable(t *testing.
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -241,7 +244,7 @@ func TestSilenceCreate_AlertMirroredAcrossTenants(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, false,
-		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tp1\nstaging\ts1\n", out.String())
 	require.NotNil(t, prod.created)
@@ -260,7 +263,7 @@ func TestSilenceCreate_GlobalReadOnlyFailsFast(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, true, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read-only")
 	require.Nil(t, client.created, "no silence written under global read-only")
@@ -281,7 +284,7 @@ func TestSilenceCreate_ReadOnlyTargetFailsClosed(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "staging")
 	require.Nil(t, prod.created, "fail-closed: NO silence written anywhere when one target is read-only")
@@ -296,7 +299,7 @@ func TestSilenceCreate_RequiresComment(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h"}, "alice")
+		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h"}, "alice", "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "comment")
 }
@@ -309,7 +312,7 @@ func TestSilenceCreate_MatcherAndAlertMutuallyExclusive(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`a="b"`}, Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice")
+		silenceCreateOptions{Matchers: []string{`a="b"`}, Alerts: []string{"fp1"}, Ends: "2h", Comment: "m"}, "alice", "")
 	require.Error(t, err)
 }
 
@@ -322,7 +325,7 @@ func TestSilenceCreate_WriteFailureReportedNonZero(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m", Output: "json"}, "alice")
+		silenceCreateOptions{Matchers: []string{`a="b"`}, Ends: "2h", Comment: "m"}, "alice", output.FormatJSON)
 	require.Error(t, err)
 
 	var got []writeResult

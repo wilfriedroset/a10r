@@ -40,32 +40,3 @@ func TestParseFormat(t *testing.T) {
 		})
 	}
 }
-
-func TestResolve(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name      string
-		format    Format
-		ttyStdout bool
-		want      Format
-	}{
-		{name: "explicit table on tty", format: FormatTable, ttyStdout: true, want: FormatTable},
-		{name: "explicit json on tty", format: FormatJSON, ttyStdout: true, want: FormatJSON},
-		{name: "explicit yaml on pipe", format: FormatYAML, ttyStdout: false, want: FormatYAML},
-		{name: "empty + tty defaults to table", format: "", ttyStdout: true, want: FormatTable},
-		{name: "empty + pipe defaults to json", format: "", ttyStdout: false, want: FormatJSON},
-		// Garbage passthrough is the documented contract: Resolve
-		// trusts that the value came out of ParseFormat. The test
-		// pins this so a future "defensive defaulting" refactor
-		// would have to revisit the contract intentionally.
-		{name: "garbage passes through unchanged", format: "csv", ttyStdout: true, want: "csv"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, Resolve(tc.format, tc.ttyStdout))
-		})
-	}
-}

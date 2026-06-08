@@ -36,7 +36,13 @@ func Run[R any](ctx context.Context, spec Spec[R]) error {
 	deps := spec.Deps.resolved()
 
 	tty := isTerminal(spec.Out)
-	resolved := output.Resolve(spec.Format, tty)
+	// The renderable formats are exactly the A10R_OUTPUT-acceptable set, so
+	// an env default that this command cannot render falls through.
+	allowed := make([]output.Format, 0, len(spec.Renderers))
+	for f := range spec.Renderers {
+		allowed = append(allowed, f)
+	}
+	resolved := output.ResolveAgentAware(spec.Format, spec.Getenv, tty, allowed, output.FormatTable, output.FormatJSON)
 	renderer, ok := spec.Renderers[resolved]
 	if !ok {
 		return fmt.Errorf("listcmd: no renderer for format %q", resolved)

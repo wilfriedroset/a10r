@@ -74,6 +74,17 @@ a10r silences recreate  <id> --ends <when> [--comment <text>] [--created-by <who
   now, author to you). `--ends` is required — recreate never reuses
   the source's window. To change the matchers, use `create`.
 
+Every write verb accepts **`--dry-run`**: a10r resolves the full plan
+(matchers, the merged patch, whether each id exists) and prints what it
+*would* write without writing anything — the safe preview-then-apply
+loop. A clean dry-run exits `0` and guarantees the real run lands; a
+target that could not land exits non-zero just as the real run would.
+See [output-formats.md](output-formats.md#dry-run-plans).
+
+After a successful write a10r also prints the reverse command (the
+`expire` that undoes a `create`, etc.) to stderr — see
+[output-formats.md](output-formats.md#next-step-hints).
+
 ### Targeting and the fail-closed rule
 
 `--alert` and the silence id verbs derive their target tenants: the
@@ -94,3 +105,13 @@ See [output-formats.md](output-formats.md) for the `--output` contract
 (table/json/yaml for reads, `tenant<TAB>id` lines for writes) and
 [exit-codes.md](exit-codes.md) for the exit-code table CI wrappers
 branch on.
+
+## Agent mode
+
+When a10r detects it is running under an AI coding agent (from the
+environment markers agents set), it defaults every command to `json`
+output and renders failures as a structured `{error, code}` envelope —
+so an agent gets parseable output and errors with no per-call flags.
+Set `A10R_OUTPUT=json` to opt a non-detected harness into the same
+behavior; an explicit `--output` always overrides. See
+[output-formats.md](output-formats.md#agent-mode).

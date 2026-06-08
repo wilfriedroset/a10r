@@ -28,6 +28,27 @@ If your CI pipeline needs to fail on partial degradation as well,
 parse the JSON output of `a10r doctor --output=json` and branch on
 the per-backend severity rows directly.
 
+## Structured error envelope
+
+When a command fails before producing a result and a structured format
+is in effect (`--output=json|yaml`, `A10R_OUTPUT`, or a detected agent),
+the error is also written to stderr as `{"error": "...", "code": N}`
+where `code` equals the exit code above — so a wrapper can parse the
+reason without the exit code and the message ever disagreeing. stdout
+stays empty on such a failure. Under a human format the failure is a
+plain stderr message; either way the exit code is the contract. See
+[output-formats.md](output-formats.md#errors).
+
+## Dry-run
+
+`--dry-run` exits with the code the real run's pre-mutation phase would
+produce: `0` when every target is cleanly writable, and the same
+non-zero code the real run would give when a target cannot land — a
+not-found or already-expired id, or an all-unreachable scope. (Writes
+are not lenient, so a reported skip is non-zero, unlike the read
+fan-out's partial rule above.) A clean dry-run is therefore a reliable
+pre-commit gate.
+
 ## Stability
 
 The numeric values are a stable contract from v0.1.0 onward. Future

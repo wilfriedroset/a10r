@@ -19,6 +19,7 @@ func TestResolveWriteFormat(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     string
+		env     map[string]string
 		want    output.Format
 		wantErr bool
 	}{
@@ -27,11 +28,23 @@ func TestResolveWriteFormat(t *testing.T) {
 		{name: "yaml explicit", raw: "yaml", want: output.FormatYAML},
 		{name: "table rejected", raw: "table", wantErr: true},
 		{name: "garbage rejected", raw: "csv", wantErr: true},
+		{
+			name: "agent defaults to json instead of lines", raw: "",
+			env: map[string]string{"CURSOR_TRACE_ID": "x"}, want: output.FormatJSON,
+		},
+		{
+			name: "A10R_OUTPUT yaml beats the lines default", raw: "",
+			env: map[string]string{output.EnvOutput: "yaml"}, want: output.FormatYAML,
+		},
+		{
+			name: "A10R_OUTPUT table is invalid for writes, stays lines", raw: "",
+			env: map[string]string{output.EnvOutput: "table"}, want: "",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := resolveWriteFormat(tc.raw)
+			got, err := resolveWriteFormat(tc.raw, func(k string) string { return tc.env[k] })
 			if tc.wantErr {
 				require.Error(t, err)
 				return

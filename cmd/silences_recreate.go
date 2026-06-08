@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
+	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 // silenceRecreateOptions bundles the recreate flags.
@@ -24,6 +25,7 @@ type silenceRecreateOptions struct {
 	Comment   string
 	CreatedBy string
 	Output    string
+	DryRun    bool
 }
 
 // newSilencesRecreateCmd is the headless complement to the TUI silence
@@ -43,7 +45,9 @@ func newSilencesRecreateCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recreate <id>",
 		Short: "Create a new silence from an existing one (matchers and comment copied, window restated)",
-		Args:  exactlyOneArg("a silence id"),
+		Example: `  # Recreate an expired silence with a fresh 2h window
+  a10r silences recreate a1b2c3d4 --ends 2h`,
+		Args: exactlyOneArg("a silence id"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSilenceRecreate(cmd.Context(), cmd.OutOrStdout(), flags, args[0], opts)
 		},
@@ -54,7 +58,9 @@ func newSilencesRecreateCmd(flags *GlobalFlags) *cobra.Command {
 	f.StringVar(&opts.Comment, "comment", "", "override the copied comment")
 	f.StringVar(&opts.CreatedBy, "created-by", "", "silence author (default: $USER, else a10r)")
 	f.StringVarP(&opts.Output, "output", "o", "",
-		"output format: default tab-separated tenant<TAB>id, or json, yaml")
+		"output format: default tab-separated tenant<TAB>id, or json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
+	f.BoolVar(&opts.DryRun, "dry-run", false,
+		"resolve and print what would be written, without making any change")
 	return cmd
 }
 
@@ -70,7 +76,11 @@ func runSilenceRecreate(ctx context.Context, out io.Writer, flags *GlobalFlags, 
 	defer func() { _ = closer.Close() }()
 
 	creator := resolveCreator(opts.CreatedBy, os.Getenv("USER"))
-	return silenceRecreate(ctx, out, os.Stderr, cfg, globalReadOnly, build, time.Now(), id, opts, creator)
+	format, err := resolveWriteFormat(opts.Output, os.Getenv)
+	if err != nil {
+		return err
+	}
+	return silenceRecreate(ctx, out, os.Stderr, cfg, globalReadOnly, build, time.Now(), id, opts, creator, format)
 }
 
 // silenceRecreate resolves the source id, derives a fresh spec per found
@@ -86,11 +96,8 @@ func silenceRecreate(
 	id string,
 	opts silenceRecreateOptions,
 	creator string,
+	format output.Format,
 ) error {
-	format, err := resolveWriteFormat(opts.Output)
-	if err != nil {
-		return err
-	}
 	if strings.TrimSpace(opts.Ends) == "" {
 		return errors.New("--ends is required: recreate never reuses the source's window (e.g. --ends 2h)")
 	}
@@ -122,10 +129,13 @@ func silenceRecreate(
 		}})
 	}
 
+	if opts.DryRun {
+		return runDryRun(out, errOut, cfg, format, "recreate", targets, globalReadOnly)
+	}
 	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
 		return err
 	}
-	return runWrites(ctx, out, errOut, cfg, build, format, "recreated", targets,
+	return runWrites(ctx, out, errOut, cfg, build, format, "recreated", targets, createdHint,
 		func(ctx context.Context, c backend.Client, t writeTarget) (string, error) {
 			return c.CreateSilence(ctx, t.spec)
 		})

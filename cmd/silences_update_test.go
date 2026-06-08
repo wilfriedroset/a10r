@@ -64,7 +64,7 @@ func TestSilenceUpdate_PatchEndsKeepsRest(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Ends: "4h"})
+		silenceUpdateOptions{Ends: "4h"}, "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tsil-1\n", out.String())
 	require.NotNil(t, client.updated)
@@ -91,9 +91,11 @@ func TestSilenceUpdate_MirroredAcrossTenants(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Ends: "4h"})
+		silenceUpdateOptions{Ends: "4h"}, "")
 	require.NoError(t, err)
 	require.Equal(t, "prod\tsil-1\nstaging\tsil-1\n", out.String())
+	require.Equal(t, "verify with: a10r silences get sil-1\n", errOut.String(),
+		"update emits a single get verify hint even when mirrored across tenants")
 	require.NotNil(t, prod.updated)
 	require.NotNil(t, staging.updated)
 }
@@ -110,7 +112,7 @@ func TestSilenceUpdate_MergeValidationAborts(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Starts: testNow.Add(5 * time.Hour).Format(time.RFC3339)})
+		silenceUpdateOptions{Starts: testNow.Add(5 * time.Hour).Format(time.RFC3339)}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "ends must be after starts")
 	require.Nil(t, client.updated, "an invalid merge writes nothing")
@@ -125,7 +127,7 @@ func TestSilenceUpdate_ReplaceMatchers(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Matchers: []string{`team="db"`, `env="prod"`}})
+		silenceUpdateOptions{Matchers: []string{`team="db"`, `env="prod"`}}, "")
 	require.NoError(t, err)
 	require.NotNil(t, client.updated)
 	require.Len(t, client.updated.Matchers, 2, "matcher flags replace the whole set")
@@ -141,7 +143,7 @@ func TestSilenceUpdate_NoFlagsErrors(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{})
+		silenceUpdateOptions{}, "")
 	require.Error(t, err)
 	require.Nil(t, client.updated)
 }
@@ -155,7 +157,7 @@ func TestSilenceUpdate_NotFoundExits5(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "ghost",
-		silenceUpdateOptions{Comment: "x"})
+		silenceUpdateOptions{Comment: "x"}, "")
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -173,7 +175,7 @@ func TestSilenceUpdate_ExpiredPointsToRecreate(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Ends: "4h"})
+		silenceUpdateOptions{Ends: "4h"}, "")
 	require.Error(t, err)
 	require.Contains(t, errOut.String(), "recreate")
 	require.Nil(t, client.updated, "an expired silence is not updated in place")
@@ -188,7 +190,7 @@ func TestSilenceUpdate_ReadOnlyTargetFailsClosed(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, false, build, testNow, "sil-1",
-		silenceUpdateOptions{Ends: "4h"})
+		silenceUpdateOptions{Ends: "4h"}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prod")
 	require.Nil(t, client.updated)
@@ -203,7 +205,7 @@ func TestSilenceUpdate_GlobalReadOnlyFailsFast(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := silenceUpdate(context.Background(), &out, &errOut, cfg, true, build, testNow, "sil-1",
-		silenceUpdateOptions{Ends: "4h"})
+		silenceUpdateOptions{Ends: "4h"}, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read-only")
 	require.Nil(t, client.updated)

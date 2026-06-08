@@ -2,6 +2,8 @@
 
 package cmd
 
+import "errors"
+
 // Exit codes returned by the a10r CLI. Stable contract per ADR 0009 and
 // docs/end-users/exit-codes.md; CI wrappers branch on these. Append new
 // codes, never insert between existing values — wrapper scripts are
@@ -36,9 +38,15 @@ const (
 // ExitError wraps an error with an exit code for main() to translate via
 // errors.As. Plain errors fall through to ExitRuntimeError. Keeps RunE local
 // (no threaded exit-code param) while main owns the os.Exit call.
+//
+// Emitted marks a failure already shown to the user in their chosen format
+// (a write-result array on stdout, or per-target error lines), so the
+// top-level error renderer must not re-report it as a {error,code} envelope
+// (ADR 0045) — the structured detail is already in the emitted output.
 type ExitError struct {
-	Code int
-	Err  error
+	Code    int
+	Err     error
+	Emitted bool
 }
 
 func (e *ExitError) Error() string {
@@ -64,4 +72,24 @@ func NewExitError(code int, err error) error {
 		return nil
 	}
 	return &ExitError{Code: code, Err: err}
+}
+
+// newEmittedError is NewExitError for a failure whose detail has already
+// been written to the user (see ExitError.Emitted), so the top-level
+// renderer skips the envelope.
+func newEmittedError(code int, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &ExitError{Code: code, Err: err, Emitted: true}
+}
+
+// exitCodeFor extracts the declared exit code from err, defaulting to
+// ExitRuntimeError for a plain (untyped) error.
+func exitCodeFor(err error) int {
+	var ee *ExitError
+	if errors.As(err, &ee) {
+		return ee.Code
+	}
+	return ExitRuntimeError
 }

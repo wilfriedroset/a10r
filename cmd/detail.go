@@ -24,13 +24,12 @@ var errTableUnsupported = errors.New(
 // is rejected, and an unknown value names just the formats this verb
 // takes rather than the list commands' wider set. Matching is exact (no
 // case-folding), as in the list commands, so the flag behaves uniformly.
-func resolveDetailFormat(raw string, tty bool) (output.Format, error) {
+func resolveDetailFormat(raw string, getenv func(string) string, tty bool) (output.Format, error) {
 	switch raw {
 	case "":
-		if tty {
-			return output.FormatYAML, nil
-		}
-		return output.FormatJSON, nil
+		return output.ResolveAgentAware("", getenv, tty,
+			[]output.Format{output.FormatJSON, output.FormatYAML},
+			output.FormatYAML, output.FormatJSON), nil
 	case string(output.FormatJSON):
 		return output.FormatJSON, nil
 	case string(output.FormatYAML):

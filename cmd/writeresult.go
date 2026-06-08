@@ -26,21 +26,26 @@ const (
 	writeStatusError   = "error"
 	writeStatusCreated = "created"
 
+	// writeStatusPlanned marks a dry-run target the real run would write
+	// cleanly (ADR 0046). It is a non-error status, so writeExitError
+	// counts it as a success and a fully writable plan exits zero.
+	writeStatusPlanned = "planned"
+
 	// defaultCreator is the silence author used when neither --created-by
 	// nor $USER is set, matching the TUI silence form's fallback.
 	defaultCreator = "a10r"
 )
 
-// resolveWriteFormat picks the rendering mode for a write verb's
-// result. The zero Format (empty) is the default lines mode:
-// tenant<TAB>id per success on stdout, narration on stderr — usable in
-// a pipe (`... | xargs`) without a flag. Explicit json/yaml emit the
-// full structured result array instead. Table is rejected: a write
-// result is a stream of records, not a grid to page.
-func resolveWriteFormat(raw string) (output.Format, error) {
+// resolveWriteFormat picks the rendering mode for a write verb's result.
+// With no --output flag the default is lines mode (tenant<TAB>id on
+// stdout, narration on stderr — pipe-friendly), unless A10R_OUTPUT or an
+// AI agent selects the structured json array instead (ADR 0045). Table
+// is rejected: a write result is a stream of records, not a grid to page.
+func resolveWriteFormat(raw string, getenv func(string) string) (output.Format, error) {
 	switch raw {
 	case "":
-		return "", nil
+		return output.ResolveAgentAware("", getenv, false,
+			[]output.Format{output.FormatJSON, output.FormatYAML}, "", ""), nil
 	case string(output.FormatJSON):
 		return output.FormatJSON, nil
 	case string(output.FormatYAML):
@@ -100,18 +105,23 @@ func writeExitError(results []writeResult, opErrs []error) error {
 		return nil
 	}
 	msg := fmt.Errorf("%d of %d silence write(s) failed", failed, len(results))
+	// The per-target outcomes were just emitted (a structured array on
+	// stdout, or error lines on stderr), so these exit errors are marked
+	// Emitted: the top-level renderer must not re-report them as an
+	// envelope — the detail is already in the output (ADR 0045).
+	//
 	// runWrites keeps opErrs index-parallel to results; the length guard
 	// only matters for the direct emitWriteResults test callers that pass
 	// a nil opErrs, which then fall through to ExitRuntimeError.
 	if failed == len(results) && len(opErrs) == len(results) {
 		if allFailuresAre(opErrs, backend.ErrUnreachable) {
-			return NewExitError(ExitUnreachable, msg)
+			return newEmittedError(ExitUnreachable, msg)
 		}
 		if allFailuresAre(opErrs, backend.ErrUnauthorized) {
-			return NewExitError(ExitAuthFailed, msg)
+			return newEmittedError(ExitAuthFailed, msg)
 		}
 	}
-	return NewExitError(ExitRuntimeError, msg)
+	return newEmittedError(ExitRuntimeError, msg)
 }
 
 // allFailuresAre reports whether every entry is a non-nil error matching

@@ -39,7 +39,8 @@ func newListCmd(short, failHelp string, common *commonListFlags) *cobra.Command 
 		Short: short,
 		Args:  cobra.NoArgs,
 	}
-	cmd.Flags().StringVarP(&common.Output, "output", "o", "", "output format: table, json, yaml")
+	cmd.Flags().StringVarP(&common.Output, "output", "o", "",
+		"output format: table, json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
 	cmd.Flags().BoolVar(&common.FailOnAny, "fail", false, failHelp)
 	return cmd
 }
@@ -66,6 +67,7 @@ func runList[R any](ctx context.Context, out io.Writer, flags *GlobalFlags, rawF
 
 	spec.Config = cfg
 	spec.Format = format
+	spec.Getenv = os.Getenv
 	spec.NoPager = flags.NoPager
 	spec.Out = out
 	spec.Deps = listcmd.Deps{BuildClient: build, PagerFactory: newPagerWriteCloser, Stderr: os.Stderr}

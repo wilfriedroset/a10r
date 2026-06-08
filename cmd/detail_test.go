@@ -18,6 +18,7 @@ func TestResolveDetailFormat(t *testing.T) {
 	cases := []struct {
 		name    string
 		raw     string
+		env     map[string]string
 		tty     bool
 		want    output.Format
 		wantErr bool
@@ -28,12 +29,20 @@ func TestResolveDetailFormat(t *testing.T) {
 		{name: "explicit yaml passthrough", raw: "yaml", tty: false, want: output.FormatYAML},
 		{name: "explicit table is rejected", raw: "table", tty: false, wantErr: true},
 		{name: "unknown format errors", raw: "xml", tty: true, wantErr: true},
+		{
+			name: "agent on tty defaults to json", raw: "",
+			env: map[string]string{"CLAUDECODE": "1"}, tty: true, want: output.FormatJSON,
+		},
+		{
+			name: "A10R_OUTPUT overrides the tty default", raw: "",
+			env: map[string]string{output.EnvOutput: "json"}, tty: true, want: output.FormatJSON,
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := resolveDetailFormat(tc.raw, tc.tty)
+			got, err := resolveDetailFormat(tc.raw, func(k string) string { return tc.env[k] }, tc.tty)
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -43,12 +52,13 @@ func TestResolveDetailFormat(t *testing.T) {
 		})
 	}
 
+	noEnv := func(string) string { return "" }
 	// The unknown-format error names only the formats this verb takes,
 	// not the list commands' wider set (which includes table).
-	_, err := resolveDetailFormat("xml", true)
+	_, err := resolveDetailFormat("xml", noEnv, true)
 	require.ErrorContains(t, err, "want json or yaml")
 	// Matching is exact, like the list commands — uppercase is unknown.
-	_, err = resolveDetailFormat("JSON", true)
+	_, err = resolveDetailFormat("JSON", noEnv, true)
 	require.Error(t, err)
 }
 

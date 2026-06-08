@@ -55,13 +55,15 @@ func newSilencesGetCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: "Show full detail for one silence by id",
-		Args:  exactlyOneArg("a silence id"),
+		Example: `  # Full detail for one silence (id from 'silences list')
+  a10r silences get a1b2c3d4`,
+		Args: exactlyOneArg("a silence id"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSilenceGet(cmd.Context(), cmd.OutOrStdout(), flags, args[0], outputFormat)
 		},
 	}
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "",
-		"output format: json, yaml (default: yaml on a terminal, json in a pipe)")
+		"output format: json, yaml (default: yaml on a terminal, json in a pipe); auto-JSON under an AI agent or A10R_OUTPUT")
 	return cmd
 }
 
@@ -69,7 +71,7 @@ func newSilencesGetCmd(flags *GlobalFlags) *cobra.Command {
 // real client factory, then delegate to silenceGet. The split keeps
 // silenceGet unit-testable with an injected fake factory.
 func runSilenceGet(ctx context.Context, out io.Writer, flags *GlobalFlags, id, rawFormat string) error {
-	format, err := resolveDetailFormat(rawFormat, isStdoutTerminal(out))
+	format, err := resolveDetailFormat(rawFormat, os.Getenv, isStdoutTerminal(out))
 	if err != nil {
 		return err
 	}
@@ -131,6 +133,11 @@ func newSilencesListCmd(flags *GlobalFlags) *cobra.Command {
 	)
 	cmd := newListCmd("List silences across configured backends",
 		"exit with code 10 when at least one silence matches the filters", &common)
+	cmd.Example = `  # Active silences across all tenants
+  a10r silences list --state active
+
+  # Silences matching a label, as JSON
+  a10r silences list --matcher 'service="api"' -o json`
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runSilencesList(cmd.Context(), cmd.OutOrStdout(), flags, silencesListOptions{
 			commonListFlags: common,

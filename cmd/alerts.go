@@ -51,13 +51,15 @@ func newAlertsGetCmd(flags *GlobalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <fingerprint>",
 		Short: "Show full detail for one alert instance by fingerprint",
-		Args:  exactlyOneArg("an alert fingerprint"),
+		Example: `  # Full detail for one alert instance (fingerprint from 'alerts list')
+  a10r alerts get 1a2b3c4d5e6f7890`,
+		Args: exactlyOneArg("an alert fingerprint"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAlertGet(cmd.Context(), cmd.OutOrStdout(), flags, args[0], outputFormat)
 		},
 	}
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "",
-		"output format: json, yaml (default: yaml on a terminal, json in a pipe)")
+		"output format: json, yaml (default: yaml on a terminal, json in a pipe); auto-JSON under an AI agent or A10R_OUTPUT")
 	return cmd
 }
 
@@ -78,6 +80,14 @@ func newAlertsListCmd(flags *GlobalFlags) *cobra.Command {
 	)
 	cmd := newListCmd("List alerts across configured backends",
 		"exit with code 10 when at least one alert matches the filters", &common)
+	cmd.Example = `  # Critical alerts (table on a terminal, JSON when piped)
+  a10r alerts list --severity critical
+
+  # CI gate: exit 10 if any critical alert is firing
+  a10r alerts list --severity critical --fail
+
+  # Pipe fingerprints to another command
+  a10r alerts list -o json | jq -r '.[].fingerprint'`
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runAlertsList(cmd.Context(), cmd.OutOrStdout(), flags, alertsListOptions{
 			commonListFlags: common,
@@ -288,7 +298,7 @@ func toAlertDetail(tenant string, a backend.Alert) alertDetail {
 // alertGet free of config/factory wiring so it is unit-testable with an
 // injected fake factory.
 func runAlertGet(ctx context.Context, out io.Writer, flags *GlobalFlags, fingerprint, rawFormat string) error {
-	format, err := resolveDetailFormat(rawFormat, isStdoutTerminal(out))
+	format, err := resolveDetailFormat(rawFormat, os.Getenv, isStdoutTerminal(out))
 	if err != nil {
 		return err
 	}
