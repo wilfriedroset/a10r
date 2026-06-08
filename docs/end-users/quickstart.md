@@ -32,6 +32,11 @@ If no config exists, the first run prompts you through a wizard
 that captures the URL, optional Mimir prefix, optional tenant
 header, and auth type, then writes the resolved YAML.
 
+The `url:` is an Alertmanager — vanilla or Mimir. Not Prometheus,
+a Loki ruler, or vmalert: those notify an Alertmanager rather than
+serving its API. See [topology.md](topology.md) if you are unsure
+which address to use.
+
 ## Launch
 
 ```sh

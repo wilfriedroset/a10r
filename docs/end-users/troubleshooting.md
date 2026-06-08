@@ -25,6 +25,11 @@ Common causes:
   verification for that backend; only set it knowingly, it defeats
   TLS authentication.
 - Network policy / firewall blocks egress.
+- The backend is not an Alertmanager. Prometheus, a Loki ruler,
+  and vmalert evaluate rules and *notify* an Alertmanager — they
+  do not serve the v2 API a10r reads, so `/api/v2/status` 404s.
+  Point a10r at the Alertmanager they notify. See
+  [topology.md](topology.md).
 
 ## `:` command bar says "ambiguous: foo, foam"
 

@@ -20,6 +20,11 @@ For options 2-4 the file inside the resolved directory is
 
 ## Schema
 
+A backend is an Alertmanager v2 endpoint — vanilla Alertmanager or
+Mimir. If you mean to point a10r at Prometheus, a Loki ruler, or
+vmalert, see [topology.md](topology.md): those evaluate rules and
+notify an Alertmanager, they do not serve the API a10r reads.
+
 The `backends:` block uses the same shape as Prometheus's
 [`remote_write`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#remote_write) —
 copy a `remote_write` entry out of `prometheus.yml`, change the

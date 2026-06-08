@@ -261,6 +261,7 @@ Environment variables in any string field are expanded via
 - [`docs/end-users/exit-codes.md`](docs/end-users/exit-codes.md) — the exit-code table CI/agent wrappers branch on.
 - [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
+- [`docs/end-users/topology.md`](docs/end-users/topology.md) — which backends a10r supports, and why you point it at an Alertmanager rather than Prometheus / Loki / vmalert.
 - [`docs/end-users/troubleshooting.md`](docs/end-users/troubleshooting.md) — common problems, diagnostic flags.
 - [`CONTEXT.md`](CONTEXT.md) — the domain glossary: alerts, silences, tenants, the vocabulary the code speaks.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — package layout and the birth-of-a-page / birth-of-a-backend-call walkthroughs.
