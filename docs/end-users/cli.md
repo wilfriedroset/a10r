@@ -8,6 +8,10 @@ The read verbs (`list`, `get`) and the silence write verbs
 (`create`, `update`, `expire`, `recreate`) give the CLI the same
 alert-triage and silence-lifecycle reach as the TUI.
 
+Driving a10r from an AI coding agent? [`internal/skill/SKILL.md`](../../internal/skill/SKILL.md)
+is a ready-made agent skill — copy it into your agent's skills directory and it
+teaches the agent the output contract, exit codes, and silence-safety workflow.
+
 ## Scope: `--tenant`
 
 `--tenant` selects which configured backends a headless command acts
