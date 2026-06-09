@@ -46,11 +46,12 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
 	r.RegisterGroup([]string{"tenant", "tenants"}, tenantFactory)
-	// `:q` mirrors the `q` / Ctrl+C bindings — emits the quit-
-	// precursor so the App can Close() every page on the stack
-	// (cancelling in-flight bulk fanouts, silence-form writes,
-	// editor updates, status fetches) before bubbletea stops.
-	r.Register("q", func(_ []string) tea.Cmd {
+	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
+	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can
+	// Close() every page on the stack (cancelling in-flight bulk
+	// fanouts, silence-form writes, editor updates, status fetches)
+	// before bubbletea stops.
+	r.RegisterGroup([]string{"q", "quit"}, func(_ []string) tea.Cmd {
 		return func() tea.Msg { return app.QuitRequestedMsg{} }
 	})
 	return r

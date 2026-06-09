@@ -245,7 +245,7 @@ deploy2: alerts list --state suppressed # equivalent — `list` is a no-op posit
 ```
 
 A user short that collides with a built-in (`:alerts`, `:silences`,
-`:sil`, `:tenant`, `:q`, …) is fail-closed: a10r refuses to start
+`:sil`, `:tenant`, `:q`, `:quit`, …) is fail-closed: a10r refuses to start
 and lists every offending name so you can fix them in one edit. An
 expansion that doesn't resolve to a known built-in fails the same
 way.
