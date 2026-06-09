@@ -66,8 +66,7 @@ The two screens you live in: the alerts list and the silence form.
 - **Status pane** showing cluster state, version info, and the
   raw `config.original` YAML with `c`/`v`/`p` anchor jumps.
 - **Receivers** with Enter-to-drill into alerts filtered by
-  receiver. **Alert groups** as a two-level tree with Tab to
-  expand-all and `s` to silence-by-common-labels.
+  receiver.
 - **Tenant scope** for multi-backend setups: `0`/`1`-`9` switch
   scope globally, while the tenant picker modal (`Ctrl+T`) offers
   Space to toggle a tenant and `a` to select all.
@@ -214,7 +213,6 @@ backend list with capability flags.
 | `s` | Silence (alerts page; Dangerous, hidden in read-only) |
 | `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all (alerts page) |
 | `t` | Toggle timestamps between relative (`5m ago`) and absolute (ISO local) — app-wide |
-| `Tab` | Expand / collapse all (groups page) |
 | `Ctrl+T` | Tenant picker (multi-tenant deployments) |
 | `0` | Scope: every configured tenant |
 | `1` … `9` | Scope: nth tenant in `backends:` order |

@@ -133,28 +133,6 @@ func Silence(opts SilenceOptions) backend.Silence {
 	}
 }
 
-// GroupOptions is the option-struct shape behind Group. Labels
-// double as the common-label set the group renders by; Alerts is
-// the leaf list.
-type GroupOptions struct {
-	Labels map[string]string
-	Alerts []backend.Alert
-}
-
-// Group builds a synthetic backend.AlertGroup from opts. Empty
-// Labels falls back to a single-key map so the page's commonLabels
-// path has something non-empty to project.
-func Group(opts GroupOptions) backend.AlertGroup {
-	labels := opts.Labels
-	if len(labels) == 0 {
-		labels = map[string]string{"team": "default"}
-	}
-	return backend.AlertGroup{
-		Labels: labels,
-		Alerts: opts.Alerts,
-	}
-}
-
 // defaultNow is the deterministic clock baseline every fixture
 // builder falls back to when callers leave Now unset.
 var defaultNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)

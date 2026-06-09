@@ -5,7 +5,7 @@
 // an Enter on a row pushes the alerts page filtered by `receiver=…`.
 // In an all-tenant scope across a multi-backend fleet a leading
 // TENANT column tags which backend each receiver came from —
-// mirroring the alerts / silences / groups pages.
+// mirroring the alerts / silences pages.
 package receivers
 
 import (
@@ -71,7 +71,7 @@ func receiverSortColumns() []tablesort.Column[receiverEntry] {
 }
 
 // receiverEntry is a single receiver tagged with the backend it came
-// from. Mirrors alertEntry / silenceEntry / groupEntry: the page
+// from. Mirrors alertEntry / silenceEntry: the page
 // flattens byTenant into these so a receiver name shared across
 // tenants renders one row per tenant rather than a de-duplicated
 // union.
@@ -86,8 +86,8 @@ type receiverEntry struct {
 const receiverTenantW = 16
 
 // Options bundles the per-page constructor inputs. Mirrors the
-// shape of the alerts / silences / groups pages so the wiring
-// layer threads a uniform struct into every list page.
+// shape of the alerts / silences pages so the wiring layer threads
+// a uniform struct into every list page.
 type Options struct {
 	Styles *theme.Styles
 	// Tenants is the canonical list of configured backend names so
@@ -132,7 +132,7 @@ type Page struct {
 	// refresh. Both are needed because a receiver name is unique
 	// only within a tenant, so the cross-tenant view can hold two
 	// rows sharing a name. Mirrors focusFingerprint / focusID /
-	// focusKey on the alerts / silences / groups pages.
+	// focusKey on the alerts / silences pages.
 	focusName   string
 	focusTenant string
 }
@@ -222,7 +222,7 @@ func (p *Page) HeaderContent() string {
 
 // Footer implements app.Page. Receivers list surfaces only the
 // watch-mode marker — there is no per-tenant refresh countdown
-// to render (unlike alerts / silences / groups) so the bottom
+// to render (unlike alerts / silences) so the bottom
 // border stays empty in the normal case.
 func (p *Page) Footer() string {
 	if p.Paused {
@@ -464,8 +464,7 @@ func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool) string 
 // arrow. NAME is the sole sortable axis so it always carries the
 // active-column foreground and the ASC↔DESC arrow; a leading TENANT
 // column (display-only) is prepended when the all-tenant scope spans
-// a multi-backend fleet, mirroring the alerts / silences / groups
-// pages.
+// a multi-backend fleet, mirroring the alerts / silences pages.
 //
 // fg-only renders (HeaderFg / HeaderActiveFg) so the header keeps
 // the terminal default background — painted palette bg in the

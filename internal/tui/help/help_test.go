@@ -132,7 +132,7 @@ func TestHelp_CommandsColumnFoldsSynonyms(t *testing.T) {
 	opts := sampleOpts(t)
 	opts.Commands = []cmdbar.AliasGroup{
 		{Names: []string{"alerts"}},
-		{Names: []string{"groups", "gr"}},
+		{Names: []string{"receivers", "rec"}},
 		{Names: []string{"silences", "sil"}},
 		{Names: []string{"tenant", "tenants"}},
 	}
@@ -141,7 +141,7 @@ func TestHelp_CommandsColumnFoldsSynonyms(t *testing.T) {
 	for _, want := range []string{
 		"COMMANDS",
 		"alerts",
-		"groups, gr",
+		"receivers, rec",
 		"silences, sil",
 		"tenant, tenants",
 	} {

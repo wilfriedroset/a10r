@@ -170,7 +170,7 @@ type silencesListOptions struct {
 // the wire shape, breaking the "tenant / id / state / …" lowercase
 // convention every other JSON key in this command set already
 // follows. Wrapping in matcherRow keeps the public schema uniform
-// across silences vs alerts vs groups vs receivers.
+// across silences vs alerts vs receivers.
 type silenceRow struct {
 	Tenant    string               `json:"tenant" yaml:"tenant"`
 	ID        string               `json:"id" yaml:"id"`

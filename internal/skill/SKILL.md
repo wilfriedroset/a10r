@@ -1,13 +1,13 @@
 ---
 name: a10r
-description: "Manage Prometheus Alertmanager and Grafana Mimir from the terminal with the `a10r` CLI: inspect alerts, groups, and receivers; create, update, expire, and recreate silences; scope by tenant; run backend health checks. Use when the user wants to view firing alerts, silence noise, check receiver routing, or check that the configured Alertmanager/Mimir backends are reachable — even if a10r isn't named — and the `a10r` binary is on PATH."
+description: "Manage Prometheus Alertmanager and Grafana Mimir from the terminal with the `a10r` CLI: inspect alerts and receivers; create, update, expire, and recreate silences; scope by tenant; run backend health checks. Use when the user wants to view firing alerts, silence noise, check receiver routing, or check that the configured Alertmanager/Mimir backends are reachable — even if a10r isn't named — and the `a10r` binary is on PATH."
 ---
 
 # a10r
 
 `a10r` is a CLI/TUI for Prometheus Alertmanager and Grafana Mimir. Run with a
 subcommand it is headless — built for scripts, CI, and AI agents. Use it to
-inspect alerts, alert groups, and receivers, and to manage silences.
+inspect alerts and receivers, and to manage silences.
 
 ## Before you start
 
@@ -28,7 +28,7 @@ else about JSON output applies to the data and verb commands.
 ## Output contract — read this before parsing anything
 
 You do **not** need `--output=json`. For the data and verb commands (`alerts`,
-`silences`, `groups`, `receivers`, `doctor`) a10r detects coding agents from env
+`silences`, `receivers`, `doctor`) a10r detects coding agents from env
 markers (`CLAUDECODE`, `CURSOR_TRACE_ID`, `CODEX_SANDBOX`, `AI_AGENT`, …) and
 defaults to **JSON on stdout**, including the write verbs. So:
 
@@ -91,7 +91,7 @@ examples for each. The verbs that carry judgment:
 - `a10r silences update <id> …` — patch an active/pending silence in place.
 - `a10r silences recreate <id>` — new silence from an existing one, window restated.
 - `a10r silences list` / `silences get <id>` — inspect.
-- `a10r groups list`, `a10r receivers list` — alert grouping and receiver routing.
+- `a10r receivers list` — receiver routing.
 - `a10r doctor [--only reachability,auth]`, `a10r validate`, `a10r info`
   (`a10r doctor --help` lists every check name).
 

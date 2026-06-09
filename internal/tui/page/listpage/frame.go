@@ -20,8 +20,8 @@ type ListFrame struct {
 	Rows          func(width, maxRows int) string
 }
 
-// RenderListFrame renders the list-page shell the alerts, silences and
-// groups pages otherwise copy verbatim: an optional error band stacked
+// RenderListFrame renders the list-page shell the alerts and silences
+// pages otherwise copy verbatim: an optional error band stacked
 // above either the empty-state body (in a bg-less Pane) or the
 // header+rows frame (in Wrap). It owns the band-line bookkeeping and
 // the SetViewport call so each page's View collapses to wiring.

@@ -33,8 +33,8 @@ func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*confi
 // "a10r.yaml" basename.
 //
 // Exported so every cmd-side read-only subcommand (alerts,
-// silences, groups, receivers, doctor, info, validate) agrees on
-// the mapping.
+// silences, receivers, doctor, info, validate) agrees on the
+// mapping.
 func LoadOptsFromFlags(flags *config.CLIFlags) config.LoadOpts {
 	if flags.ConfigPath != "" {
 		return config.LoadOpts{

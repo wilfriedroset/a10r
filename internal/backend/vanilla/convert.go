@@ -34,17 +34,6 @@ func toAlert(w wireAlert) backend.Alert {
 	return a
 }
 
-func toAlertGroup(w wireAlertGroup) backend.AlertGroup {
-	g := backend.AlertGroup{Labels: w.Labels}
-	if len(w.Alerts) > 0 {
-		g.Alerts = make([]backend.Alert, 0, len(w.Alerts))
-		for _, wa := range w.Alerts {
-			g.Alerts = append(g.Alerts, toAlert(wa))
-		}
-	}
-	return g
-}
-
 func toSilence(w wireSilence) backend.Silence {
 	s := backend.Silence{
 		ID:        w.ID,

@@ -172,7 +172,7 @@ func (*Page) HeaderContent() string { return "" }
 func (*Page) Footer() string { return "" }
 
 // Bindings sources sort shortcuts from the tablesort helper so the
-// convention matches alerts / silences / groups / receivers.
+// convention matches alerts / silences / receivers.
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings("tenant")
 	out := make([]action.Action, 0, 1+len(sortBindings))

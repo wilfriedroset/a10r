@@ -18,19 +18,18 @@ import (
 const (
 	resourceAlerts    = "alerts"
 	resourceSilences  = "silences"
-	resourceGroups    = "groups"
 	resourceReceivers = "receivers"
 	resourceStatus    = "status"
 )
 
 // startBackendPoller spawns the per-(backend, resource) poller
 // matrix. Each entry in clients gets one poller per resource
-// (alerts, silences, receivers, alert-groups, status), and every
-// emitted DataMsg carries the backend's tenant tag so list pages
-// can union snapshots into a `byTenant` map and reason about scope
-// at render time.
+// (alerts, silences, receivers, status), and every emitted DataMsg
+// carries the backend's tenant tag so list pages can union
+// snapshots into a `byTenant` map and reason about scope at render
+// time.
 //
-// The five resources share a single interval per backend: poll
+// The four resources share a single interval per backend: poll
 // pressure is dominated by the alerts feed, and the others are
 // cheap reads that piggy-back. Configurable per-resource intervals
 // are deferred — overkill at the current fan-out.
@@ -85,8 +84,8 @@ func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 // pageInterval layers the per-page override (cfg.Pages.<page>) on
 // top of backendInterval. The resource argument matches the
 // labels backendFetchers emits ("alerts", "silences",
-// "receivers", "groups", "status") and the per-page YAML field
-// names. A non-zero override wins over both the per-backend value
+// "receivers", "status") and the per-page YAML field names. A
+// non-zero override wins over both the per-backend value
 // and the global default.
 //
 // Resources that are NOT user-overrideable (an unknown label,
@@ -110,8 +109,6 @@ func pageOverride(p config.PageOverrides, resource string) time.Duration {
 		return p.Alerts.PollInterval
 	case resourceSilences:
 		return p.Silences.PollInterval
-	case resourceGroups:
-		return p.Groups.PollInterval
 	case resourceReceivers:
 		return p.Receivers.PollInterval
 	case resourceStatus:
@@ -131,13 +128,13 @@ type fetcherEntry struct {
 	fetch    func(ctx context.Context) (any, error)
 }
 
-// backendFetchers returns the five poller fetch funcs for one
-// backend client — alerts, silences, receivers, alert-groups,
-// status. Each returns the resource as `any` so poll.Options.Fetch
-// can be a single shape across resource types. The resource labels
-// must match the strings the pages declare via PollResources() and
+// backendFetchers returns the four poller fetch funcs for one
+// backend client — alerts, silences, receivers, status. Each
+// returns the resource as `any` so poll.Options.Fetch can be a
+// single shape across resource types. The resource labels must
+// match the strings the pages declare via PollResources() and
 // emit on RefreshRequestedMsg ("alerts", "silences", "receivers",
-// "groups", "status").
+// "status").
 //
 // `status` joins the matrix so the status page's version / uptime
 // / config refresh on the configured interval instead of freezing
@@ -152,9 +149,6 @@ func backendFetchers(c backend.Client) []fetcherEntry {
 		}},
 		{resource: resourceReceivers, fetch: func(ctx context.Context) (any, error) {
 			return c.ListReceivers(ctx)
-		}},
-		{resource: resourceGroups, fetch: func(ctx context.Context) (any, error) {
-			return c.ListAlertGroups(ctx, backend.AlertFilter{})
 		}},
 		{resource: resourceStatus, fetch: func(ctx context.Context) (any, error) {
 			return c.Status(ctx)
@@ -187,8 +181,8 @@ func (r *pollerRegistry) Add(p *poll.Poller) {
 // now. Scope follows the same shape the silences / alerts pages
 // use: "all" / "" / single-tenant / comma-joined subset. An
 // unrecognised resource quietly no-ops — the page emits "alerts"
-// / "silences" / "receivers" / "groups", and a typo is recoverable
-// without crashing the loop.
+// / "silences" / "receivers", and a typo is recoverable without
+// crashing the loop.
 func (r *pollerRegistry) Refresh(resource, scope string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

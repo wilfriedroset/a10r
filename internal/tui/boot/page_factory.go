@@ -14,7 +14,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
-	"github.com/wilfriedroset/a10r/internal/tui/page/groups"
 	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
 	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
@@ -85,18 +84,6 @@ func newSilencesPage(env *pageEnv) app.Page {
 		BulkCtx:         env.EditorCtx,
 		SubmitCtx:       env.EditorCtx,
 		Tenants:         env.TenantNames,
-	})
-}
-
-func newGroupsPage(env *pageEnv) app.Page {
-	return groups.New(groups.Options{
-		Styles:    env.Styles,
-		Now:       time.Now,
-		Clients:   env.SilenceClients,
-		Creator:   env.Creator,
-		ReadOnly:  env.ReadOnly,
-		Tenants:   env.TenantNames,
-		SubmitCtx: env.EditorCtx,
 	})
 }
 

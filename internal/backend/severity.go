@@ -16,8 +16,8 @@ const (
 // (including missing) → 0.
 //
 // Lives on the backend package so multiple UI pages — the alerts
-// list, the groups list, anything that wants severity-aware
-// ordering — share the same weight table without re-deriving it.
+// list, anything that wants severity-aware ordering — share the
+// same weight table without re-deriving it.
 //
 // Takes the label map directly rather than a full Alert to skip
 // the per-call struct copy. The function only ever read

@@ -169,7 +169,7 @@ pages:
     poll_interval: 5m
 ```
 
-Recognised page names: `alerts`, `silences`, `groups`, `receivers`,
+Recognised page names: `alerts`, `silences`, `receivers`,
 `status`. Omitted pages keep their backend-derived default.
 
 ## Themes

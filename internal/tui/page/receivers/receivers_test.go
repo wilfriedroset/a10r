@@ -193,7 +193,7 @@ func TestPage_ErrorBandReflectsBackendStatusDetail(t *testing.T) {
 // TestPage_DropsDataMsgFromUnknownTenant pins that DataMsg /
 // BackendStatusMsg arriving with a tenant name not in the
 // configured list is dropped — the same leak class the alerts /
-// silences / groups pages already guard against (BackendHealth not
+// silences pages already guard against (BackendHealth not
 // pruned, byTenant retaining entries for tenants no longer in
 // scope). Empty Tenants disables the guard so existing tests
 // without an explicit list keep working.
@@ -277,8 +277,8 @@ func TestPage_TenantColumnHiddenForSingleBackend(t *testing.T) {
 // TestPage_PerTenantRowsNotDeduplicated is the behaviour change: a
 // receiver name shared across two backends renders one row per
 // tenant (tagged by the TENANT column) rather than collapsing into
-// a single de-duplicated entry — matching how alerts / silences /
-// groups present cross-tenant data.
+// a single de-duplicated entry — matching how alerts / silences
+// present cross-tenant data.
 func TestPage_PerTenantRowsNotDeduplicated(t *testing.T) {
 	t.Parallel()
 	p := New(Options{

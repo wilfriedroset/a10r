@@ -155,8 +155,8 @@ func headerLabel(k string) string {
 // Colour follows instance state: a FIRING (active) instance that is
 // neither the cursor (its row-level highlight wins) nor marked gets the
 // full treatment — its SEVERITY cell tints and its distinguishing
-// labels take the YAML palette, matching the groups page so a k=v pair
-// reads consistently across the TUI. Suppressed and unprocessed
+// labels take the YAML palette so a k=v pair reads consistently
+// across the TUI. Suppressed and unprocessed
 // instances recede: the whole row dims, so the firing ones the operator
 // can still act on stand out. The cursor and marked rows keep their
 // row-level wrap (nested ANSI inside it is fragile), so their labels
@@ -251,8 +251,8 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 }
 
 // styleDistinguish colours an already-clipped distinguishing-labels
-// cell with the YAML palette (name / `=` / value / separator), matching
-// the groups page's k=v styling. It runs AFTER the middle-out clip on
+// cell with the YAML palette (name / `=` / value / separator). It runs
+// AFTER the middle-out clip on
 // the plain string, so the ellipsis stays correct and colouring never
 // changes the cell's width — layout is unaffected. A fragment the clip
 // left without an `=` (a rare middle-cut artefact) renders in the value

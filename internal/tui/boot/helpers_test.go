@@ -234,10 +234,6 @@ func (*fakeStatusBackend) ListAlerts(context.Context, backend.AlertFilter) ([]ba
 	return nil, nil
 }
 
-func (*fakeStatusBackend) ListAlertGroups(context.Context, backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return nil, nil
-}
-
 func (*fakeStatusBackend) ListSilences(context.Context, backend.SilenceFilter) ([]backend.Silence, error) {
 	return nil, nil
 }
@@ -389,13 +385,11 @@ func TestPageOverride_AllResources(t *testing.T) {
 	p := config.PageOverrides{
 		Alerts:    config.PageConfig{PollInterval: 1 * time.Second},
 		Silences:  config.PageConfig{PollInterval: 2 * time.Second},
-		Groups:    config.PageConfig{PollInterval: 3 * time.Second},
 		Receivers: config.PageConfig{PollInterval: 4 * time.Second},
 		Status:    config.PageConfig{PollInterval: 5 * time.Second},
 	}
 	require.Equal(t, 1*time.Second, pageOverride(p, "alerts"))
 	require.Equal(t, 2*time.Second, pageOverride(p, "silences"))
-	require.Equal(t, 3*time.Second, pageOverride(p, "groups"))
 	require.Equal(t, 4*time.Second, pageOverride(p, "receivers"))
 	require.Equal(t, 5*time.Second, pageOverride(p, "status"))
 	require.Zero(t, pageOverride(p, "unknown"),

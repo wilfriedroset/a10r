@@ -134,7 +134,7 @@ func (r *Resolver) Register(alias string, h Handler) {
 // The first entry is canonical (what the help overlay shows as the
 // row header); remaining entries fold onto that row as synonyms
 // per ADR 0038. Use Register for singleton aliases — RegisterGroup
-// is reserved for genuine synonyms (silences/sil, groups/gr, ...).
+// is reserved for genuine synonyms (silences/sil, receivers/rec, ...).
 //
 // Empty names slice / empty individual name / nil handler / a name
 // repeated within `names` all panic because each indicates

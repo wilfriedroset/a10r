@@ -13,7 +13,7 @@ import (
 
 // TestPane confirms the helper's output is byte-identical to the
 // open-coded `lipgloss.NewStyle().Width(w).Height(h).Render(body)`
-// that the six list pages used before C3. Identity is the contract:
+// that the list pages used before C3. Identity is the contract:
 // pages call Pane to mean "pad to w×h with no styling", and any
 // drift would surface as terminal output regressions.
 func TestPane(t *testing.T) {

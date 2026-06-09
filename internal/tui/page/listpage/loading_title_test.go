@@ -18,7 +18,7 @@ func TestLoadingTitle(t *testing.T) {
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	u := &listpage.PollingUI{Spinner: sp}
 
-	for _, noun := range []string{"alerts", "silences", "groups"} {
+	for _, noun := range []string{"alerts", "silences", "receivers"} {
 		t.Run(noun, func(t *testing.T) {
 			t.Parallel()
 			got := u.LoadingTitle(noun)

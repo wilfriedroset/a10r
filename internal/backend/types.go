@@ -52,13 +52,6 @@ type Alert struct {
 	Receivers []string
 }
 
-// AlertGroup is one node in /api/v2/alerts/groups output: a label
-// set shared by every alert in Alerts.
-type AlertGroup struct {
-	Labels map[string]string
-	Alerts []Alert
-}
-
 // SilenceState mirrors `status.state` from /api/v2/silences (active,
 // pending, expired).
 type SilenceState string

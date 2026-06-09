@@ -192,7 +192,6 @@ func mergeLog(base *Log, overlay Log) {
 func mergePages(base *PageOverrides, overlay PageOverrides) {
 	mergePage(&base.Alerts, overlay.Alerts)
 	mergePage(&base.Silences, overlay.Silences)
-	mergePage(&base.Groups, overlay.Groups)
 	mergePage(&base.Receivers, overlay.Receivers)
 	mergePage(&base.Status, overlay.Status)
 }

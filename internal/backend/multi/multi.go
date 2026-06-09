@@ -72,12 +72,6 @@ func (m *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) []R
 	})
 }
 
-func (m *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) []Result[[]backend.AlertGroup] {
-	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.AlertGroup, error) {
-		return c.ListAlertGroups(ctx, filter)
-	})
-}
-
 func (m *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) []Result[[]backend.Silence] {
 	return fanOut(ctx, m.tenants, m.poolSize, func(ctx context.Context, c backend.Client) ([]backend.Silence, error) {
 		return c.ListSilences(ctx, filter)

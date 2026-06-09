@@ -20,10 +20,6 @@ func (ClientStub) ListAlerts(context.Context, backend.AlertFilter) ([]backend.Al
 	return nil, backend.ErrUnsupported
 }
 
-func (ClientStub) ListAlertGroups(context.Context, backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return nil, backend.ErrUnsupported
-}
-
 func (ClientStub) ListSilences(context.Context, backend.SilenceFilter) ([]backend.Silence, error) {
 	return nil, backend.ErrUnsupported
 }

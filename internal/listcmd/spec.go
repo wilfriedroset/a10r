@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package listcmd is the shared orchestrator for the four headless list
-// commands (alerts/silences/groups/receivers). It owns the cross-cutting
+// Package listcmd is the shared orchestrator for the headless list
+// commands (alerts/silences/receivers). It owns the cross-cutting
 // concerns: per-backend fan-out via errgroup, lenient partial-failure
 // (ADR 0009), TTY-vs-pipe format resolution, pager lifecycle, deterministic
 // ordering, and the sentinel errors cmd/ maps to exit codes. Generic over

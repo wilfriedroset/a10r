@@ -10,12 +10,11 @@ import (
 )
 
 // Reader is the read-only subset of Client. Read-only page models accept
-// Reader so test fakes implement six methods, not fourteen. Context
+// Reader so test fakes implement five methods, not fourteen. Context
 // cancellation propagates to the http.Request so a slow backend cannot
 // stall the polling loop.
 type Reader interface {
 	ListAlerts(ctx context.Context, filter AlertFilter) ([]Alert, error)
-	ListAlertGroups(ctx context.Context, filter AlertFilter) ([]AlertGroup, error)
 	ListSilences(ctx context.Context, filter SilenceFilter) ([]Silence, error)
 	GetSilence(ctx context.Context, id string) (Silence, error)
 	ListReceivers(ctx context.Context) ([]Receiver, error)

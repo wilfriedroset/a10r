@@ -133,22 +133,6 @@ func TestClient_ListAlerts_FilterParamsReachServer(t *testing.T) {
 	require.Equal(t, "team-ops", capturedQuery.Get("receiver"))
 }
 
-func TestClient_ListAlertGroups(t *testing.T) {
-	t.Parallel()
-
-	srv := httptest.NewServer(fixtureHandler(t, map[string]string{
-		"/api/v2/alerts/groups": "list_alert_groups.json",
-	}))
-	t.Cleanup(srv.Close)
-
-	c := newTestClient(t, srv)
-	got, err := c.ListAlertGroups(t.Context(), backend.AlertFilter{})
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	require.Equal(t, "ops", got[0].Labels["team"])
-	require.Len(t, got[0].Alerts, 2)
-}
-
 func TestClient_ListSilences(t *testing.T) {
 	t.Parallel()
 

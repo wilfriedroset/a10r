@@ -167,7 +167,7 @@ func TestResolver_Suggest(t *testing.T) {
 	// alias.
 	r := New()
 	for _, a := range []string{
-		"alerts", "gr", "groups", "q", "rec", "receivers",
+		"alerts", "q", "rec", "receivers",
 		"sil", "silences", "status", "tenant", "tenants",
 	} {
 		r.Register(a, func(_ []string) tea.Cmd { return nil })
@@ -190,7 +190,6 @@ func TestResolver_Suggest(t *testing.T) {
 		// Multi-match prefixes return the alphabetically-first match.
 		{"multi match s returns sil", "s", "sil"},
 		{"multi match si returns sil", "si", "sil"},
-		{"multi match g returns gr", "g", "gr"},
 		{"multi match r returns rec", "r", "rec"},
 
 		// Exact match — even when a longer alias shares the prefix,
@@ -311,14 +310,14 @@ func TestResolver_GroupsReturnsCanonicalFirst(t *testing.T) {
 
 	r := New()
 	r.RegisterGroup([]string{"silences", "sil"}, func(_ []string) tea.Cmd { return nil })
-	r.RegisterGroup([]string{"groups", "gr"}, func(_ []string) tea.Cmd { return nil })
+	r.RegisterGroup([]string{"receivers", "rec"}, func(_ []string) tea.Cmd { return nil })
 	r.Register("alerts", func(_ []string) tea.Cmd { return nil })
 
 	got := r.Groups()
 	require.Equal(t,
 		[]AliasGroup{
 			{Names: []string{"alerts"}},
-			{Names: []string{"groups", "gr"}},
+			{Names: []string{"receivers", "rec"}},
 			{Names: []string{"silences", "sil"}},
 		},
 		got,

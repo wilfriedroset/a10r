@@ -39,7 +39,7 @@ func TestExecute_HelpGroupsSubcommands(t *testing.T) {
 	require.Contains(t, out, "Read:")
 	require.Contains(t, out, "Diagnostics:")
 	require.Contains(t, out, "Setup:")
-	for _, cmd := range []string{"alerts", "silences", "groups", "receivers"} {
+	for _, cmd := range []string{"alerts", "silences", "receivers"} {
 		require.Contains(t, out, cmd, "command %q must appear under Read", cmd)
 	}
 

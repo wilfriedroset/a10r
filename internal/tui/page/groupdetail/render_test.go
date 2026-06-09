@@ -116,7 +116,7 @@ func TestRender_SiblingInstancesStayDistinguishableAt80(t *testing.T) {
 
 // TestRender_FiringInstanceLabelsColored asserts a firing (active)
 // non-cursor instance renders its distinguishing labels in the YAML
-// palette — matching the groups page — so an actionable instance reads
+// palette so an actionable instance reads
 // in colour while the cursor row keeps its row-level highlight.
 func TestRender_FiringInstanceLabelsColored(t *testing.T) {
 	t.Parallel()

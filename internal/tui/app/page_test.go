@@ -582,7 +582,7 @@ func TestPollCache_PreservesReplayedCmd(t *testing.T) {
 
 // TestStatusCache_ReplaysToNewPushedPage covers the QA-driven D2
 // fix: the per-tenant error band must light up on EVERY list page
-// (silences / groups / receivers / alerts), not just whichever page
+// (silences / receivers / alerts), not just whichever page
 // happened to be on top when the failure transition fired.
 // BackendStatusMsg is emitted on TRANSITIONS only, so without the
 // status cache replay a page pushed AFTER the transition would

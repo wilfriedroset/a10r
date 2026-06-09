@@ -46,10 +46,6 @@ func (*fakeClient) ListAlerts(context.Context, AlertFilter) ([]Alert, error) {
 	return nil, nil
 }
 
-func (*fakeClient) ListAlertGroups(context.Context, AlertFilter) ([]AlertGroup, error) {
-	return nil, nil
-}
-
 func (*fakeClient) ListSilences(context.Context, SilenceFilter) ([]Silence, error) {
 	return nil, nil
 }

@@ -37,12 +37,6 @@ type wireReceiver struct {
 	Name string `json:"name"`
 }
 
-type wireAlertGroup struct {
-	Labels   map[string]string `json:"labels"`
-	Receiver wireReceiver      `json:"receiver"`
-	Alerts   []wireAlert       `json:"alerts"`
-}
-
 type wireSilence struct {
 	ID        string           `json:"id"`
 	Matchers  []wireMatcher    `json:"matchers"`

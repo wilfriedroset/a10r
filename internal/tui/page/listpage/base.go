@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package listpage holds the shared base for the list-style pages
-// (alerts, silences, groups, receivers). Helpers earn their place at
+// (alerts, silences, receivers). Helpers earn their place at
 // 3+ callers. Base does NOT implement tea.Model — pages embed it and
 // call in explicitly. See ADR 0013. Cursor state lives in the
 // embedded cursor.Window so the reconcile-on-change invariant is a
@@ -47,7 +47,7 @@ type Base struct {
 	// arrives — see ADR-0018.
 	SnapshotFocus func()
 	// SetTimeFormat applies a TimeFormatChangedMsg. Nil on pages
-	// that render no time (groups, receivers); nil is treated as a
+	// that render no time (receivers); nil is treated as a
 	// fall-through by HandleSidebandMsg — see ADR-0018.
 	SetTimeFormat func(timerender.Format)
 	// SetStateFormat applies a StateFormatChangedMsg. Nil except on

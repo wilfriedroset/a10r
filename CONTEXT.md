@@ -18,11 +18,9 @@ TUI-layer concept (no backend type) synthesised by rolling up
 label alone, so two distinct upstream rules emitting the same
 alertname within one tenant merge into one Alert — over-merge only,
 never over-split (a single rule sets one alertname), and AM exposes
-no rule identity to do better. Distinct from the route-based **alert
-group** of the `groups` page.
-_Avoid_: alert group (route / `group_by` grouping — the `groups`
-page and `backend.AlertGroup`), rule (AM has no rule concept; we
-group on the alertname label, not a rule).
+no rule identity to do better.
+_Avoid_: rule (AM has no rule concept; we group on the alertname
+label, not a rule).
 
 **Alert instance**:
 One firing series — a single `backend.Alert` (one fingerprint, one
@@ -85,11 +83,7 @@ aggregate). A single-cursor silence-all of a COUNT>1 alert is gated
 by the confirm modal — blast radius, not mark count, decides the
 gate. The form carries a **scope note** stating the
 real scope and, when the source view was filtered, that the active
-filter is NOT applied. Distinct from the `groups` page's group
-silence (which prefills the route group's common-label
-intersection): both follow "prefill the matchers that define the
-group's identity", but an alertname aggregate's identity is the
-alertname alone.
+filter is NOT applied.
 _Avoid_: bulk silence (that is the marks fan-out — a different
 verb).
 
@@ -322,7 +316,7 @@ set), border (the visual line, not what it bounds).
 The spinner-led title prefix shown during a loading window —
 `⣷ loading alerts…`. Active when no in-scope tenant has produced a
 DataMsg yet (cold start) or while a manual `r` refresh is in flight.
-Three of six list pages render it (alerts/silences/groups);
+Two of five list pages render it (alerts/silences);
 receivers/tenant/status have no spinner.
 _Avoid_: spinner title (the spinner is one part), loading state
 (too generic).
@@ -333,7 +327,7 @@ pages. Five branches: `""` (pre-poll), `"next refresh Ns"` (single-
 unit **relative time** with `next refresh` as the prefix),
 `"refreshing…"` (manual `r` in flight), `"WATCH OFF"` (paused),
 `"WATCH OFF · refreshing…"` (paused with a pausedRefresh in flight).
-Same three pages as the **loading affordance** render the full
+Same two pages as the **loading affordance** render the full
 cycle; receivers shows only the WATCH OFF branch; tenant/status omit
 the footer entirely.
 _Avoid_: refresh footer (surface name, not content), poll status
@@ -369,8 +363,7 @@ _Avoid_: custom theme, override skin.
 - An **Alert** rolls up one or more **alert instances** sharing the
   same `(tenant, alertname)`. COUNT is the instance tally, AGE the
   oldest instance `StartsAt`, SEVERITY the max instance severity,
-  STATE the **state breakdown**. The route-based **alert group**
-  (`groups` page) is a different rollup of the same instances.
+  STATE the **state breakdown**.
 - The substring (`/`) and state (`Shift+F`) filters narrow **alert
   instances** first; **Alerts** are then rebuilt from the survivors
   and an Alert with no surviving instance drops from the page, so
@@ -413,7 +406,7 @@ _Avoid_: custom theme, override skin.
   affordance** prefix), header, footer (with optional **refresh
   countdown**), **error band**, and the empty-pane wrap.
 - **Loading affordance** and **refresh countdown** are co-present — a
-  page renders both or neither (alerts/silences/groups render both;
+  page renders both or neither (alerts/silences render both;
   receivers/tenant/status render neither).
 - **Refresh countdown**'s `"next refresh Ns"` branch reuses the
   single-unit **relative time** vocabulary with `next refresh` as the

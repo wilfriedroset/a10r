@@ -10,7 +10,7 @@ import (
 )
 
 // PollingUI holds per-page polling-feedback state. Split off Base and
-// embedded only by pages with a refresh UI (alerts, silences, groups),
+// embedded only by pages with a refresh UI (alerts, silences),
 // not receivers, which has no manual refresh — see ADR 0013. Fields
 // are exported because sibling-package embedders can't reach
 // unexported fields via promotion.

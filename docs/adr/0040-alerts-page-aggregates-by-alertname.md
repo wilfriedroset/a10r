@@ -1,5 +1,11 @@
 # 0040 — Alerts page aggregates by alertname
 
+> **Status update ([ADR 0047](0047-drop-route-grouped-groups-page.md)):**
+> the claim below that "the route-grouped `groups` page is left
+> untouched" no longer holds — the `groups` page was dropped entirely
+> once L1 aggregation made its route-batching lens redundant in
+> practice. The alertname-aggregate decision this ADR records stands.
+
 The alerts list was a flat table, one row per **alert instance**
 (one fingerprint). When N instances share an alertname — 567 hosts
 firing `HostProcessNeedRestart` — they bury every other alert and

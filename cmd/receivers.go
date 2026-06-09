@@ -54,8 +54,8 @@ type receiversListOptions struct {
 
 // receiverRow is the row shape JSON / YAML / table all flatten
 // the receiver payload into. Same struct shape as alertRow /
-// silenceRow / groupRow so the JSON consumer story is uniform
-// across the four list commands.
+// silenceRow so the JSON consumer story is uniform across the
+// list commands.
 type receiverRow struct {
 	Tenant string `json:"tenant" yaml:"tenant"`
 	Name   string `json:"name" yaml:"name"`

@@ -71,7 +71,6 @@ type Config struct {
 type PageOverrides struct {
 	Alerts    PageConfig `yaml:"alerts,omitempty"`
 	Silences  PageConfig `yaml:"silences,omitempty"`
-	Groups    PageConfig `yaml:"groups,omitempty"`
 	Receivers PageConfig `yaml:"receivers,omitempty"`
 	Status    PageConfig `yaml:"status,omitempty"`
 }

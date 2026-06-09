@@ -336,7 +336,7 @@ func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
 
 // TestPage_SilenceFormSubmittedFlashesSuccess: the
 // silenceform.SubmittedMsg → footer.FlashShowMsg{Success, "silence
-// created: <id>"} contract is identical across alerts/groups/
+// created: <id>"} contract is identical across alerts and
 // alert-detail and is pinned canonically by
 // internal/tui/page/alerts/alerts_test.go:TestPage_SilenceFormSubmittedFlashesSuccess.
 // The detail page's Update routes the message through the same

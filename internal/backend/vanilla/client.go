@@ -6,8 +6,8 @@
 // rather than maintaining a parallel implementation, so this package
 // is the source of truth for "talk to /api/v2/...".
 //
-// Read endpoints (ListAlerts/AlertGroups/Silences/GetSilence/Receivers/
-// Status) live in read.go; write endpoints (CreateSilence,
+// Read endpoints (ListAlerts/Silences/GetSilence/Receivers/Status)
+// live in read.go; write endpoints (CreateSilence,
 // UpdateSilence, ExpireSilence) live in write.go. Capability-gated
 // methods stay as ErrUnsupported stubs in this package — Mimir's
 // wrapper implements them when caps allow.

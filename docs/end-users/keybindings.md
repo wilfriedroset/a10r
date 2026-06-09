@@ -42,7 +42,6 @@ The match scope is wider than the visible columns by design — operators want t
 - **Alerts list:** in text mode, every label value (`alertname`, `severity`, `instance`, `cluster`, …) AND every annotation value (`summary`, `description`, runbook URLs) — so `/api` can hit an alert whose `summary` reads "API latency above SLO" even though the alertname is `HighLatency`. In label-matcher mode (`name<op>value`) it filters by the exact label instead; filtering narrows the underlying instances and the page regroups, so COUNT / STATE reflect the survivors.
 - **Group detail (instance list):** same as the alerts list — text mode searches each instance's label/annotation values; `cluster_id=99` filters that instance set by the exact label.
 - **Silences list:** silence ID, creator, comment, state, and every matcher's `name`/`value`.
-- **Groups list:** the group's collapsed label set plus the alertname of each leaf.
 - **Receivers list:** receiver name (single-axis).
 
 If a fuzzy/substring search surfaces matches that look unrelated to the alertname, the hit is almost always an annotation or a non-name label. To scope to a specific label instead — including the alertname itself — use the label-matcher mode on the alerts list / group detail (e.g. `alertname=HighCPU`, `alertname=~Hi.*`, `severity!=info`). For exact-substring text matching with no escaping, use literal mode (`\<text>`).
@@ -165,7 +164,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `p` | Jump to the raw config block |
 | `Esc` / `q` | Back |
 
-### Receivers / Groups / Tenant table
+### Receivers / Tenant table
 
 The lists follow the same vim motions as alerts/silences. View-specific verbs:
 
@@ -173,12 +172,6 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 | --- | --- | --- |
 | Receivers | `Enter` | Drill to alerts filtered by this receiver |
 | Receivers | `Shift+N` | Toggle the name sort ASC↔DESC (single sortable axis; `h`/`l` are no-ops here) |
-| Groups | `Enter` | Expand/collapse the group, or drill into a leaf alert |
-| Groups | `Tab` | Force-expand / collapse the active group |
-| Groups | `s` | Silence the group by its common-labels intersection |
-| Groups | `Shift+N` | Sort by group name (label-set) |
-| Groups | `Shift+C` | Sort by alert count |
-| Groups | `Shift+V` | Sort by worst severity in the group |
 | Tenant | `Enter` | Single-select the cursor row |
 | Tenant | `Space` | Toggle the cursor row in the selection |
 | Tenant | `a` / `Ctrl+A` | Select every tenant |

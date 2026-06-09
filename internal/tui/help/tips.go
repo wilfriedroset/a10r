@@ -20,7 +20,7 @@ type Tip struct {
 // order callers see when iterating Tips() index-by-index.
 var tips = []Tip{
 	{Key: "?", Text: "open the help overlay"},
-	{Key: ":", Text: "command bar — try :alerts, :silences, :groups"},
+	{Key: ":", Text: "command bar — try :alerts, :silences, :receivers"},
 	{Key: "/", Text: "filter the current list"},
 	{Key: "~", Text: "prefix a filter with ~ for fuzzy matching"},
 	{Key: "\\", Text: "prefix a filter with \\ to match literally"},

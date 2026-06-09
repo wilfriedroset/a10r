@@ -22,20 +22,20 @@ are defined in CONTEXT.md and used here without redefinition.
 
 - `cmd/` -- the cobra CLI. `cmd/root.go` builds the root command;
   `cmd/cmd.go` registers subcommands (`version`, `info`, `validate`,
-  `doctor`, `init`, `alerts`, `silences`, `groups`, `receivers`).
+  `doctor`, `init`, `alerts`, `silences`, `receivers`).
   Running `a10r` with no subcommand drops into the TUI via
-  `cmd/tui.go`'s `runTUI`. The four list subcommands
-  (`cmd/alerts.go`, `cmd/silences.go`, `cmd/groups.go`,
-  `cmd/receivers.go`) are thin shells over `internal/listcmd`.
+  `cmd/tui.go`'s `runTUI`. The three list subcommands
+  (`cmd/alerts.go`, `cmd/silences.go`, `cmd/receivers.go`) are thin
+  shells over `internal/listcmd`.
 - `cmd/smoke/` -- a manual integration harness (`Command smoke`), not
   part of the shipped binary.
 
 ### Backend (`internal/backend`)
 
 - `internal/backend` -- the wire-facing domain types
-  (`Alert`, `AlertGroup`, `Silence`, `Receiver`, `Status`, ...), the
+  (`Alert`, `Silence`, `Receiver`, `Status`, ...), the
   sentinel errors, and the `Client` interface every backend
-  satisfies. `Client` composes `Reader` (six read methods), `Writer`
+  satisfies. `Client` composes `Reader` (five read methods), `Writer`
   (three non-idempotent silence mutations), capability-gated config
   methods, and `Capabilities()`. See
   [ADR 0028](docs/adr/0028-backend-client-surface.md).
@@ -147,7 +147,6 @@ Pages and shared page bases (`internal/tui/page`):
 - `page/alert` -- the L3 read-only instance-detail view.
 - `page/silences`, `page/silence` -- the silences list and the
   read-only silence-detail view.
-- `page/groups` -- the route-based alert-groups tree.
 - `page/receivers` -- the receivers list (Enter drills to a filtered
   alerts page).
 - `page/status` -- the Alertmanager status pane.
@@ -226,7 +225,7 @@ the binary entry to a live page:
    struct-field change, not an N-arg propagation. `newAlertsPage`
    translates the `pageEnv` into `alerts.Options` and calls
    `alerts.New`. The cmdbar resolver registers the other factories
-   (`newSilencesPage`, `newGroupsPage`, ...) as `:command` handlers
+   (`newSilencesPage`, ...) as `:command` handlers
    that close over the same `env`.
 
 5. `app.PushPage(factory)` returns a `tea.Cmd` producing a

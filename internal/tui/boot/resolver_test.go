@@ -14,7 +14,7 @@ import (
 // TestNewResolver_GroupsCatalogue pins the canonical+synonym shape
 // the help overlay (commit 7) reads from the resolver. Built-in
 // singletons (alerts, status) get one-name groups; synonym pairs
-// (q/quit, silences/sil, receivers/rec, groups/gr, tenant/tenants)
+// (q/quit, silences/sil, receivers/rec, tenant/tenants)
 // fold onto a single row each. A future contributor dropping a
 // synonym or renaming a canonical fails this test loudly rather
 // than silently regressing the COMMANDS column.
@@ -29,7 +29,6 @@ func TestNewResolver_GroupsCatalogue(t *testing.T) {
 	require.Equal(t,
 		[]cmdbar.AliasGroup{
 			{Names: []string{"alerts"}},
-			{Names: []string{"groups", "gr"}},
 			{Names: []string{"q", "quit"}},
 			{Names: []string{"receivers", "rec"}},
 			{Names: []string{"silences", "sil"}},

@@ -87,23 +87,3 @@ func TestSilence_OptionsOverrideDefaults(t *testing.T) {
 	require.Equal(t, fixedNow.Add(2*time.Hour), s.EndsAt)
 	require.Equal(t, "scheduled maintenance", s.Comment)
 }
-
-func TestGroup_DefaultsAndOverrides(t *testing.T) {
-	t.Parallel()
-
-	g := pagetest.Group(pagetest.GroupOptions{})
-	require.NotEmpty(t, g.Labels,
-		"default Group must have at least one label so commonLabels has something to chew on")
-
-	g = pagetest.Group(pagetest.GroupOptions{
-		Labels: map[string]string{"team": "platform"},
-		Alerts: []backend.Alert{
-			pagetest.Alert(pagetest.AlertOptions{Name: "A", Severity: "critical"}),
-			pagetest.Alert(pagetest.AlertOptions{Name: "B", Severity: "warning"}),
-		},
-	})
-	require.Equal(t, "platform", g.Labels["team"])
-	require.Len(t, g.Alerts, 2)
-	require.Equal(t, "A", g.Alerts[0].Labels["alertname"])
-	require.Equal(t, "B", g.Alerts[1].Labels["alertname"])
-}

@@ -44,10 +44,6 @@ func (c *Client) ListAlerts(ctx context.Context, filter backend.AlertFilter) ([]
 	return fetchList(ctx, c, c.urlFor("/alerts", encodeAlertFilter(filter)), "list alerts", toAlert)
 }
 
-func (c *Client) ListAlertGroups(ctx context.Context, filter backend.AlertFilter) ([]backend.AlertGroup, error) {
-	return fetchList(ctx, c, c.urlFor("/alerts/groups", encodeAlertFilter(filter)), "list alert groups", toAlertGroup)
-}
-
 func (c *Client) ListSilences(ctx context.Context, filter backend.SilenceFilter) ([]backend.Silence, error) {
 	return fetchList(ctx, c, c.urlFor("/silences", encodeSilenceFilter(filter)), "list silences", toSilence)
 }

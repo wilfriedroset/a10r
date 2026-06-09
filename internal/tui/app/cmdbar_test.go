@@ -380,7 +380,7 @@ func TestApp_HistoryFor_FilterModeRoutesPerPage(t *testing.T) {
 		h.historyFor(footer.PromptFilter, "silences"),
 		"silences page's `/` walks the silence-matcher ring (Prom-style fields)")
 	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, "alerts"))
-	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, "groups"))
+	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, "receivers"))
 	require.Same(t, h.filter, h.historyFor(footer.PromptFilter, ""),
 		"unknown / no top page falls back to the generic filter ring")
 }

@@ -104,12 +104,6 @@ func exerciseReads(ctx context.Context, logger *slog.Logger, client backend.Clie
 	}
 	logger.Info("silences", slog.Int("count", len(silences)))
 
-	groups, err := client.ListAlertGroups(ctx, backend.AlertFilter{})
-	if err != nil {
-		return fmt.Errorf("list alert groups: %w", err)
-	}
-	logger.Info("alert_groups", slog.Int("count", len(groups)))
-
 	return nil
 }
 

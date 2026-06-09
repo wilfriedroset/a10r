@@ -12,7 +12,7 @@ import (
 )
 
 // TestWrap confirms the helper matches the open-coded
-// `lipgloss.NewStyle().Width(w).Render(body)` the six list pages
+// `lipgloss.NewStyle().Width(w).Render(body)` the list pages
 // used for the populated branch — width-pad only, natural height.
 func TestWrap(t *testing.T) {
 	t.Parallel()

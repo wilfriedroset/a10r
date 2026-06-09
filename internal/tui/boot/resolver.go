@@ -37,10 +37,6 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 		return app.PushPage(func() app.Page { return newReceiversPage(env) })
 	}
 	r.RegisterGroup([]string{resourceReceivers, "rec"}, receiversFactory)
-	groupsFactory := func(_ []string) tea.Cmd {
-		return app.PushPage(func() app.Page { return newGroupsPage(env) })
-	}
-	r.RegisterGroup([]string{resourceGroups, "gr"}, groupsFactory)
 	drill := func(name string) (app.Page, error) { return newTenantConfigPage(env, name) }
 	tenantFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })

@@ -324,7 +324,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 //   - `gg` is a chord (LayerTable). The dispatcher buffers the
 //     first `g` and fires the registered handler on the second
 //     within 500 ms. LayerTable means every table-bodied page
-//     (alerts, silences, receivers, groups, tenant) honours it
+//     (alerts, silences, receivers, tenant) honours it
 //     without per-page chord plumbing.
 //
 //   - `Ctrl+\` is LayerGlobal so it works regardless of which
