@@ -94,6 +94,7 @@ func registerSubcommands(root *cobra.Command, flags *GlobalFlags) {
 		newValidateCmd(flags),
 		newDoctorCmd(flags),
 		newInitCmd(flags),
+		newSkillsCmd(),
 		newAlertsCmd(flags),
 		newSilencesCmd(flags),
 		newGroupsCmd(flags),

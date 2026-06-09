@@ -8,9 +8,15 @@ The read verbs (`list`, `get`) and the silence write verbs
 (`create`, `update`, `expire`, `recreate`) give the CLI the same
 alert-triage and silence-lifecycle reach as the TUI.
 
-Driving a10r from an AI coding agent? [`internal/skill/SKILL.md`](../../internal/skill/SKILL.md)
-is a ready-made agent skill — copy it into your agent's skills directory and it
-teaches the agent the output contract, exit codes, and silence-safety workflow.
+Driving a10r from an AI coding agent? a10r ships a ready-made agent skill
+([`internal/skill/SKILL.md`](../../internal/skill/SKILL.md)) that teaches the
+agent the output contract, exit codes, and silence-safety workflow. Install it
+with `a10r skills add` (the vendor-neutral `~/.agents/skills`, read by Cursor,
+Gemini CLI, goose, pi, and others) or `a10r skills add --claude` for Claude
+Code; `--dest`
+targets any other directory. Re-run with `--force` after upgrading a10r to
+refresh the installed copy. `a10r skills preview` prints the skill to stdout
+without installing it.
 
 ## Scope: `--tenant`
 

@@ -259,7 +259,7 @@ Environment variables in any string field are expanded via
 - [`docs/end-users/cli.md`](docs/end-users/cli.md) — the headless command surface: read verbs and the silence lifecycle.
 - [`docs/end-users/output-formats.md`](docs/end-users/output-formats.md) — `--output`, agent mode / `A10R_OUTPUT`, next-step hints, the error envelope, and `--dry-run` plans.
 - [`docs/end-users/exit-codes.md`](docs/end-users/exit-codes.md) — the exit-code table CI/agent wrappers branch on.
-- [`internal/skill/SKILL.md`](internal/skill/SKILL.md) — an agent skill teaching an AI assistant to drive a10r headless; copy it into your agent's skills directory (e.g. `~/.claude/skills/a10r/`).
+- [`internal/skill/SKILL.md`](internal/skill/SKILL.md) — an agent skill teaching an AI assistant to drive a10r headless; install it with `a10r skills add` (or `a10r skills add --claude` for Claude Code).
 - [`docs/end-users/keybindings.md`](docs/end-users/keybindings.md) — printable cheat-sheet per view.
 - [`docs/end-users/configuration.md`](docs/end-users/configuration.md) — config schema, every field documented.
 - [`docs/end-users/topology.md`](docs/end-users/topology.md) — which backends a10r supports, and why you point it at an Alertmanager rather than Prometheus / Loki / vmalert.

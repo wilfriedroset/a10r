@@ -48,8 +48,9 @@ func TestExecute_HelpGroupsSubcommands(t *testing.T) {
 		require.Contains(t, out, cmd, "command %q must appear in --help output", cmd)
 	}
 
-	// completion + help land under Setup (cobra-auto-registered).
-	for _, cmd := range []string{"completion", "help"} {
+	// completion + help land under Setup (cobra-auto-registered),
+	// alongside init and skills.
+	for _, cmd := range []string{"completion", "help", "init", skillsUse} {
 		require.Contains(t, out, cmd)
 	}
 
