@@ -4,7 +4,6 @@ version: "2"
 run:
   timeout: 5m
   tests: true
-  go: "1.25"
 
 linters:
   default: none
@@ -323,7 +322,10 @@ formatters:
       local-prefixes:
         - github.com/wilfriedroset/a10r
     gofumpt:
-      extra-rules: true
+      extra:
+        group-params: true
+        clothe-returns: true
+        balance-calls: true
 
 issues:
   max-issues-per-linter: 0

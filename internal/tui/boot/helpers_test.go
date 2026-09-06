@@ -405,7 +405,8 @@ func writeDefaultKeys(t *testing.T, body string) string {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, config.KeysDir), 0o700))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, config.KeysDir, config.DefaultKeysProfile+".yaml"),
-		[]byte(body), 0o600))
+		[]byte(body), 0o600,
+	))
 	return dir
 }
 

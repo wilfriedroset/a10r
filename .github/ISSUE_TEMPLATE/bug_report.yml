@@ -24,7 +24,7 @@ body:
     attributes:
       label: Go version
       description: "Only if you built from source: output of `go version`."
-      placeholder: "go1.25.0"
+      placeholder: "go1.27.0"
     validations:
       required: false
 

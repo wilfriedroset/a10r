@@ -109,7 +109,8 @@ func silenceUpdate(
 ) error {
 	if !opts.hasMutation() {
 		return errors.New(
-			"nothing to update: pass at least one of --matcher, --starts, --ends, --comment, --created-by")
+			"nothing to update: pass at least one of --matcher, --starts, --ends, --comment, --created-by",
+		)
 	}
 
 	found, err := findSilences(ctx, errOut, cfg, build, id)

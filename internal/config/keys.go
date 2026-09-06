@@ -158,12 +158,14 @@ func assignKeys(out KeyOverrides, keyOwner map[string]keyBinding, action string,
 		if _, reserved := reservedKeys[kv.value]; reserved {
 			return fmt.Errorf(
 				"%w: %s:%d: %q attempts to bind reserved key %q (0-9 are reserved for tenant quick-switch)",
-				ErrKeyOverrideInvalid, source, kv.line, action, kv.value)
+				ErrKeyOverrideInvalid, source, kv.line, action, kv.value,
+			)
 		}
 		if prev, dup := keyOwner[kv.value]; dup && prev.action != action {
 			return fmt.Errorf(
 				"%w: %s:%d: key %q is also bound to action %q at line %d",
-				ErrKeyOverrideInvalid, source, kv.line, kv.value, prev.action, prev.line)
+				ErrKeyOverrideInvalid, source, kv.line, kv.value, prev.action, prev.line,
+			)
 		}
 		keyOwner[kv.value] = keyBinding{action: action, line: kv.line}
 		out[action] = append(out[action], kv.value)

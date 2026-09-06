@@ -138,7 +138,8 @@ func TestExpireSilence_RequiresID(t *testing.T) {
 	t.Parallel()
 
 	c := newTestClient(t, httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })))
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) },
+	)))
 	err := c.ExpireSilence(t.Context(), "")
 	require.Error(t, err)
 }

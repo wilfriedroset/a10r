@@ -87,8 +87,7 @@ func newEmittedError(code int, err error) error {
 // exitCodeFor extracts the declared exit code from err, defaulting to
 // ExitRuntimeError for a plain (untyped) error.
 func exitCodeFor(err error) int {
-	var ee *ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*ExitError](err); ok {
 		return ee.Code
 	}
 	return ExitRuntimeError

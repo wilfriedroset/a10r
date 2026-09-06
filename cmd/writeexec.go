@@ -57,22 +57,7 @@ func runWrites(
 	hint writeHint,
 	op writeOp,
 ) error {
-	beByName := make(map[string]config.Backend, len(cfg.Backends))
-	for _, be := range cfg.Backends {
-		beByName[be.Name] = be
-	}
-	clients := make(map[string]backend.Client, len(cfg.Backends))
-	clientFor := func(name string) (backend.Client, error) {
-		if c, ok := clients[name]; ok {
-			return c, nil
-		}
-		c, err := build(beByName[name])
-		if err != nil {
-			return nil, err
-		}
-		clients[name] = c
-		return c, nil
-	}
+	clientFor := newClientResolver(cfg, build)
 
 	// opErrs runs parallel to results: the typed error behind each op (or
 	// build) failure, nil for a success or a pre-known skip. It lets the
@@ -108,6 +93,29 @@ func runWrites(
 		}
 	}
 	return err
+}
+
+// newClientResolver returns a per-tenant client lookup, memoised because a
+// write batch routinely hits the same tenant many times and each build would
+// otherwise construct a fresh client, re-parsing the TLS config for a TLS
+// backend. Not concurrency-safe.
+func newClientResolver(cfg *config.Config, build listcmd.ClientFactory) func(string) (backend.Client, error) {
+	beByName := make(map[string]config.Backend, len(cfg.Backends))
+	for _, be := range cfg.Backends {
+		beByName[be.Name] = be
+	}
+	clients := make(map[string]backend.Client, len(cfg.Backends))
+	return func(name string) (backend.Client, error) {
+		if c, ok := clients[name]; ok {
+			return c, nil
+		}
+		c, err := build(beByName[name])
+		if err != nil {
+			return nil, err
+		}
+		clients[name] = c
+		return c, nil
+	}
 }
 
 // targetTenants returns the distinct tenant names in targets, preserving

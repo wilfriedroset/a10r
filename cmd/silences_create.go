@@ -210,7 +210,8 @@ func parseMatcherFlags(exprs []string) ([]backend.Matcher, error) {
 func matcherTargets(cfg *config.Config, opts silenceCreateOptions, explicitTenant bool, start, end time.Time, creator string) ([]writeTarget, error) {
 	if !explicitTenant && len(cfg.Backends) > 1 {
 		return nil, errors.New(
-			"--matcher create would target every configured backend; pass --tenant <name|all|a,b> to choose")
+			"--matcher create would target every configured backend; pass --tenant <name|all|a,b> to choose",
+		)
 	}
 	ms, err := parseMatcherFlags(opts.Matchers)
 	if err != nil {
@@ -353,7 +354,8 @@ func parseSilenceEnd(in string, start time.Time) (time.Time, error) {
 func ensureWritableTargets(globalReadOnly bool, cfg *config.Config, tenants []string) error {
 	if globalReadOnly {
 		return errors.New(
-			"read-only mode is active (--read-only / A10R_READ_ONLY / defaults.read_only); silence writes are disabled")
+			"read-only mode is active (--read-only / A10R_READ_ONLY / defaults.read_only); silence writes are disabled",
+		)
 	}
 	readOnly := make(map[string]bool, len(cfg.Backends))
 	for _, be := range cfg.Backends {
@@ -369,7 +371,8 @@ func ensureWritableTargets(globalReadOnly bool, cfg *config.Config, tenants []st
 		sort.Strings(ro)
 		return fmt.Errorf(
 			"read-only backend(s) in target set: %s; no silence was written (narrow --tenant to the writable set)",
-			strings.Join(ro, ", "))
+			strings.Join(ro, ", "),
+		)
 	}
 	return nil
 }

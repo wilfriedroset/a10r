@@ -52,7 +52,8 @@ func resolveWriteFormat(raw string, getenv func(string) string) (output.Format, 
 		return output.FormatYAML, nil
 	case string(output.FormatTable):
 		return "", errors.New(
-			"table output is not supported for write verbs; the default is tab-separated, or use --output=json or --output=yaml")
+			"table output is not supported for write verbs; the default is tab-separated, or use --output=json or --output=yaml",
+		)
 	default:
 		return "", fmt.Errorf("unknown output format %q (want json or yaml)", raw)
 	}

@@ -140,14 +140,12 @@ type Page struct {
 // New constructs an empty receivers page from the supplied Options.
 func New(opts Options) *Page {
 	p := &Page{
-		Base: listpage.Base{
-			Scope:         listpage.ScopeAll,
-			BackendHealth: map[string]listpage.BackendHealth{},
-			Tenants:       opts.Tenants,
-		},
-		styles:   opts.Styles,
-		byTenant: map[string][]string{},
-		sorter:   tablesort.New(receiverSortColumns(), sortKeyName),
+		Scope:         listpage.ScopeAll,
+		BackendHealth: map[string]listpage.BackendHealth{},
+		Tenants:       opts.Tenants,
+		styles:        opts.Styles,
+		byTenant:      map[string][]string{},
+		sorter:        tablesort.New(receiverSortColumns(), sortKeyName),
 	}
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
