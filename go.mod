@@ -1,6 +1,6 @@
 module github.com/wilfriedroset/a10r
 
-go 1.26.5
+go 1.27.1
 
 require (
 	charm.land/bubbles/v2 v2.2.1

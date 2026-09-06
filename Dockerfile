@@ -1,6 +1,6 @@
 # Standalone build-from-source image. Release images are built by
 # goreleaser from Dockerfile.goreleaser with the exact release binary.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -18,11 +18,11 @@ COPY main.go ./
 COPY cmd cmd
 COPY internal internal
 RUN go build -trimpath \
-      -ldflags="-s -w \
-        -X github.com/wilfriedroset/a10r/cmd.version=${VERSION} \
-        -X github.com/wilfriedroset/a10r/cmd.commit=${COMMIT} \
-        -X github.com/wilfriedroset/a10r/cmd.date=${DATE}" \
-      -o /out/a10r .
+    -ldflags="-s -w \
+    -X github.com/wilfriedroset/a10r/cmd.version=${VERSION} \
+    -X github.com/wilfriedroset/a10r/cmd.commit=${COMMIT} \
+    -X github.com/wilfriedroset/a10r/cmd.date=${DATE}" \
+    -o /out/a10r .
 
 # distroless/static over scratch: CA certs, tzdata, and the nonroot
 # user come from a maintained base that is rebuilt when they go stale.
