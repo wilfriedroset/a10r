@@ -273,16 +273,12 @@ func New(opts Options) *Page {
 		concurrency = config.DefaultBulkConcurrency
 	}
 	p := &Page{
-		Base: listpage.Base{
-			Scope:         listpage.ScopeAll,
-			BackendHealth: map[string]listpage.BackendHealth{},
-			Tenants:       opts.Tenants,
-		},
-		PollingUI: listpage.PollingUI{
-			PolledTenants: map[string]struct{}{},
-			NextRefresh:   map[string]time.Time{},
-			Spinner:       sp,
-		},
+		Scope:           listpage.ScopeAll,
+		BackendHealth:   map[string]listpage.BackendHealth{},
+		Tenants:         opts.Tenants,
+		PolledTenants:   map[string]struct{}{},
+		NextRefresh:     map[string]time.Time{},
+		Spinner:         sp,
 		styles:          opts.Styles,
 		now:             now,
 		clients:         opts.Clients,

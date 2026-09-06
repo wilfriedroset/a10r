@@ -1095,7 +1095,7 @@ func TestPage_HeaderColumnOrder(t *testing.T) {
 		Tenant: "prod",
 	})
 	out := testutil.StripStyle(p.View(220, 5))
-	headerLine := strings.Split(out, "\n")[0]
+	headerLine, _, _ := strings.Cut(out, "\n")
 	want := []string{"UUID", "BY", "COMMENT", "STARTS", "ENDS", "STATE"}
 	idxs := make([]int, len(want))
 	for i, label := range want {

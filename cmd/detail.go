@@ -14,7 +14,8 @@ import (
 // for --output=table. A single record has no row grid; the detail
 // verbs render the full nested payload as json or yaml instead.
 var errTableUnsupported = errors.New(
-	"table output is not supported for get; use --output=json or --output=yaml")
+	"table output is not supported for get; use --output=json or --output=yaml",
+)
 
 // resolveDetailFormat picks the output format for a detail (get)
 // command. Unlike the list commands, the TTY default is yaml (a record

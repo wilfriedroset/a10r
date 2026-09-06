@@ -713,7 +713,8 @@ func TestRunInit_DryRunDoesNotRequireForceOnExisting(t *testing.T) {
 	// Plant an existing config so the non-dry-run path would refuse.
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "a10r.yaml"),
-		[]byte("backends: []\n"), 0o600))
+		[]byte("backends: []\n"), 0o600,
+	))
 
 	var out bytes.Buffer
 	err := runInit(initIO{

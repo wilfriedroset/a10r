@@ -152,7 +152,6 @@ func containsUnitLetter(s string) bool {
 	return false
 }
 
-
 // formatMatchers renders matchers in the same one-per-line syntax
 // the user types manually so a prefilled form can be edited
 // without a special path. Inverse of matcher.Parse — the symmetry

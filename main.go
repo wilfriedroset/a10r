@@ -20,8 +20,7 @@ func main() {
 	// Translate typed exit errors to their declared code; plain errors
 	// fall through to ExitRuntimeError so cobra-default failures continue
 	// to exit 1. See cmd/exit.go and docs/end-users/exit-codes.md (ADR 0009).
-	var ee *cmd.ExitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*cmd.ExitError](err); ok {
 		os.Exit(ee.Code)
 	}
 	os.Exit(cmd.ExitRuntimeError)

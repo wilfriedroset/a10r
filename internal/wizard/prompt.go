@@ -147,7 +147,8 @@ func (p *Prompter) Choice(question string, choices []string, defaultValue string
 			return v, nil
 		}
 		fmt.Fprint(p.out, p.styler.Invalid(
-			fmt.Sprintf("%q is not one of %s", v, strings.Join(choices, ", "))))
+			fmt.Sprintf("%q is not one of %s", v, strings.Join(choices, ", ")),
+		))
 	}
 }
 
@@ -173,7 +174,8 @@ func (p *Prompter) Bool(question string, defaultValue bool) (bool, error) {
 			return false, nil
 		}
 		fmt.Fprint(p.out, p.styler.Invalid(
-			fmt.Sprintf("%q (want yes / no)", v)))
+			fmt.Sprintf("%q (want yes / no)", v),
+		))
 	}
 }
 

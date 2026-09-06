@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -73,7 +74,12 @@ Reference: https://github.com/wilfriedroset/a10r/tree/main/docs/end-users
 	rootCmd.SetCompletionCommandGroupID(groupSetup)
 	rootCmd.SetHelpCommandGroupID(groupSetup)
 
-	f := rootCmd.PersistentFlags()
+	registerGlobalFlags(rootCmd.PersistentFlags(), flags)
+
+	return rootCmd
+}
+
+func registerGlobalFlags(f *pflag.FlagSet, flags *GlobalFlags) {
 	f.StringVarP(&flags.ConfigPath, "config", "c", "",
 		"path to an explicit config file (overrides --config-dir)")
 	f.StringVar(&flags.ConfigDir, "config-dir", "",
@@ -98,8 +104,6 @@ Reference: https://github.com/wilfriedroset/a10r/tree/main/docs/end-users
 		"override defaults.poll_interval for this run (0 = use config value)")
 	f.StringVar(&flags.Theme, fieldTheme, "",
 		"override theme.name for this run (empty = use config value)")
-
-	return rootCmd
 }
 
 // persistentPreRun wraps the per-invocation reconcilers that need to

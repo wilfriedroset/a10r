@@ -98,20 +98,7 @@ func silenceExpire(
 	for _, id := range ids {
 		want[id] = true
 	}
-	results := fanOutBackends(ctx, cfg, build,
-		func(ctx context.Context, tenant string, c backend.Client) ([]expireHit, error) {
-			silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
-			if err != nil {
-				return nil, fmt.Errorf("list silences: %w", err)
-			}
-			var hits []expireHit
-			for _, s := range silences {
-				if want[s.ID] {
-					hits = append(hits, expireHit{tenant: tenant, id: s.ID, state: s.State})
-				}
-			}
-			return hits, nil
-		})
+	results := fanOutBackends(ctx, cfg, build, expireHitCollector(want))
 	failed, _ := emitBackendErrors(errOut, results)
 
 	targets, foundCount := expireTargets(ids, results, failed > 0)
@@ -142,6 +129,24 @@ func silenceExpire(
 			}
 			return t.id, nil
 		})
+}
+
+// expireHitCollector returns the fan-out step that finds the requested ids
+// among one tenant's silences.
+func expireHitCollector(want map[string]bool) func(context.Context, string, backend.Client) ([]expireHit, error) {
+	return func(ctx context.Context, tenant string, c backend.Client) ([]expireHit, error) {
+		silences, err := c.ListSilences(ctx, backend.SilenceFilter{})
+		if err != nil {
+			return nil, fmt.Errorf("list silences: %w", err)
+		}
+		var hits []expireHit
+		for _, s := range silences {
+			if want[s.ID] {
+				hits = append(hits, expireHit{tenant: tenant, id: s.ID, state: s.State})
+			}
+		}
+		return hits, nil
+	}
 }
 
 // expireTargets turns the per-backend hits into write targets: one per

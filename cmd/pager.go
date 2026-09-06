@@ -71,8 +71,7 @@ func (p *Pager) Close() error {
 	// that is a normal interactive exit, not a runtime failure.
 	// Treat *exec.ExitError silently and surface only true I/O
 	// problems (broken pipe, interrupted signal).
-	var ee *exec.ExitError
-	if errors.As(waitErr, &ee) {
+	if _, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 		waitErr = nil
 	}
 	return errors.Join(closeErr, waitErr)

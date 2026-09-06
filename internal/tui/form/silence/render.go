@@ -69,7 +69,8 @@ func (f *Form) renderView(width, height int) string {
 	}
 	inputWidth := max(
 		// -2 = leading prefix "▸ " or "  "
-		width-labelWidth-2, 10)
+		width-labelWidth-2, 10,
+	)
 	f.matchers.SetWidth(inputWidth)
 	f.starts.SetWidth(inputWidth)
 	f.ends.SetWidth(inputWidth)
