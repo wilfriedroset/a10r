@@ -200,10 +200,13 @@ func (p *Page) cycleStateFilter() {
 // distinct regex metas to compiled regex — matching the keybindings.md
 // /-prompt contract.
 func filterEntries(in []alertEntry, search, state string) []alertEntry {
-	if pred, ok := matcher.LabelPredicate(search); ok {
+	if pred, err := matcher.LabelPredicate(search); err == nil {
 		return filterByLabel(in, pred, state)
 	}
-	m := footer.NewMatcher(search)
+	// Recompute is the hot path: an uncompilable buffer keeps the
+	// substring fallback so the rows stay live. The chrome reports the
+	// error separately, via listpage.Base.FilterErr.
+	m, _ := footer.NewMatcher(search)
 	if m.MatchAll() && state == "" {
 		// `in` is recompute's local `flat` slice, consumed only by
 		// aggregate() which reads it without retaining it. Returning it

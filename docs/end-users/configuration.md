@@ -253,7 +253,9 @@ way.
 Recognised flags on the built-in aliases:
 
 - `:alerts` — `--state <active|suppressed|unprocessed>` pre-fills the `Shift+F`
-  state cycle; `--filter <substring>` pre-fills the `/` substring filter.
+  state cycle; `--filter <value>` pre-fills the `/` filter, in any mode the prompt
+  accepts. A value whose regex does not compile is rejected with a flash
+  and the page does not open.
   Bare positional tokens (e.g. the CLI-style `list`) are accepted and
   dropped so an alias can mirror the headless `a10r alerts list ...`
   shape without learning a TUI-specific dialect.

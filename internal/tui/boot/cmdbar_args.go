@@ -11,6 +11,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
 // alertsArgs is the parsed shape of `:alerts` cmdbar arguments. The
@@ -70,6 +71,9 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 			}
 			out.state = lower
 		case "filter":
+			if err := listpage.LabelFilterValidate(val); err != nil {
+				return alertsArgs{}, fmt.Errorf("--filter %q: %w", val, err)
+			}
 			out.filter = val
 		default:
 			return alertsArgs{}, fmt.Errorf("unknown flag --%s (accepted: --state, --filter)", key)

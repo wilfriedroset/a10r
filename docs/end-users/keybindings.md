@@ -35,6 +35,8 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
 
+When the buffer will not compile — a half-typed `^web(`, or a label matcher whose `=~` value is malformed — the title tag reads `[regex: <reason>]` or `[matcher: <reason>]` instead of the mode name, the rows stay on the last good filter, and `Enter` keeps the prompt open so you can fix the buffer. `Esc` still restores the filter you had before the prompt opened.
+
 ### What `/` actually matches against
 
 The match scope is wider than the visible columns by design — operators want to filter by attributes that aren't always in the table:

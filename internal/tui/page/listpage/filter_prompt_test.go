@@ -5,6 +5,7 @@ package listpage_test
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -130,4 +131,91 @@ func TestBase_HandleFilterPrompt_PanicsWithoutRecompute(t *testing.T) {
 		"listpage.Base.HandleFilterPrompt: Recompute callback not wired by page constructor",
 		func() { b.HandleFilterPrompt(footer.PromptOpenedMsg{Mode: footer.PromptFilter}) },
 	)
+}
+
+// TestBase_HandleFilterPrompt_InvalidBufferFreezesRows pins the
+// live-filter contract for malformed input: while the buffer cannot
+// compile the row set must not move, and the next keystroke that makes
+// it valid again recomputes and clears the error.
+func TestBase_HandleFilterPrompt_InvalidBufferFreezesRows(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		bad     func(string) tea.Msg
+		good    func(string) tea.Msg
+		wantPre bool
+	}{
+		{
+			name:    "changed",
+			bad:     func(v string) tea.Msg { return footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: v} },
+			good:    func(v string) tea.Msg { return footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: v} },
+			wantPre: true,
+		},
+		{
+			name:    "submitted",
+			bad:     func(v string) tea.Msg { return footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: v} },
+			good:    func(v string) tea.Msg { return footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: v} },
+			wantPre: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			calls := 0
+			snap := "seed"
+			b := &listpage.Base{
+				Filter:    "seed",
+				PreFilter: &snap,
+				Recompute: func() { calls++ },
+			}
+
+			b.HandleFilterPrompt(tc.bad("^web("))
+			require.Equal(t, "seed", b.Filter, "an uncompilable buffer must not become the filter")
+			require.Zero(t, calls, "an uncompilable buffer must not recompute")
+			require.EqualError(t, b.FilterErr, "regex: missing closing )")
+			require.NotNil(t, b.PreFilter, "the pre-prompt snapshot survives a rejected buffer")
+
+			b.HandleFilterPrompt(tc.good("^web.*"))
+			require.Equal(t, "^web.*", b.Filter)
+			require.Equal(t, 1, calls)
+			require.NoError(t, b.FilterErr, "a buffer that compiles again clears the error")
+			require.Equal(t, tc.wantPre, b.PreFilter != nil)
+		})
+	}
+}
+
+// TestBase_HandleFilterPrompt_OpenAndCancelClearFilterErr pins that a
+// stale error never outlives the prompt session that produced it.
+func TestBase_HandleFilterPrompt_OpenAndCancelClearFilterErr(t *testing.T) {
+	t.Parallel()
+
+	for _, msg := range []tea.Msg{
+		footer.PromptOpenedMsg{Mode: footer.PromptFilter},
+		footer.PromptCancelledMsg{Mode: footer.PromptFilter},
+	} {
+		b := &listpage.Base{Recompute: func() {}}
+		b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "^web("})
+		require.Error(t, b.FilterErr)
+		b.HandleFilterPrompt(msg)
+		require.NoError(t, b.FilterErr)
+	}
+}
+
+// TestBase_HandleFilterPrompt_LabelValidatorRejectsMatcherRegex covers
+// the alerts / group-detail wiring: a label selector whose regex will
+// not compile is a matcher-kind error, not a text search.
+func TestBase_HandleFilterPrompt_LabelValidatorRejectsMatcherRegex(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	b := &listpage.Base{
+		Recompute:      func() { calls++ },
+		FilterValidate: listpage.LabelFilterValidate,
+	}
+	b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: `a=~"("`})
+	require.Zero(t, calls)
+	require.Empty(t, b.Filter)
+	require.EqualError(t, b.FilterErr, `matcher: compile regex "(": missing closing )`)
 }

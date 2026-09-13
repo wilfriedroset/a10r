@@ -146,12 +146,11 @@ func (a *App) renderBody(height int) string {
 		// so the user gets feedback that a leading sigil (or a
 		// regex-y body) changed the matcher. Substring — the
 		// default — stays untagged to keep the common case quiet.
+		// A buffer that will not parse swaps that tag for the reason.
 		if a.prompt.IsOpen() && a.prompt.Mode() == footer.PromptFilter {
 			value := a.prompt.Value()
 			title += " </" + value + ">"
-			if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {
-				title += " [" + mode.String() + "]"
-			}
+			title += a.filterTag(p, value)
 		}
 		subtitle := p.HeaderContent()
 		if subtitle != "" {
@@ -201,4 +200,21 @@ func linesIn(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
+}
+
+// filterTag renders the title's trailing `[…]` segment for an open
+// filter prompt: the parse reason when the page rejects the buffer,
+// the auto-detected mode otherwise, and nothing for plain substring.
+// The error variant is warn-tinted so it reads as a problem, not a
+// mode label.
+func (a *App) filterTag(p Page, value string) string {
+	if t, ok := p.(filterAware); ok {
+		if err := t.FilterError(); err != nil {
+			return " " + a.styles.Flash.Warn.Render("["+err.Error()+"]")
+		}
+	}
+	if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {
+		return " [" + mode.String() + "]"
+	}
+	return ""
 }

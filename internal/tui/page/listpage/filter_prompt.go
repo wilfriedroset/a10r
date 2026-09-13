@@ -11,9 +11,11 @@ import (
 // HandleFilterPrompt centralises the filter-prompt lifecycle so each
 // page's Update stays focused on its typed data. On open it snapshots
 // then clears the filter so the user types against the unfiltered
-// list; cancel restores that snapshot. Command-mode prompts pass
-// through unchanged — pages only own filter mode here. Panics on nil
-// Recompute, which a constructor must wire before any prompt arrives.
+// list; cancel restores that snapshot. A buffer that does not parse
+// freezes the rows on the last good filter until it does. Command-mode
+// prompts pass through unchanged — pages only own filter mode here.
+// Panics on nil Recompute, which a constructor must wire before any
+// prompt arrives.
 func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 	if b.Recompute == nil {
 		panic("listpage.Base.HandleFilterPrompt: Recompute callback not wired by page constructor")
@@ -23,6 +25,7 @@ func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 		if m.Mode != footer.PromptFilter {
 			return
 		}
+		b.FilterErr = nil
 		snap := b.Filter
 		b.PreFilter = &snap
 		if b.Filter != "" {
@@ -30,24 +33,36 @@ func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 			b.Recompute()
 		}
 	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter {
+		if m.Mode != footer.PromptFilter || b.rejectFilter(m.Value) {
 			return
 		}
 		b.Filter = m.Value
 		b.Recompute()
 	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter {
+		if m.Mode != footer.PromptFilter || b.rejectFilter(m.Value) {
 			return
 		}
 		b.Filter = m.Value
 		b.PreFilter = nil
 		b.Recompute()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter || b.PreFilter == nil {
+		if m.Mode != footer.PromptFilter {
+			return
+		}
+		b.FilterErr = nil
+		if b.PreFilter == nil {
 			return
 		}
 		b.Filter = *b.PreFilter
 		b.PreFilter = nil
 		b.Recompute()
 	}
+}
+
+// rejectFilter records why s cannot be applied and reports whether the
+// caller must leave the rows alone. Clears a previous error on success
+// so the keystroke that fixes the buffer also un-warns the chrome.
+func (b *Base) rejectFilter(s string) bool {
+	b.FilterErr = b.ValidateFilter(s)
+	return b.FilterErr != nil
 }

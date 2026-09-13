@@ -31,6 +31,13 @@ var ErrMissingOperator = errors.New("missing operator (=, !=, =~, !~)")
 // `name<op>value` shape.
 var ErrIncompleteMatcher = errors.New("matcher must be name<op>value")
 
+// ErrNotMatcher is returned by LabelPredicate when s is not a label
+// selector at all — empty, carrying a footer text-mode sigil, or with
+// a segment that has no operator. It is the caller's cue to fall back
+// to text search, not a failure to report to the user; a selector
+// whose regex will not compile returns that compile error instead.
+var ErrNotMatcher = errors.New("not a label matcher")
+
 type opDef struct {
 	s       string
 	isRegex bool
@@ -91,7 +98,7 @@ func ParseOne(s string) (backend.Matcher, error) {
 }
 
 // LabelPredicate parses s as one or more label matchers and returns a
-// predicate over a label set plus ok=true, for filtering a list by a
+// predicate over a label set, for filtering a list by a
 // Prometheus-style selector (`cluster_id=99`, `cluster_id=~9.*`,
 // `cluster_id!=99`, `cluster_id!~prod-.*`). Multiple matchers are
 // separated by `,` (or `&&`) and ANDed — `cluster_id=99,role=consul`
@@ -99,39 +106,40 @@ func ParseOne(s string) (backend.Matcher, error) {
 // value is literal, not a separator, so a regex value can carry one:
 // `cluster_id=~"(a,b)"` (quote-aware, like Prometheus).
 //
-// It returns (nil, false) — telling the caller to fall back to its
+// It returns ErrNotMatcher — telling the caller to fall back to its
 // substring / fuzzy / regex text search — when s carries the footer
 // prompt's text-mode sigils (a leading `~` for fuzzy or `\` for
 // literal), or when ANY segment fails to parse as a matcher (no
-// operator, e.g. a bare word) or carries an uncompilable regex. The
-// all-or-nothing rule keeps a plain text query like `foo,bar` in text
-// mode and degrades a half-typed pattern to text search rather than
-// dropping every row.
+// operator, e.g. a bare word). The all-or-nothing rule keeps a plain
+// text query like `foo,bar` in text mode. When every segment parses
+// but a `=~` / `!~` value will not compile, the compile error comes
+// back instead: that is a selector the user meant and got wrong, so
+// the chrome reports it rather than silently searching for the text.
 //
 // Each `=~` / `!~` regex is compiled ONCE here and fully anchored
 // (`^(?:…)$`) so it matches whole label values — the same semantics
 // Alertmanager applies server-side. A label absent from the set reads
 // as the empty value, so `name!=v` matches series without the label
 // (standard Prometheus behaviour).
-func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
+func LabelPredicate(s string) (func(labels map[string]string) bool, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return nil, false
+		return nil, ErrNotMatcher
 	}
 	switch s[0] {
 	case '~', '\\':
-		return nil, false
+		return nil, ErrNotMatcher
 	}
 	segments := splitMatchers(s)
 	preds := make([]func(map[string]string) bool, 0, len(segments))
 	for _, seg := range segments {
 		m, err := ParseOne(strings.TrimSpace(seg))
 		if err != nil {
-			return nil, false
+			return nil, ErrNotMatcher
 		}
 		pred, err := matcherPredicate(m)
 		if err != nil {
-			return nil, false
+			return nil, err
 		}
 		preds = append(preds, pred)
 	}
@@ -142,7 +150,7 @@ func LabelPredicate(s string) (func(labels map[string]string) bool, bool) {
 			}
 		}
 		return true
-	}, true
+	}, nil
 }
 
 // splitMatchers breaks a multi-matcher selector into its segments on
@@ -184,8 +192,7 @@ func splitMatchers(s string) []string {
 }
 
 // matcherPredicate compiles a single matcher into a label predicate,
-// returning an error only when a regex matcher's pattern won't compile
-// (the caller treats that as "not a label matcher", per LabelPredicate).
+// returning an error only when a regex matcher's pattern won't compile.
 func matcherPredicate(m backend.Matcher) (func(labels map[string]string) bool, error) {
 	if !m.IsRegex {
 		return func(labels map[string]string) bool {

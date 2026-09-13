@@ -93,7 +93,7 @@ func (p *Page) scopedEntries() []silenceEntry {
 // runs once per ingest (composite cache) and once per recompute
 // (matcher needle), not once per keystroke per entry.
 func filterSilences(in []silenceEntry, query string) []silenceEntry {
-	matcher := footer.NewMatcher(query)
+	matcher, _ := footer.NewMatcher(query)
 	if matcher.MatchAll() {
 		// Clone to keep the filter output independent of the caller's
 		// input slice — downstream mutations on the view (cursor

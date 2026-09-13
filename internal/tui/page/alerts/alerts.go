@@ -384,6 +384,7 @@ func New(opts Options) *Page {
 		editorCtx:       opts.EditorCtx,
 	}
 	p.Recompute = p.recompute
+	p.FilterValidate = listpage.LabelFilterValidate
 	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }

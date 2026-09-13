@@ -108,6 +108,15 @@ type Prompt struct {
 	// function of cached state.
 	suggestion string
 
+	// validator rejects a filter buffer that cannot be applied, so
+	// Enter on malformed input keeps the prompt open for editing
+	// instead of storing a filter nothing can use. Attached at open
+	// time by the App because the rules belong to the active page.
+	// nil disables gating; consulted only in filter mode. Dropped
+	// with the buffer on close, so the closure stops pinning the
+	// page it was bound to.
+	validator func(string) error
+
 	// history is the recent-submissions ring backing the
 	// Up/Down/Tab/Shift-Tab cycle keys. Attached at Open() time by
 	// the App because the right ring depends on the active page
@@ -130,7 +139,7 @@ func NewPrompt(suggester func(string) string) Prompt {
 // a value type. The previously-attached history (if any) stays
 // detached — call OpenWithHistory to enable Up/Down/Tab cycling.
 func (p Prompt) Open(mode PromptMode) Prompt {
-	return p.OpenWithHistory(mode, nil)
+	return p.OpenWithHistory(mode, nil, nil)
 }
 
 // OpenWithHistory opens the prompt and attaches a History ring so
@@ -138,12 +147,14 @@ func (p Prompt) Open(mode PromptMode) Prompt {
 // through prior submissions for the relevant matcher class. Pass
 // nil to open without cycling. The supplied ring is reset so a
 // fresh prompt session starts uncycled regardless of where the
-// previous user left off.
-func (p Prompt) OpenWithHistory(mode PromptMode, history *History) Prompt {
+// previous user left off. validator gates Enter in filter mode; pass
+// nil to accept any buffer.
+func (p Prompt) OpenWithHistory(mode PromptMode, history *History, validator func(string) error) Prompt {
 	p.open = true
 	p.mode = mode
 	p.value = ""
 	p.suggestion = ""
+	p.validator = validator
 	p.history = history
 	p.history.Reset()
 	return p
@@ -158,6 +169,7 @@ func (p Prompt) Close() Prompt {
 	p.suggestion = ""
 	p.history.Reset()
 	p.history = nil
+	p.validator = nil
 	return p
 }
 
@@ -226,13 +238,22 @@ func (p Prompt) Update(msg tea.Msg) (Prompt, tea.Cmd) {
 
 // submit closes the prompt, stashes the entry in history, and
 // emits PromptSubmittedMsg with the value captured at submit time.
+// A filter buffer the validator rejects is not a submission at all:
+// the prompt stays open with the buffer intact, nothing reaches
+// history, and the reason surfaces as a warning flash.
 func (p Prompt) submit() (Prompt, tea.Cmd) {
+	if p.mode == PromptFilter && p.validator != nil {
+		if err := p.validator(p.value); err != nil {
+			return p, ShowFlash(FlashWarn, "filter: "+err.Error())
+		}
+	}
 	submitted, mode := p.value, p.mode
 	p.history.Append(submitted)
 	p.open = false
 	p.value = ""
 	p.suggestion = ""
 	p.history = nil
+	p.validator = nil
 	return p, func() tea.Msg { return PromptSubmittedMsg{Mode: mode, Value: submitted} }
 }
 
@@ -246,6 +267,7 @@ func (p Prompt) cancel() (Prompt, tea.Cmd) {
 	p.value = ""
 	p.suggestion = ""
 	p.history = nil
+	p.validator = nil
 	return p, func() tea.Msg { return PromptCancelledMsg{Mode: mode} }
 }
 

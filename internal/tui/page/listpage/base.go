@@ -26,7 +26,15 @@ type Base struct {
 	// cancel. Nil iff no filter prompt is open — relies on the App
 	// auto-forwarding PromptOpenedMsg to the top page.
 	PreFilter *string
-	Scope     string
+	// FilterErr is non-nil while the open prompt buffer cannot be
+	// applied. The rows stay on the last good filter and the chrome
+	// renders the reason in place of the mode tag.
+	FilterErr error
+	// FilterValidate judges a prompt buffer for this page. Nil means
+	// text-only grammar; the alerts list and group detail inject
+	// LabelFilterValidate because they also accept label selectors.
+	FilterValidate func(string) error
+	Scope          string
 	// Paused suppresses the recompute branch on poll.DataMsg so the
 	// table stops updating under the cursor mid-read. Toggled by `w`.
 	Paused bool
@@ -59,3 +67,17 @@ type Base struct {
 	// falls through — see ADR-0018.
 	ClearMarks func() tea.Cmd
 }
+
+// ValidateFilter reports why s cannot be applied as this page's
+// filter, or nil when it can. Doubles as the prompt's Enter-time gate.
+func (b *Base) ValidateFilter(s string) error {
+	if b.FilterValidate != nil {
+		return b.FilterValidate(s)
+	}
+	return textFilterValidate(s)
+}
+
+// FilterError exposes the unusable-buffer reason to the app chrome,
+// which cannot read the field directly: listpage imports app, not the
+// reverse, so the seam has to be a method.
+func (b *Base) FilterError() error { return b.FilterErr }

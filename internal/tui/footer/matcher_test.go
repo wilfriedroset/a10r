@@ -3,6 +3,9 @@
 package footer
 
 import (
+	"errors"
+	"fmt"
+	"regexp/syntax"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,7 +43,8 @@ func TestMatcher_ModeAndMatch(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			m := NewMatcher(tc.input)
+			m, err := NewMatcher(tc.input)
+			require.NoError(t, err)
 			require.Equal(t, tc.wantMode, m.Mode())
 			require.Equal(t, tc.wantMatch, m.Match(haystack))
 		})
@@ -55,7 +59,8 @@ func TestMatcher_ModeAndMatch(t *testing.T) {
 func TestMatcher_MatchAllShortCircuits(t *testing.T) {
 	t.Parallel()
 
-	m := NewMatcher("")
+	m, err := NewMatcher("")
+	require.NoError(t, err)
 	require.True(t, m.MatchAll())
 	require.Equal(t, SearchSubstring, m.Mode())
 	require.True(t, m.Match("anything goes"))
@@ -70,7 +75,8 @@ func TestMatcher_MatchAllShortCircuits(t *testing.T) {
 func TestMatcher_LiteralEscapesRegexBody(t *testing.T) {
 	t.Parallel()
 
-	m := NewMatcher(`\(prod|stg)`)
+	m, err := NewMatcher(`\(prod|stg)`)
+	require.NoError(t, err)
 	require.Equal(t, SearchLiteral, m.Mode())
 	// Hits the literal text.
 	require.True(t, m.Match("alert (prod|stg) detail"))
@@ -89,7 +95,8 @@ func TestMatcher_RegexFallsBackOnCompileFailure(t *testing.T) {
 	// `[abc` has two distinct metas (`[` and `c` doesn't count, but
 	// the `[` plus the unmatched-bracket compilation error trips the
 	// fallback path). Using `(*` to make compile failure deterministic.
-	m := NewMatcher("(*+")
+	m, err := NewMatcher("(*+")
+	require.Error(t, err)
 	require.Equal(t, SearchSubstring, m.Mode())
 	// Substring on the lower-cased original input — pages pass
 	// lower-cased haystacks, so we expect the literal characters
@@ -105,7 +112,8 @@ func TestMatcher_RegexFallsBackOnCompileFailure(t *testing.T) {
 func TestMatcher_RegexIsCaseInsensitive(t *testing.T) {
 	t.Parallel()
 
-	m := NewMatcher("^web.*api")
+	m, err := NewMatcher("^web.*api")
+	require.NoError(t, err)
 	require.Equal(t, SearchRegex, m.Mode())
 	// Pages feed lower-cased haystacks; the (?i) flag means an
 	// upper-case pattern would still match against the lower body.
@@ -136,6 +144,78 @@ func TestFuzzyMatch_RuneSafe(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.want, fuzzyMatch([]rune(tc.needle), tc.haystck))
+		})
+	}
+}
+
+// TestNewMatcher_CompileError pins the error contract the chrome
+// builds on: a regex-mode buffer that will not compile hands back the
+// regexp/syntax error unwrapped, so callers can inspect it, alongside
+// a usable substring fallback for the hot recompute paths that ignore
+// the error and keep the view live.
+func TestNewMatcher_CompileError(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		input    string
+		wantCode syntax.ErrorCode
+	}{
+		{name: "half-typed group", input: "^web(", wantCode: syntax.ErrMissingParen},
+		{name: "unbalanced character class", input: "^web[a", wantCode: syntax.ErrMissingBracket},
+		{name: "valid two-meta pattern", input: "^web.*"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m, err := NewMatcher(tc.input)
+			if tc.wantCode == "" {
+				require.NoError(t, err)
+				require.Equal(t, SearchRegex, m.Mode())
+				return
+			}
+			var se *syntax.Error
+			require.ErrorAs(t, err, &se, "the regexp/syntax error survives for errors.As")
+			require.Equal(t, tc.wantCode, se.Code)
+			require.Equal(t, SearchSubstring, m.Mode(),
+				"the fallback matcher is still usable by callers that ignore the error")
+		})
+	}
+}
+
+// TestRegexErrText pins the chrome rendering: the syntax error's own
+// decoration goes (Go's prefix and the echo of the internally
+// rewritten pattern), any wrapper context stays, and a buffer that
+// happens to contain the prefix as literal text is not mangled.
+func TestRegexErrText(t *testing.T) {
+	t.Parallel()
+
+	_, compileErr := NewMatcher("^web(")
+
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil error renders empty"},
+		{name: "bare compile error", err: compileErr, want: "missing closing )"},
+		{
+			name: "wrapper context survives",
+			err:  fmt.Errorf("compile regex %q: %w", "(", compileErr),
+			want: `compile regex "(": missing closing )`,
+		},
+		{
+			name: "a non-syntax error passes through verbatim",
+			err:  errors.New("error parsing regexp: not really"),
+			want: "error parsing regexp: not really",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, RegexErrText(tc.err))
 		})
 	}
 }

@@ -3,7 +3,9 @@
 package footer
 
 import (
+	"errors"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 )
 
@@ -37,17 +39,20 @@ type Matcher struct {
 
 // NewMatcher classifies input and compiles the predicate. Empty
 // buffer yields a match-everything matcher. A regex-mode buffer
-// that fails to compile downgrades to substring on the original
-// text — the user sees something matching while they type rather
-// than the view freezing on the last good keystroke.
+// that fails to compile yields the regexp/syntax error AND a
+// substring matcher over the original text: the fallback is the
+// caller's choice, not a silent degrade. Hot recompute paths keep
+// taking it so the view stays live while the user types; chrome that
+// reports the buffer back to the user reads the error instead, via
+// RegexErrText.
 //
 // The needle is lower-cased once at construction so Match can stay
 // allocation-free per row. Callers feed Match a haystack they have
 // already lower-cased (the page-level lowerComposite cache is the
 // canonical example).
-func NewMatcher(input string) Matcher {
+func NewMatcher(input string) (Matcher, error) {
 	if input == "" {
-		return Matcher{matchAll: true}
+		return Matcher{matchAll: true}, nil
 	}
 	mode, raw := TrimSearchPrefix(input)
 	switch mode {
@@ -59,19 +64,38 @@ func NewMatcher(input string) Matcher {
 		// user's buffer still work because they're prefix-additive.
 		re, err := regexp.Compile("(?i)" + raw)
 		if err != nil {
-			// Compilation failed — fall back to substring on the raw
-			// (un-stripped) buffer so the user keeps seeing live
-			// feedback rather than a frozen view.
-			return Matcher{mode: SearchSubstring, needle: strings.ToLower(input)}
+			// Bare on purpose: the chrome names the grammar itself
+			// (listpage.FilterError tags it `regex:`), so a wrap here
+			// would double that in every surface that reports it.
+			//nolint:wrapcheck // see above
+			return Matcher{mode: SearchSubstring, needle: strings.ToLower(input)}, err
 		}
-		return Matcher{mode: SearchRegex, re: re}
+		return Matcher{mode: SearchRegex, re: re}, nil
 	case SearchFuzzy:
 		needle := strings.ToLower(raw)
-		return Matcher{mode: SearchFuzzy, needle: needle, needleRunes: []rune(needle)}
+		return Matcher{mode: SearchFuzzy, needle: needle, needleRunes: []rune(needle)}, nil
 	case SearchLiteral, SearchSubstring:
-		return Matcher{mode: mode, needle: strings.ToLower(raw)}
+		return Matcher{mode: mode, needle: strings.ToLower(raw)}, nil
 	}
-	return Matcher{mode: SearchSubstring, needle: strings.ToLower(raw)}
+	return Matcher{mode: SearchSubstring, needle: strings.ToLower(raw)}, nil
+}
+
+// RegexErrText renders err for a title tag that has one line of
+// room: the syntax error's own decoration — Go's `error parsing
+// regexp: ` prefix and the trailing echo of the pattern — is traded
+// for that room, since the buffer is already on screen in the title's
+// `</…>` segment and the echo would show the internally rewritten
+// form (`(?i)…`, `^(?:…)$`) rather than what the user typed. Wrapper
+// context around the syntax error survives.
+func RegexErrText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var se *syntax.Error
+	if !errors.As(err, &se) {
+		return err.Error()
+	}
+	return strings.Replace(err.Error(), se.Error(), se.Code.String(), 1)
 }
 
 // Mode returns the detected search mode for header / chrome

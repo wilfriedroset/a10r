@@ -193,18 +193,58 @@ func TestLabelPredicate(t *testing.T) {
 		{name: "literal sigil is text mode", input: `\foo=1`, ok: false},
 		{name: "leading operator is text mode", input: "=99", ok: false},
 		{name: "empty is text mode", input: "", ok: false},
-		{name: "uncompilable regex falls back to text", input: "cluster_id=~[", ok: false},
+		{name: "uncompilable regex is an error", input: "cluster_id=~[", ok: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			pred, ok := matcher.LabelPredicate(tt.input)
-			require.Equal(t, tt.ok, ok, "label-vs-text classification")
+			pred, err := matcher.LabelPredicate(tt.input)
 			if !tt.ok {
+				require.Error(t, err, "label-vs-text classification")
 				require.Nil(t, pred)
 				return
 			}
+			require.NoError(t, err, "label-vs-text classification")
 			require.Equal(t, tt.matches, pred(tt.labels))
+		})
+	}
+}
+
+// TestLabelPredicate_ErrorKinds separates the two failure modes the
+// callers act on differently: a buffer that is not a selector at all
+// falls through to text search, while a selector whose regex will not
+// compile is a real error the chrome surfaces.
+func TestLabelPredicate_ErrorKinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		input      string
+		notMatcher bool
+		wantMsg    string
+	}{
+		{name: "bare word is not a matcher", input: "web", notMatcher: true},
+		{name: "empty is not a matcher", input: "", notMatcher: true},
+		{name: "fuzzy sigil is not a matcher", input: "~foo", notMatcher: true},
+		{name: "literal sigil is not a matcher", input: `\foo=1`, notMatcher: true},
+		{name: "mixed matcher and bare word is not a matcher", input: "cluster_id=99,foo", notMatcher: true},
+		{name: "uncompilable regex value is a real error", input: `a=~"("`, wantMsg: `compile regex "(": error parsing regexp: missing closing ): ` + "`^(?:()$`"},
+		{name: "uncompilable not-regex value is a real error", input: "a!~[", wantMsg: "compile regex \"[\": error parsing regexp: missing closing ]: `[)$`"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pred, err := matcher.LabelPredicate(tc.input)
+			require.Nil(t, pred)
+			require.Error(t, err)
+			if tc.notMatcher {
+				require.ErrorIs(t, err, matcher.ErrNotMatcher)
+				return
+			}
+			require.NotErrorIs(t, err, matcher.ErrNotMatcher,
+				"a compile failure must not read as text-mode fallback")
+			require.Equal(t, tc.wantMsg, err.Error())
 		})
 	}
 }

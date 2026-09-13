@@ -299,7 +299,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // (substring / fuzzy / literal / regex) by footer.NewMatcher.
 func (p *Page) recompute() {
 	flat := p.flatten()
-	matcher := footer.NewMatcher(p.Filter)
+	matcher, _ := footer.NewMatcher(p.Filter)
 	if matcher.MatchAll() {
 		p.view = flat
 	} else {

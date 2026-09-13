@@ -114,10 +114,10 @@ func (p *Page) cycleStateFilter() {
 // when nothing filters (recompute owns the slice) to avoid an O(N)
 // copy every poll tick.
 func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
-	if pred, ok := matcher.LabelPredicate(search); ok {
+	if pred, err := matcher.LabelPredicate(search); err == nil {
 		return filterByLabel(in, pred, state)
 	}
-	m := footer.NewMatcher(search)
+	m, _ := footer.NewMatcher(search)
 	if m.MatchAll() && state == "" {
 		return in
 	}

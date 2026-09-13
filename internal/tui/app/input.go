@@ -262,12 +262,25 @@ func (a *App) activePageBindings() []action.Action {
 func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
 	return func() tea.Cmd {
 		hist := a.histories.historyFor(mode, a.activeViewLabel())
-		a.prompt = a.prompt.OpenWithHistory(mode, hist)
+		var gate func(string) error
+		if fa, ok := a.topPage().(filterAware); ok && mode == footer.PromptFilter {
+			gate = fa.ValidateFilter
+		}
+		a.prompt = a.prompt.OpenWithHistory(mode, hist, gate)
 		if mode == footer.PromptFilter {
 			return func() tea.Msg { return footer.PromptOpenedMsg{Mode: mode} }
 		}
 		return nil
 	}
+}
+
+// filterAware is the optional seam a list page implements to veto a
+// `/` buffer it cannot apply and to report why in the chrome. Declared
+// here rather than taken from the page package because listpage
+// imports app, not the reverse.
+type filterAware interface {
+	ValidateFilter(buffer string) error
+	FilterError() error
 }
 
 // handleInput covers the input pipeline: prompt results, paste,

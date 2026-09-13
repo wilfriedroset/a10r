@@ -445,6 +445,27 @@ func sgrFor(t *testing.T, rendered string) string {
 	return rendered[loc[0]:loc[1]]
 }
 
+// TestRenderBody_PreStyledTitleTruncatesByVisibleWidth pins the
+// SGR-aware clamp on the title: the app warn-tints the filter-error
+// tag, so an over-long title arriving with escape bytes must be
+// measured by its visible glyphs and must never be cut mid-sequence.
+func TestRenderBody_PreStyledTitleTruncatesByVisibleWidth(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	title := "alerts(all)[2] </^web(> " + styles.Flash.Warn.Render("[regex: missing closing )]")
+
+	top, _, _ := strings.Cut(RenderBody(48, 4, "row", title, "", styles), "\n")
+	visible := plain(top)
+
+	require.Equal(t, 48, lipgloss.Width(top), "the clamped title still fills exactly one row")
+	require.NotContains(t, visible, "\x1b",
+		"a cut inside a CSI sequence would leave escape bytes in the border")
+	require.Contains(t, visible, "alerts(all)[2] </^web(> [regex",
+		"escape bytes must not spend the visible width budget")
+	require.True(t, strings.HasPrefix(visible, "┌"))
+	require.True(t, strings.HasSuffix(visible, "┐"))
+}
+
 func TestRenderBody_FooterInBottomBorder(t *testing.T) {
 	t.Parallel()
 	// The footer label sits in the bottom border the same way the

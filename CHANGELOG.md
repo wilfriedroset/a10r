@@ -8,6 +8,13 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Invalid filter feedback** — a `/` buffer whose regex does not
+  compile now shows the reason in the title tag and leaves the rows
+  alone, instead of silently searching for the literal text. Enter
+  keeps the prompt open; Esc restores the previous filter. The same
+  rule covers the label-matcher form (`cluster_id=~9.*`) and the
+  `:alerts --filter` value, which now refuses a pattern it cannot
+  compile.
 - **Docker images** — multi-arch (amd64, arm64) distroless images
   pushed to `ghcr.io/wilfriedroset/a10r` by the release pipeline,
   plus a standalone build-from-source `Dockerfile`.

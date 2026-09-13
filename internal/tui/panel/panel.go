@@ -520,7 +520,10 @@ func buildLabelBorder(innerWidth int, label, leftCorner, rightCorner string, sty
 		return border.Render(leftCorner + strings.Repeat("─", innerWidth) + rightCorner)
 	}
 	if lipgloss.Width(label)+4 > innerWidth {
-		label = format.Truncate(label, innerWidth-4)
+		// Titles can arrive pre-styled (the app warn-tints the filter
+		// error tag), so the clamp has to skip escape bytes rather
+		// than spend width on them and cut mid-sequence.
+		label = format.SGRTruncate(label, innerWidth-4)
 	}
 	styled := styleTitle(label, styles)
 	wrapped := " " + styled + " "
