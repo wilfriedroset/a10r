@@ -38,6 +38,7 @@ Every commit triggers:
 - `gofumpt` formatting.
 - SPDX license header on every Go file.
 - Trailing whitespace, EOF, merge conflicts, private keys.
+- `zizmor` on the GitHub Actions workflows and `dependabot.yml`.
 
 Run the whole suite manually with `prek -a`.
 
