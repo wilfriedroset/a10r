@@ -169,6 +169,17 @@ up illegible. The `acme-*` family also reuses
 focus" is the same brand colour on both the breadcrumb pill and
 the selected table row.
 
+**`frame.title.filterColor` reaches the body.** The row renderer
+paints the characters that made a row survive the `/` filter, and
+it reuses the title filter colour (bolded) for them rather than
+adding a body role of its own — a k9s skin stays drop-in (ADR
+0030), and a skin that sets `filterColor` sees it in two places.
+Pick a colour that reads against `views.table.bgColor` as well as
+against the title strip. It falls back to
+`frame.title.highlightColor` when unset. On the cursor row, a
+marked row and a dimmed row the match is underlined instead, so no
+skin colour is needed there.
+
 ---
 
 ## Transparent variant: derivation rule

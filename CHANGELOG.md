@@ -8,6 +8,13 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Filter match highlighting** — the characters that made a row
+  survive the `/` filter are painted in the skin filter colour on the
+  alerts, silences and receivers lists. Substring, literal, fuzzy and
+  regex modes all paint. The cursor row, a marked row and a dimmed
+  row underline the match instead, so the row keeps its own
+  colour. A label matcher paints nothing: it matches on label
+  structure rather than on the rendered text.
 - **Invalid filter feedback** — a `/` buffer whose regex does not
   compile now shows the reason in the title tag and leaves the rows
   alone, instead of silently searching for the literal text. Enter

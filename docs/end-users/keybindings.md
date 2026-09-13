@@ -35,6 +35,8 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
 
+The characters that made a row match are painted in the skin's filter colour (`frame.title.filterColor`); on the cursor row, a marked row and a dimmed row they are underlined instead, so the row keeps its own colour. A row kept by a match the table does not show — an annotation, a hidden label — is listed without any painted characters, and a label matcher paints nothing at all, because it matches on label structure rather than on the rendered text.
+
 When the buffer will not compile — a half-typed `^web(`, or a label matcher whose `=~` value is malformed — the title tag reads `[regex: <reason>]` or `[matcher: <reason>]` instead of the mode name, the rows stay on the last good filter, and `Enter` keeps the prompt open so you can fix the buffer. `Esc` still restores the filter you had before the prompt opened.
 
 ### What `/` actually matches against

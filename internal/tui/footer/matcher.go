@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"regexp/syntax"
 	"strings"
+	"unicode/utf8"
 )
 
 // Matcher is the compiled-once predicate for a `/`-prompt buffer.
@@ -133,6 +134,83 @@ func (m Matcher) Match(haystack string) bool {
 		return strings.Contains(haystack, m.needle)
 	}
 	return false
+}
+
+// MatchSpans returns the byte ranges of haystack — already
+// lower-cased by the caller, as Match takes it — that made the
+// predicate say yes, or nil when it said no. The renderer paints
+// those ranges in the filter colour.
+//
+// Substring and literal report the first occurrence, regex reports
+// every occurrence, and fuzzy reports one range per matched rune with
+// adjacent runes merged into a single range. Match stays the hot-path
+// predicate: pages call MatchSpans for the visible window only, never
+// for the whole list.
+func (m Matcher) MatchSpans(haystack string) [][2]int {
+	if m.matchAll {
+		return nil
+	}
+	switch m.mode {
+	case SearchRegex:
+		return regexSpans(m.re, haystack)
+	case SearchFuzzy:
+		return fuzzySpans(m.needleRunes, haystack)
+	case SearchSubstring, SearchLiteral:
+		if m.needle == "" {
+			return nil
+		}
+		if i := strings.Index(haystack, m.needle); i >= 0 {
+			return [][2]int{{i, i + len(m.needle)}}
+		}
+	}
+	return nil
+}
+
+// regexSpans converts FindAllStringIndex output and drops zero-width
+// matches: a pattern like `^|$` matches an empty range the renderer
+// cannot paint, and keeping it would split a cell for nothing.
+func regexSpans(re *regexp.Regexp, haystack string) [][2]int {
+	found := re.FindAllStringIndex(haystack, -1)
+	out := make([][2]int, 0, len(found))
+	for _, f := range found {
+		if f[0] == f[1] {
+			continue
+		}
+		out = append(out, [2]int{f[0], f[1]})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// fuzzySpans is fuzzyMatch with the positions kept: the ranges of the
+// runes that consumed the needle, merged when they sit back to back
+// so a contiguous hit paints as one run rather than per character.
+// A needle that never completes reports nil, so the partial ranges
+// walked so far are discarded — the row did not match.
+func fuzzySpans(needle []rune, haystack string) [][2]int {
+	if len(needle) == 0 {
+		return nil
+	}
+	out := make([][2]int, 0, len(needle))
+	ni := 0
+	for i, hr := range haystack {
+		if hr != needle[ni] {
+			continue
+		}
+		end := i + utf8.RuneLen(hr)
+		if last := len(out) - 1; last >= 0 && out[last][1] == i {
+			out[last][1] = end
+		} else {
+			out = append(out, [2]int{i, end})
+		}
+		ni++
+		if ni == len(needle) {
+			return out
+		}
+	}
+	return nil
 }
 
 // fuzzyMatch reports whether every rune in needle appears in

@@ -124,3 +124,33 @@ func BenchmarkAlertsDataMsgIngest(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkAlertsRenderRowsFiltered measures one frame with a filter
+// active, where every visible cell is scanned for the characters to
+// paint. Read it against BenchmarkAlertsRenderRows: the paint is a
+// per-frame cost on the visible window only, and the budget for it is
+// 1.5x the unfiltered frame. Every filter here keeps all 1000 groups
+// on purpose — a selective one would shrink the view, and the cheaper
+// columnWidths pass would pay for the paint.
+func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
+	styles := testutil.LoadStyles(b)
+	for _, tc := range []struct{ name, filter string }{
+		{"substring", "alert"},
+		{"fuzzy", "~alt"},
+		{"regex", "a.*t"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			p := New(Options{Styles: styles, Now: time.Now})
+			p.byTenant = benchAlerts(1000, 4)
+			p.Filter = tc.filter
+			p.recompute()
+			p.SetViewport(40, len(p.groups))
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				_ = p.renderRows(160, 40)
+			}
+		})
+	}
+}

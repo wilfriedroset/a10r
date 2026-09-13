@@ -106,7 +106,9 @@ func (p *Page) renderHeader(width int) string {
 	if p.hasMarks() {
 		leading = "    "
 	}
-	return leading + p.padColumns(parts, width)
+	// The header carries no filter match: its labels are chrome, not
+	// row content.
+	return leading + p.padColumns(parts, width, format.Highlighter{})
 }
 
 // hasMarks reports whether any silence ID is currently marked.
@@ -120,10 +122,11 @@ func (p *Page) renderRows(width, maxRows int) string {
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
 	showMark := p.hasMarks()
+	spans := p.FilterSpans()
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, p.view[i], width, showMark))
+		b.WriteString(p.renderRow(i, p.view[i], width, showMark, spans))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -139,7 +142,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 // competing highlighted stripes. Dimming fires when the silence is
 // expired and is neither cursor nor marked; Marked beats the dim
 // because it is an explicit user action while expiry is ambient state.
-func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string {
+func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool, spans func(string) [][2]int) string {
 	row := make([]string, 0, 7)
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		row = append(row, e.tenant)
@@ -165,7 +168,9 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string
 			mark = "  "
 		}
 	}
-	line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
+	rowStyled := i == p.Index() || marked || e.s.State == backend.SilenceStateExpired
+	hl := format.HighlighterFor(spans, p.styles.Table.MatchFg, rowStyled)
+	line := format.PadRight(prefix+mark+p.padColumns(row, width, hl), width)
 	switch {
 	case i == p.Index():
 		// k9s parity: cursor bg tracks the silence-state colour
@@ -188,7 +193,7 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string
 // breathing room instead of competing with another text column.
 // STARTS / ENDS widen in absolute time mode so the ISO local
 // timestamp fits without truncation.
-func (p *Page) padColumns(parts []string, width int) string {
+func (p *Page) padColumns(parts []string, width int, hl format.Highlighter) string {
 	const (
 		tenantW = 16
 		uuidW   = 10
@@ -213,7 +218,9 @@ func (p *Page) padColumns(parts []string, width int) string {
 		if i >= len(cols) {
 			break
 		}
-		b.WriteString(padCell(v, cols[i]))
+		// Painted after the pad or the cut, so a span never moves a
+		// column and a span past the cut is dropped.
+		b.WriteString(hl.Text(padCell(v, cols[i])))
 	}
 	return b.String()
 }

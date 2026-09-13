@@ -426,8 +426,9 @@ func (p *Page) View(width, height int) string {
 	}
 	rows = append(rows, p.renderHeader())
 	showTenant := p.ShowTenantColumn(len(p.byTenant))
+	spans := p.FilterSpans()
 	for i := p.TopRow(); i < end; i++ {
-		rows = append(rows, p.renderRow(i, width, p.view[i], showTenant))
+		rows = append(rows, p.renderRow(i, width, p.view[i], showTenant, spans))
 	}
 	return listpage.Wrap(width, strings.Join(rows, "\n"))
 }
@@ -435,21 +436,20 @@ func (p *Page) View(width, height int) string {
 // renderRow renders one receiver row at view index i, padded to width.
 // Receiver rows carry no severity / state, so the cursor row uses
 // Severity.Info as its semantic colour (the k9s StdColor equivalent).
-func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool) string {
+func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool, spans func(string) [][2]int) string {
 	prefix := "  "
 	if i == p.Index() {
 		prefix = "▸ "
 	}
+	hl := format.HighlighterFor(spans, p.styles.Table.MatchFg, i == p.Index())
 	var b strings.Builder
 	b.WriteString(prefix)
 	if showTenant {
-		b.WriteString(format.PadRight(e.tenant, receiverTenantW))
+		b.WriteString(hl.Text(format.PadRight(e.tenant, receiverTenantW)))
 	}
-	b.WriteString(e.name)
+	b.WriteString(hl.Text(e.name))
 	// Pad to width before applying the cursor style so the background
-	// extends across the whole row k9s-style. The assembled line is
-	// still plain text here, so PadRight's overflow-truncation walks
-	// runes safely (no ANSI to split).
+	// extends across the whole row k9s-style.
 	row := format.PadRight(b.String(), width)
 	if i == p.Index() {
 		rowColor := p.styles.Severity.Info.GetForeground()

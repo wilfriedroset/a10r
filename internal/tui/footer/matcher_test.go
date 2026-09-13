@@ -219,3 +219,78 @@ func TestRegexErrText(t *testing.T) {
 		})
 	}
 }
+
+// TestMatcher_MatchSpans pins the byte ranges each mode reports for
+// the renderer's highlight. The haystack is the lower-cased shape a
+// page cell carries; a miss reports no span at all so the caller can
+// skip the row without a second predicate call.
+func TestMatcher_MatchSpans(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		input    string
+		haystack string
+		want     [][2]int
+	}{
+		{"empty buffer highlights nothing", "", "highcpu", nil},
+		{"substring reports the hit", "cpu", "highcpu", [][2]int{{4, 7}}},
+		{"substring miss reports nothing", "disk", "highcpu", nil},
+		{"substring reports the first hit only", "cpu", "cpu cpu", [][2]int{{0, 3}}},
+		{"literal keeps the body verbatim", `\web.api`, "web.api up", [][2]int{{0, 7}}},
+		{"literal miss reports nothing", `\web.api`, "webxapi", nil},
+		{"regex reports every hit", "a.*?b|c", "ab c", [][2]int{{0, 2}, {3, 4}}},
+		{"regex miss reports nothing", "^zz.*", "ab c", nil},
+		{"fuzzy reports one span per run", "~hcp", "high cpu", [][2]int{{0, 1}, {5, 7}}},
+		{"fuzzy merges adjacent runes", "~hig", "high cpu", [][2]int{{0, 3}}},
+		{"fuzzy miss reports nothing", "~xyz", "high cpu", nil},
+		{"multi-byte substring spans whole runes", "éé", "aééb", [][2]int{{1, 5}}},
+		{"multi-byte fuzzy merges adjacent runes", "~éé", "aééb", [][2]int{{1, 5}}},
+		{"multi-byte fuzzy splits on a gap", "~éé", "éxé", [][2]int{{0, 2}, {3, 5}}},
+		{"bare fuzzy sigil highlights nothing", "~", "high cpu", nil},
+		{"bare literal sigil highlights nothing", `\`, "high cpu", nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m, err := NewMatcher(tc.input)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, m.MatchSpans(tc.haystack))
+		})
+	}
+}
+
+// TestMatcher_MatchSpansAgreesWithMatch guards the pair against
+// drifting apart: a span list is the renderer's proof that Match
+// said yes, so a reported span must never contradict the predicate
+// the recompute filtered on. The reverse does not hold — a bare
+// sigil matches every row and has nothing to paint.
+func TestMatcher_MatchSpansAgreesWithMatch(t *testing.T) {
+	t.Parallel()
+
+	const haystack = "highcpu\x00warning\x00web.api\x00prod"
+	for _, input := range []string{"warning", "nope", "~hgcpu", "~xyz", `\web.api`, ".*api", "^nope.*"} {
+		m, err := NewMatcher(input)
+		require.NoError(t, err)
+		require.Equal(t, m.Match(haystack), m.MatchSpans(haystack) != nil, "input %q", input)
+	}
+	for _, input := range []string{"~", `\`} {
+		m, err := NewMatcher(input)
+		require.NoError(t, err)
+		require.True(t, m.Match(haystack), "input %q", input)
+		require.Nil(t, m.MatchSpans(haystack), "input %q", input)
+	}
+}
+
+// TestMatcher_MatchSpansZeroWidthRegex drops empty matches: a
+// zero-width span would style nothing and the renderer would still
+// pay for the segment split.
+func TestMatcher_MatchSpansZeroWidthRegex(t *testing.T) {
+	t.Parallel()
+
+	m, err := NewMatcher("^|$")
+	require.NoError(t, err)
+	require.Equal(t, SearchRegex, m.Mode())
+	require.Nil(t, m.MatchSpans("abc"))
+}

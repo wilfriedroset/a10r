@@ -15,17 +15,19 @@ import (
 // PadRight pads s with trailing spaces so the rendered string is
 // exactly w terminal cells wide. Returns "" if w <= 0. Strings
 // whose terminal-cell width already meets or exceeds w are
-// truncated to w via Truncate — the function never returns a
+// truncated to w via SGRTruncate — the function never returns a
 // string wider than the requested width.
 //
-// Not SGR-aware (delegates to Truncate); see Truncate's caveat.
+// The overflow path is SGR-aware because a padded cell can already
+// carry styling: a highlighted filter match, a severity tint. Plain
+// input takes the same route and comes out identical to Truncate.
 func PadRight(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
 	cur := lipgloss.Width(s)
 	if cur >= w {
-		return Truncate(s, w)
+		return SGRTruncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-cur)
 }

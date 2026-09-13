@@ -130,6 +130,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if len(cols) >= 2 {
 		stateIdx = len(cols) - 2
 	}
+	spans := p.FilterSpans()
 	var b strings.Builder
 	// Reserve enough capacity for the visible page (rows × width)
 	// plus per-row styling overhead so the Builder doesn't realloc
@@ -137,12 +138,28 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// bytes lipgloss.Render injects per cell on coloured rows.
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, p.groups[i], cols, stateIdx, width, showTenant))
+		b.WriteString(p.renderRow(i, p.groups[i], rowCtx{
+			cols:       cols,
+			stateIdx:   stateIdx,
+			width:      width,
+			showTenant: showTenant,
+			spans:      spans,
+		}))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
 	}
 	return b.String()
+}
+
+// rowCtx carries the per-frame values, hoisted so the row loop does
+// not recompute them.
+type rowCtx struct {
+	cols       []int
+	spans      func(string) [][2]int
+	stateIdx   int
+	width      int
+	showTenant bool
 }
 
 // renderRow renders one alert-group row at view index i, padded to
@@ -156,7 +173,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 // fires only when every instance is suppressed and the row is neither
 // cursor nor marked; Marked beats dimmed because it is an explicit
 // user action while suppression is ambient state.
-func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, showTenant bool) string {
+func (p *Page) renderRow(i int, g alertGroup, ctx rowCtx) string {
 	ageLabel := p.formatTime(g.oldestStart)
 	if ageLabel == "" {
 		ageLabel = "—"
@@ -167,13 +184,15 @@ func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, s
 		mark = "✓"
 	}
 	rowStyled := i == p.Index() || marked || g.allSuppressed()
-	sevCell := backend.SeverityLabel(g.severityRank)
-	stateCell := p.stateCell(g, stateIdx, cols, rowStyled)
+	hl := format.HighlighterFor(ctx.spans, p.styles.Table.MatchFg, rowStyled)
+	sevLabel := backend.SeverityLabel(g.severityRank)
+	sevCell := hl.Text(sevLabel)
 	if !rowStyled {
-		sevCell = p.styles.Severity.ForLabel(backend.SeverityLabel(g.severityRank)).Render(sevCell)
+		sevCell = hl.Cell(sevLabel, p.styles.Severity.ForLabel(sevLabel))
 	}
+	stateCell := p.stateCell(g, ctx, rowStyled, hl)
 	row := make([]string, 0, 6)
-	if showTenant {
+	if ctx.showTenant {
 		row = append(row, g.tenant)
 	}
 	row = append(row,
@@ -187,7 +206,7 @@ func (p *Page) renderRow(i int, g alertGroup, cols []int, stateIdx, width int, s
 	if i == p.Index() {
 		prefix = "▸ "
 	}
-	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
+	line := format.PadRight(prefix+mark+" "+p.padColumns(row, ctx.cols, hl), ctx.width)
 	switch {
 	case i == p.Index():
 		// k9s parity: cursor bg tracks the row's semantic colour
@@ -261,7 +280,7 @@ const stateContentCap = 24
 // the row loop runs in O(rows) rather than O(rows²) — the spec
 // builder walks the whole view to measure max content widths,
 // and re-running it per row would scale badly under a storm.
-func (p *Page) padColumns(parts []string, cols []int) string {
+func (p *Page) padColumns(parts []string, cols []int, hl format.Highlighter) string {
 	flexIdx := p.flexColumnIndex()
 	var b strings.Builder
 	for i, v := range parts {
@@ -272,10 +291,13 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 			b.WriteString(colSep)
 		}
 		if i == flexIdx {
-			b.WriteString(format.PadRight(format.Ellipsize(v, cols[i]), cols[i]))
-			continue
+			v = format.Ellipsize(v, cols[i])
 		}
-		b.WriteString(format.PadRight(v, cols[i]))
+		// The cells a producer already coloured (SEVERITY, STATE) come
+		// in styled and carry their own highlight; Text stands down on
+		// them. The rest are plain and get painted here, after the pad
+		// or the cut, so a span never moves a column.
+		b.WriteString(hl.Text(format.PadRight(v, cols[i])))
 	}
 	return b.String()
 }
@@ -514,14 +536,16 @@ func stateBreakdownPlain(g alertGroup, f stateformat.Format) string {
 // drops them rather than risk a dangling escape. When the breakdown
 // fits (the common case and the always-true case for the compact
 // form), the fully styled render is returned untouched.
-func (p *Page) stateCell(g alertGroup, stateIdx int, cols []int, rowStyled bool) string {
-	if stateIdx >= 0 && stateIdx < len(cols) {
+func (p *Page) stateCell(g alertGroup, ctx rowCtx, rowStyled bool, hl format.Highlighter) string {
+	if ctx.stateIdx >= 0 && ctx.stateIdx < len(ctx.cols) {
 		plain := stateBreakdownPlain(g, p.stateFormat)
-		if w := cols[stateIdx]; lipgloss.Width(plain) > w {
+		if w := ctx.cols[ctx.stateIdx]; lipgloss.Width(plain) > w {
+			// Left plain on purpose: padColumns paints the cut text,
+			// so a span past the ellipsis is dropped rather than moved.
 			return format.Ellipsize(plain, w)
 		}
 	}
-	return renderStateBreakdown(g, p.stateFormat, p.styles, rowStyled)
+	return renderStateBreakdown(g, p.stateFormat, p.styles, rowStyled, hl)
 }
 
 // renderStateBreakdown renders the STATE cell's per-state tally: non-
@@ -529,15 +553,16 @@ func (p *Page) stateCell(g alertGroup, stateIdx int, cols []int, rowStyled bool)
 // summing to count. On plain rows each token is foreground-tinted by
 // state; on cursor / marked / all-suppressed rows the per-token colour
 // is skipped (rowStyled=true) so the row-level style wins.
-func renderStateBreakdown(g alertGroup, f stateformat.Format, styles *theme.Styles, rowStyled bool) string {
+func renderStateBreakdown(g alertGroup, f stateformat.Format, styles *theme.Styles, rowStyled bool, hl format.Highlighter) string {
 	buckets := orderedBuckets(g)
 	parts := make([]string, 0, len(buckets))
 	for _, b := range buckets {
 		tok := stateToken(b.count, b.state, f)
-		if !rowStyled {
-			tok = stateTokenStyle(b.state, styles).Render(tok)
+		if rowStyled {
+			parts = append(parts, hl.Text(tok))
+			continue
 		}
-		parts = append(parts, tok)
+		parts = append(parts, hl.Cell(tok, stateTokenStyle(b.state, styles)))
 	}
 	return strings.Join(parts, stateBreakdownSep(f))
 }

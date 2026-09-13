@@ -96,6 +96,12 @@ type TableStyle struct {
 	HeaderActiveFg lipgloss.Style
 	MarkedFg       lipgloss.Style
 	DimmedFg       lipgloss.Style
+	// MatchFg paints the characters that made a row survive the `/`
+	// filter. It reuses the k9s title filter colour (bolded) rather
+	// than adding a body role of its own, so a k9s skin stays drop-in
+	// (ADR 0030) and a skin that sets filterColor sees it in the body
+	// too. See docs/contributor/skin-authoring.md.
+	MatchFg lipgloss.Style
 }
 
 // CursorOver returns the cursor style with bg overridden to the
@@ -498,6 +504,8 @@ func compileTable(f *k9sSkinFile) (TableStyle, error) {
 	dimmedFg := g.fg("table.dimmed",
 		f.K9s.Frame.Status.CompletedColor, f.K9s.Frame.Status.KillColor)
 	bodyBg := g.raw("table.marked.bg", f.K9s.Body.BgColor)
+	matchFg := g.fg("table.match",
+		f.K9s.Frame.Title.FilterColor, f.K9s.Frame.Title.HighlightColor)
 
 	if g.err != nil {
 		return TableStyle{}, g.err
@@ -516,6 +524,7 @@ func compileTable(f *k9sSkinFile) (TableStyle, error) {
 		HeaderActiveFg: FgOnly(headerActiveFg),
 		MarkedFg:       FgOnly(markedFg),
 		DimmedFg:       FgOnly(dimmedFg),
+		MatchFg:        FgOnly(matchFg).Bold(true),
 	}, nil
 }
 
