@@ -17,6 +17,10 @@ Read-only review of the staged change in this repo. Start with
 Return findings as a structured list grouped by priority; tag each
 with its category; cite `file:line`. Don't re-narrate the code.
 
+Check the sync list in `AGENTS.md ## Things that must stay in sync`
+for the kind of change under review, and flag any companion file the
+change missed.
+
 ## Priorities (gate the iteration loop)
 
 - **need-work** — correctness bug, security issue, breaks an

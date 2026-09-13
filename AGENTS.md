@@ -161,6 +161,79 @@ a cleanup naturally enables a future feature, leave the seam and ship
 the cleanup; do not fold the feature into the same commit. "Could be a
 quick win" is not a licence.
 
+## Things that must stay in sync
+
+Some changes are not done in one file. Each bullet below lists a kind
+of change and every place it has to land. The list is a reviewer
+checklist, not a lint -- keep it honest by updating it when the shape
+of the tree moves.
+
+A new key binding:
+
+- the page's `Bindings()` slice, or the global layer in
+  `internal/tui/app/app.go`
+- the `Dangerous: true` tag in `internal/tui/action/action.go` when the
+  key mutates remote state, and the `Guarded: true` tag in the same
+  file when a `guardrails:` rule denies the verb on the target tenant
+- the per-view table in `docs/end-users/keybindings.md`
+- the reserved-key list in `docs/adr/0043-keybinding-contract.md` when
+  the key becomes load-bearing
+- the user-override reject list in `internal/config/keys.go` when the
+  key must not be rebound
+
+A new config field:
+
+- the struct and its validation in `internal/config/types.go`
+- `internal/config/testdata/valid_full.yaml`
+- the reference table in `docs/end-users/configuration.md`
+- the wizard in `cmd/init.go` and `internal/wizard/` when a first-run
+  user must set it
+- the report in `cmd/info.go` and its goldens in
+  `cmd/testdata/info_*.golden` when the value is worth showing
+
+A new CLI flag or subcommand:
+
+- the cobra wiring under `cmd/`
+- `docs/end-users/cli.md`
+- the embedded agent skill `internal/skill/SKILL.md`
+- `docs/end-users/output-formats.md` when the flag changes the shape of
+  the output
+
+A new exit code:
+
+- the constant in `cmd/exit.go`
+- the table in `docs/end-users/exit-codes.md`
+- the table in `internal/skill/SKILL.md`
+- `docs/adr/0009-exit-code-table.md`, which calls the table append-only
+
+A new page:
+
+- the `:` alias registration in `internal/tui/boot/resolver.go`
+- the page's `Crumb()`, which `internal/tui/footer/crumbs.go` renders
+- the RESOURCE column in `internal/tui/help/help.go`, which derives
+  from `Bindings()`
+- a section in `docs/end-users/keybindings.md`
+- the package layout in `ARCHITECTURE.md`
+- the alias collision list in `docs/end-users/configuration.md` when the
+  page adds a built-in alias
+
+A new `/` filter mode or sigil:
+
+- `internal/tui/footer/searchmode.go` and
+  `internal/tui/footer/matcher.go` for a plain mode
+- `internal/tui/filterexpr` when the mode joins the boolean grammar,
+  plus `internal/tui/page/listpage/filter_validate.go` for the title
+  tag and `internal/tui/page/listpage/filter_spans.go` for the match
+  highlight
+- the mode table in `docs/end-users/keybindings.md`, which cites the
+  mode labels as contract
+
+A new skin or skin field:
+
+- `internal/tui/theme/schema.go` and `internal/tui/theme/styles.go`
+- `internal/tui/theme/SOURCES.yaml`, for provenance
+- `docs/contributor/skin-authoring.md`
+
 ## UI and chrome conventions
 
 The look-and-feel deliberately tracks k9s, because the audience already
