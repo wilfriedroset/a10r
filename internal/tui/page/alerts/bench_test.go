@@ -154,3 +154,31 @@ func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkAlertsRecomputeFiltered10k puts the two filter paths side
+// by side at storm scale: the substring baseline against a three-term
+// expression, which pays for a per-group pre-aggregation pass on top
+// of the per-instance evaluation. The expression budget is 2x the
+// baseline. Both filters keep every instance on purpose -- a
+// selective one would skip the aggregate and sort downstream and
+// flatter the comparison; the leading false disjunct stops the OR
+// short-circuiting away the other two terms.
+func BenchmarkAlertsRecomputeExpr10k(b *testing.B) {
+	styles := testutil.LoadStyles(b)
+	for _, tc := range []struct{ name, filter string }{
+		{"substring", "alert"},
+		{"expr", "severity=nope || count>=1 && age>1m"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			p := New(Options{Styles: styles, Now: time.Now})
+			p.byTenant = benchAlerts(10000, 10)
+			p.Filter = tc.filter
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				p.recompute()
+			}
+		})
+	}
+}

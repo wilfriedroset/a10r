@@ -377,30 +377,6 @@ func TestUnknownSurvivesACompositeStructure(t *testing.T) {
 	require.False(t, mustParse(t, "!(severity=nope || !count>=1)").Match(row))
 }
 
-// TestDeferredIsVacuouslyTrue pins that a term another pass owns
-// reads as true without perturbing the surrounding structure.
-func TestDeferredIsVacuouslyTrue(t *testing.T) {
-	t.Parallel()
-
-	row := baseRow()
-	row.Instance = filterexpr.Deferred
-
-	require.True(t, mustParse(t, "severity=nonsense").Match(row))
-	require.False(t, mustParse(t, "!severity=nonsense").Match(row))
-	require.True(t, mustParse(t, "severity=nonsense && count>=3").Match(row))
-	require.False(t, mustParse(t, "severity=nonsense && count>3").Match(row))
-	require.True(t, mustParse(t, "severity=nonsense || count>3").Match(row))
-
-	deferredCount := baseRow()
-	deferredCount.CountAvail = filterexpr.Deferred
-	require.True(t, mustParse(t, "count>9999").Match(deferredCount))
-
-	deferredAge := baseRow()
-	deferredAge.AgeAvail = filterexpr.Deferred
-	deferredAge.Start = time.Time{}
-	require.True(t, mustParse(t, "age<1s").Match(deferredAge))
-}
-
 func TestTypedTerms(t *testing.T) {
 	t.Parallel()
 
@@ -537,7 +513,9 @@ func TestIsExpr(t *testing.T) {
 		{"severity=critical", false},
 		{"!foo", true},
 		{"a || b", true},
-		{"(a)", true},
+		{"(a)", false},
+		{"(web|api)", false},
+		{"(a=1 && b=2) c=3", true},
 		{"count>3", true},
 		{"age<2h", true},
 		{"state=active", true},
@@ -550,6 +528,58 @@ func TestIsExpr(t *testing.T) {
 		t.Run(tc.in, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.want, filterexpr.IsExpr(tc.in))
+		})
+	}
+}
+
+func TestCompile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		in      string
+		wantNil bool
+		err     string
+	}{
+		{name: "empty buffer", in: "", wantNil: true},
+		{name: "plain substring", in: "high cpu", wantNil: true},
+		{name: "label matcher", in: "severity=critical", wantNil: true},
+		{name: "and chain", in: "a=1,b=2", wantNil: true},
+		{name: "regex metas", in: "web.*api", wantNil: true},
+		{name: "literal sigil escapes", in: `\(a || b)`, wantNil: true},
+		{name: "or", in: "a=1 || b=2"},
+		{name: "not", in: "!severity=info"},
+		{name: "typed count", in: "count>=5"},
+		{name: "typed age", in: "age<2h"},
+		{name: "typed state", in: "state=active"},
+		{name: "balanced group", in: "(a=1 || b=2) && c=3"},
+		{name: "paren only, unparsable, falls back", in: "(foo", wantNil: true},
+		{name: "regex alternation keeps the five-mode path", in: "(web|api)", wantNil: true},
+		{name: "regex alternation with a suffix", in: "(web|api).*", wantNil: true},
+		{name: "paren plus and is a group", in: "(a=1 && b=2) c=3"},
+		{name: "nested groups", in: "(a=1 && (b=2 || c=3))"},
+		{name: "juxtaposed group stays five-mode", in: "(a=1 b=2)", wantNil: true},
+		{name: "paren inside a quoted value", in: `alertname="a(b" && x=1`, wantNil: true},
+		{name: "paren plus typed term reports", in: "(count>=5", err: "unbalanced ("},
+		{name: "or with missing term reports", in: "a=1 ||", err: "missing term after ||"},
+		{name: "bare not reports", in: "!", err: "empty term after !"},
+		{name: "bad typed value reports", in: "age<2x", err: `bad duration "2x"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e, err := filterexpr.Compile(tc.in)
+			switch {
+			case tc.err != "":
+				require.Nil(t, e)
+				require.EqualError(t, err, tc.err)
+			case tc.wantNil:
+				require.NoError(t, err)
+				require.Nil(t, e, "the five-mode path owns this buffer")
+			default:
+				require.NoError(t, err)
+				require.NotNil(t, e)
+			}
 		})
 	}
 }

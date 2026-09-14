@@ -8,6 +8,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -17,7 +18,7 @@ import (
 func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
-	p.view = filterEntries(flat, p.Filter, p.stateFilter)
+	p.view = p.applyFilter(flat)
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))
@@ -104,6 +105,39 @@ func (p *Page) cycleStateFilter() {
 		}
 	}
 	p.stateFilter = ""
+}
+
+// applyFilter narrows the entries, either with the boolean expression
+// grammar or with the five-mode path. A buffer the expression parser
+// rejects falls back to the five-mode path; the prompt reports the
+// error separately.
+func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
+	expr, _ := filterexpr.Compile(p.Filter)
+	if expr == nil {
+		return filterEntries(in, p.Filter, p.stateFilter)
+	}
+	now := p.now()
+	out := make([]instanceEntry, 0, len(in))
+	for _, e := range in {
+		if p.stateFilter != "" && string(e.a.State) != p.stateFilter {
+			continue
+		}
+		// CountAvail is Missing because a single group has no COUNT to
+		// compare: `count>=1` and `!count>=1` both match nothing here.
+		if expr.Match(filterexpr.Row{
+			Now:        now,
+			Labels:     e.a.Labels,
+			Text:       e.lowerComposite,
+			State:      string(e.a.State),
+			Instance:   filterexpr.Present,
+			CountAvail: filterexpr.Missing,
+			Start:      e.a.StartsAt,
+			AgeAvail:   filterexpr.Present,
+		}) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // filterEntries returns only the entries matching both the search and

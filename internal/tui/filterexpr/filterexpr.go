@@ -7,9 +7,7 @@
 //
 // Evaluation is three-valued. A term over a value the row does not
 // carry is unknown, not false, so neither the term nor its negation
-// matches; a term another pass owns (a server-side selector, say)
-// reports Deferred and reads as true here. Only a definite true
-// matches.
+// matches. Only a definite true matches.
 package filterexpr
 
 import (
@@ -26,8 +24,6 @@ const (
 	Missing Avail = iota
 	// Present means compare against the value.
 	Present
-	// Deferred means another pass owns the term, so it is true here.
-	Deferred
 )
 
 // Row is the projection of one table row an expression evaluates
@@ -59,22 +55,60 @@ func (e *Expr) Match(r Row) bool { return e.root(r) == triTrue }
 // forces literal mode over the whole buffer. IsExpr only lexes, so
 // it neither panics nor reports a parse error.
 func IsExpr(s string) bool {
+	hard, paren := signals(s)
+	return hard || paren
+}
+
+// Compile returns the expression to run for s, or a nil Expr and a
+// nil error when the five-mode path owns the buffer.
+//
+//nolint:nilnil // the nil pair is the documented answer above
+func Compile(s string) (*Expr, error) {
+	hard, paren := signals(s)
+	if !hard && !paren {
+		return nil, nil
+	}
+	e, err := Parse(s)
+	if err == nil {
+		return e, nil
+	}
+	if !hard {
+		// `(` also reads as a regex metacharacter, so a buffer whose
+		// only expression signal was a paren goes back to the
+		// five-mode path instead of becoming an error.
+		return nil, nil
+	}
+	return nil, err
+}
+
+// signals scans s for the tokens that hand a buffer to the
+// expression parser. hard marks a signal with no other reading.
+// paren wants a `(` AND an explicit `&&` or `,`, because a lone
+// paren is also a regex metacharacter and `(web|api)` has to stay
+// the alternation the user meant rather than become a group around
+// a substring.
+func signals(s string) (hard, paren bool) {
 	t := strings.TrimSpace(s)
 	if t == "" || t[0] == '\\' {
-		return false
+		return false, false
 	}
+	var sawParen, sawAnd bool
 	for _, tok := range lex(t) {
 		switch tok.kind {
-		case tokOr, tokNot, tokLParen:
-			return true
+		case tokOr, tokNot:
+			return true, false
+		case tokLParen:
+			sawParen = true
+		case tokAnd:
+			sawAnd = true
 		case tokTerm:
 			if isTypedTerm(tok.text) {
-				return true
+				return true, false
 			}
-		case tokAnd, tokRParen, tokEOF:
+		case tokRParen, tokEOF:
 		}
 	}
-	return false
+	return false, sawParen && sawAnd
 }
 
 // tri is the Kleene truth value evaluation runs on.
@@ -142,8 +176,6 @@ func notNode(k node) node {
 func gated(avail func(Row) Avail, pred func(Row) bool) node {
 	return func(r Row) tri {
 		switch avail(r) {
-		case Deferred:
-			return triTrue
 		case Present:
 			return triOf(pred(r))
 		case Missing:

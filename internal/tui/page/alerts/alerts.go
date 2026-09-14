@@ -250,7 +250,12 @@ type alertGroup struct {
 // key is the group's stable identity — the cursor-focus anchor and
 // the mark key. NUL-joined so a tenant or alertname containing the
 // separator can't forge another group's key.
-func (g alertGroup) key() string { return g.tenant + "\x00" + g.alertName }
+func (g alertGroup) key() string { return groupKeyOf(g.tenant, g.alertName) }
+
+// groupKeyOf is the single spelling of the (tenant, alertname)
+// identity. Every lookup that has to agree with aggregate's map goes
+// through it, NUL-separated so a tenant name cannot forge a key.
+func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + alertName }
 
 // allSuppressed reports whether every instance in the group is
 // suppressed — the row-dim condition. A zero-count group is never

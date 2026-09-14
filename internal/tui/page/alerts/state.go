@@ -5,9 +5,11 @@ package alerts
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -23,7 +25,7 @@ func (p *Page) totalGroups() int {
 			continue
 		}
 		for _, a := range alerts {
-			seen[tenant+"\x00"+a.Labels[labelAlertname]] = struct{}{}
+			seen[groupKeyOf(tenant, a.Labels[labelAlertname])] = struct{}{}
 		}
 	}
 	return len(seen)
@@ -48,7 +50,7 @@ func (p *Page) hasInScopeAlerts() bool {
 func (p *Page) recompute() {
 	total, knownKey := p.scanScope()
 	flat := p.flatten(total)
-	survivors := filterEntries(flat, p.Filter, p.stateFilter)
+	survivors := p.applyFilter(flat)
 	p.groups = aggregate(survivors)
 	p.sorter.Apply(p.groups)
 	p.resolveFocus(knownKey)
@@ -69,7 +71,7 @@ func (p *Page) scanScope() (total int, knownKey bool) {
 		}
 		if p.focusGroupKey != "" && !knownKey {
 			for _, a := range alerts {
-				if tenant+"\x00"+a.Labels[labelAlertname] == p.focusGroupKey {
+				if groupKeyOf(tenant, a.Labels[labelAlertname]) == p.focusGroupKey {
 					knownKey = true
 					break
 				}
@@ -113,7 +115,7 @@ func aggregate(in []alertEntry) []alertGroup {
 	order := make([]string, 0)
 	for _, e := range in {
 		name := e.a.Labels[labelAlertname]
-		key := e.tenant + "\x00" + name
+		key := groupKeyOf(e.tenant, name)
 		g, ok := byKey[key]
 		if !ok {
 			g = &alertGroup{tenant: e.tenant, alertName: name, oldestStart: e.a.StartsAt}
@@ -189,6 +191,83 @@ func (p *Page) cycleStateFilter() {
 		}
 	}
 	p.stateFilter = ""
+}
+
+// applyFilter narrows the flattened instances, either with the boolean
+// expression grammar or with the five-mode path. A buffer the
+// expression parser rejects falls back to the five-mode path; the
+// prompt reports the error separately.
+func (p *Page) applyFilter(in []alertEntry) []alertEntry {
+	expr, _ := filterexpr.Compile(p.Filter)
+	if expr == nil {
+		return filterEntries(in, p.Filter, p.stateFilter)
+	}
+	return p.filterByExpr(in, expr)
+}
+
+// filterByExpr evaluates expr once per instance, over the survivors
+// of the state cycle. COUNT and AGE are properties of the group, so
+// they are pre-aggregated over those survivors: reading them in the
+// same pass as the instance terms is what lets `count` sit under
+// `||` and `!`.
+func (p *Page) filterByExpr(in []alertEntry, expr *filterexpr.Expr) []alertEntry {
+	kept := in
+	if p.stateFilter != "" {
+		kept = make([]alertEntry, 0, len(in))
+		for _, e := range in {
+			if string(e.a.State) == p.stateFilter {
+				kept = append(kept, e)
+			}
+		}
+	}
+	stats := groupStats(kept)
+	now := p.now()
+	out := make([]alertEntry, 0, len(kept))
+	for _, e := range kept {
+		g := stats[groupKey(e)]
+		if expr.Match(filterexpr.Row{
+			Now:        now,
+			Labels:     e.a.Labels,
+			Text:       e.lowerComposite,
+			State:      string(e.a.State),
+			Instance:   filterexpr.Present,
+			Count:      g.count,
+			CountAvail: filterexpr.Present,
+			Start:      g.oldestStart,
+			AgeAvail:   filterexpr.Present,
+		}) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// groupStat carries the two group-level values an expression can
+// compare against.
+type groupStat struct {
+	count       int
+	oldestStart time.Time
+}
+
+// groupStats accumulates count and oldest start exactly as aggregate
+// does: the filter compares the same AGE the column renders, so the
+// two rules have to move together.
+func groupStats(in []alertEntry) map[string]groupStat {
+	out := map[string]groupStat{}
+	for _, e := range in {
+		key := groupKey(e)
+		g, ok := out[key]
+		if !ok || e.a.StartsAt.Before(g.oldestStart) {
+			g.oldestStart = e.a.StartsAt
+		}
+		g.count++
+		out[key] = g
+	}
+	return out
+}
+
+func groupKey(e alertEntry) string {
+	return groupKeyOf(e.tenant, e.a.Labels[labelAlertname])
 }
 
 // filterEntries returns a new slice containing only entries whose
