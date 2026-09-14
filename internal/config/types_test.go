@@ -69,6 +69,10 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	require.Equal(t, "gateway-headers", got.Backends[2].Name)
 	require.Equal(t, "${A10R_GW_TOKEN}", got.Backends[2].Headers["X-Gateway-Token"])
 	require.Equal(t, "a10r", got.Backends[2].Headers["X-Trace-Id"])
+
+	require.True(t, got.TUI.Tips)
+	require.Equal(t, 12*time.Second, got.TUI.TipsInterval)
+	require.True(t, got.TUI.TerminalTitle)
 }
 
 func TestConfig_RoundTripPreservesEverything(t *testing.T) {
@@ -207,6 +211,7 @@ func TestTUI_DefaultIsTipsOff(t *testing.T) {
 	require.False(t, c.TUI.Tips, "tui.tips must default to false")
 	require.Zero(t, c.TUI.TipsInterval,
 		"tui.tips_interval must default to zero (wiring fills in the package default)")
+	require.False(t, c.TUI.TerminalTitle, "tui.terminal_title must default to false")
 }
 
 func TestTUI_RoundTrip(t *testing.T) {
@@ -218,6 +223,12 @@ func TestTUI_RoundTrip(t *testing.T) {
 	require.True(t, c.TUI.Tips, "explicit tui.tips: true must round-trip")
 	require.Equal(t, 12*time.Second, c.TUI.TipsInterval,
 		"tui.tips_interval must parse as a duration string")
+
+	body = []byte("tui:\n  terminal_title: true\n")
+	var withTitle Config
+	require.NoError(t, yaml.Unmarshal(body, &withTitle))
+	require.True(t, withTitle.TUI.TerminalTitle,
+		"explicit tui.terminal_title: true must round-trip")
 }
 
 func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {

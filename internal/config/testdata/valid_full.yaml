@@ -10,6 +10,11 @@ log:
   path: /var/log/a10r/a10r.log
   level: info
 
+tui:
+  tips: true
+  tips_interval: 12s
+  terminal_title: true
+
 backends:
   - name: prod-vanilla
     url: https://am-prod.internal

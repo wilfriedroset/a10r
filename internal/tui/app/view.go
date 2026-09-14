@@ -50,6 +50,7 @@ func (a *App) View() tea.View {
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	v := tea.NewView(out)
 	v.AltScreen = true
+	v.WindowTitle = a.windowTitle()
 	// Cell-motion mouse mode lets the terminal forward wheel ticks
 	// (and click/release/motion) into the program. The app routes
 	// wheel events to cursor walk on tables and the help modal's

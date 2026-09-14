@@ -202,7 +202,8 @@ func mergePage(base *PageConfig, overlay PageConfig) {
 	}
 }
 
-// mergeTUI folds overlay TUI fields onto base. Tips is one-way:
+// mergeTUI folds overlay TUI fields onto base. Tips and
+// TerminalTitle are one-way:
 // once any layer enables it, later layers cannot turn it back off
 // — same idiom as Defaults.ReadOnly. The user toggles it off by
 // editing the layer that set it to true. TipsInterval follows the
@@ -214,5 +215,8 @@ func mergeTUI(base *TUI, overlay TUI) {
 	}
 	if overlay.TipsInterval != 0 {
 		base.TipsInterval = overlay.TipsInterval
+	}
+	if overlay.TerminalTitle {
+		base.TerminalTitle = true
 	}
 }

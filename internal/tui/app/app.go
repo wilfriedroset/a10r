@@ -44,6 +44,12 @@ type Options struct {
 	HistoryDir string
 	// HintBar is the optional rotating tip strip; zero value is disabled.
 	HintBar footer.HintBar
+	// Scope is the tenant scope the app boots with: "all", one backend
+	// name, or a comma-joined subset. Empty reads as "all".
+	Scope string
+	// TerminalTitle opts into writing the terminal window title; off
+	// leaves the title untouched.
+	TerminalTitle bool
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it owns
@@ -55,6 +61,14 @@ type App struct {
 	tenants    []string
 	refresh    func(resource, scope string)
 	readOnly   bool
+
+	// scope mirrors the active tenant scope so the window title can name
+	// it. Pages own their own copy; the App keeps one because the title
+	// outlives any single page.
+	scope string
+
+	// terminalTitle gates every write to tea.View.WindowTitle.
+	terminalTitle bool
 
 	crumbs  footer.Crumbs
 	prompt  footer.Prompt
@@ -164,10 +178,13 @@ func NewApp(opts Options) *App {
 		tenants:    opts.Tenants,
 		refresh:    opts.Refresh,
 		readOnly:   opts.ReadOnly,
-		crumbs:     footer.NewCrumbs(),
-		prompt:     footer.NewPrompt(resolver.Suggest),
-		flash:      footer.NewFlash(),
-		hintbar:    opts.HintBar,
+		scope:      opts.Scope,
+
+		terminalTitle: opts.TerminalTitle,
+		crumbs:        footer.NewCrumbs(),
+		prompt:        footer.NewPrompt(resolver.Suggest),
+		flash:         footer.NewFlash(),
+		hintbar:       opts.HintBar,
 		caches: caches{
 			poll:   map[string]map[string]poll.DataMsg{},
 			status: map[string]poll.BackendStatusMsg{},

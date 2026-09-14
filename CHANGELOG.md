@@ -8,6 +8,11 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Terminal title** — with `tui.terminal_title: true`, a10r names the
+  terminal window or tab `a10r: <scope> <page>`, for example
+  `a10r: prod+2 alerts`, and updates it when you change page or tenant
+  scope. Read-only runs add a `[read-only]` badge. The title is off by
+  default, and a10r clears the title again when it exits.
 - **Filter match highlighting** — the characters that made a row
   survive the `/` filter are painted in the skin filter colour on the
   alerts, silences and receivers lists. Substring, literal, fuzzy and

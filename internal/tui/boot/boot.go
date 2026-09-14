@@ -310,6 +310,9 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		Refresh:    registry.Refresh,
 		ReadOnly:   effCfg.Defaults.ReadOnly,
 		HistoryDir: historyDir,
+		Scope:      scopeFor(effCfg),
+
+		TerminalTitle: effCfg.TUI.TerminalTitle,
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,

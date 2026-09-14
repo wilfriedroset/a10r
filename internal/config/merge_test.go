@@ -375,6 +375,22 @@ func TestLoad_DropIn_TUITipsOneWayWins(t *testing.T) {
 		"drop-in cadence override must reach the resolved config")
 }
 
+func TestLoad_DropIn_TUITerminalTitleOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// terminal_title follows tips: opt-in by default, one-way on
+	// merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  terminal_title: false\n",
+		map[string]string{
+			"10-title.yaml": "tui:\n  terminal_title: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.TerminalTitle)
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hintbar, cmd = a.hintbar.Update(msg)
 		return a, cmd
 	}
+	if m, ok := msg.(ScopeChangedMsg); ok {
+		// Observed, not consumed: pages still need it to refilter. The
+		// App keeps its own copy because the window title names the
+		// scope and no page reports it back.
+		a.scope = m.Scope
+	}
 	cmd := a.forwardToTop(msg)
 	return a, cmd
 }

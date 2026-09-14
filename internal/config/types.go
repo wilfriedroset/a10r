@@ -429,8 +429,10 @@ type Keys struct{}
 // see the rotating hint strip. TipsInterval is optional — zero
 // resolves to the footer package's DefaultHintBarInterval inside
 // the wiring layer, so a partial config (`tips: true` alone) still
-// works.
+// works. TerminalTitle is opt-in for the same reason; when it is
+// false a10r never writes a window-title escape sequence.
 type TUI struct {
-	Tips         bool          `yaml:"tips,omitempty"`
-	TipsInterval time.Duration `yaml:"tips_interval,omitempty"`
+	Tips          bool          `yaml:"tips,omitempty"`
+	TipsInterval  time.Duration `yaml:"tips_interval,omitempty"`
+	TerminalTitle bool          `yaml:"terminal_title,omitempty"`
 }
