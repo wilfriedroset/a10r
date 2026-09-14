@@ -3,9 +3,12 @@
 package alerts
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
@@ -29,6 +32,68 @@ func (p *Page) totalGroups() int {
 		}
 	}
 	return len(seen)
+}
+
+// pollDeltaFlash names the aggregates that appeared and disappeared
+// for one tenant between two polls. It ignores the `/` filter and the
+// state filter on purpose: the flash narrates what the backend did,
+// not what the view shows.
+func (p *Page) pollDeltaFlash(tenant string, before, after []backend.Alert) tea.Cmd {
+	if !p.pollDelta || !p.ScopeIncludes(tenant) {
+		return nil
+	}
+	// A tenant with no map key has never polled, so the whole first
+	// snapshot would read as new.
+	if _, seen := p.byTenant[tenant]; !seen {
+		return nil
+	}
+	beforeKeys, afterKeys := alertnameKeys(tenant, before), alertnameKeys(tenant, after)
+	newCount, resolvedCount := countMissing(afterKeys, beforeKeys), countMissing(beforeKeys, afterKeys)
+	if newCount == 0 && resolvedCount == 0 {
+		return nil
+	}
+	text := pollDeltaText(newCount, resolvedCount)
+	if p.ScopeTenantCount(len(p.byTenant)) > 1 {
+		text = tenant + ": " + text
+	}
+	level := footer.FlashSuccess
+	if newCount > 0 {
+		level = footer.FlashWarn
+	}
+	return footer.ShowWeakFlash(level, text)
+}
+
+// alertnameKeys is the aggregate key set of one tenant's snapshot —
+// the same (tenant, alertname) identity the table rows on.
+func alertnameKeys(tenant string, alerts []backend.Alert) map[string]struct{} {
+	out := make(map[string]struct{}, len(alerts))
+	for _, a := range alerts {
+		out[groupKeyOf(tenant, a.Labels[labelAlertname])] = struct{}{}
+	}
+	return out
+}
+
+func countMissing(keys, from map[string]struct{}) int {
+	n := 0
+	for k := range keys {
+		if _, ok := from[k]; !ok {
+			n++
+		}
+	}
+	return n
+}
+
+// pollDeltaText drops a zero term so an all-new poll reads
+// "+3 new" rather than "+3 new, -0 resolved".
+func pollDeltaText(newCount, resolvedCount int) string {
+	parts := make([]string, 0, 2)
+	if newCount > 0 {
+		parts = append(parts, fmt.Sprintf("+%d new", newCount))
+	}
+	if resolvedCount > 0 {
+		parts = append(parts, fmt.Sprintf("-%d resolved", resolvedCount))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // hasInScopeAlerts reports whether any in-scope tenant has at least

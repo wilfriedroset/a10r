@@ -301,6 +301,16 @@ tenant is **connected**. Multi-offender layouts collapse to a count
 plus the alphabetically first offender's detail and **next attempt**.
 _Avoid_: status line, error banner.
 
+**Poll delta**:
+How many alertname aggregates appeared and disappeared for one tenant
+between two polls. With `tui.poll_delta` on, the alerts page flashes
+it as one line, `+3 new, -1 resolved`, and names the tenant when the
+scope spans more than one. The delta compares the arriving snapshot
+against the previous one only, and it ignores the active filters
+because it reports the backend, not the view.
+_Avoid_: timeline, change log (a10r keeps no history between polls),
+diff.
+
 ### List-page chrome
 
 **Chrome**:

@@ -84,6 +84,7 @@ tui:
   tips: false                      # optional rotating one-line hint bar (off by default)
   tips_interval: 8s                # optional cadence; falls back to 8s when omitted
   terminal_title: false            # optional terminal window title (off by default)
+  poll_delta: false                # optional flash of what each poll changed (off by default)
 keys:                              # optional rebindings (empty = use defaults)
 ```
 
@@ -224,9 +225,9 @@ Merge rules:
   only overrides the fields it sets — unrelated fields from the base
   survive untouched, so you can ship a snippet that only tweaks
   `defaults.poll_interval` without erasing `defaults.log_format`.
-  `defaults.read_only`, `tui.tips` and `tui.terminal_title` are
-  one-way (any-true wins) so a drop-in can lock them on but not back
-  off — edit the layer that set them.
+  `defaults.read_only`, `tui.tips`, `tui.terminal_title` and
+  `tui.poll_delta` are one-way (any-true wins) so a drop-in can lock
+  them on but not back off — edit the layer that set them.
 - **Order** is base file first, then drop-ins in lexical order of
   their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
   ordering, the same convention as systemd `*.d/` overrides.

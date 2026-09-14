@@ -40,10 +40,14 @@ func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
+		var cmd tea.Cmd
+		// Diffing inside the store closure is what makes a paused
+		// drop silent: ApplyDataMsg never calls store when it drops.
 		listpage.ApplyDataMsg(&p.Base, &p.PollingUI, m, func(tenant string, alerts []backend.Alert) {
+			cmd = p.pollDeltaFlash(tenant, p.byTenant[tenant], alerts)
 			p.byTenant[tenant] = alerts
 		})
-		return p, nil
+		return p, cmd
 	case spinner.TickMsg:
 		// Drop ticks outside the cold-start / refresh-in-flight
 		// windows to break the self-perpetuating Tick chain when

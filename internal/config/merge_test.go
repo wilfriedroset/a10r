@@ -391,6 +391,22 @@ func TestLoad_DropIn_TUITerminalTitleOneWayWins(t *testing.T) {
 	require.True(t, cfg.TUI.TerminalTitle)
 }
 
+func TestLoad_DropIn_TUIPollDeltaOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// poll_delta follows tips and terminal_title: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  poll_delta: false\n",
+		map[string]string{
+			"10-delta.yaml": "tui:\n  poll_delta: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.PollDelta)
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

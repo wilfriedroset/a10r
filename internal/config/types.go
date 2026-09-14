@@ -439,9 +439,12 @@ type Keys struct{}
 // resolves to the footer package's DefaultHintBarInterval inside
 // the wiring layer, so a partial config (`tips: true` alone) still
 // works. TerminalTitle is opt-in for the same reason; when it is
-// false a10r never writes a window-title escape sequence.
+// false a10r never writes a window-title escape sequence. PollDelta
+// is opt-in for the same reason; when it is false a poll never
+// flashes what changed.
 type TUI struct {
 	Tips          bool          `yaml:"tips,omitempty"`
 	TipsInterval  time.Duration `yaml:"tips_interval,omitempty"`
 	TerminalTitle bool          `yaml:"terminal_title,omitempty"`
+	PollDelta     bool          `yaml:"poll_delta,omitempty"`
 }

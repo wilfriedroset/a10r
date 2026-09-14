@@ -8,6 +8,15 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Poll delta flash** — with `tui.poll_delta: true`, a poll that adds
+  or removes an alertname in the alerts list flashes one line, for
+  example `+3 new, -1 resolved`. A poll that changes nothing stays
+  quiet, and so does the first poll of each backend. The line names
+  the tenant when the scope spans more than one backend. The delta
+  reports what the backend did, so the `/` filter and the state filter
+  do not hide it. For one second after you press a key, the delta
+  stays quiet rather than overwrite the feedback for that key. Off by
+  default.
 - **Automatic light and dark skin** — `theme.name: auto` asks the
   terminal for its background colour at startup and picks
   `catppuccin-latte` on a light terminal, `catppuccin-mocha` on a

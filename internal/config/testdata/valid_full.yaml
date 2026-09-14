@@ -14,6 +14,7 @@ tui:
   tips: true
   tips_interval: 12s
   terminal_title: true
+  poll_delta: true
 
 backends:
   - name: prod-vanilla

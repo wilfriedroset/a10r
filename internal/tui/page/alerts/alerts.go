@@ -209,6 +209,10 @@ type Options struct {
 	// observed DataMsgs — kept for tests that don't care about the
 	// column toggle.
 	Tenants []string
+	// PollDelta is wired from `tui.poll_delta`. When true, a poll
+	// that adds or removes an aggregate flashes the delta. Opt-in,
+	// like tui.tips and tui.terminal_title.
+	PollDelta bool
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -348,6 +352,9 @@ type Page struct {
 	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
 	readOnly bool
 
+	// pollDelta: see Options.PollDelta.
+	pollDelta bool
+
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 
@@ -392,6 +399,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		pollDelta:       opts.PollDelta,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
 		stateFilter:     opts.InitialStateFilter,

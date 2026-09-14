@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -754,4 +755,59 @@ func TestPrompt_EnterOnValidFilterSubmits(t *testing.T) {
 	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.False(t, p.IsOpen())
 	require.Equal(t, PromptSubmittedMsg{Mode: PromptFilter, Value: "web"}, cmd())
+}
+
+func TestFlash_WeakYieldsToAFreshFlash(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 5, 3, 9, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name        string
+		seed        string
+		seedWeak    bool
+		seedCleared bool
+		age         time.Duration
+		weak        bool
+		wantText    string
+		wantShown   bool
+	}{
+		{name: "weak yields to a fresh flash from a keystroke", seed: "silenced", age: 500 * time.Millisecond, weak: true, wantText: "silenced"},
+		{name: "weak replaces a flash older than the guard", seed: "silenced", age: 2 * time.Second, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "weak shows when no flash is active", seed: "", age: 0, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "strong replaces a fresh flash", seed: "silenced", age: 500 * time.Millisecond, weak: false, wantText: "+1 new", wantShown: true},
+		{name: "weak replaces a fresh weak flash", seed: "prod: +2 new", seedWeak: true, age: 100 * time.Millisecond, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "weak shows once the incumbent auto-cleared", seed: "silenced", seedCleared: true, age: 100 * time.Millisecond, weak: true, wantText: "+1 new", wantShown: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := NewFlash()
+			f.now = func() time.Time { return base }
+			if tc.seed != "" {
+				f, _ = f.Update(FlashShowMsg{Level: FlashInfo, Text: tc.seed, Weak: tc.seedWeak})
+			}
+			if tc.seedCleared {
+				f, _ = f.Update(flashClearMsg{id: f.id})
+			}
+			f.now = func() time.Time { return base.Add(tc.age) }
+			f, cmd := f.Update(FlashShowMsg{Level: FlashWarn, Text: "+1 new", Weak: tc.weak})
+
+			require.Equal(t, tc.wantText, f.Text())
+			if tc.wantShown {
+				require.NotNil(t, cmd, "an accepted flash schedules its auto-clear")
+				return
+			}
+			require.Nil(t, cmd, "a dropped flash schedules nothing")
+		})
+	}
+}
+
+func TestShowWeakFlash_CarriesTheWeakBit(t *testing.T) {
+	t.Parallel()
+
+	msg, ok := ShowWeakFlash(FlashSuccess, "-2 resolved")().(FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, FlashShowMsg{Level: FlashSuccess, Text: "-2 resolved", Weak: true}, msg)
 }
