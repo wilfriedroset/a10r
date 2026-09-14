@@ -77,6 +77,12 @@ func (b *Base) ValidateFilter(s string) error {
 	return textFilterValidate(s)
 }
 
+// FilterReadsExpr reports whether this page evaluates the boolean
+// expression grammar. FilterValidate is the signal: it carries the
+// injected grammar, and only the pages that read label selectors
+// read expressions.
+func (b *Base) FilterReadsExpr() bool { return b.FilterValidate != nil }
+
 // FilterError exposes the unusable-buffer reason to the app chrome,
 // which cannot read the field directly: listpage imports app, not the
 // reverse, so the seam has to be a method.

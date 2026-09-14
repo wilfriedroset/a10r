@@ -67,6 +67,39 @@ func TestLabelFilterValidate(t *testing.T) {
 			input:   "^web(",
 			wantMsg: "regex: missing closing )",
 		},
+		{name: "boolean expression", input: "team=platform || severity=warning"},
+		{name: "typed comparison", input: "age<2h"},
+		{
+			name:    "unbalanced group reports the expr kind",
+			input:   "!(team=platform",
+			wantMsg: "expr: unbalanced (",
+		},
+		{
+			name:    "dangling or reports the expr kind",
+			input:   "team=platform ||",
+			wantMsg: "expr: missing term after ||",
+		},
+		{
+			name:    "dangling not reports the expr kind",
+			input:   "team=platform && !",
+			wantMsg: "expr: empty term after !",
+		},
+		{
+			name:    "bad duration reports the expr kind",
+			input:   `age<2x`,
+			wantMsg: `expr: bad duration "2x"`,
+		},
+		{
+			name:    "unbalanced group with an and reports the expr kind",
+			input:   "(a=1 && b=2",
+			wantMsg: "expr: unbalanced (",
+		},
+		{name: "a lone paren stays on the text path", input: "(foo"},
+		{
+			name:    "uncompilable regex inside a term stays one line",
+			input:   "severity=warning || /(/",
+			wantMsg: "expr: missing closing )",
+		},
 	}
 
 	for _, tc := range cases {

@@ -61,3 +61,18 @@ func TestFilterSpans_LabelGrammar(t *testing.T) {
 	require.NotNil(t, spans)
 	require.Equal(t, [][2]int{{5, 8}}, spans("high cpu"))
 }
+
+// TestFilterSpans_Expression pins the stand-down: an expression
+// spreads its matching characters across terms the reporter cannot
+// attribute, so it paints nothing rather than the wrong cells.
+func TestFilterSpans_Expression(t *testing.T) {
+	t.Parallel()
+
+	b := listpage.Base{Filter: "cpu || mem", FilterValidate: listpage.LabelFilterValidate}
+	require.Nil(t, b.FilterSpans())
+
+	b.FilterValidate = nil
+	spans := b.FilterSpans()
+	require.NotNil(t, spans, "a page that does not read expressions still paints the buffer as text")
+	require.Equal(t, [][2]int{{0, 10}}, spans("cpu || mem"))
+}

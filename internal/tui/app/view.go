@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
 )
@@ -204,13 +205,24 @@ func linesIn(s string) int {
 
 // filterTag renders the title's trailing `[…]` segment for an open
 // filter prompt: the parse reason when the page rejects the buffer,
-// the auto-detected mode otherwise, and nothing for plain substring.
+// `[expr]` when the page evaluates the buffer as a boolean
+// expression, the auto-detected mode otherwise, and nothing for
+// plain substring.
 // The error variant is warn-tinted so it reads as a problem, not a
 // mode label.
 func (a *App) filterTag(p Page, value string) string {
 	if t, ok := p.(filterAware); ok {
 		if err := t.FilterError(); err != nil {
 			return " " + a.styles.Flash.Warn.Render("["+err.Error()+"]")
+		}
+		if t.FilterReadsExpr() {
+			// The tag has to name the grammar the page actually ran,
+			// and a nil Expr means the five-mode path owns the
+			// buffer. A parse failure is rendered by the branch
+			// above, not tagged here.
+			if expr, _ := filterexpr.Compile(value); expr != nil {
+				return " [expr]"
+			}
 		}
 	}
 	if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {

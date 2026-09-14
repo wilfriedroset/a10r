@@ -64,9 +64,9 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, in string) {
-		// IsExpr is the gate every buffer passes through, including
-		// the ones Parse rejects, so it runs before the error return.
-		_ = filterexpr.IsExpr(in)
+		// Compile wraps Parse, so the extra surface it fuzzes is the
+		// isExpr scan that decides whether Parse runs at all.
+		_, _ = filterexpr.Compile(in)
 
 		e, err := filterexpr.Parse(in)
 		if err != nil {

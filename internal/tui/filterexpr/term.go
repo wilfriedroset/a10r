@@ -171,7 +171,7 @@ func textTerm(t string) (node, error) {
 }
 
 // isTypedTerm reports whether raw is a typed comparison, the one
-// term shape that alone flips IsExpr to expression mode.
+// term shape that alone hands a buffer to the expression parser.
 func isTypedTerm(raw string) bool {
 	p, ok := splitTerm(strings.TrimSpace(raw))
 	return ok && isTypedKey(p.key) && !isRegexOp(p.op)

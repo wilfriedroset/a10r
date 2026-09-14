@@ -496,42 +496,6 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
-func TestIsExpr(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		in   string
-		want bool
-	}{
-		{"", false},
-		{"   ", false},
-		{`\(prod)`, false},
-		{"a=1,b=2", false},
-		{"a=1&&b=2", false},
-		{"web.*api", false},
-		{"high cpu", false},
-		{"severity=critical", false},
-		{"!foo", true},
-		{"a || b", true},
-		{"(a)", false},
-		{"(web|api)", false},
-		{"(a=1 && b=2) c=3", true},
-		{"count>3", true},
-		{"age<2h", true},
-		{"state=active", true},
-		{"COUNT>=3", true},
-		{"a=1 && count>3", true},
-		{"count=~3", false},
-		{`alertname="a || b"`, false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.in, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, filterexpr.IsExpr(tc.in))
-		})
-	}
-}
-
 func TestCompile(t *testing.T) {
 	t.Parallel()
 
@@ -542,18 +506,24 @@ func TestCompile(t *testing.T) {
 		err     string
 	}{
 		{name: "empty buffer", in: "", wantNil: true},
+		{name: "whitespace only", in: "   ", wantNil: true},
 		{name: "plain substring", in: "high cpu", wantNil: true},
 		{name: "label matcher", in: "severity=critical", wantNil: true},
 		{name: "and chain", in: "a=1,b=2", wantNil: true},
+		{name: "and chain with &&", in: "a=1&&b=2", wantNil: true},
+		{name: "quoted or inside a value", in: `alertname="a || b"`, wantNil: true},
+		{name: "regex op on a typed key", in: "count=~3", wantNil: true},
 		{name: "regex metas", in: "web.*api", wantNil: true},
 		{name: "literal sigil escapes", in: `\(a || b)`, wantNil: true},
 		{name: "or", in: "a=1 || b=2"},
 		{name: "not", in: "!severity=info"},
 		{name: "typed count", in: "count>=5"},
+		{name: "typed key is case-insensitive", in: "COUNT>=3"},
+		{name: "and chain with a typed term", in: "a=1 && count>3"},
 		{name: "typed age", in: "age<2h"},
 		{name: "typed state", in: "state=active"},
 		{name: "balanced group", in: "(a=1 || b=2) && c=3"},
-		{name: "paren only, unparsable, falls back", in: "(foo", wantNil: true},
+		{name: "a lone paren is not an expression signal", in: "(foo", wantNil: true},
 		{name: "regex alternation keeps the five-mode path", in: "(web|api)", wantNil: true},
 		{name: "regex alternation with a suffix", in: "(web|api).*", wantNil: true},
 		{name: "paren plus and is a group", in: "(a=1 && b=2) c=3"},
@@ -561,6 +531,7 @@ func TestCompile(t *testing.T) {
 		{name: "juxtaposed group stays five-mode", in: "(a=1 b=2)", wantNil: true},
 		{name: "paren inside a quoted value", in: `alertname="a(b" && x=1`, wantNil: true},
 		{name: "paren plus typed term reports", in: "(count>=5", err: "unbalanced ("},
+		{name: "paren plus and, unbalanced, reports", in: "(a=1 && b=2", err: "unbalanced ("},
 		{name: "or with missing term reports", in: "a=1 ||", err: "missing term after ||"},
 		{name: "bare not reports", in: "!", err: "empty term after !"},
 		{name: "bad typed value reports", in: "age<2x", err: `bad duration "2x"`},

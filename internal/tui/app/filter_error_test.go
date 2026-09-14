@@ -19,8 +19,9 @@ import (
 // the Enter-time validator and the chrome tag.
 type validatingFakePage struct {
 	*fakePage
-	tag error
-	err error
+	tag       error
+	err       error
+	readsExpr bool
 }
 
 func (p *validatingFakePage) Update(msg tea.Msg) (Page, tea.Cmd) {
@@ -31,6 +32,58 @@ func (p *validatingFakePage) Update(msg tea.Msg) (Page, tea.Cmd) {
 func (p *validatingFakePage) FilterError() error { return p.tag }
 
 func (p *validatingFakePage) ValidateFilter(string) error { return p.err }
+
+func (p *validatingFakePage) FilterReadsExpr() bool { return p.readsExpr }
+
+// TestApp_ExprBufferTagsExprInTitle pins the tag precedence: an
+// expression page labels an expression buffer `[expr]`, a page that
+// does not evaluate expressions keeps its five-mode label for the
+// same buffer, an expression page still falls through to the
+// five-mode label for a non-expression buffer, and an error outranks
+// all three.
+func TestApp_ExprBufferTagsExprInTitle(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	a = updated.(*App)
+	page := &validatingFakePage{fakePage: newFakePage("alerts"), readsExpr: true}
+	drive(t, a, PushPage(func() Page { return page }))
+
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "~web || api" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	out := testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[expr]")
+	require.NotContains(t, out, "[fuzzy]",
+		"the expression tag replaces the five-mode label rather than stacking with it")
+
+	page.readsExpr = false
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[fuzzy]",
+		"a page that does not evaluate expressions keeps the five-mode label")
+	require.NotContains(t, out, "[expr]")
+
+	page.readsExpr = true
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "^web.*" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[regex]",
+		"an expression-capable page still falls through to the five-mode label")
+	require.NotContains(t, out, "[expr]")
+
+	a.prompt = a.prompt.Open(footer.PromptFilter)
+	for _, r := range "~web || api" {
+		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	page.tag = errors.New("expr: missing term after ||")
+	out = testutil.StripStyle(a.View().Content)
+	require.Contains(t, out, "[expr: missing term after ||]")
+	require.NotContains(t, out, "[expr]", "the reason outranks the bare expression tag")
+}
 
 func TestApp_FilterErrorReplacesModeTagInTitle(t *testing.T) {
 	t.Parallel()

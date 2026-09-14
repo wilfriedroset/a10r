@@ -49,66 +49,47 @@ type Expr struct{ root node }
 // Match reports whether r satisfies the expression.
 func (e *Expr) Match(r Row) bool { return e.root(r) == triTrue }
 
-// IsExpr reports whether s should go to Parse rather than the
-// single-matcher path. An `&&` or `,` chain alone stays on the old
-// path so today's buffers keep their meaning, and a leading `\`
-// forces literal mode over the whole buffer. IsExpr only lexes, so
-// it neither panics nor reports a parse error.
-func IsExpr(s string) bool {
-	hard, paren := signals(s)
-	return hard || paren
-}
-
 // Compile returns the expression to run for s, or a nil Expr and a
-// nil error when the five-mode path owns the buffer.
+// nil error when the five-mode path owns the buffer. An `&&` or `,`
+// chain alone stays on the old path so today's buffers keep their
+// meaning, and a leading `\` forces literal mode over the whole
+// buffer.
 //
 //nolint:nilnil // the nil pair is the documented answer above
 func Compile(s string) (*Expr, error) {
-	hard, paren := signals(s)
-	if !hard && !paren {
+	if !isExpr(s) {
 		return nil, nil
 	}
-	e, err := Parse(s)
-	if err == nil {
-		return e, nil
-	}
-	if !hard {
-		// `(` also reads as a regex metacharacter, so a buffer whose
-		// only expression signal was a paren goes back to the
-		// five-mode path instead of becoming an error.
-		return nil, nil
-	}
-	return nil, err
+	return Parse(s)
 }
 
-// signals scans s for the tokens that hand a buffer to the
-// expression parser. hard marks a signal with no other reading.
-// paren wants a `(` AND an explicit `&&` or `,`, because a lone
-// paren is also a regex metacharacter and `(web|api)` has to stay
-// the alternation the user meant rather than become a group around
-// a substring.
-func signals(s string) (hard, paren bool) {
+// isExpr scans s for the tokens that hand a buffer to the expression
+// parser. A `(` needs an explicit `&&` or `,` beside it, because a
+// lone paren is also a regex metacharacter and `(web|api)` has to
+// stay the alternation the user meant rather than become a group
+// around a substring.
+func isExpr(s string) bool {
 	t := strings.TrimSpace(s)
 	if t == "" || t[0] == '\\' {
-		return false, false
+		return false
 	}
 	var sawParen, sawAnd bool
 	for _, tok := range lex(t) {
 		switch tok.kind {
 		case tokOr, tokNot:
-			return true, false
+			return true
 		case tokLParen:
 			sawParen = true
 		case tokAnd:
 			sawAnd = true
 		case tokTerm:
 			if isTypedTerm(tok.text) {
-				return true, false
+				return true
 			}
 		case tokRParen, tokEOF:
 		}
 	}
-	return false, sawParen && sawAnd
+	return sawParen && sawAnd
 }
 
 // tri is the Kleene truth value evaluation runs on.

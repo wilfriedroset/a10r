@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -22,12 +23,21 @@ func textFilterValidate(s string) error {
 }
 
 // LabelFilterValidate is the filter grammar for the pages that also
-// accept a Prometheus label selector (alerts list, group detail). A
-// buffer that is not a selector at all is judged as text; one that is
-// a selector but carries an uncompilable regex is reported under the
-// `matcher` tag so the user can tell which grammar rejected them.
+// accept a Prometheus label selector and the boolean expression
+// grammar (alerts list, group detail). The expression parser gets
+// first refusal; a buffer it does not own is judged as a selector,
+// and one that is a selector but carries an uncompilable regex is
+// reported under the `matcher` tag, so the user can tell which
+// grammar rejected them.
 func LabelFilterValidate(s string) error {
-	_, err := matcher.LabelPredicate(s)
+	expr, err := filterexpr.Compile(s)
+	if err != nil {
+		return fmt.Errorf("expr: %s", footer.RegexErrText(err))
+	}
+	if expr != nil {
+		return nil
+	}
+	_, err = matcher.LabelPredicate(s)
 	switch {
 	case err == nil:
 		return nil

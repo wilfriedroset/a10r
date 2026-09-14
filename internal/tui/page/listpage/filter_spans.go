@@ -4,6 +4,7 @@ package listpage
 
 import (
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
@@ -12,11 +13,14 @@ import (
 // Pages call it once per frame and run it over the visible window
 // only, never over the whole list.
 //
-// Three buffers paint nothing. An empty one, because no filter is
+// Four buffers paint nothing. An empty one, because no filter is
 // set. A bare sigil, because it has no text to look for. A label
 // selector on a page that reads selectors, because it matches on
 // label structure rather than on the rendered text — FilterValidate
-// is the same signal the prompt uses to tell the two grammars apart.
+// is the same signal the prompt uses to tell the grammars apart. An
+// expression on such a page, because its matching characters are
+// spread across terms the reporter cannot attribute, and painting
+// the whole buffer as one needle would highlight the wrong cells.
 //
 // A regex that does not compile keeps the substring fallback
 // NewMatcher returns, so the highlight tracks the rows the recompute
@@ -26,6 +30,9 @@ func (b *Base) FilterSpans() func(string) [][2]int {
 		return nil
 	}
 	if b.FilterValidate != nil {
+		if expr, _ := filterexpr.Compile(b.Filter); expr != nil {
+			return nil
+		}
 		if _, err := matcher.LabelPredicate(b.Filter); err == nil {
 			return nil
 		}
