@@ -367,7 +367,10 @@ _Avoid_: custom theme, override skin.
 - The substring (`/`) and state (`Shift+F`) filters narrow **alert
   instances** first; **Alerts** are then rebuilt from the survivors
   and an Alert with no surviving instance drops from the page, so
-  COUNT / STATE / AGE always describe the post-filter reality.
+  COUNT / STATE / AGE always describe the post-filter reality. A
+  `count` or `age` term inside a `/` expression reads those same
+  post-filter values, computed before the expression's own terms
+  run.
 - Drill-down ladder: L1 alerts list → (Enter) → L2 **group detail**
   → (Enter) → L3 **instance detail**; Esc pops one level. Enter on a
   COUNT==1 alert at L1 skips L2 and lands on L3 directly — such rows

@@ -27,6 +27,7 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 | Buffer | Mode | When |
 | --- | --- | --- |
+| `a \|\| b`, `!a`, `count>3` | expression | **Alerts list & group detail only.** A boolean expression over the modes below, built from `&&`, `\|\|`, `!` and parentheses, plus the typed keys `count`, `age` and `state`. See [Boolean expressions](#boolean-expressions). Prefix the buffer with `\` to force a plain substring instead. |
 | `name<op>value` (`=`, `!=`, `=~`, `!~`) | label matcher | **Alerts list & group detail only.** A Prometheus-style label selector (e.g. `cluster_id=99`, `cluster_id=~9.*`, `severity!=info`) filters by that exact label — key-scoped, not a value substring. Combine several with `,` (or `&&`) to AND them: `cluster_id=99,role=consul`. Quote a value to keep a literal `,` inside a regex: `cluster_id=~"(a,b)"`. Checked before the modes below; prefix with `\` to force a plain substring instead. |
 | `~<text>` | fuzzy | Leading `~`. The `~` is stripped before matching; the rest is fed to a fuzzy matcher. |
 | `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`) or a label matcher (e.g. `\foo=bar`). |
@@ -35,9 +36,34 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
 
-The characters that made a row match are painted in the skin's filter colour (`frame.title.filterColor`); on the cursor row, a marked row and a dimmed row they are underlined instead, so the row keeps its own colour. A row kept by a match the table does not show — an annotation, a hidden label — is listed without any painted characters, and a label matcher paints nothing at all, because it matches on label structure rather than on the rendered text.
+The characters that made a row match are painted in the skin's filter colour (`frame.title.filterColor`); on the cursor row, a marked row and a dimmed row they are underlined instead, so the row keeps its own colour. A row kept by a match the table does not show — an annotation, a hidden label — is listed without any painted characters, and a label matcher paints nothing at all, because it matches on label structure rather than on the rendered text. An expression paints nothing either, because its matching characters are spread across terms the highlighter cannot attribute.
 
-When the buffer will not compile — a half-typed `^web(`, or a label matcher whose `=~` value is malformed — the title tag reads `[regex: <reason>]` or `[matcher: <reason>]` instead of the mode name, the rows stay on the last good filter, and `Enter` keeps the prompt open so you can fix the buffer. `Esc` still restores the filter you had before the prompt opened.
+When the buffer will not compile — a half-typed `^web(`, a label matcher whose `=~` value is malformed, or an expression that ends on a dangling `||` — the title tag reads `[regex: <reason>]`, `[matcher: <reason>]` or `[expr: <reason>]` instead of the mode name, the rows stay on the last good filter, and `Enter` keeps the prompt open so you can fix the buffer. `Esc` still restores the filter you had before the prompt opened.
+
+### Boolean expressions
+
+**Alerts list & group detail only.** Combine the modes above with boolean operators. While the prompt is open, the title tag reads `[expr]` for a buffer the expression path owns, in place of the five-mode label.
+
+| Operator | Spelling | Example |
+| --- | --- | --- |
+| AND | `&&`, `,`, or a space | `severity=critical team=infra` |
+| OR | `\|\|` | `severity=critical \|\| severity=warning` |
+| NOT | `!` | `!severity=info` |
+| grouping | `(` `)` | `(severity=info \|\| team=ops) && age>1h` |
+
+`!` binds tighter than AND, and AND binds tighter than OR, so `count>=5 && !severity=info \|\| age<2h` reads as `(count>=5 && !severity=info) \|\| (age<2h)`. Each operand is one of the modes above — label matcher, fuzzy, literal, regex or substring.
+
+Three typed keys compare against a value the table shows rather than against the search text:
+
+| Key | Values | Example |
+| --- | --- | --- |
+| `count` | an integer, the alert's COUNT | `count>=5` |
+| `age` | a duration in `s` `m` `h` `d` `w`, largest unit first (`30m`, `2h`, `1h30m`, `3d`) | `age>2h` |
+| `state` | `active`, `suppressed`, `unprocessed` | `state=suppressed` |
+
+All six comparison operators work on them: `=`, `!=`, `>`, `>=`, `<`, `<=`. The regex operators `=~` and `!~` do not. Key names are case-insensitive. `count` is the group size **before** the expression runs, that is, after the scope and the `Shift+F` state filter only, so `count>=5` asks "this alert has at least 5 instances in scope", not "at least 5 of them also match the rest of my buffer". On group detail `count` is undefined, and a term over it matches nothing, negated or not. The same rule covers `age` on an instance with no start time.
+
+A buffer becomes an expression only when it carries a `||`, a `!`, a typed comparison, or a `(` next to an explicit `&&` or `,`. Everything else keeps its old meaning: `a=1,b=2` stays the label-matcher AND chain it always was, and `(web|api)` stays a regex alternation. To use a regex that carries parentheses inside an expression, wrap it in slashes: `!/(web|api)/ && age>1h`. A leading `\` still forces literal mode over the whole buffer.
 
 ### What `/` actually matches against
 
