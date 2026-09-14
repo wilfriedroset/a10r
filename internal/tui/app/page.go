@@ -140,6 +140,25 @@ type AutoPopMsg interface {
 	IsAutoPop()
 }
 
+// EscapeConsumer is the optional interface a page implements to take
+// Esc before the global "pop the stack" binding sees it. A page that
+// holds a transient sub-state — the visual-mode range anchor — unwinds
+// that state first, so Esc reads as "back one step" rather than
+// jumping the user out of the view.
+type EscapeConsumer interface {
+	Page
+	ConsumeEscape() bool
+}
+
+// Suspender is the optional interface a page implements to drop
+// transient state when another page is pushed on top of it. A
+// visual-mode range is page-local by contract, so a drill-down ends
+// it rather than leaving a preview waiting under the new page.
+type Suspender interface {
+	Page
+	Suspend()
+}
+
 // InputCapturePage is the optional interface a page implements to route
 // every keystroke to itself, bypassing the dispatcher's LayerGlobal
 // bindings (q, :, /, ?, 0-9) so forms can type those characters.

@@ -36,6 +36,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
@@ -187,7 +188,19 @@ type instanceEntry struct {
 	distinguishSummary string
 }
 
+// markKey hands the listpage mark and range helpers the fingerprint,
+// so a re-sort carries a mark with its row instead of its index.
+func markKey(e instanceEntry) string { return e.a.Fingerprint }
+
 // Page is the L2 group-detail instance list. Implements app.Page.
+// The range-mark contract from listpage.Base reaches the app shell
+// only through these two optional interfaces, and neither is named
+// anywhere else in the package.
+var (
+	_ app.EscapeConsumer = (*Page)(nil)
+	_ app.Suspender      = (*Page)(nil)
+)
+
 type Page struct {
 	listpage.Base
 	listpage.PollingUI
@@ -344,6 +357,9 @@ func (p *Page) HeaderContent() string {
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
 	}
+	if p.Visual.On() {
+		parts = append(parts, listpage.ChipVisual)
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -371,6 +387,7 @@ func (p *Page) Bindings() []action.Action {
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: viewName},
 		action.Action{Key: "Space", Description: "mark", View: viewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: viewName, Shared: true},
 		action.Action{Key: "s", Description: "silence", View: viewName, Dangerous: true},
 		action.Action{Key: "S", Description: "open silences", View: viewName},
 		action.Action{Key: "/", Description: "filter", View: viewName},

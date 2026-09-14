@@ -23,7 +23,12 @@ body is a table) → global. `Esc` always reaches an open
 modal/prompt to dismiss it, and otherwise falls through to
 pop the page stack at the global layer. Modals are not stack
 frames; `Esc` dismisses the modal without popping the view
-under it.
+under it. One stateful exception sits between the two: a page
+holding a transient sub-state — today only the `Shift+V` range
+anchor — unwinds that state and keeps the key, so `Esc` reads
+as "back one step" everywhere rather than jumping the operator
+out of the view. The page opts in by implementing an interface
+the global handler consults; it is not a fourth layer.
 
 **Global vs page binding model.** A binding is global when it
 must behave identically on every page, page-local when its
@@ -56,7 +61,12 @@ an alert, `Y` copies a field). Bulk verbs reuse the single-row key
 and branch on the marked-row count (`s` silences the cursor alert
 or fans out over marks; `x` expires one silence or many), so there
 is no parallel `Ctrl+S`/`Ctrl+X`; `Ctrl+\` is the explicit
-clear-all-marks escape hatch.
+clear-all-marks escape hatch. `Shift+V` starts a mark range and is
+reserved on the pages that have marks (alerts, group detail,
+silences) — but only there, because the sort namespace still wins
+elsewhere: the tenant table has a VERSION column, so `Shift+V`
+sorts by it and the range verb has nothing to attach to on a page
+with no marks.
 
 **Dangerous-action tagging for read-only mode.** Every binding
 that mutates remote state (silence, expire, edit) is tagged

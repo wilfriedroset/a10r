@@ -333,6 +333,27 @@ the footer entirely.
 _Avoid_: refresh footer (surface name, not content), poll status
 (too generic), watch indicator (one branch only).
 
+### Row marking
+
+**Visual mode**:
+The transient state a list page enters on `Shift+V`, in which the
+rows between the **anchor** and the cursor preview as marked and the
+title carries a `visual` chip. The preview is not a mark: `Space` or a
+second `Shift+V` commits it, `Esc` cancels it, `Ctrl+\` cancels it and
+clears every mark. A commit only adds, so marks picked one by one
+survive it. Page-local: a drill-down drops it on the way in, so
+coming back reveals the page without a preview waiting on it.
+_Avoid_: selection mode (vim's `v` is character-wise and a10r has no
+character-wise equivalent), range mode (names the span, not the state).
+
+**Anchor**:
+The row key `Shift+V` pins visual mode to — a group key, a
+fingerprint, or a silence ID, never a row index, so a re-sort or a
+re-filter carries the preview with its row. When the anchor row leaves
+the view, visual mode cancels itself and flashes the reason.
+_Avoid_: start row (an index reading, which is exactly what the anchor
+is not), pivot.
+
 ### Theming
 
 **Skin**:

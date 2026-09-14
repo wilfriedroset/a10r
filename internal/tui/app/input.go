@@ -135,7 +135,7 @@ func (a *App) registerGlobalBindings() {
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
-	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, a.back)
 	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
 	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
 	// `Ctrl+T` opens the tenant picker — fuzzy search over
@@ -397,6 +397,16 @@ func (a *App) handlePromptSubmitted(m footer.PromptSubmittedMsg) tea.Cmd {
 		return nil
 	}
 	return showFlash(footer.FlashWarn, err.Error())
+}
+
+// back is the Esc handler at the global layer. An EscapeConsumer top
+// page unwinds one step of its own state (the visual-mode range) and
+// keeps the key; every other page pops the stack as before.
+func (a *App) back() tea.Cmd {
+	if p, ok := a.topPage().(EscapeConsumer); ok && p.ConsumeEscape() {
+		return nil
+	}
+	return PopPage()
 }
 
 // showFlash returns a tea.Cmd that emits a FlashShowMsg with the

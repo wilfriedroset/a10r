@@ -258,7 +258,9 @@ the binary entry to a live page:
 The page stack is `app.App.stack`: index 0 is home, the last element
 is the active top-of-stack. `app.PopPage` / `app.ReplacePage` are the
 other two stack transitions; each runs the departing page's `Close`
-exactly once.
+exactly once. A push also calls `Suspend` on the page it covers when
+that page implements `app.Suspender`, so page-local transient state
+(the visual-mode range anchor) does not outlive the drill-down.
 
 ## Birth of a backend call
 

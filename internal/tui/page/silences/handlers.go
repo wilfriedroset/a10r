@@ -25,7 +25,16 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update wraps the message switch so every path that rebuilds the
+// view is followed by the anchor check — a filter change, a poll
+// refresh or a scope switch can drop the row an open range hangs
+// off, and the preview must not outlive it.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	next, cmd := p.handleMsg(msg)
+	return next, tea.Batch(cmd, listpage.CancelVisualOnLostAnchor(&p.Base, p.view, markKey))
+}
+
+func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
@@ -150,7 +159,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.runWriteAction(p.openExpireConfirmUnified)
 		return p, cmd
 	case "space":
-		p.toggleMarkAtCursor()
+		listpage.MarkOrCommit(&p.Base, p.view, p.marks, markKey)
+	case "V":
+		listpage.StartOrCommitVisual(&p.Base, p.view, p.marks, markKey)
 	case "ctrl+e":
 		cmd := p.runWriteAction(p.openEditorForCursor)
 		return p, cmd
@@ -213,15 +224,12 @@ func (p *Page) requestRefresh() tea.Cmd {
 // pre-clear count was non-zero so the user sees confirmation;
 // silently no-ops otherwise.
 func (p *Page) handleClearMarks() tea.Cmd {
+	p.Visual.Cancel()
 	if len(p.marks) == 0 {
 		return nil
 	}
 	p.marks = map[string]struct{}{}
 	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
-}
-
-func (p *Page) toggleMarkAtCursor() {
-	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e silenceEntry) string { return e.s.ID })
 }
 
 // openEditSilenceForm pushes the silence form in edit mode

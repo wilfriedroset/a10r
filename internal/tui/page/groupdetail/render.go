@@ -171,10 +171,13 @@ func (p *Page) renderRows(width, maxRows int) string {
 	if flexColumnIndex < len(cols) {
 		flexW = cols[flexColumnIndex]
 	}
+	// An open range previews as marked rows; the keys only reach
+	// p.marks on commit, so the span is resolved per frame.
+	visual := listpage.VisualPreview(&p.Base, p.view, markKey)
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, cols, flexW, width))
+		b.WriteString(p.renderRow(i, cols, flexW, width, visual.Covers(i)))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -184,7 +187,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 
 // renderRow renders one instance row at the pre-computed column
 // widths. See renderRows for the colour-by-state contract.
-func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
+func (p *Page) renderRow(i int, cols []int, flexW, width int, previewed bool) string {
 	entry := p.view[i]
 	a := entry.a
 	ageLabel := p.formatTime(a.StartsAt)
@@ -192,6 +195,7 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int) string {
 		ageLabel = "—"
 	}
 	_, marked := p.marks[a.Fingerprint]
+	marked = marked || previewed
 	mark := " "
 	if marked {
 		mark = "✓"

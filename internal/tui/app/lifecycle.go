@@ -177,6 +177,9 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	if page == nil {
 		return nil
 	}
+	if s, ok := a.topPage().(Suspender); ok {
+		s.Suspend()
+	}
 	a.stack = append(a.stack, page)
 	a.refreshCrumbs()
 	initCmd := page.Init()

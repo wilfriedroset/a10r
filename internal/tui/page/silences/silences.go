@@ -29,6 +29,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
@@ -88,6 +89,18 @@ type silenceEntry struct {
 	// single strings.Contains.
 	lowerComposite string
 }
+
+// markKey hands the listpage mark and range helpers the silence ID,
+// so a re-sort carries a mark with its row instead of its index.
+func markKey(e silenceEntry) string { return e.s.ID }
+
+// The range-mark contract from listpage.Base reaches the app shell
+// only through these two optional interfaces, and neither is named
+// anywhere else in the package.
+var (
+	_ app.EscapeConsumer = (*Page)(nil)
+	_ app.Suspender      = (*Page)(nil)
+)
 
 type Page struct {
 	listpage.Base
@@ -364,6 +377,9 @@ func (p *Page) HeaderContent() string {
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
 	}
+	if p.Visual.On() {
+		parts = append(parts, listpage.ChipVisual)
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -390,6 +406,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true},
 		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true},
 		action.Action{Key: "Space", Description: "mark", View: resourceSilences, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: resourceSilences, Shared: true},
 		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true},
 		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true},
 	)

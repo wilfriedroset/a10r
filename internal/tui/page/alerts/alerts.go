@@ -43,6 +43,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
@@ -257,10 +258,22 @@ func (g alertGroup) key() string { return groupKeyOf(g.tenant, g.alertName) }
 // through it, NUL-separated so a tenant name cannot forge a key.
 func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + alertName }
 
+// markKey hands the listpage mark and range helpers the group key,
+// so a re-sort carries a mark with its row instead of its index.
+func markKey(g alertGroup) string { return g.key() }
+
 // allSuppressed reports whether every instance in the group is
 // suppressed — the row-dim condition. A zero-count group is never
 // "all suppressed" (there is nothing to dim).
 func (g alertGroup) allSuppressed() bool { return g.count > 0 && g.suppressed == g.count }
+
+// The range-mark contract from listpage.Base reaches the app shell
+// only through these two optional interfaces, and neither is named
+// anywhere else in the package.
+var (
+	_ app.EscapeConsumer = (*Page)(nil)
+	_ app.Suspender      = (*Page)(nil)
+)
 
 // Implements app.Page.
 type Page struct {
@@ -398,7 +411,9 @@ func New(opts Options) *Page {
 	return p
 }
 
-// Mirror of app.ScopeChangedMsg for direct callers (cmd-bar, tests).
+// SetScope mirrors app.ScopeChangedMsg for tests, which is its only
+// caller: production rescopes through the message so Update runs and
+// the visual-range anchor check goes with it.
 func (p *Page) SetScope(s string) {
 	p.Scope = s
 	p.recompute()
@@ -443,6 +458,9 @@ func (p *Page) HeaderContent() string {
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
 	}
+	if p.Visual.On() {
+		parts = append(parts, listpage.ChipVisual)
+	}
 	return strings.Join(parts, " · ")
 }
 
@@ -466,6 +484,7 @@ func (p *Page) Bindings() []action.Action {
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: resourceAlerts},
 		action.Action{Key: "Space", Description: "mark", View: resourceAlerts, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: resourceAlerts, Shared: true},
 		action.Action{Key: "s", Description: "silence", View: resourceAlerts, Dangerous: true},
 		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
 		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},

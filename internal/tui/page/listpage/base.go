@@ -66,6 +66,27 @@ type Base struct {
 	// any follow-up flash command. Nil on pages without marks; nil
 	// falls through — see ADR-0018.
 	ClearMarks func() tea.Cmd
+	// Visual is the range-mark anchor `V` drops. Lives on Base so the
+	// Esc contract has one implementation; a page without marks never
+	// starts it, so the zero value keeps it inert.
+	Visual Visual
+}
+
+// Suspend drops the open visual range when another page is pushed
+// on top. Visual mode is page-local by contract, so a drill-down
+// ends it rather than leaving a preview to reappear on the way back.
+// Implements app.Suspender.
+func (b *Base) Suspend() { b.Visual.Cancel() }
+
+// ConsumeEscape cancels an open visual range and reports that it took
+// the key, so Esc unwinds the range before the global binding pops
+// the page. Implements app.EscapeConsumer.
+func (b *Base) ConsumeEscape() bool {
+	if !b.Visual.On() {
+		return false
+	}
+	b.Visual.Cancel()
+	return true
 }
 
 // ValidateFilter reports why s cannot be applied as this page's

@@ -42,6 +42,7 @@ type pendingExpireID struct {
 // expire confirm depending on whether any silences are marked.
 // Mirror of the alerts page's openSilenceForS.
 func (p *Page) openExpireConfirmUnified() tea.Cmd {
+	listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
 	if len(p.marks) == 0 {
 		return p.openExpireConfirm()
 	}

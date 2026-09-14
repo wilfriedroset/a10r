@@ -23,7 +23,16 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
+// Update wraps the message switch so every path that rebuilds the
+// view is followed by the anchor check — a filter change, a poll
+// refresh or a state-filter cycle can drop the row an open range
+// hangs off, and the preview must not outlive it.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	next, cmd := p.handleMsg(msg)
+	return next, tea.Batch(cmd, listpage.CancelVisualOnLostAnchor(&p.Base, p.view, markKey))
+}
+
+func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
@@ -110,7 +119,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "space":
-		p.toggleMarkAtCursor()
+		listpage.MarkOrCommit(&p.Base, p.view, p.marks, markKey)
+	case "V":
+		listpage.StartOrCommitVisual(&p.Base, p.view, p.marks, markKey)
 	case "F":
 		p.cycleStateFilter()
 		p.recompute()
@@ -146,13 +157,10 @@ func (p *Page) requestRefresh() tea.Cmd {
 	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "alerts")
 }
 
-func (p *Page) toggleMarkAtCursor() {
-	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e instanceEntry) string { return e.a.Fingerprint })
-}
-
 // handleClearMarks drops every mark on the global Ctrl+\ binding,
 // flashing confirmation only when there was something to clear.
 func (p *Page) handleClearMarks() tea.Cmd {
+	p.Visual.Cancel()
 	if len(p.marks) == 0 {
 		return nil
 	}
@@ -203,6 +211,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 // openSilenceForS routes `s`: no marks → silence-one form for the
 // cursor instance; with marks → the bulk silence-one fanout.
 func (p *Page) openSilenceForS() tea.Cmd {
+	listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
 	if len(p.marks) == 0 {
 		return p.openSilenceFormForCursor()
 	}

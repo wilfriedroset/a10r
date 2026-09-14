@@ -792,3 +792,70 @@ func TestQuitWithCleanup_FlipsQuittingFlag(t *testing.T) {
 			"the cleanup batch — otherwise the filter loops QuitMsg "+
 			"back into QuitRequestedMsg and the program never exits")
 }
+
+// escapingFakePage embeds fakePage and adds the EscapeConsumer
+// implementation. Defined as its own type rather than as a fakePage
+// flag because pages opt in by interface satisfaction — a
+// flag-bearing fakePage would always type-assert and the
+// fall-through path would never be exercised.
+type escapingFakePage struct {
+	*fakePage
+	consume bool
+}
+
+func (p *escapingFakePage) ConsumeEscape() bool {
+	if !p.consume {
+		return false
+	}
+	p.consume = false
+	return true
+}
+
+func TestStack_EscapeConsumerUnwindsBeforePop(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	alerts := newFakePage("alerts")
+	detail := &escapingFakePage{fakePage: newFakePage("alert-detail"), consume: true}
+	drive(t, a, PushPage(func() Page { return alerts }))
+	drive(t, a, PushPage(func() Page { return detail }))
+
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.Same(t, detail, a.topPage(),
+		"the first Esc unwinds the page's own state and must not pop the stack")
+
+	updated, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.Same(t, alerts, a.topPage(),
+		"once the page stops consuming Esc, the next press pops the stack")
+}
+
+// suspendingFakePage records Suspend calls so a test can pin the
+// "a push drops the covered page's transient state" contract.
+type suspendingFakePage struct {
+	*fakePage
+	suspends *int
+}
+
+func (p *suspendingFakePage) Suspend() { *p.suspends++ }
+
+func TestStack_PushSuspendsTheCoveredPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	var suspends int
+	alerts := &suspendingFakePage{fakePage: newFakePage("alerts"), suspends: &suspends}
+	drive(t, a, PushPage(func() Page { return alerts }))
+	require.Zero(t, suspends, "pushing the page itself must not suspend it")
+
+	drive(t, a, PushPage(func() Page { return newFakePage("alert-detail") }))
+	require.Equal(t, 1, suspends,
+		"the covered page drops its transient state when a drill-down lands on top")
+}

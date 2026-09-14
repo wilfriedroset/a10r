@@ -9,13 +9,13 @@
 | `?` | Help overlay for the current view. |
 | `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
-| `Esc` | Dismiss prompt / modal first; otherwise pop the page stack. |
+| `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
 | `Ctrl+C` | Hard quit, no confirm. |
 | `r` | Refresh the current view (bypass the poll tick). |
 | `t` | Toggle timestamps between relative (`5m ago`) and absolute (ISO local) — app-wide. |
 | `Ctrl+T` | Tenant picker modal (fuzzy search). |
-| `Ctrl+\` | Clear every mark on the focused page (alerts / silences). Silent no-op when nothing is marked. |
+| `Ctrl+\` | Clear every mark on the focused page (alerts / group detail / silences) and cancel any open `Shift+V` range. Flashes only when marks were cleared: cancelling a range on its own is silent, and the `visual` chip leaving the title is the cue. |
 | `0` | Scope: all configured tenants. |
 | `1` … `9` | Scope: nth tenant in `backends:` config order. |
 
@@ -91,8 +91,7 @@ If a fuzzy/substring search surfaces matches that look unrelated to the alertnam
 | `h` / `←` | Previous sortable column |
 | `l` / `→` | Next sortable column |
 | `Enter` | Drill into the cursor row |
-| `Space` | Mark / unmark the cursor row (multi-select) |
-| `Ctrl+A` | Mark every visible row |
+| `Space` | Mark / unmark the cursor row (multi-select) — on the pages that have marks (alerts, group detail, silences) and on the tenant table |
 
 The mouse wheel walks the cursor too — wheel-up is the same as `k`, wheel-down the same as `j`. Wheel ticks on the open `?` overlay scroll the help body so a long binding list stays reachable. Click and drag are intentionally unbound; the rest of the surface stays keyboard-driven.
 
@@ -112,6 +111,7 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | --- | --- |
 | `Enter` | Drill: single-instance alert → instance detail; multi-instance alert → group detail. |
 | `s` | Silence the whole alert (`alertname=` matcher only). No marks: prefilled form — a confirm guards alerts with more than one instance, and a scope note warns that any active filter is *not* applied. With marks (`Space`): bulk — one silence per marked alert. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `/` | Substring filter over the instances. |
 | `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all. |
 | `Shift+T` | Toggle the STATE breakdown between full (`9 active · 3 suppressed`) and compact (`9ac 3su`) — app-wide. |
@@ -128,6 +128,7 @@ The instance list for one alert, reached by `Enter` on a multi-instance row. Row
 | --- | --- |
 | `Enter` | Drill into the cursor instance (instance detail). |
 | `s` | Silence the cursor instance (full labels). With marks: bulk — one silence per marked instance; at 10+ marks a warning suggests silencing the whole alert instead. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `S` | Open the silences suppressing this alert's instances. |
 | `Shift+C` | Show / hide the common-labels strip. |
 | `/` | Substring filter. |
@@ -160,6 +161,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
 | `Ctrl+N` | Recreate the cursor silence (only on expired rows). The form lands prefilled with the matchers and comment from the source silence; creator is your current user, start defaults to now, and the cursor focuses the `Ends` line so you can type a fresh duration. Submits as a new silence (new ID); the original expired silence is left untouched. Refuses on active or pending rows — use `e` to extend a live silence. |
 | `x` / `Delete` | Expire. With no marks: expires the cursor silence after a default-No confirm. With one or more marks: bulk expire — confirm wording counts the queued silences and breaks them down per tenant (`(tenant prod=12, staging=3)`); fanout retries failed targets only. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `Shift+E` | Sort by `endsAt` |
 | `Shift+S` | Sort by `startsAt` |
 | `Shift+C` | Sort by creator |
@@ -206,7 +208,7 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 | Receivers | `Shift+N` | Toggle the name sort ASC↔DESC (single sortable axis; `h`/`l` are no-ops here) |
 | Tenant | `Enter` | Single-select the cursor row |
 | Tenant | `Space` | Toggle the cursor row in the selection |
-| Tenant | `a` / `Ctrl+A` | Select every tenant |
+| Tenant | `a` | Select every tenant (with the search box empty) |
 
 ## Read-only mode
 
@@ -217,5 +219,6 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.
 - **Cursor row** keeps the body background and brightens the foreground.
 - **Marked rows** (after `Space`) tint the foreground only — different colour from the cursor so you can tell them apart at a glance.
+- **Visual mode** (`Shift+V`) previews a range in that same marked style and adds a `visual` chip to the title. The rows are not marked yet: `Space` or a second `Shift+V` commits them, `Esc` cancels, and `Ctrl+\` cancels and clears every mark. A commit only ever adds, so marks you picked one by one survive. If the anchor row leaves the view — a filter change, a poll refresh — the range cancels itself and says so.
 - **`TENANT` column** appears on alerts when more than one tenant is in scope. Switching to a single-tenant scope hides it.
 - **Bold breadcrumbs** in the footer trace the page stack: `<alerts> <instances> <detail>` (a single-instance alert skips straight to `<detail>`). `Esc` pops one frame.

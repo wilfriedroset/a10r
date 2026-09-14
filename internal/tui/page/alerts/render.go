@@ -131,6 +131,9 @@ func (p *Page) renderRows(width, maxRows int) string {
 		stateIdx = len(cols) - 2
 	}
 	spans := p.FilterSpans()
+	// An open visual range previews as marked rows; the keys only
+	// reach p.marks on commit, so the span is resolved per frame.
+	visual := listpage.VisualPreview(&p.Base, p.groups, markKey)
 	var b strings.Builder
 	// Reserve enough capacity for the visible page (rows × width)
 	// plus per-row styling overhead so the Builder doesn't realloc
@@ -144,6 +147,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 			width:      width,
 			showTenant: showTenant,
 			spans:      spans,
+			visual:     visual,
 		}))
 		if i < end-1 {
 			b.WriteString("\n")
@@ -155,10 +159,13 @@ func (p *Page) renderRows(width, maxRows int) string {
 // rowCtx carries the per-frame values, hoisted so the row loop does
 // not recompute them.
 type rowCtx struct {
-	cols       []int
-	spans      func(string) [][2]int
-	stateIdx   int
-	width      int
+	cols     []int
+	spans    func(string) [][2]int
+	stateIdx int
+	width    int
+	// visual is the open range's preview span; the zero value covers
+	// no row.
+	visual     listpage.VisualRange
 	showTenant bool
 }
 
@@ -179,6 +186,7 @@ func (p *Page) renderRow(i int, g alertGroup, ctx rowCtx) string {
 		ageLabel = "—"
 	}
 	_, marked := p.marks[g.key()]
+	marked = marked || ctx.visual.Covers(i)
 	mark := " "
 	if marked {
 		mark = "✓"

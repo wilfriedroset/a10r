@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -116,7 +117,7 @@ func TestHighlight_PaintsInsideAMarkedRow(t *testing.T) {
 	p.Filter = "cpufirst"
 	p.recompute()
 	p.SetIndex(0, 1)
-	p.toggleMarkAtCursor()
+	listpage.MarkOrCommit(&p.Base, p.groups, p.marks, markKey)
 	p.SetIndex(1, 1) // move the cursor off the marked row
 
 	row := rawRowContaining(t, p.View(100, 24), "HighCPUFirst")

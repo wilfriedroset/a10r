@@ -111,10 +111,10 @@ func (p *Page) renderHeader(width int) string {
 	return leading + p.padColumns(parts, width, format.Highlighter{})
 }
 
-// hasMarks reports whether any silence ID is currently marked.
-// Inlined-style helper so the renderer can branch without
-// poking at p.marks length in two places.
-func (p *Page) hasMarks() bool { return len(p.marks) > 0 }
+// hasMarks reports whether the mark column has to be drawn. An open
+// visual range counts: its preview occupies the column, so the header
+// and the rows must reserve it now rather than shift on commit.
+func (p *Page) hasMarks() bool { return len(p.marks) > 0 || p.Visual.On() }
 
 func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
@@ -122,11 +122,14 @@ func (p *Page) renderRows(width, maxRows int) string {
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
 	showMark := p.hasMarks()
+	// An open range previews as marked rows; the keys only reach
+	// p.marks on commit, so the span is resolved per frame.
+	visual := listpage.VisualPreview(&p.Base, p.view, markKey)
 	spans := p.FilterSpans()
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, p.view[i], width, showMark, spans))
+		b.WriteString(p.renderRow(i, p.view[i], width, showMark, visual.Covers(i), spans))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -141,8 +144,9 @@ func (p *Page) renderRows(width, maxRows int) string {
 // keeps the body's default background — k9s "tinted text" rather than
 // competing highlighted stripes. Dimming fires when the silence is
 // expired and is neither cursor nor marked; Marked beats the dim
-// because it is an explicit user action while expiry is ambient state.
-func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool, spans func(string) [][2]int) string {
+// because it is an explicit user action — or, when previewed is set,
+// the range about to become one — while expiry is ambient state.
+func (p *Page) renderRow(i int, e silenceEntry, width int, showMark, previewed bool, spans func(string) [][2]int) string {
 	row := make([]string, 0, 7)
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		row = append(row, e.tenant)
@@ -160,6 +164,7 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool, spans 
 		prefix = "▸ "
 	}
 	_, marked := p.marks[e.s.ID]
+	marked = marked || previewed
 	mark := ""
 	if showMark {
 		if marked {

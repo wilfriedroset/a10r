@@ -226,6 +226,25 @@ func addAppSeeds(f *testing.F) {
 	// Time-format and refresh toggles.
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey('t'), testutil.FuzzFrameKey('r')))
 
+	// Range marking: anchor, walk, commit, then a bulk verb on the
+	// resulting marks.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKey('j'), testutil.FuzzFrameKey('j'),
+		testutil.FuzzFrameKeyCode(tea.KeySpace), testutil.FuzzFrameKey('s'),
+	))
+	// An anchored range interrupted by Esc, then a second Esc that
+	// must reach the stack now that the range is gone.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+		testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
+	// A filter change mid-preview, which is what drops the anchor row.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKey('j'),
+		testutil.FuzzFrameKey('/'), testutil.FuzzFrameKey('z'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKeyCode(tea.KeySpace),
+	))
+
 	// Tenant picker open/close (Ctrl+T).
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKeyCtrl('t'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
 }
