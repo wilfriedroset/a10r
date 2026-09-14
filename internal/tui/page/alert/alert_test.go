@@ -17,8 +17,10 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -26,18 +28,6 @@ import (
 )
 
 var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
-
-// fakeClipboard records every Copy call.
-type fakeClipboard struct {
-	last  string
-	calls int
-}
-
-func (f *fakeClipboard) Copy(s string) tea.Cmd {
-	f.calls++
-	f.last = s
-	return nil
-}
 
 // flashFrom runs cmd and returns the FlashShowMsg it produces,
 // unwrapping a tea.Batch (copy emits SetClipboard + flash together).
@@ -199,7 +189,7 @@ func TestPage_HeaderContentIsEmpty(t *testing.T) {
 func TestPage_CopyFingerprintSuccess(t *testing.T) {
 	t.Parallel()
 
-	clip := &fakeClipboard{}
+	clip := &testutil.FakeClipboard{}
 	p := New(Options{
 		Alert:     sample(),
 		Styles:    pagetest.Styles(t),
@@ -207,9 +197,11 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	msg := flashFrom(t, cmd)
-	require.Equal(t, footer.FlashSuccess, msg.Level)
-	require.Equal(t, 1, clip.calls)
-	require.Equal(t, "abc123", clip.last)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Equal(t, "copied fingerprint", msg.Text,
+		"`c` and the `Y` picker must report a copy in the same words")
+	require.Equal(t, 1, clip.Calls)
+	require.Equal(t, "abc123", clip.Last)
 }
 
 func TestPage_DefaultsClipboardAndBrowser(t *testing.T) {
@@ -1058,4 +1050,89 @@ func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	require.NotContains(t, p.Title(), "[raw yaml]",
 		"a second toggle drops the indicator alongside the body flip")
+}
+
+func TestPage_CopyFieldsOrder(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.Labels["zone"] = "eu-1"
+	a.Annotations["runbook"] = ""
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+
+	fields := p.copyFields()
+	got := make([]string, 0, len(fields))
+	for _, f := range fields {
+		got = append(got, f.Name)
+	}
+	require.Equal(t, []string{
+		"fingerprint",
+		"generatorURL",
+		"label alertname",
+		"label instance",
+		"label severity",
+		"label zone",
+		"annotation runbook",
+		"annotation summary",
+	}, got, "fingerprint and generatorURL lead, then labels then annotations, each sorted by name")
+
+	byName := map[string]string{}
+	for _, f := range fields {
+		byName[f.Name] = f.Value
+	}
+	require.Equal(t, "abc123", byName["fingerprint"])
+	require.Equal(t, "https://example.test/graph?abc", byName["generatorURL"])
+	require.Equal(t, "critical", byName["label severity"])
+	require.Empty(t, byName["annotation runbook"],
+		"an empty annotation is listed and copies the empty string")
+}
+
+func TestPage_CopyFieldPickerCopiesTheFullValue(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("y", 200)
+	a := sample()
+	a.Annotations["summary"] = long
+	clip := &testutil.FakeClipboard{}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Clipboard: clip})
+
+	fields := p.copyFields()
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
+	require.NotNil(t, cmd, "Y must open the field picker")
+
+	idx := -1
+	for i, f := range fields {
+		if f.Name == "annotation summary" {
+			idx = i
+		}
+	}
+	require.GreaterOrEqual(t, idx, 0)
+
+	_, cmd = p.Update(modal.PickerSubmittedMsg{Origin: clipboard.PickerOrigin, Indexes: []int{idx}})
+	msg := flashFrom(t, cmd)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Equal(t, "copied annotation summary", msg.Text)
+	require.Equal(t, long, clip.Last, "the picker row is cut for display; the copy is not")
+}
+
+func TestPage_CopyFieldPickerIgnoresAForeignOrigin(t *testing.T) {
+	t.Parallel()
+
+	clip := &testutil.FakeClipboard{}
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Clipboard: clip})
+	_, cmd := p.Update(modal.PickerSubmittedMsg{Origin: "scope", Indexes: []int{0}})
+	require.Nil(t, cmd)
+	require.Zero(t, clip.Calls, "another page's picker must not drive a copy here")
+}
+
+func TestPage_ReadOnlyKeepsCopyFieldBinding(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), ReadOnly: true})
+	keys := make([]string, 0, len(p.Bindings()))
+	for _, b := range p.Bindings() {
+		keys = append(keys, b.Key)
+	}
+	require.Contains(t, keys, "Y", "copying a field mutates nothing, so read-only mode keeps it")
+	require.NotContains(t, keys, "s", "silencing is Dangerous and stays filtered")
 }

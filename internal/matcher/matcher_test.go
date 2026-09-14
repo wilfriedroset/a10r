@@ -248,3 +248,32 @@ func TestLabelPredicate_ErrorKinds(t *testing.T) {
 		})
 	}
 }
+
+func TestFormat_RoundTripsThroughParseOne(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   backend.Matcher
+		want string
+	}{
+		{name: "equal", in: backend.Matcher{Name: "severity", Value: "critical", IsEqual: true}, want: `severity="critical"`},
+		{name: "not equal", in: backend.Matcher{Name: "severity", Value: "info"}, want: `severity!="info"`},
+		{name: "regex", in: backend.Matcher{Name: "job", Value: "a.*", IsRegex: true, IsEqual: true}, want: `job=~"a.*"`},
+		{name: "not regex", in: backend.Matcher{Name: "job", Value: "a.*", IsRegex: true}, want: `job!~"a.*"`},
+		{name: "value with a comma", in: backend.Matcher{Name: "id", Value: "(a,b)", IsRegex: true, IsEqual: true}, want: `id=~"(a,b)"`},
+		{name: "regex with a backslash", in: backend.Matcher{Name: "pod", Value: `web-\d+`, IsRegex: true, IsEqual: true}, want: `pod=~"web-\d+"`},
+		{name: "dotted host regex", in: backend.Matcher{Name: "instance", Value: `10\.0\..*`, IsRegex: true, IsEqual: true}, want: `instance=~"10\.0\..*"`},
+		{name: "value with a quote", in: backend.Matcher{Name: "msg", Value: `say "hi"`, IsEqual: true}, want: `msg="say "hi""`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := matcher.Format(tc.in)
+			require.Equal(t, tc.want, got)
+			back, err := matcher.ParseOne(got)
+			require.NoError(t, err)
+			require.Equal(t, tc.in, back, "Format must be readable by ParseOne")
+		})
+	}
+}

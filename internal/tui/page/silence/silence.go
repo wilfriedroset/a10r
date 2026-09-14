@@ -19,9 +19,12 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -33,6 +36,8 @@ type Options struct {
 	Silence backend.Silence
 	Tenant  string
 	Styles  *theme.Styles
+	// Clipboard handles `Y` (copy field); nil defaults to OSC52.
+	Clipboard clipboard.Clipboard
 }
 
 // Page is the silence-detail view. Implements app.Page.
@@ -42,6 +47,7 @@ type Page struct {
 	s      backend.Silence
 	tenant string
 	styles *theme.Styles
+	clip   clipboard.Clipboard
 
 	// body is the pre-marshalled YAML body. Computed once at
 	// construction so re-renders don't re-marshal on every frame.
@@ -75,6 +81,7 @@ func New(opts Options) *Page {
 		s:       opts.Silence,
 		tenant:  opts.Tenant,
 		styles:  opts.Styles,
+		clip:    clipboard.Resolve(opts.Clipboard),
 		body:    body,
 		rawBody: raw,
 	}
@@ -97,13 +104,15 @@ func (p *Page) Title() string {
 	return base
 }
 
-// Bindings implements app.Page. The only verb the silence-detail
-// page exposes is the `y` raw-YAML toggle (k9s convention). Scroll
-// keys ride on the global vim-motion list — no need to advertise
-// them here.
+// Bindings implements app.Page. The page exposes the `y` raw-YAML
+// toggle (k9s convention) and the `Y` field picker. Neither mutates
+// remote state, so neither is Dangerous and read-only mode keeps
+// both. Scroll keys ride on the global vim-motion list — no need to
+// advertise them here.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
 		{Key: "y", Description: "yaml", View: "silence"},
+		{Key: "Y", Description: "copy field", View: "silence"},
 	}
 }
 
@@ -114,11 +123,23 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
+	// Origin gates the handler so another page's picker forwarded
+	// down here cannot drive a copy, the same guard the silence form
+	// puts on its tenant picker.
+	if m, ok := msg.(modal.PickerSubmittedMsg); ok {
+		if m.Origin != clipboard.PickerOrigin {
+			return p, nil
+		}
+		return p, clipboard.CopySelected(p.clip, p.copyFields(), m)
+	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return p, nil
 	}
 	key := keyMsg.String()
+	if key == "Y" {
+		return p, clipboard.OpenPicker(p.copyFields())
+	}
 	if key == "y" {
 		// Toggle between the curated structured YAML and the raw
 		// backend.Silence dump. Reset scroll so the user lands at
@@ -220,4 +241,33 @@ func marshalRawSilence(s backend.Silence) (string, error) {
 		return "", fmt.Errorf("marshal raw silence: %w", err)
 	}
 	return strings.TrimRight(buf.String(), "\n"), nil
+}
+
+// copyFields is the `Y` picker's list. The whole selector comes
+// first, then one row per matcher, so a user can lift either the
+// block the silence form's matcher textarea reads back or a single
+// matcher. The block is newline-joined because matcher.Parse splits
+// on newlines only: a comma-joined line parses as one corrupt
+// matcher rather than failing. Times are RFC 3339, the shape the
+// structured body already shows.
+func (p *Page) copyFields() []clipboard.Field {
+	parts := make([]string, len(p.s.Matchers))
+	for i, m := range p.s.Matchers {
+		parts[i] = matcher.Format(m)
+	}
+	out := make([]clipboard.Field, 0, 7+len(parts))
+	out = append(out,
+		clipboard.Field{Name: "id", Value: p.s.ID},
+		clipboard.Field{Name: "creator", Value: p.s.CreatedBy},
+		clipboard.Field{Name: "comment", Value: p.s.Comment},
+		clipboard.Field{Name: "matchers", Value: strings.Join(parts, "\n")},
+	)
+	for i, m := range p.s.Matchers {
+		out = append(out, clipboard.Field{Name: "matcher " + m.Name, Value: parts[i]})
+	}
+	return append(out,
+		clipboard.Field{Name: "startsAt", Value: p.s.StartsAt.UTC().Format(time.RFC3339)},
+		clipboard.Field{Name: "endsAt", Value: p.s.EndsAt.UTC().Format(time.RFC3339)},
+		clipboard.Field{Name: "state", Value: string(p.s.State)},
+	)
 }

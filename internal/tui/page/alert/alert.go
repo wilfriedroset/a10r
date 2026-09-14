@@ -24,9 +24,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/browser"
+	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
@@ -38,23 +40,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// Clipboard is the copy-to-clipboard seam. The Cmd runs in the
-// bubbletea loop because OSC52 must go through the renderer, not a
-// raw stdout write; it is fire-and-forget, so no failure to report.
-type Clipboard interface {
-	Copy(s string) tea.Cmd
-}
-
 // Browser is the open-URL seam; errors surface as flash messages.
 type Browser interface {
 	Open(url string) error
 }
-
-// osc52Clipboard is the default Clipboard, using the terminal's
-// OSC52 sequence so it works over SSH and without an X/Wayland display.
-type osc52Clipboard struct{}
-
-func (osc52Clipboard) Copy(s string) tea.Cmd { return tea.SetClipboard(s) }
 
 // Options bundles the per-page dependencies. The fields forwarded to
 // the silences page pushed by `S` mirror silences.Options of the same name.
@@ -62,8 +51,9 @@ type Options struct {
 	Alert  backend.Alert
 	Tenant string
 	Styles *theme.Styles
-	// Clipboard handles `c` (copy fingerprint); nil defaults to OSC52.
-	Clipboard Clipboard
+	// Clipboard handles `c` (copy fingerprint) and `Y` (copy any
+	// field); nil defaults to OSC52.
+	Clipboard clipboard.Clipboard
 	// Browser handles `o` (open generatorURL); nil defaults to the
 	// platform launcher (xdg-open / open / start).
 	Browser Browser
@@ -115,7 +105,7 @@ type Page struct {
 	silencedBy []string
 	tenant     string
 	styles     *theme.Styles
-	clip       Clipboard
+	clip       clipboard.Clipboard
 	browser    Browser
 	now        func() time.Time
 
@@ -153,10 +143,6 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	clip := opts.Clipboard
-	if clip == nil {
-		clip = osc52Clipboard{}
-	}
 	br := opts.Browser
 	if br == nil {
 		br = browser.System{}
@@ -167,7 +153,7 @@ func New(opts Options) *Page {
 		silencedBy:      dedupStrings(opts.Alert.SilencedBy),
 		tenant:          opts.Tenant,
 		styles:          opts.Styles,
-		clip:            clip,
+		clip:            clipboard.Resolve(opts.Clipboard),
 		browser:         br,
 		now:             now,
 		clients:         opts.Clients,
@@ -211,6 +197,7 @@ func (p *Page) Bindings() []action.Action {
 		{Key: "S", Description: "open silences", View: viewAlert},
 		{Key: "y", Description: "yaml", View: viewAlert},
 		{Key: "c", Description: "copy fp", View: viewAlert},
+		{Key: "Y", Description: "copy field", View: viewAlert},
 		{Key: "o", Description: "open URL", View: viewAlert},
 	}
 	if p.readOnly {
@@ -241,6 +228,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.
 		return p, nil
+	case modal.PickerSubmittedMsg:
+		// Origin gates the handler so another page's picker
+		// forwarded down here cannot drive a copy, the same guard
+		// the silence form puts on its tenant picker.
+		if m.Origin != clipboard.PickerOrigin {
+			return p, nil
+		}
+		return p, clipboard.CopySelected(p.clip, p.copyFields(), m)
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -258,6 +253,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case "c":
 		cmd := p.copyFingerprint()
 		return p, cmd
+	case "Y":
+		return p, clipboard.OpenPicker(p.copyFields())
 	case "o":
 		cmd := p.openGeneratorURL()
 		return p, cmd
@@ -331,8 +328,38 @@ func (p *Page) copyFingerprint() tea.Cmd {
 	}
 	return tea.Batch(
 		p.clip.Copy(p.a.Fingerprint),
-		footer.ShowFlash(footer.FlashSuccess, "fingerprint copied"),
+		footer.ShowFlash(footer.FlashInfo, "copied fingerprint"),
 	)
+}
+
+// copyFields is the `Y` picker's list: the two identifiers first,
+// then labels, then annotations, each group sorted by name. An empty
+// value stays listed rather than hidden — confirming that a label is
+// empty is a reason to open the picker.
+func (p *Page) copyFields() []clipboard.Field {
+	out := make([]clipboard.Field, 0, 2+len(p.a.Labels)+len(p.a.Annotations))
+	out = append(out,
+		clipboard.Field{Name: "fingerprint", Value: p.a.Fingerprint},
+		clipboard.Field{Name: "generatorURL", Value: p.a.GeneratorURL},
+	)
+	out = append(out, sortedFields("label ", p.a.Labels)...)
+	out = append(out, sortedFields("annotation ", p.a.Annotations)...)
+	return out
+}
+
+// sortedFields turns a label / annotation map into picker fields,
+// name-sorted so the same alert always yields the same row order.
+func sortedFields(prefix string, m map[string]string) []clipboard.Field {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]clipboard.Field, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, clipboard.Field{Name: prefix + k, Value: m[k]})
+	}
+	return out
 }
 
 // openGeneratorURL asks the browser integration to open the

@@ -249,3 +249,13 @@ func Op(m backend.Matcher) string {
 func errLineWrap(line int, err error) error {
 	return errors.New("line " + strconv.Itoa(line) + ": " + err.Error())
 }
+
+// Format renders a matcher as `name<op>"value"`, the exact inverse of
+// ParseOne: the quotes let a value carrying a `,` survive
+// splitMatchers, and they are NOT escaped because ParseOne strips one
+// quote pair and unescapes nothing — strconv.Quote here would turn
+// every `\d` in a regex matcher into a literal backslash on the way
+// back.
+func Format(m backend.Matcher) string {
+	return m.Name + Op(m) + `"` + m.Value + `"`
+}

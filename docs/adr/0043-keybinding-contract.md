@@ -45,13 +45,18 @@ are reserved before they are bound (`Ctrl+N` is held for a
 future compose-as-YAML companion to `Ctrl+E`) so the namespace
 stays stable.
 
-**Namespace discipline.** `Shift+<letter>` is sort-only and
-never destructive or stateful — it always sorts by a column.
-Bulk verbs reuse the single-row key and branch on the marked-
-row count (`s` silences the cursor alert or fans out over
-marks; `x` expires one silence or many), so there is no
-parallel `Ctrl+S`/`Ctrl+X`; `Ctrl+\` is the explicit clear-all-
-marks escape hatch.
+**Namespace discipline.** On a page whose body is a table, sort
+claims the column-letter namespace first: if a column starts with
+that letter, `Shift+<letter>` sorts by it and does nothing else.
+Remaining letters go to non-destructive view verbs (`Shift+F`
+cycles the state filter). A detail page has no columns to sort, so
+every letter is free there, the reserved motions aside, on the
+same never-destructive terms (`S` opens the silences suppressing
+an alert, `Y` copies a field). Bulk verbs reuse the single-row key
+and branch on the marked-row count (`s` silences the cursor alert
+or fans out over marks; `x` expires one silence or many), so there
+is no parallel `Ctrl+S`/`Ctrl+X`; `Ctrl+\` is the explicit
+clear-all-marks escape hatch.
 
 **Dangerous-action tagging for read-only mode.** Every binding
 that mutates remote state (silence, expire, edit) is tagged

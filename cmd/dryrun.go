@@ -5,7 +5,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +107,7 @@ func plannedWriteFrom(t writeTarget, action string, readOnly bool) plannedWrite 
 func renderMatchers(ms []backend.Matcher) []string {
 	out := make([]string, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, m.Name+matcher.Op(m)+strconv.Quote(m.Value))
+		out = append(out, matcher.Format(m))
 	}
 	return out
 }

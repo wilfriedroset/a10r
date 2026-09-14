@@ -176,6 +176,10 @@ Chrome, overlays, and rendering helpers:
 - `internal/tui/bulkop` -- the per-tenant fan-out shared by the
   alerts bulk-silence and silences bulk-expire flows.
 - `internal/tui/browser` -- a dumb default-browser launcher.
+- `internal/tui/clipboard` -- the OSC52 copy seam plus the `Y`
+  field picker the two detail pages share. It sits outside the
+  pages because alert-detail already imports silence-detail to
+  push it, so hosting the seam there would close an import cycle.
 - `internal/tui/tablesort` -- the shared `Shift+<letter>` sort-state
   machine for table pages.
 - `internal/tui/stateformat` -- the app-global full/compact

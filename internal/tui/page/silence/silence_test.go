@@ -11,7 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -286,4 +289,122 @@ func TestMarshalSilence_IncludesUpdatedAtWhenSet(t *testing.T) {
 	body, err := marshalSilence(s)
 	require.NoError(t, err)
 	require.Contains(t, body, `updatedAt: "2026-04-25T12:00:00Z"`)
+}
+
+func TestPage_CopyFieldsOrderAndValues(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+	got := map[string]string{}
+	names := make([]string, 0, len(p.copyFields()))
+	for _, f := range p.copyFields() {
+		names = append(names, f.Name)
+		got[f.Name] = f.Value
+	}
+	require.Equal(t, []string{
+		"id",
+		"creator",
+		"comment",
+		"matchers",
+		"matcher alertname",
+		"matcher team",
+		"startsAt",
+		"endsAt",
+		"state",
+	}, names)
+
+	require.Equal(t, "sil-1", got["id"])
+	require.Equal(t, "alice", got["creator"])
+	require.Equal(t, "scheduled maintenance", got["comment"])
+	require.Equal(t, `alertname="HighCPU"`, got["matcher alertname"])
+	require.Equal(t, `team=~"(platform|sre)"`, got["matcher team"])
+	require.Equal(t, "alertname=\"HighCPU\"\nteam=~\"(platform|sre)\"", got["matchers"],
+		"the whole selector copies in the form textarea's one-per-line syntax")
+	back, err := matcher.Parse(got["matchers"])
+	require.NoError(t, err)
+	require.Equal(t, sample().Matchers, back,
+		"the copied block must paste back into the silence form unchanged")
+	require.Equal(t, "2026-04-25T11:00:00Z", got["startsAt"], "times copy as RFC 3339")
+	require.Equal(t, "2026-04-25T13:00:00Z", got["endsAt"])
+	require.Equal(t, "active", got["state"])
+}
+
+func TestPage_CopyFieldsSurviveARegexWithBackslashes(t *testing.T) {
+	t.Parallel()
+
+	sil := sample()
+	sil.Matchers = []backend.Matcher{
+		{Name: "instance", Value: `10\.0\..*`, IsRegex: true, IsEqual: true},
+		{Name: "pod", Value: `web-\d+`, IsRegex: true, IsEqual: true},
+	}
+	p := New(Options{Silence: sil, Styles: testutil.LoadStyles(t)})
+	for _, f := range p.copyFields() {
+		if f.Name != "matchers" {
+			continue
+		}
+		back, err := matcher.Parse(f.Value)
+		require.NoError(t, err)
+		require.Equal(t, sil.Matchers, back,
+			"an escaped-dot regex must paste back as the same pattern, not as a literal backslash")
+		return
+	}
+	t.Fatal("the matchers field is missing from the picker")
+}
+
+func TestPage_CopyFieldsListsAnEmptyComment(t *testing.T) {
+	t.Parallel()
+
+	s := sample()
+	s.Comment = ""
+	p := New(Options{Silence: s, Styles: testutil.LoadStyles(t)})
+	for _, f := range p.copyFields() {
+		if f.Name == "comment" {
+			require.Empty(t, f.Value)
+			return
+		}
+	}
+	t.Fatal("an empty comment must stay in the picker, not disappear from it")
+}
+
+func TestPage_CopyFieldPickerCopiesTheSelectedValue(t *testing.T) {
+	t.Parallel()
+
+	clip := &testutil.FakeClipboard{}
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t), Clipboard: clip})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
+	require.NotNil(t, cmd, "Y must open the field picker")
+
+	_, cmd = p.Update(modal.PickerSubmittedMsg{Origin: clipboard.PickerOrigin, Indexes: []int{0}})
+	require.NotNil(t, cmd)
+	require.Equal(t, 1, clip.Calls)
+	require.Equal(t, "sil-1", clip.Last)
+}
+
+func TestPage_CopyFieldPickerIgnoresAForeignOrigin(t *testing.T) {
+	t.Parallel()
+
+	clip := &testutil.FakeClipboard{}
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t), Clipboard: clip})
+	_, cmd := p.Update(modal.PickerSubmittedMsg{Origin: "scope", Indexes: []int{0}})
+	require.Nil(t, cmd)
+	require.Zero(t, clip.Calls)
+}
+
+func TestPage_DefaultsClipboard(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+	require.NotNil(t, p.clip, "nil Clipboard must default to a real impl, not stay nil")
+}
+
+func TestPage_BindingsAdvertiseCopyField(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+	keys := make([]string, 0, len(p.Bindings()))
+	for _, b := range p.Bindings() {
+		keys = append(keys, b.Key)
+	}
+	require.Equal(t, []string{"y", "Y"}, keys)
 }
