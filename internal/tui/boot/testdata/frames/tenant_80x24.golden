@@ -1,0 +1,24 @@
+<0> all      <?>       help                   [-]       reset sort to default
+<1> prod     <enter>   config
+<2> staging  <shift-n> sort by name
+             <shift-u> sort by url
+             <shift-v> sort by version
+┌────────────────────────────── tenants(all)[2] ───────────────────────────────┐
+│        NAME ↑          URL                                     VERSION       │
+│▸ [1] ● prod            https://am-prod.internal                0.28.0        │
+│  [2] ● staging         https://am-staging.internal             0.28.0        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+<tenant>

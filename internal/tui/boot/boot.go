@@ -286,6 +286,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		TenantNames:        backendNames(effCfg),
 		TenantConfigByName: tenantConfigIndex(effCfg),
 		EditorResolver:     d.EditorResolver(),
+		Now:                d.Now,
 	}
 	resolver := newResolver(env)
 	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {

@@ -1,0 +1,24 @@
+<0> all      <?>       help                   </>       filter
+<1> prod     <enter>   detail                 <shift-f> state filter
+<2> staging  <space>   mark                   <shift-s> sort by severity
+             <shift-v> mark range             <shift-n> sort by alertname
+             <s>       silence                <shift-c> sort by count
+┌─────────────────────────────── alerts(all)[3] ───────────────────────────────┐
+│    TENANT              SEVERITY ↓  ALERTNAME COUNT  STATE         AGE        │
+│▸   prod                critical    HighCPU   2      2 active      12m ago    │
+│    prod                warning     DiskFill… 1 →    1 active      3h ago     │
+│    staging             info        CertExpi… 1 →    1 active      1d ago     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└────────────────────────────── next refresh 1m ───────────────────────────────┘
+<alerts>

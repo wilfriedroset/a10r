@@ -5,6 +5,7 @@ package boot
 import (
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
@@ -79,6 +80,11 @@ type Deps struct {
 	// Tests override to return t.TempDir() or empty (in-memory rings).
 	HistoryDir func() (string, error)
 
+	// Now is the time source the page renderers read for their
+	// relative columns (AGE, ENDS IN). Production default:
+	// time.Now. Tests freeze it so a rendered frame is byte-stable.
+	Now func() time.Time
+
 	// Version, Commit are the ldflag-injected build identifiers. The
 	// caller (cmd/tui.go) reads its own package-level vars and passes
 	// them in; boot does not inherit cmd state. Empty/sentinel values
@@ -126,6 +132,9 @@ func (d Deps) resolved() Deps {
 	}
 	if out.HistoryDir == nil {
 		out.HistoryDir = footer.DefaultHistoryDir
+	}
+	if out.Now == nil {
+		out.Now = time.Now
 	}
 	if out.Version == "" {
 		out.Version = buildVersionDev

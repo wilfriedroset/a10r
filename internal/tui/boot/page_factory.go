@@ -45,12 +45,13 @@ type pageEnv struct {
 	TenantNames        []string
 	TenantConfigByName map[string]config.Backend
 	EditorResolver     edit.Resolver
+	Now                func() time.Time
 }
 
 func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 	return alerts.New(alerts.Options{
 		Styles:             env.Styles,
-		Now:                time.Now,
+		Now:                env.Now,
 		Scope:              env.Scope,
 		Clients:            env.SilenceClients,
 		Creator:            env.Creator,
@@ -72,7 +73,7 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 func newSilencesPage(env *pageEnv) app.Page {
 	return silences.New(silences.Options{
 		Styles:          env.Styles,
-		Now:             time.Now,
+		Now:             env.Now,
 		Clients:         env.SilenceClients,
 		Creator:         env.Creator,
 		EditorResolver:  env.EditorResolver,

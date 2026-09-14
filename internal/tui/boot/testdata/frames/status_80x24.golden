@@ -1,0 +1,24 @@
+<0> all      <?> help                                     _    _    ___
+<1> prod     <c> cluster                                 / \  / |  / _ \   _ __
+<2> staging  <v> version                                / _ \ | | | | | | | '__|
+             <p> config                                / ___ \| | | |_| | | |
+                                                      /_/   \_\_|  \___/  |_|
+┌──────────────────────────────── status(all) ─────────────────────────────────┐
+│all · v0.28.0 · uptime 3d                                                     │
+│== Cluster ==                                                                 │
+│  status: ready                                                               │
+│  peers:  01ABC                                                               │
+│                                                                              │
+│== Version ==                                                                 │
+│  version:    0.28.0                                                          │
+│  revision:                                                                   │
+│  branch:     HEAD                                                            │
+│  build user:                                                                 │
+│  build date:                                                                 │
+│  go version: go1.25.0                                                        │
+│                                                                              │
+│== Config ==                                                                  │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+<status>

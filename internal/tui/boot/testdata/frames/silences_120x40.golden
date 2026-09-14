@@ -1,0 +1,40 @@
+<0> all      <?>       help                     <space>   mark                     <shift-s> sort by startsAt
+<1> prod     <enter>   detail                   <shift-v> mark range               <shift-e> sort by endsAt
+<2> staging  <n>       new                      <ctrl-e>  editor                   <shift-t> sort by state
+             <e>       edit                     <ctrl-n>  recreate (expired)       [-]       reset sort to default
+             <x>       expire (cursor / marks)  <shift-c> sort by creator          <r>       refresh
+┌────────────────────────────────────────────────── silences(all)[3] ──────────────────────────────────────────────────┐
+│  TENANT          UUID      BY              COMMENT                             STARTS        ENDS ↑        STATE     │
+│▸ prod            sil-prod  bob             scheduled maintenance               1h ago        in 30m        active    │
+│  prod            sil-prod  alice           scheduled maintenance               1h ago        in 2h         active    │
+│  staging         sil-stag  carol           scheduled maintenance               1h ago        in 6h         active    │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└────────────────────────────────────────────────── next refresh 1m ───────────────────────────────────────────────────┘
+<silences>

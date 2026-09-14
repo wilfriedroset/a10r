@@ -53,6 +53,19 @@ config-only commits are exempt.
 go test -race ./...
 ```
 
+Whole rendered frames are pinned by golden files. If you change a
+layout on purpose, rewrite them and read the diff before you
+commit:
+
+```sh
+go test ./internal/tui/boot -run TestGoldenFrame -update
+go test ./cmd -run TestRenderInfo -update
+```
+
+There are two commands because `-update` is registered per test
+binary: `go test ./... -update` fails on every package that does
+not define the flag.
+
 Coverage runs via `make cover` (Go's `go test -coverprofile=...`).
 There is no minimum-coverage gate; the standard is "every public
 behaviour is locked by a test."

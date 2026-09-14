@@ -1,0 +1,40 @@
+<0> all      <?>       help           <shift-y> copy field                                        _    _    ___
+<1> prod     <s>       silence        <o>       open URL                                         / \  / |  / _ \   _ __
+<2> staging  <shift-s> open silences                                                            / _ \ | | | | | | | '__|
+             <y>       yaml                                                                    / ___ \| | | |_| | | |
+             <c>       copy fp                                                                /_/   \_\_|  \___/  |_|
+┌─────────────────────────────────────────────── Describe(prod/HighCPU) ───────────────────────────────────────────────┐
+│alertname:   HighCPU                                                                                                  │
+│state:       active                                                                                                   │
+│severity:    critical                                                                                                 │
+│fingerprint: HighCPUcritical                                                                                          │
+│age:         12m ago                                                                                                  │
+│tenant:      prod                                                                                                     │
+│                                                                                                                      │
+│Labels:                                                                                                               │
+│  alertname: HighCPU                                                                                                  │
+│  instance: web-01                                                                                                    │
+│  severity: critical                                                                                                  │
+│                                                                                                                      │
+│Annotations:                                                                                                          │
+│  (none)                                                                                                              │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+<alerts> <instances> <detail>

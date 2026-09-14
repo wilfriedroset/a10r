@@ -1,0 +1,24 @@
+<0> all      <?>       help
+<1> prod     <enter>   detail
+<2> staging  <n>       new
+             <e>       edit
+             <x>       expire (cursor / marks)
+┌────────────────────────────── silences(all)[3] ──────────────────────────────┐
+│  TENANT          UUID      BY              COMMENT     STARTS        ENDS ↑  │
+│STATE                                                                         │
+│▸ prod            sil-prod  bob             scheduled … 1h ago        in 30m  │
+│  prod            sil-prod  alice           scheduled … 1h ago        in 2h   │
+│  staging         sil-stag  carol           scheduled … 1h ago        in 6h   │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└────────────────────────────── next refresh 1m ───────────────────────────────┘
+<silences>
