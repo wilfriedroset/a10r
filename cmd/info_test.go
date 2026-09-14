@@ -61,6 +61,9 @@ func TestRenderInfo_FullConfig(t *testing.T) {
 		ConfigDir: "/home/test/.config/a10r",
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		Config:    cfg,
+		// An explicit theme is the branch where the label names the
+		// skin; the other goldens cover the auto default.
+		Theme: "catppuccin-latte",
 	}))
 	assertGolden(t, "info_full.golden", buf.String())
 }
@@ -76,6 +79,7 @@ func TestRenderInfo_EmptyBackendsList(t *testing.T) {
 		ConfigDir: "/home/test/.config/a10r",
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		Config:    &config.Config{},
+		Theme:     config.DefaultThemeName,
 	}))
 	assertGolden(t, "info_empty.golden", buf.String())
 }
@@ -91,6 +95,7 @@ func TestRenderInfo_NotFound(t *testing.T) {
 		ConfigDir: "/home/test/.config/a10r",
 		LogPath:   "/home/test/.local/state/a10r/a10r.log",
 		NotFound:  true,
+		Theme:     config.DefaultThemeName,
 	}))
 	assertGolden(t, "info_notfound.golden", buf.String())
 }
@@ -110,6 +115,7 @@ func TestRenderInfo_NonZeroAliases(t *testing.T) {
 		LogPath:    "/home/test/.local/state/a10r/a10r.log",
 		Config:     &config.Config{},
 		AliasCount: 3,
+		Theme:      config.DefaultThemeName,
 	}))
 	assertGolden(t, "info_aliases.golden", buf.String())
 }
@@ -183,6 +189,32 @@ func TestCapabilityList(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.want, capabilityList(tc.in))
+		})
+	}
+}
+
+func TestThemeLabel(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "unset reads as the auto default", in: "", want: "auto (terminal decides at start)"},
+		{
+			name: "cli auto over a named file value", in: config.ResolveTheme("auto", "catppuccin-latte"),
+			want: "auto (terminal decides at start)",
+		},
+		{name: "explicit auto", in: "auto", want: "auto (terminal decides at start)"},
+		{name: "named skin", in: "catppuccin-latte", want: "catppuccin-latte"},
+		{name: "user skin", in: "gruvbox-dark", want: "gruvbox-dark"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, themeLabel(tc.in))
 		})
 	}
 }

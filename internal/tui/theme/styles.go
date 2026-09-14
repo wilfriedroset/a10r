@@ -14,6 +14,11 @@ import (
 // component reads through it (`styles.Table.Cursor`, `styles.Severity
 // .Critical`, …) rather than touching the raw skin file — that
 // indirection is what makes a theme swap cheap.
+//
+// Read a sub-style at render time, never snapshot one at
+// construction: the auto-theme swap writes through the shared
+// *Styles pointer, so a copied lipgloss.Style keeps the startup skin
+// for the rest of the session.
 type Styles struct {
 	Body         BodyStyle
 	Header       HeaderStyle

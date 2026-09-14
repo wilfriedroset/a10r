@@ -6,6 +6,8 @@
 package app
 
 import (
+	"log/slog"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
@@ -50,6 +52,14 @@ type Options struct {
 	// TerminalTitle opts into writing the terminal window title; off
 	// leaves the title untouched.
 	TerminalTitle bool
+	// AutoTheme opts into terminal-background detection: Styles holds
+	// the provisional dark skin and the App swaps it for the light one
+	// when the terminal reports a light background. Off means the user
+	// named a skin, and that choice is never second-guessed.
+	AutoTheme bool
+	// LoadStyles compiles a skin by name for the auto-theme swap. Nil
+	// disables the swap, which leaves the provisional skin in place.
+	LoadStyles func(name string) (*theme.Styles, error)
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it owns
@@ -69,6 +79,11 @@ type App struct {
 
 	// terminalTitle gates every write to tea.View.WindowTitle.
 	terminalTitle bool
+
+	// autoTheme is armed at boot and disarmed by the first background
+	// colour report, so detection runs once per process.
+	autoTheme  bool
+	loadStyles func(name string) (*theme.Styles, error)
 
 	crumbs  footer.Crumbs
 	prompt  footer.Prompt
@@ -180,6 +195,9 @@ func NewApp(opts Options) *App {
 		readOnly:   opts.ReadOnly,
 		scope:      opts.Scope,
 
+		autoTheme:  opts.AutoTheme && opts.LoadStyles != nil,
+		loadStyles: opts.LoadStyles,
+
 		terminalTitle: opts.TerminalTitle,
 		crumbs:        footer.NewCrumbs(),
 		prompt:        footer.NewPrompt(resolver.Suggest),
@@ -211,5 +229,40 @@ func (a *App) StateFormat() stateformat.Format { return a.stateFormat }
 func (a *App) Quitting() bool { return a.quitting }
 
 // Init implements tea.Model. Returns the hint-bar startup tick only when
-// tips are enabled, so disabled runs schedule no work.
-func (a *App) Init() tea.Cmd { return a.hintbar.Start() }
+// tips are enabled, so disabled runs schedule no work, batched with the
+// terminal background query when the skin is left to auto-detection.
+//
+// The first frame renders with the provisional skin either way: the
+// query is asynchronous, and a terminal that never answers simply keeps
+// that skin.
+func (a *App) Init() tea.Cmd {
+	if !a.autoTheme {
+		return a.hintbar.Start()
+	}
+	return tea.Batch(a.hintbar.Start(), tea.RequestBackgroundColor)
+}
+
+// applyAutoTheme resolves the auto sentinel against the reported
+// terminal background and swaps the skin in place.
+//
+// The write is through the shared *theme.Styles pointer every page and
+// chrome component was constructed with, so one assignment restyles the
+// whole tree without touching the page stack. Safe because bubbletea
+// calls View inline after Update on the one event-loop goroutine, so
+// no frame can read the struct mid-assignment.
+func (a *App) applyAutoTheme(dark bool) {
+	if !a.autoTheme {
+		return
+	}
+	a.autoTheme = false
+
+	styles, err := a.loadStyles(theme.AutoSkinFor(dark))
+	if err != nil {
+		slog.Warn("auto theme detection failed; keeping the startup skin",
+			slog.Bool("dark", dark),
+			slog.Any("error", err),
+		)
+		return
+	}
+	*a.styles = *styles
+}

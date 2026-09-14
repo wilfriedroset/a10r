@@ -161,7 +161,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	}
 
 	registry := &pollerRegistry{}
-	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d)
+	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir)
 
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
 		return nil, fmt.Errorf("user keybindings: %w", err)
@@ -300,7 +300,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 // pollers once Result.StartPollers fills the registry in (the user
 // can only press `r` after Run starts, which is after StartPollers
 // has settled).
-func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps) *app.App {
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir string) *app.App {
 	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
 	return app.NewApp(app.Options{
 		Styles:     styles,
@@ -311,6 +311,11 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		ReadOnly:   effCfg.Defaults.ReadOnly,
 		HistoryDir: historyDir,
 		Scope:      scopeFor(effCfg),
+
+		AutoTheme: isAutoTheme(effCfg.Theme.Name),
+		LoadStyles: func(name string) (*theme.Styles, error) {
+			return d.LoadStyles(name, configDir)
+		},
 
 		TerminalTitle: effCfg.TUI.TerminalTitle,
 		HintBar: footer.NewHintBar(footer.HintBarOptions{

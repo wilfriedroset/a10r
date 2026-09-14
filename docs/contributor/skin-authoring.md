@@ -43,7 +43,9 @@ Before adding a skin, decide which regime applies:
    optional `-transparent` suffix (e.g., `acme-dark`,
    `acme-dark-transparent`). The name must match the file
    basename (`<name>.yaml`) and the loader's allowed alphabet
-   (`^[a-zA-Z0-9_.-]+$`).
+   (`^[a-zA-Z0-9_.-]+$`). `auto` is reserved for the
+   light/dark detection sentinel: a skin file of that name is
+   never loaded, so do not name a skin `auto`.
 2. Write the file under `internal/tui/theme/skins/<name>.yaml`.
 3. Add an entry to `SOURCES.yaml` under `authored:` (see below).
 4. Extend the test inventory in

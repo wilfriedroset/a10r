@@ -86,7 +86,8 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 }
 
 // handleSessionMsg covers session-level lifecycle messages: window
-// resize, quit, chord-timer expiry, and refresh requests.
+// resize, quit, terminal background report, chord-timer expiry, and
+// refresh requests.
 func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -98,6 +99,9 @@ func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	case QuitRequestedMsg:
 		// Page-stack tear-down before tea.Quit; see QuitRequestedMsg's doc.
 		return a.quitWithCleanup(), true
+	case tea.BackgroundColorMsg:
+		a.applyAutoTheme(m.IsDark())
+		return nil, true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
 	case StateFormatToggleMsg:

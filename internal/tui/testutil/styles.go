@@ -13,11 +13,18 @@ import (
 
 // LoadStyles returns the default theme skin, lazily parsing the
 // embedded YAML once per test binary. Safe to share across parallel
-// tests: lipgloss.Style values inside the struct are immutable from
-// the outside (Render returns new strings, the struct itself is
-// never written to). If the first load fails, every subsequent
-// caller sees tb.Fatalf rather than a zero-value Styles — sync.Once
-// would otherwise let later callers run with a nil cache.
+// tests as long as nothing writes through the pointer: lipgloss.Style
+// values inside the struct are immutable from the outside (Render
+// returns new strings).
+//
+// One caller does write: App.applyAutoTheme assigns *a.styles when
+// the terminal reports its background colour. A test that wires an
+// App with AutoTheme must load its own Styles instead, or the swap
+// repaints every other parallel test.
+//
+// If the first load fails, every subsequent caller sees tb.Fatalf
+// rather than a zero-value Styles — sync.Once would otherwise let
+// later callers run with a nil cache.
 func LoadStyles(tb testing.TB) *theme.Styles {
 	tb.Helper()
 	stylesOnce.Do(func() {

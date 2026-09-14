@@ -27,10 +27,19 @@ const (
 	// globally via defaults.poll_interval.
 	DefaultPollInterval = 1 * time.Minute
 
-	// DefaultThemeName is the bundled catppuccin-mocha skin. Users
-	// override with theme.name in `a10r.yaml` or the --theme CLI
-	// flag.
-	DefaultThemeName = "catppuccin-mocha"
+	// ThemeAuto is the sentinel theme name that defers the skin choice
+	// to the terminal background. Kept distinct from DefaultThemeName
+	// so a future default that names a concrete skin does not silently
+	// turn every "is this auto?" comparison into a lie. Must equal
+	// theme.AutoSkinName, which internal/tui/boot asserts.
+	ThemeAuto = "auto"
+
+	// DefaultThemeName is the auto sentinel: the terminal background
+	// decides between the light and the dark bundled skin at startup.
+	// Users override with theme.name in `a10r.yaml` or the --theme CLI
+	// flag. A fixed dark default is unreadable on a light terminal,
+	// which is why detection is the default rather than opt-in.
+	DefaultThemeName = ThemeAuto
 
 	// DefaultRemoteTimeout matches Prometheus's `remote_timeout`
 	// default (30s). Picked large enough for a slow backend with

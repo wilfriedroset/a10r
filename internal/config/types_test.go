@@ -100,7 +100,7 @@ func TestDefaultsAreThePinnedConstants(t *testing.T) {
 	// Pin the constants to the user-visible defaults; changing them
 	// is a deliberate behaviour change and must surface in CHANGELOG.
 	require.Equal(t, time.Minute, DefaultPollInterval, "default poll interval is 1m")
-	require.Equal(t, "catppuccin-mocha", DefaultThemeName, "default theme is catppuccin-mocha")
+	require.Equal(t, "auto", DefaultThemeName, "default theme defers to the terminal background")
 	require.Equal(t, 30*time.Second, DefaultRemoteTimeout,
 		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
 	require.Equal(t, "Bearer", DefaultAuthorizationType,

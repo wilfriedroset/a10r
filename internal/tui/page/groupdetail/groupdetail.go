@@ -259,10 +259,7 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	sp := spinner.New(
-		spinner.WithSpinner(spinner.Points),
-		spinner.WithStyle(opts.Styles.Header.Accent),
-	)
+	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	concurrency := opts.BulkConcurrency
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
@@ -328,7 +325,7 @@ func (*Page) Crumb() string { return viewName }
 // title flips to the loading affordance.
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(p.titleNoun())
+		return p.LoadingTitle(p.titleNoun(), p.styles.Header.Accent)
 	}
 	total := len(p.instances)
 	if p.Filter != "" || p.stateFilter != "" {

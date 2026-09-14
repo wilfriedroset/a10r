@@ -61,7 +61,13 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("load aliases: %w", aliasErr)
 	}
 
+	var fileTheme string
+	if cfg != nil {
+		fileTheme = cfg.Theme.Name
+	}
+
 	return renderInfo(out, infoContext{
+		Theme:      config.ResolveTheme(flags.Theme, fileTheme),
 		Version:    version,
 		Commit:     commit,
 		Date:       date,
@@ -85,6 +91,9 @@ type infoContext struct {
 	Config     *config.Config // nil when NotFound is true
 	NotFound   bool
 	AliasCount int // resolved <config-dir>/aliases.yaml entry count
+	// Theme is the skin name after CLI-over-file precedence, so
+	// `a10r info --theme X` reports the skin the TUI would use.
+	Theme string
 }
 
 // renderInfo writes the human-readable info report to out. Format
@@ -96,6 +105,7 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 	w.printf("config dir: %s\n", ctx.ConfigDir)
 	w.printf("log path:   %s\n", ctx.LogPath)
 	w.printf("aliases:    %d\n", ctx.AliasCount)
+	w.printf("theme:      %s\n", themeLabel(ctx.Theme))
 
 	if ctx.NotFound {
 		w.printf("\nconfig: not found (run `a10r` with no subcommand to launch the first-run wizard)\n")
@@ -110,6 +120,20 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 		renderBackend(w, b)
 	}
 	return w.err
+}
+
+// themeLabel names the resolved skin for the info report. The auto
+// sentinel resolves at TUI startup from the terminal background, so
+// the label says so rather than naming a skin: info is headless and
+// must never query the terminal to find out.
+func themeLabel(name string) string {
+	if name == "" {
+		name = config.DefaultThemeName
+	}
+	if name == config.ThemeAuto {
+		return name + " (terminal decides at start)"
+	}
+	return name
 }
 
 // writer is a small fmt.Fprintf wrapper that captures the first

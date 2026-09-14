@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
+	"charm.land/lipgloss/v2"
 )
 
 // PollingUI holds per-page polling-feedback state. Split off Base and
@@ -73,8 +74,15 @@ func (u *PollingUI) SoonestNextRefresh(includes func(string) bool) time.Time {
 
 // LoadingTitle returns the loading-window title `<frame> loading
 // <noun>…`, composed into Title() by branching on SpinnerActive.
-func (u *PollingUI) LoadingTitle(noun string) string {
-	return u.Spinner.View() + " loading " + noun + "…"
+//
+// style is applied here rather than at spinner construction because
+// spinner.Model holds it as a plain value: a page built before the
+// auto-theme swap would otherwise keep the startup skin's accent for
+// the rest of the session.
+func (u *PollingUI) LoadingTitle(noun string, style lipgloss.Style) string {
+	sp := u.Spinner
+	sp.Style = style
+	return sp.View() + " loading " + noun + "…"
 }
 
 // RefreshCountdown returns the refresh-countdown footer, branching in

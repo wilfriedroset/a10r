@@ -76,7 +76,7 @@ defaults:
   read_only: false                 # default; --read-only flag still wins
   log_format: logfmt               # logfmt or json
 theme:
-  name: catppuccin-mocha           # bundled or under <config-dir>/skins/
+  name: auto                       # auto, bundled, or under <config-dir>/skins/
 log:
   path: /var/log/a10r.log          # default: $XDG_STATE_HOME/a10r/a10r.log
   level: info                      # debug, info, warn, error
@@ -177,10 +177,18 @@ Recognised page names: `alerts`, `silences`, `receivers`,
 
 Eight skins ship bundled in the `catppuccin` family (`frappe`,
 `latte`, `macchiato`, `mocha`), each with a `-transparent`
-sibling that leaves the background to the terminal. The default
-is `catppuccin-mocha`. To add your own, drop a YAML file under
-`<config-dir>/skins/` — the basename without the `.yaml`
-extension is the name to set on `theme.name`.
+sibling that leaves the background to the terminal. To add your
+own, drop a YAML file under `<config-dir>/skins/` — the basename
+without the `.yaml` extension is the name to set on `theme.name`.
+
+The default is `auto`: at startup a10r asks the terminal for its
+background colour and picks `catppuccin-latte` on a light
+terminal, `catppuccin-mocha` on a dark one. A terminal that does
+not answer the question keeps `catppuccin-mocha`. Detection runs
+once, at startup, and never overrides a skin you named yourself.
+Set `theme.name` (or pass `--theme`) to any skin name to pin the
+choice. The name `auto` is reserved, so a skin file called
+`auto.yaml` is never loaded.
 
 A user skin with the same basename as a bundled skin shadows the
 bundled one; a10r prints a warning so the override isn't a

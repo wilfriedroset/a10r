@@ -8,6 +8,13 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Automatic light and dark skin** — `theme.name: auto` asks the
+  terminal for its background colour at startup and picks
+  `catppuccin-latte` on a light terminal, `catppuccin-mocha` on a
+  dark one. A terminal that does not answer keeps
+  `catppuccin-mocha`. Detection runs once and never overrides a
+  skin you named yourself. `a10r info` now reports the configured
+  theme.
 - **Terminal title** — with `tui.terminal_title: true`, a10r names the
   terminal window or tab `a10r: <scope> <page>`, for example
   `a10r: prod+2 alerts`, and updates it when you change page or tenant
@@ -30,6 +37,14 @@ to [Semantic Versioning][semver].
 - **Docker images** — multi-arch (amd64, arm64) distroless images
   pushed to `ghcr.io/wilfriedroset/a10r` by the release pipeline,
   plus a standalone build-from-source `Dockerfile`.
+
+### Changed
+
+- **The default theme is now `auto`** instead of
+  `catppuccin-mocha`. A config file that names a skin is
+  unaffected. To keep the old behaviour on a light terminal, set
+  `theme.name: catppuccin-mocha`. The name `auto` is now reserved:
+  a user skin cannot use it.
 
 ## [v0.1.0] — 2026-06-03
 

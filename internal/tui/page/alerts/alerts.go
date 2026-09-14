@@ -367,10 +367,7 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	sp := spinner.New(
-		spinner.WithSpinner(spinner.Points),
-		spinner.WithStyle(opts.Styles.Header.Accent),
-	)
+	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	concurrency := opts.BulkConcurrency
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
@@ -435,7 +432,7 @@ func (*Page) Crumb() string { return resourceAlerts }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(resourceAlerts)
+		return p.LoadingTitle(resourceAlerts, p.styles.Header.Accent)
 	}
 	scope := p.Scope
 	if scope == "" {

@@ -202,7 +202,9 @@ func TestResolve_ThemeFallbacks(t *testing.T) {
 	}{
 		{name: "cli wins", cli: "gruvbox-dark", file: "catppuccin-latte", want: "gruvbox-dark"},
 		{name: "file wins when cli empty", file: "catppuccin-latte", want: "catppuccin-latte"},
-		{name: "default fallback", want: DefaultThemeName},
+		{name: "default fallback is auto", want: DefaultThemeName},
+		{name: "cli auto overrides a named file theme", cli: "auto", file: "catppuccin-latte", want: "auto"},
+		{name: "file auto survives", file: "auto", want: "auto"},
 	}
 
 	for _, tc := range cases {

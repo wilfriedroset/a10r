@@ -409,3 +409,32 @@ func colorRGBA(c color.Color) (r, g, b uint8) {
 	r16, g16, b16, _ := c.RGBA()
 	return uint8(r16 >> 8), uint8(g16 >> 8), uint8(b16 >> 8)
 }
+
+func TestLoad_AutoSentinelIsReserved(t *testing.T) {
+	t.Parallel()
+
+	// The sentinel never names a file. Resolving it against the
+	// skins directory would let a user skin called `auto.yaml`
+	// hijack the detection path, so the loader refuses it outright
+	// rather than falling back to the default skin.
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, AutoSkinName+".yaml"), []byte("body:\n  fgColor: white\n  bgColor: black\n"), 0o600,
+	))
+
+	_, err := (&Loader{UserDir: dir}).Load(AutoSkinName)
+	require.ErrorIs(t, err, ErrInvalidSkin)
+	require.ErrorContains(t, err, `theme name "auto" is reserved`)
+}
+
+func TestAutoSkinFor(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, DefaultSkinName, AutoSkinFor(true))
+	require.Equal(t, LightSkinName, AutoSkinFor(false))
+
+	for _, name := range []string{AutoSkinFor(true), AutoSkinFor(false)} {
+		require.True(t, bundledExists(name),
+			"AutoSkinFor must name a bundled skin; %q is not embedded", name)
+	}
+}
