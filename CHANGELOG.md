@@ -8,6 +8,16 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Label columns** — add your own columns to the alerts list and the
+  group detail page with a `columns:` list under `pages`, one entry
+  per alert label. Each column takes an optional title, a fixed
+  width, a `Shift+<letter>` sort key, and `wide: true` to park it
+  behind the `Shift+W` tier. An alerts row is an alertname aggregate,
+  so a cell that disagrees across instances reads `<N values>` rather
+  than picking one. When the row outgrows the terminal, both pages
+  drop columns off the right edge behind a `>` marker and `←` / `→`
+  scroll through them, with the first column pinned. See ADR 0048.
+
 - **Remembered scope and sort** — with `tui.remember: true`, a10r
   reopens on the tenant scope you last selected and on the sort
   column and direction you last picked for each list page. The values
