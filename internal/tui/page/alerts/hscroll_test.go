@@ -89,7 +89,7 @@ func TestHScroll_LeftAtTheEdgeChangesNothing(t *testing.T) {
 	require.Equal(t, before, p.View(narrowWidth, 20))
 	// The offset itself, not only the frame: a negative offset paints
 	// the same columns as zero, so the rendered row hides the bug.
-	require.Zero(t, p.hscrollOffset)
+	require.Zero(t, p.scroll.Offset)
 }
 
 // On a terminal wide enough for every column the arrows do nothing,

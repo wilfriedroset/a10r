@@ -92,3 +92,37 @@ func colWidth(c Column) int {
 	}
 	return max(max(0, c.Min), max(0, c.Content))
 }
+
+// Scroll is a page's horizontal scroll state: which column the window
+// starts at, and the frame width the keys measure against. It lives
+// beside Window because the clamp below is a rule about WindowAt, not
+// about any one page.
+type Scroll struct {
+	// Offset is how many columns the row is scrolled past the pinned
+	// first one.
+	Offset int
+	// Width is the width of the last painted frame. No width reaches a
+	// page at key time, so the keys read it back to tell a clipped row
+	// from one that fits.
+	Width int
+}
+
+// Left moves the window back by one column.
+func (s *Scroll) Left(win Window) {
+	s.Offset = max(0, s.clamped(win)-1)
+}
+
+// Right moves the window on by one column. Only a clipped row
+// scrolls, so the key is dead on a terminal that shows everything.
+func (s *Scroll) Right(win Window) {
+	if win.ClipRight {
+		s.Offset = s.clamped(win) + 1
+	}
+}
+
+// clamped pulls a stale offset back to the last one that still moves
+// the window. WindowAt saturates past that, so an unclamped counter
+// leaves Left dead for as many presses as the operator made.
+func (s *Scroll) clamped(win Window) int {
+	return min(s.Offset, max(0, win.Total-2))
+}

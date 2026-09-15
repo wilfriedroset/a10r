@@ -22,7 +22,7 @@ import (
 func (p *Page) View(width, height int) string {
 	// The scroll keys need to know whether the row fits, and no width
 	// reaches the page at key time.
-	p.lastWidth = width
+	p.scroll.Width = width
 	return p.RenderListFrame(listpage.ListFrame{
 		Width:      width,
 		Height:     height,
@@ -441,7 +441,7 @@ func (p *Page) columnWidths(width int) ([]int, format.Window) {
 	// minus chrome". Centralising the chrome subtraction here keeps
 	// the spec construction pure and easy to test.
 	budget := max(0, width-format.RowPrefixCols)
-	win := format.WindowAt(specs, budget, len(colSep), p.hscrollOffset)
+	win := format.WindowAt(specs, budget, len(colSep), p.scroll.Offset)
 	if len(win.Cols) < win.Total {
 		// A clipped row keeps one cell out of the column budget for the
 		// ">" marker, so the header never runs past the body width and
@@ -452,7 +452,7 @@ func (p *Page) columnWidths(width int) ([]int, format.Window) {
 		// window on the smaller budget can only drop a further column,
 		// never bring one back, so the result is stable.
 		budget = max(0, budget-1)
-		win = format.WindowAt(specs, budget, len(colSep), p.hscrollOffset)
+		win = format.WindowAt(specs, budget, len(colSep), p.scroll.Offset)
 	}
 	shown := make([]format.Column, len(win.Cols))
 	for i, ci := range win.Cols {

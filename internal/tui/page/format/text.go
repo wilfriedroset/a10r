@@ -3,7 +3,8 @@
 // Package format holds width-aware text helpers shared across pages
 // and chrome packages: cell padding and width-bounded truncation
 // against lipgloss.Width (which counts terminal cells, not bytes,
-// honouring CJK / emoji width).
+// honouring CJK / emoji width), the duf-style column allocator, and
+// the horizontal scroll window and position a page drives it with.
 package format
 
 import (

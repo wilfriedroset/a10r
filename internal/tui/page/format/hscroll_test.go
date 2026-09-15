@@ -137,3 +137,60 @@ func TestWindowAt_ReportsTheFullColumnCount(t *testing.T) {
 	require.Equal(t, len(cols), format.WindowAt(cols, 30, 1, 0).Total)
 	require.Equal(t, 1, format.WindowAt(cols[:1], 2, 1, 0).Total)
 }
+
+// Right needs a clipped row, so the key is dead on a terminal that
+// shows every column.
+func TestScroll_RightNeedsAClippedRow(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{}
+	s.Right(format.Window{Total: 6})
+	require.Zero(t, s.Offset)
+}
+
+// The zero Window is reachable from any caller now that Scroll is
+// exported, and a page with no columns must not move.
+func TestScroll_ZeroWindowIsInert(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{}
+	s.Right(format.Window{})
+	s.Left(format.Window{})
+	require.Zero(t, s.Offset)
+}
+
+func TestScroll_RightMovesOn(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{}
+	s.Right(format.Window{Total: 6, ClipRight: true})
+	require.Equal(t, 1, s.Offset)
+}
+
+// Right stops once the last column is in view, so the row never
+// scrolls into a window that holds only the pinned column.
+func TestScroll_RightStopsAtTheLastColumn(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{Offset: 9}
+	s.Right(format.Window{Total: 6, ClipRight: true})
+	require.Equal(t, 5, s.Offset)
+}
+
+func TestScroll_LeftStopsAtZero(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{}
+	s.Left(format.Window{Total: 6})
+	require.Zero(t, s.Offset)
+}
+
+// An offset left over from a wider column set has to come back within
+// one press, not after as many presses as the operator made.
+func TestScroll_LeftRecoversFromAStaleOffset(t *testing.T) {
+	t.Parallel()
+
+	s := format.Scroll{Offset: 9}
+	s.Left(format.Window{Total: 6})
+	require.Equal(t, 3, s.Offset)
+}

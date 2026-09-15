@@ -46,6 +46,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -443,12 +444,7 @@ type Page struct {
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
 
-	// hscrollOffset is how many columns the row is scrolled past the
-	// pinned first one. lastWidth is the width of the last painted
-	// frame: no width reaches the page at key time, so the scroll
-	// keys read it to tell a clipped row from one that fits.
-	hscrollOffset int
-	lastWidth     int
+	scroll format.Scroll
 	// groupDetailCols is the L2 page's column configuration, held
 	// only to hand to groupdetail.New on drill-down.
 	groupDetailCols []config.Column
