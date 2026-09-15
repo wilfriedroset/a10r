@@ -391,3 +391,40 @@ func TestLabelColumn_GroupDetailColumnsReachTheDrillDown(t *testing.T) {
 	require.Contains(t, out, "FLEET")
 	require.Contains(t, rowContaining(t, out, "fp1"), "eu-1")
 }
+
+// The h/l walk steps the sorter's column order, so that order has to
+// match the rendered one. The label block renders between ALERTNAME
+// and COUNT, so a sorter that carries it after AGE sends `l` past the
+// columns the operator sees and wraps onto them from the far end.
+// STATE is rendered but is not a sort axis, so the walk order is the
+// rendered order with STATE removed. Every column here declares a
+// sort_key, which keeps the rest of the two orders identical.
+func TestLabelColumn_WalkOrderMatchesRenderedOrder(t *testing.T) {
+	t.Parallel()
+
+	p := newColumnPage(t,
+		config.Column{Label: "cluster", SortKey: "L"},
+		config.Column{Label: "team", SortKey: "Z"},
+	)
+	require.Equal(t, sortKeySeverity, p.sorter.ActiveKey(), "the walk starts at the default column")
+
+	// The walk is cyclic, so the break is the real exit. The bound is
+	// only a stop for a sorter that somehow never returns to its
+	// start, and headerKeys is always the longer of the two slices.
+	walk := []string{p.sorter.ActiveKey()}
+	for range len(p.headerKeys()) {
+		p.sorter.WalkRight()
+		if p.sorter.ActiveKey() == sortKeySeverity {
+			break
+		}
+		walk = append(walk, p.sorter.ActiveKey())
+	}
+
+	rendered := make([]string, 0, len(walk))
+	for _, k := range p.headerKeys() {
+		if k != sortKeyState {
+			rendered = append(rendered, k)
+		}
+	}
+	require.Equal(t, rendered, walk)
+}

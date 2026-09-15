@@ -97,9 +97,11 @@ func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntr
 			}),
 		},
 	}
-	// The user block goes before AGE, not after it, so the h/l walk
-	// order matches the rendered order. STATE is not sortable, so the
-	// match is exact on this page.
+	// The user block goes before AGE, not after it, because the h/l
+	// walk steps this slice and it has to match what headerKeys
+	// renders. STATE renders but is not an axis, and a column with no
+	// sort_key renders but is skipped below, so the walk is the
+	// rendered order minus those two.
 	cols = append(cols, labelSortColumns(user)...)
 	return append(cols, tablesort.Column[instanceEntry]{
 		Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,

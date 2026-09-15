@@ -83,7 +83,7 @@ const labelAlertname = "alertname"
 // has no uppercase `S` verb — silence is lowercase `s` — so the
 // shortcut is free.
 func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
-	return append([]tablesort.Column[alertGroup]{
+	cols := []tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -96,6 +96,14 @@ func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 				return a.alertName < b.alertName
 			}),
 		},
+	}
+	// The user block goes between ALERTNAME and COUNT, not after AGE,
+	// because the h/l walk steps this slice and it has to match what
+	// headerKeys renders. STATE renders but is not an axis, and a
+	// column with no sort_key renders but is skipped below, so the
+	// walk is the rendered order minus those two.
+	cols = append(cols, labelSortColumns(user)...)
+	return append(cols, []tablesort.Column[alertGroup]{
 		{
 			Key: sortKeyCount, Title: "COUNT", Hotkey: 'C', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -108,7 +116,7 @@ func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 				return a.oldestStart.Before(b.oldestStart)
 			}),
 		},
-	}, labelSortColumns(user)...)
+	}...)
 }
 
 // labelSortColumns turns each user-declared column into a sortable
