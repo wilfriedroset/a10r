@@ -2,6 +2,8 @@
 
 package format
 
+import "strings"
+
 // Window is the set of columns a horizontally scrolled row paints.
 type Window struct {
 	// Cols are indices into the caller's full Column slice, in render
@@ -125,4 +127,23 @@ func (s *Scroll) Right(win Window) {
 // leaves Left dead for as many presses as the operator made.
 func (s *Scroll) clamped(win Window) int {
 	return min(s.Offset, max(0, win.Total-2))
+}
+
+// Horizontal-scroll markers. The header carries them because it is
+// the one line that is not row data: dropping a column the operator
+// configured without saying so is worse than spending a cell on the
+// marker (ADR 0048).
+const (
+	scrollLeftMarker  = "<"
+	ScrollRightMarker = ">"
+)
+
+// ScrollPrefix is the header's row prefix. It carries the left marker
+// in the cells the data rows spend on the cursor arrow and the mark
+// glyph, so the marker costs no column width.
+func ScrollPrefix(clipLeft bool) string {
+	if !clipLeft {
+		return strings.Repeat(" ", RowPrefixCols)
+	}
+	return PadRight("  "+scrollLeftMarker, RowPrefixCols)
 }

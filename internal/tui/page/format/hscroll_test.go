@@ -5,6 +5,7 @@ package format_test
 import (
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
@@ -193,4 +194,15 @@ func TestScroll_LeftRecoversFromAStaleOffset(t *testing.T) {
 	s := format.Scroll{Offset: 9}
 	s.Left(format.Window{Total: 6})
 	require.Equal(t, 3, s.Offset)
+}
+
+// The prefix is fixed width at both edges, so a clipped header lines
+// up with the data rows under it rather than shifting by one cell.
+func TestScrollPrefix_KeepsTheRowPrefixWidth(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, format.RowPrefixCols, lipgloss.Width(format.ScrollPrefix(false)))
+	clipped := format.ScrollPrefix(true)
+	require.Equal(t, format.RowPrefixCols, lipgloss.Width(clipped))
+	require.Contains(t, clipped, "<")
 }

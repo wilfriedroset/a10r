@@ -76,7 +76,7 @@ func (p *Page) renderHeader(width int) string {
 	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
-	b.WriteString(scrollPrefix(win.ClipLeft))
+	b.WriteString(format.ScrollPrefix(win.ClipLeft))
 	for j, ci := range win.Cols {
 		if j >= len(widths) || ci >= len(keys) {
 			break
@@ -101,28 +101,9 @@ func (p *Page) renderHeader(width int) string {
 		}
 	}
 	if win.ClipRight {
-		b.WriteString(scrollRightMarker)
+		b.WriteString(format.ScrollRightMarker)
 	}
 	return b.String()
-}
-
-// Horizontal-scroll markers. The header carries them because it is
-// the one line that is not row data: dropping a column the operator
-// configured without saying so is worse than spending a cell on the
-// marker (ADR 0048).
-const (
-	scrollLeftMarker  = "<"
-	scrollRightMarker = ">"
-)
-
-// scrollPrefix is the header's copy of the row prefix. It carries the
-// left marker in the cells the data rows spend on the cursor arrow
-// and the mark glyph, so the marker costs no column width.
-func scrollPrefix(clipLeft bool) string {
-	if !clipLeft {
-		return strings.Repeat(" ", format.RowPrefixCols)
-	}
-	return format.PadRight("  "+scrollLeftMarker, format.RowPrefixCols)
 }
 
 // stateColumnIndex locates STATE inside the painted window. STATE is
