@@ -242,11 +242,12 @@ func TestLabelColumn_ScrollKeepsWidthsStable(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: in})
 
-	before := p.columnWidths(160)
+	before, _ := p.columnWidths(160)
 	for range 30 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
-	require.Equal(t, before, p.columnWidths(160))
+	after, _ := p.columnWidths(160)
+	require.Equal(t, before, after)
 }
 
 // A measured label column flexes, so a long value ellipsizes inside
@@ -272,7 +273,7 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 
 	// SEVERITY, ALERTNAME, cluster, team, COUNT, STATE, AGE.
 	floors := []int{12, 10, labelColumnWidthFloor, labelColumnWidthFloor, 7, 14, 12}
-	widths := p.columnWidths(80)
+	widths, _ := p.columnWidths(80)
 	require.Len(t, widths, len(floors))
 	for i, floor := range floors {
 		require.GreaterOrEqual(t, widths[i], floor, "column %d fell below its floor", i)
@@ -280,11 +281,10 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(80, 24)), "DiskFull"), "…")
 }
 
-// Past the point where the floors all fit, the allocator shrinks
-// every column proportionally rather than dropping one. The row stays
-// readable and no column vanishes. ADR 0048 answers the rest with a
-// horizontal scroll, which is not built yet.
-func TestLabelColumn_TooNarrowShrinksEveryColumn(t *testing.T) {
+// Past the point where the floors all fit, the row scrolls rather
+// than shrinking: it drops columns off the right edge and keeps every
+// column it still paints at a readable width (ADR 0048).
+func TestLabelColumn_TooNarrowScrollsInsteadOfShrinking(t *testing.T) {
 	t.Parallel()
 
 	long := strings.Repeat("long-cluster-", 8)
@@ -298,12 +298,15 @@ func TestLabelColumn_TooNarrowShrinksEveryColumn(t *testing.T) {
 	a.Labels["pod"] = long
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
 
-	widths := p.columnWidths(80)
-	require.Len(t, widths, 8)
+	widths, win := p.columnWidths(80)
+	require.Len(t, widths, len(win.Cols))
+	require.Less(t, len(win.Cols), win.Total, "a row this narrow must drop columns")
+	require.True(t, win.ClipRight)
 	for i, w := range widths {
 		require.Positive(t, w, "column %d collapsed to nothing", i)
 	}
-	require.LessOrEqual(t, sum(widths)+len(widths)-1, 80-format.RowPrefixCols)
+	// One cell of the budget goes to the ">" marker.
+	require.LessOrEqual(t, sum(widths)+len(widths)-1, 80-format.RowPrefixCols-1)
 }
 
 func sum(in []int) int {

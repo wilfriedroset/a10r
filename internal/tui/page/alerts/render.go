@@ -20,6 +20,9 @@ import (
 )
 
 func (p *Page) View(width, height int) string {
+	// The scroll keys need to know whether the row fits, and no width
+	// reaches the page at key time.
+	p.lastWidth = width
 	return p.RenderListFrame(listpage.ListFrame{
 		Width:      width,
 		Height:     height,
@@ -57,9 +60,14 @@ func (p *Page) emptyState() string {
 // column renders plain.
 const sortKeyState = "state"
 
+// sortKeyTenant labels the TENANT column header, on the same terms as
+// sortKeyState: not a sort axis, but the header renderer walks a
+// uniform key list and headerTitle upper-cases it into "TENANT".
+const sortKeyTenant = "tenant"
+
 func (p *Page) renderHeader(width int) string {
-	cols := p.headerKeys()
-	widths := p.columnWidths(width)
+	keys := p.renderedKeys()
+	widths, win := p.columnWidths(width)
 	// fg-only renderers so the header keeps the terminal default
 	// background — painting palette bg inside the unstyled body
 	// frame creates a coloured stripe (see feedback memory on
@@ -68,24 +76,20 @@ func (p *Page) renderHeader(width int) string {
 	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", format.RowPrefixCols))
-	idx := 0
-	if p.ShowTenantColumn(len(p.byTenant)) && idx < len(widths) {
-		b.WriteString(headerFg.Render(format.PadRight("TENANT", widths[idx])))
-		idx++
-	}
-	for _, k := range cols {
-		if idx >= len(widths) {
+	b.WriteString(scrollPrefix(win.ClipLeft))
+	for j, ci := range win.Cols {
+		if j >= len(widths) || ci >= len(keys) {
 			break
 		}
-		if idx > 0 {
+		if j > 0 {
 			b.WriteString(colSep)
 		}
+		k := keys[ci]
 		label := p.headerTitle(k)
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
 		}
-		padded := format.PadRight(label, widths[idx])
+		padded := format.PadRight(label, widths[j])
 		// Active column gets HeaderActive; the rest get the regular
 		// Header foreground. The two tints plus the arrow glyph give
 		// two distinct cues for "which sort is live" — one for the
@@ -95,9 +99,58 @@ func (p *Page) renderHeader(width int) string {
 		} else {
 			b.WriteString(headerFg.Render(padded))
 		}
-		idx++
+	}
+	if win.ClipRight {
+		b.WriteString(scrollRightMarker)
 	}
 	return b.String()
+}
+
+// Horizontal-scroll markers. The header carries them because it is
+// the one line that is not row data: dropping a column the operator
+// configured without saying so is worse than spending a cell on the
+// marker (ADR 0048).
+const (
+	scrollLeftMarker  = "<"
+	scrollRightMarker = ">"
+)
+
+// scrollPrefix is the header's copy of the row prefix. It carries the
+// left marker in the cells the data rows spend on the cursor arrow
+// and the mark glyph, so the marker costs no column width.
+func scrollPrefix(clipLeft bool) string {
+	if !clipLeft {
+		return strings.Repeat(" ", format.RowPrefixCols)
+	}
+	return format.PadRight("  "+scrollLeftMarker, format.RowPrefixCols)
+}
+
+// stateColumnIndex locates STATE inside the painted window. STATE is
+// second to last in columnSpecs, but a horizontally scrolled row
+// renumbers its columns, so the lookup goes through the window. -1
+// means STATE scrolled out of view.
+func stateColumnIndex(win format.Window) int {
+	if win.Total < 2 {
+		return -1
+	}
+	for j, ci := range win.Cols {
+		if ci == win.Total-2 {
+			return j
+		}
+	}
+	return -1
+}
+
+// renderedKeys is headerKeys with the optional TENANT column
+// prepended, so entry i names the column at columnSpecs()[i]. The
+// scrolled renderer addresses columns by that index, and headerKeys
+// alone is off by one whenever TENANT shows.
+func (p *Page) renderedKeys() []string {
+	keys := p.headerKeys()
+	if !p.ShowTenantColumn(len(p.byTenant)) {
+		return keys
+	}
+	return append([]string{sortKeyTenant}, keys...)
 }
 
 // headerKeys is the rendered column order as sorter keys: the
@@ -148,15 +201,12 @@ func (p *Page) renderRows(width, maxRows int) string {
 	// storm. The header renderer makes its own call (one per
 	// frame, not per row) so the cost lands once on the outer loop
 	// either way.
-	cols := p.columnWidths(width)
-	// STATE sits second-to-last in the rendered row; its allocated
-	// width caps the breakdown so an over-cap breakdown ellipsizes
-	// here rather than starving ALERTNAME (the cap lives in
-	// columnSpecs). -1 (no STATE column visible) disables ellipsis.
-	stateIdx := -1
-	if len(cols) >= 2 {
-		stateIdx = len(cols) - 2
-	}
+	cols, win := p.columnWidths(width)
+	// STATE's allocated width caps the breakdown so an over-cap
+	// breakdown ellipsizes here rather than starving ALERTNAME (the
+	// cap lives in columnSpecs). -1 (no STATE column visible)
+	// disables ellipsis.
+	stateIdx := stateColumnIndex(win)
 	spans := p.FilterSpans()
 	// An open visual range previews as marked rows; the keys only
 	// reach p.marks on commit, so the span is resolved per frame.
@@ -170,6 +220,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	for i := p.TopRow(); i < end; i++ {
 		b.WriteString(p.renderRow(i, p.groups[i], rowCtx{
 			cols:       cols,
+			win:        win.Cols,
 			stateIdx:   stateIdx,
 			width:      width,
 			showTenant: showTenant,
@@ -186,7 +237,10 @@ func (p *Page) renderRows(width, maxRows int) string {
 // rowCtx carries the per-frame values, hoisted so the row loop does
 // not recompute them.
 type rowCtx struct {
-	cols     []int
+	cols []int
+	// win holds the columnSpecs indices the row paints, in order. It
+	// is every column unless the row is scrolled horizontally.
+	win      []int
 	spans    func(string) [][2]int
 	stateIdx int
 	width    int
@@ -243,7 +297,7 @@ func (p *Page) renderRow(i int, g alertGroup, ctx rowCtx) string {
 	if i == p.Index() {
 		prefix = "▸ "
 	}
-	line := format.PadRight(prefix+mark+" "+p.padColumns(row, ctx.cols, hl), ctx.width)
+	line := format.PadRight(prefix+mark+" "+p.padColumns(row, ctx, hl), ctx.width)
 	switch {
 	case i == p.Index():
 		// k9s parity: cursor bg tracks the row's semantic colour
@@ -318,34 +372,37 @@ const stateContentCap = 24
 // the row loop runs in O(rows) rather than O(rows²) — the spec
 // builder walks the whole view to measure max content widths,
 // and re-running it per row would scale badly under a storm.
-func (p *Page) padColumns(parts []string, cols []int, hl format.Highlighter) string {
+func (p *Page) padColumns(parts []string, ctx rowCtx, hl format.Highlighter) string {
 	flexIdx := p.flexColumnIndex()
 	var b strings.Builder
-	for i, v := range parts {
-		if i >= len(cols) {
+	for j, ci := range ctx.win {
+		if j >= len(ctx.cols) || ci >= len(parts) {
 			break
 		}
-		if i > 0 {
+		if j > 0 {
 			b.WriteString(colSep)
 		}
+		v := parts[ci]
 		// The flex column and every user-declared column ellipsize:
 		// both can be assigned less than their content, and a silent
 		// slice of a label value reads as a different value.
-		if i == flexIdx || p.isLabelColumn(i) {
-			v = format.Ellipsize(v, cols[i])
+		if ci == flexIdx || p.isLabelColumn(ci) {
+			v = format.Ellipsize(v, ctx.cols[j])
 		}
 		// The cells a producer already coloured (SEVERITY, STATE) come
 		// in styled and carry their own highlight; Text stands down on
 		// them. The rest are plain and get painted here, after the pad
 		// or the cut, so a span never moves a column.
-		b.WriteString(hl.Text(format.PadRight(v, cols[i])))
+		b.WriteString(hl.Text(format.PadRight(v, ctx.cols[j])))
 	}
 	return b.String()
 }
 
 // flexColumnIndex returns the position of the alertname column in
-// the rendered row. When the TENANT column is hidden the flex
-// column sits at index 1 (after SEVERITY); when shown, at index 2.
+// columnSpecs. When the TENANT column is hidden the flex column sits
+// at index 1 (after SEVERITY); when shown, at index 2. The index is
+// spec-space, not window-space, so a scrolled row still identifies
+// the column it belongs to.
 // Centralised so padColumns and any future per-cell styler agree
 // on which column is the unbounded one.
 func (p *Page) flexColumnIndex() int {
@@ -355,9 +412,9 @@ func (p *Page) flexColumnIndex() int {
 	return 1
 }
 
-// isLabelColumn reports whether rendered column index i is one of
-// the user-declared label columns — the block that follows the flex
-// ALERTNAME column.
+// isLabelColumn reports whether columnSpecs index i is one of the
+// user-declared label columns — the block that follows the flex
+// ALERTNAME column. Spec-space, like flexColumnIndex.
 func (p *Page) isLabelColumn(i int) bool {
 	flexIdx := p.flexColumnIndex()
 	return i > flexIdx && i <= flexIdx+len(p.shownCols)
@@ -377,14 +434,31 @@ func (p *Page) isLabelColumn(i int) bool {
 // Header labels participate in the content measurement so the
 // title row never gets clipped below its own glyph count (e.g.
 // "ALERTNAME" is wider than a 3-char alertname).
-func (p *Page) columnWidths(width int) []int {
+func (p *Page) columnWidths(width int) ([]int, format.Window) {
 	specs := p.columnSpecs()
 	// Subtract the row prefix from total before distributing — the
 	// allocator's contract is "fits in N cells", not "fits in N
 	// minus chrome". Centralising the chrome subtraction here keeps
 	// the spec construction pure and easy to test.
 	budget := max(0, width-format.RowPrefixCols)
-	return format.Distribute(specs, budget, len(colSep))
+	win := format.WindowAt(specs, budget, len(colSep), p.hscrollOffset)
+	if len(win.Cols) < win.Total {
+		// A clipped row keeps one cell out of the column budget for the
+		// ">" marker, so the header never runs past the body width and
+		// wraps. The cell goes unpainted on a row clipped only on the
+		// left, where the "<" marker rides the row prefix instead:
+		// reserving it on ClipRight alone would be circular, because
+		// the smaller budget is what decides ClipRight. Re-running the
+		// window on the smaller budget can only drop a further column,
+		// never bring one back, so the result is stable.
+		budget = max(0, budget-1)
+		win = format.WindowAt(specs, budget, len(colSep), p.hscrollOffset)
+	}
+	shown := make([]format.Column, len(win.Cols))
+	for i, ci := range win.Cols {
+		shown[i] = specs[ci]
+	}
+	return format.Distribute(shown, budget, len(colSep)), win
 }
 
 // columnSpecs builds the per-column Spec slice the distributor

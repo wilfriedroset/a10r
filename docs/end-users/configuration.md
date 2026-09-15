@@ -229,6 +229,12 @@ User columns render after ALERTNAME on the alerts page, and after
 INSTANCE on the group-detail page, in the order you list them. You
 cannot remove or reorder the built-in columns.
 
+Every column you add makes the row wider. When the row no longer fits
+the terminal, the alerts page drops columns off the right edge instead
+of squeezing all of them, and the header marks the cut with `>`. Press
+`→` to scroll to the columns out of view and `←` to come back. The
+first data column stays pinned so the row keeps its identity.
+
 A column with `wide: true` stays out of view until you press
 `Shift+W`, which toggles the wide tier for the page you are on. The
 tier is per page and lasts for as long as that page stays open. If

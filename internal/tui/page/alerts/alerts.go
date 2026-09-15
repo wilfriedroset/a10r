@@ -442,6 +442,13 @@ type Page struct {
 	// over the whole filtered view, refreshed by recompute so the
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
+
+	// hscrollOffset is how many columns the row is scrolled past the
+	// pinned first one. lastWidth is the width of the last painted
+	// frame: no width reaches the page at key time, so the scroll
+	// keys read it to tell a clipped row from one that fits.
+	hscrollOffset int
+	lastWidth     int
 	// groupDetailCols is the L2 page's column configuration, held
 	// only to hand to groupdetail.New on drill-down.
 	groupDetailCols []config.Column
@@ -621,6 +628,10 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+T", Description: "state format", View: resourceAlerts},
 		action.Action{Key: "r", Description: "refresh", View: resourceAlerts},
 		action.Action{Key: "w", Description: "toggle watch", View: resourceAlerts},
+		// Last on purpose: the keys do nothing on a terminal wide
+		// enough for every column, and the fixed-size hint strip drops
+		// the tail first.
+		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: resourceAlerts},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

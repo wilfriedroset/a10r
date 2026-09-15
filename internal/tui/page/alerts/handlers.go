@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -99,10 +100,43 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleMotion(m) {
 		return p, nil
 	}
+	if p.handleScroll(m) {
+		return p, nil
+	}
 	if p.handleSort(m) {
 		return p, nil
 	}
 	return p.handleAction(m)
+}
+
+// handleScroll processes the horizontal-column scroll. It runs before
+// handleSort, which binds Left/Right as aliases of the h/l sort walk
+// on every other table page: this page takes the two arrows for the
+// view window instead, and h/l keep the sort walk here as well.
+// Returns true when the key was an arrow, so the key is consumed even
+// on a row that already fits and the sort walk never sees it.
+func (p *Page) handleScroll(m tea.KeyPressMsg) bool {
+	switch m.String() {
+	case "left":
+		_, win := p.columnWidths(p.lastWidth)
+		p.hscrollOffset = max(0, p.clampOffset(win)-1)
+	case "right":
+		// Only a clipped row scrolls, so the keys are dead on a
+		// terminal that shows everything.
+		if _, win := p.columnWidths(p.lastWidth); win.ClipRight {
+			p.hscrollOffset = p.clampOffset(win) + 1
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// clampOffset pulls a stale offset back to the last one that still
+// moves the window. WindowAt saturates past that, so an unclamped
+// counter leaves Left dead for as many presses as the operator made.
+func (p *Page) clampOffset(win format.Window) int {
+	return min(p.hscrollOffset, max(0, win.Total-2))
 }
 
 // handleMotion processes cursor-walk keys. Returns true when the

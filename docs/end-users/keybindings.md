@@ -88,8 +88,8 @@ If a fuzzy/substring search surfaces matches that look unrelated to the alertnam
 | `Ctrl+U` / `PageUp` | Half page up |
 | `Ctrl+F` | Full page down (vim sibling of `Ctrl+D`) |
 | `Ctrl+B` | Full page up (vim sibling of `Ctrl+U`) |
-| `h` / `←` | Previous sortable column |
-| `l` / `→` | Next sortable column |
+| `h` / `←` | Previous sortable column. On the alerts list `←` scrolls the columns instead, so `h` alone walks the sort there. |
+| `l` / `→` | Next sortable column. On the alerts list `→` scrolls the columns instead, so `l` alone walks the sort there. |
 | `Enter` | Drill into the cursor row |
 | `Space` | Mark / unmark the cursor row (multi-select) — on the pages that have marks (alerts, group detail, silences) and on the tenant table |
 
@@ -122,6 +122,7 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | `Shift+N` | Sort by alertname. |
 | `Shift+C` | Sort by instance count. |
 | `Shift+A` | Sort by age (oldest instance). |
+| `←` / `→` | Scroll the columns when the row is too wide for the terminal. The first data column stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. |
 
 ### Group detail
 
