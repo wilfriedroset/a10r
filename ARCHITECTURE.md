@@ -97,7 +97,8 @@ are defined in CONTEXT.md and used here without redefinition.
   wall clock (ADR 0031).
 - `internal/log` -- builds the project `*slog.Logger` (json / logfmt,
   no ANSI).
-- `internal/xdg` -- env-var slot names and the Windows fallback for
+- `internal/xdg` -- env-var slot names, the unix state-directory
+  resolver, the atomic state-file write, and the Windows fallback for
   OS-conformant path resolution.
 
 ### TUI (`internal/tui`)

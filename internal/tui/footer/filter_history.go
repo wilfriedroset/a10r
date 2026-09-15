@@ -4,8 +4,8 @@ package footer
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -48,17 +48,9 @@ const (
 // never reach for in practice.
 const historyMaxEntries = 100
 
-// HistoryDirMode is the permission applied to the parent directory
-// when the package creates `$XDG_STATE_HOME/a10r/`. 0o700 keeps the
-// per-class file (which can leak the user's recent label-matcher
-// queries) from any co-tenant on a shared host.
-const HistoryDirMode = 0o700
-
 // HistoryFileMode is the permission stamped on each history file.
-// 0o600 mirrors the dir's intent — owner-read, owner-write, no one
-// else. The umask is bypassed via os.OpenFile so a permissive
-// umask doesn't widen these.
-const HistoryFileMode = 0o600
+// See xdg.FileMode.
+const HistoryFileMode = xdg.FileMode
 
 // History is a bounded ring of recent prompt submissions for one
 // matcher class, with a cursor for browsing previous entries. The
@@ -109,30 +101,20 @@ func NewHistory(dir string, class HistoryClass) *History {
 }
 
 // HistoryDir resolves the state directory for the history rings.
-// `$XDG_STATE_HOME/a10r/` when the env var is set, else
-// `$HOME/.local/state/a10r/` on unix. Mirrors the loader in
-// internal/log/path.go so `a10r.log` and the history files share
-// one parent.
+// Thin alias over xdg.StateDir, kept as the footer package's own
+// seam so callers (boot, the prompt) do not reach across.
 //
 // env and homeDir are injected so the test suite can drive every
 // branch from a single host without setenv contamination.
 func HistoryDir(env func(string) string, homeDir func() (string, error)) (string, error) {
-	if state := env(xdg.StateHome); state != "" {
-		return filepath.Join(state, "a10r"), nil
-	}
-	home, err := homeDir()
-	if err != nil {
-		return "", fmt.Errorf("user home: %w", err)
-	}
-	return filepath.Join(home, ".local", "state", "a10r"), nil
+	return xdg.StateDir(env, homeDir) //nolint:wrapcheck // pass-through alias: xdg already wraps with "user home: ".
 }
 
-// DefaultHistoryDir is the production path resolver — wraps
-// HistoryDir with the live os.* functions. Callers that want
-// dependency injection (the wizard, tests) should call HistoryDir
-// directly.
+// DefaultHistoryDir is the production path resolver. Callers that
+// want dependency injection (the wizard, tests) should call
+// HistoryDir directly.
 func DefaultHistoryDir() (string, error) {
-	return HistoryDir(os.Getenv, os.UserHomeDir)
+	return xdg.DefaultStateDir() //nolint:wrapcheck // xdg already wraps; the caller reports the path verbatim.
 }
 
 // Len returns the entry count.
@@ -298,53 +280,13 @@ func readHistoryFile(path string) []string {
 	return out
 }
 
-// writeHistoryFile rewrites the ring file. Atomic-by-rename so a
-// SIGKILL mid-write can't corrupt the file (the worst case is a
-// stale temp file in the same dir, which the next Append cleans up
-// implicitly by replacing). Creates the parent dir lazily.
+// writeHistoryFile rewrites the ring file: one entry per line,
+// trailing newline, which is what readHistoryFile's Scanner expects.
 func writeHistoryFile(path string, entries []string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, HistoryDirMode); err != nil {
-		return fmt.Errorf("history mkdir: %w", err)
-	}
-	// Pid-tagged temp name so two a10r instances writing the ring
-	// at the same time can't shred each other's tmp file mid-flight.
-	// The final rename is still last-writer-wins on the destination
-	// — fcntl-flocking the path is overkill for a pet project where
-	// the realistic concurrent-instance count is one.
-	tmp, err := os.OpenFile(
-		fmt.Sprintf("%s.%d.tmp", path, os.Getpid()),
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-		HistoryFileMode,
-	)
-	if err != nil {
-		return fmt.Errorf("history open tmp: %w", err)
-	}
-	w := bufio.NewWriter(tmp)
+	var buf bytes.Buffer
 	for _, e := range entries {
-		if _, err := w.WriteString(e); err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmp.Name())
-			return fmt.Errorf("history write: %w", err)
-		}
-		if err := w.WriteByte('\n'); err != nil {
-			_ = tmp.Close()
-			_ = os.Remove(tmp.Name())
-			return fmt.Errorf("history write: %w", err)
-		}
+		buf.WriteString(e)
+		buf.WriteByte('\n')
 	}
-	if err := w.Flush(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("history flush: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("history close tmp: %w", err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-		return fmt.Errorf("history rename: %w", err)
-	}
-	return nil
+	return xdg.AtomicWrite(path, buf.Bytes()) //nolint:wrapcheck // xdg already wraps with a "state …" prefix; Append logs it verbatim.
 }
