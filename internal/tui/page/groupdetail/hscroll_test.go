@@ -95,9 +95,12 @@ func TestHScroll_ArrowsDoNotWalkTheSortColumns(t *testing.T) {
 	p := scrollPage(t)
 	_ = p.View(narrowWidth, 20)
 	before := p.sorter.ActiveKey()
-	// One press, not a there-and-back pair: the sort walk wraps, so
-	// Right then Left lands on the starting column either way.
+	// One assertion per arrow, not one for a there-and-back pair: the
+	// sort walk wraps, so Right then Left lands on the starting
+	// column whether or not the page consumes the keys.
 	_, _ = p.Update(keyRight)
+	require.Equal(t, before, p.sorter.ActiveKey())
+	_, _ = p.Update(keyLeft)
 	require.Equal(t, before, p.sorter.ActiveKey())
 }
 
