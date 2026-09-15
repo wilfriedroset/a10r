@@ -161,6 +161,10 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "F":
 		p.cycleStateFilter()
 		p.recompute()
+	case "W":
+		if p.toggleWide() {
+			p.recompute()
+		}
 	case "T":
 		// Ask the App to flip the app-global state-format density; the
 		// page's SetStateFormat hook receives the broadcast result.

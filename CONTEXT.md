@@ -54,6 +54,15 @@ columns cannot be removed or reordered around it.
 _Avoid_: custom column, extra field, computed column (nothing is
 computed — the cell is a label value).
 
+**Wide tier**:
+The second set of **label columns** a page can show, declared
+`wide: true` and out of view until the operator presses `Shift+W`.
+The tier is per page and lasts for as long as that page stays open.
+A column in the tier is not a sort axis while it is out of view, and
+a sort already made on one parks on the page's default until the tier
+comes back.
+_Avoid_: expanded view, verbose mode, extended columns.
+
 **Rollup marker**:
 The `<N values>` text a **label column** renders on an **Alert** row
 when the group's instances disagree on that label. N is the count of

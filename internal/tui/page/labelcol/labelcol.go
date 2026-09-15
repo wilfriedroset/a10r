@@ -28,6 +28,11 @@ type Column struct {
 	Hotkey rune
 	Width  int
 	Wide   bool
+	// Index is the column's position in the declared config order. A
+	// row's cell slice and the sorter's axes are both keyed by it, so
+	// a page that renders only some of the columns still reads the
+	// right cell for each one.
+	Index int
 }
 
 // keyPrefix namespaces a user column's sort key so it can never
@@ -61,13 +66,14 @@ func Resolve(cols []config.Column) []Column {
 		return nil
 	}
 	out := make([]Column, 0, len(cols))
-	for _, c := range cols {
+	for i, c := range cols {
 		rc := Column{
 			Label: c.Label,
 			Title: c.TitleOrDefault(),
 			Key:   keyPrefix + c.Label,
 			Width: c.Width,
 			Wide:  c.Wide,
+			Index: i,
 		}
 		if c.SortKey != "" {
 			rc.Hotkey = rune(c.SortKey[0])
@@ -75,6 +81,34 @@ func Resolve(cols []config.Column) []Column {
 		out = append(out, rc)
 	}
 	return out
+}
+
+// Visible returns the columns a page renders at the current tier. A
+// wide column stays out of view until the operator presses Shift+W,
+// which is the answer to a terminal too narrow for every column the
+// operator wants available (ADR 0048).
+func Visible(cols []Column, wide bool) []Column {
+	if wide || !HasWide(cols) {
+		return cols
+	}
+	out := make([]Column, 0, len(cols))
+	for _, c := range cols {
+		if !c.Wide {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// HasWide reports whether any column is wide. A page with none must
+// not advertise Shift+W, because the key would change nothing.
+func HasWide(cols []Column) bool {
+	for _, c := range cols {
+		if c.Wide {
+			return true
+		}
+	}
+	return false
 }
 
 // AggregateCell rolls a label up over every instance of an alertname

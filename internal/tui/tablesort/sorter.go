@@ -73,6 +73,47 @@ type Sorter[T any] struct {
 	// existed.
 	mem      Memory
 	resource string
+
+	// hidden is set by SetHidden. Nil means every column is visible,
+	// which is what every page that has no display tier wants.
+	hidden func(key string) bool
+}
+
+// SetHidden installs a predicate naming the columns the operator
+// cannot see right now, for a page whose columns come and go with a
+// display tier. The walk steps over them, their hotkeys do nothing,
+// and the help overlay omits them, because a key that moves an
+// invisible arrow reads as a dead key.
+//
+// The default column must never be hidden: it is where the sort
+// parks while the operator's own choice is out of view.
+func (s *Sorter[T]) SetHidden(f func(key string) bool) { s.hidden = f }
+
+func (s *Sorter[T]) isHidden(i int) bool {
+	return s.hidden != nil && s.hidden(s.cols[i].Key)
+}
+
+// activeIndex is the column the rows are actually sorted by. It is
+// the operator's choice unless that column is hidden, in which case
+// the sort parks on the default column. active itself does not move,
+// so showing the column again restores the choice and its direction.
+func (s *Sorter[T]) activeIndex() int {
+	if s.isHidden(s.active) {
+		return s.defaultIdx
+	}
+	return s.active
+}
+
+// activeDir is the direction the rows are actually sorted in. A
+// parked sort takes the default column's own direction, not the
+// direction the operator chose for the hidden column: severity reads
+// worst-first, and inheriting a label column's ascending default
+// would silently invert it.
+func (s *Sorter[T]) activeDir() bool {
+	if s.isHidden(s.active) {
+		return s.cols[s.defaultIdx].DefaultAsc
+	}
+	return s.asc
 }
 
 // Memory is the persistence seam a Sorter writes its active column
@@ -183,8 +224,8 @@ func New[T any](cols []Column[T], defaultKey string) *Sorter[T] {
 // Tied-entry stability is what keeps the cursor on the same row
 // content across consecutive Apply calls when nothing else changed.
 func (s *Sorter[T]) Apply(in []T) {
-	col := s.cols[s.active]
-	less, tail, asc := col.Less, col.Tail, s.asc
+	col := s.cols[s.activeIndex()]
+	less, tail, asc := col.Less, col.Tail, s.activeDir()
 	sort.SliceStable(in, func(i, j int) bool {
 		if tail != nil {
 			ti, tj := tail(&in[i]), tail(&in[j])
@@ -200,10 +241,10 @@ func (s *Sorter[T]) Apply(in []T) {
 }
 
 // ActiveKey returns the active column's stable Key.
-func (s *Sorter[T]) ActiveKey() string { return s.cols[s.active].Key }
+func (s *Sorter[T]) ActiveKey() string { return s.cols[s.activeIndex()].Key }
 
 // Asc reports the active direction.
-func (s *Sorter[T]) Asc() bool { return s.asc }
+func (s *Sorter[T]) Asc() bool { return s.activeDir() }
 
 // SelectByHotkey switches to the column whose Hotkey matches r.
 // Same column twice flips ASC↔DESC; switching to a new column
@@ -211,7 +252,7 @@ func (s *Sorter[T]) Asc() bool { return s.asc }
 // the hotkey matched a column.
 func (s *Sorter[T]) SelectByHotkey(r rune) bool {
 	for i, c := range s.cols {
-		if c.Hotkey != 0 && c.Hotkey == r {
+		if c.Hotkey != 0 && c.Hotkey == r && !s.isHidden(i) {
 			s.selectIndex(i)
 			return true
 		}
@@ -222,7 +263,7 @@ func (s *Sorter[T]) SelectByHotkey(r rune) bool {
 // SelectByKey switches to the column whose Key matches. Same flip
 // rules as SelectByHotkey. Returns true when the key matched.
 func (s *Sorter[T]) SelectByKey(key string) bool {
-	if i := indexOf(s.cols, key); i >= 0 {
+	if i := indexOf(s.cols, key); i >= 0 && !s.isHidden(i) {
 		s.selectIndex(i)
 		return true
 	}
@@ -245,9 +286,20 @@ func (s *Sorter[T]) Reset() {
 
 // selectIndex is the shared transition: same-column flips, new
 // column resets to the column's DefaultAsc.
+//
+// The same-column test is against activeIndex, not active, so that
+// pressing the hotkey of the column a parked sort landed on flips the
+// arrow the operator sees. Comparing against the hidden choice would
+// read the press as a column change and re-apply a direction already
+// on screen, which looks like a dead key.
 func (s *Sorter[T]) selectIndex(i int) {
-	if s.active == i {
-		s.asc = !s.asc
+	if s.activeIndex() == i {
+		// Read the displayed direction before active moves: once it
+		// points at a visible column, activeDir reports the stale asc
+		// belonging to the parked choice.
+		shown := s.activeDir()
+		s.active = i
+		s.asc = !shown
 		s.persist()
 		return
 	}
@@ -256,35 +308,33 @@ func (s *Sorter[T]) selectIndex(i int) {
 	s.persist()
 }
 
-// WalkRight selects the next column in registration order, wrapping
-// from the last back to the first. Direction resets to the new
-// column's default — walking is conceptually the same intent as
+// WalkRight selects the next visible column in registration order,
+// wrapping from the last back to the first. Direction resets to the
+// new column's default — walking is conceptually the same intent as
 // SelectByHotkey('X') for a fresh column. Returns false (no-op)
-// when there is only one column.
-func (s *Sorter[T]) WalkRight() bool {
-	if len(s.cols) < 2 {
-		return false
-	}
-	next := (s.active + 1) % len(s.cols)
-	s.active = next
-	s.asc = s.cols[next].DefaultAsc
-	s.persist()
-	return true
-}
+// when no other visible column exists.
+func (s *Sorter[T]) WalkRight() bool { return s.walk(1) }
 
 // WalkLeft is the symmetric inverse of WalkRight.
-func (s *Sorter[T]) WalkLeft() bool {
-	if len(s.cols) < 2 {
-		return false
+func (s *Sorter[T]) WalkLeft() bool { return s.walk(-1) }
+
+// walk steps one visible column in step's direction. It starts from
+// activeIndex rather than active so a parked sort walks on from the
+// column the operator sees, not from the one that is out of view.
+func (s *Sorter[T]) walk(step int) bool {
+	n := len(s.cols)
+	from := s.activeIndex()
+	for k := 1; k < n; k++ {
+		i := ((from+step*k)%n + n) % n
+		if s.isHidden(i) {
+			continue
+		}
+		s.active = i
+		s.asc = s.cols[i].DefaultAsc
+		s.persist()
+		return true
 	}
-	prev := s.active - 1
-	if prev < 0 {
-		prev = len(s.cols) - 1
-	}
-	s.active = prev
-	s.asc = s.cols[prev].DefaultAsc
-	s.persist()
-	return true
+	return false
 }
 
 // HandleKey is the convenience dispatcher: it routes "h"/"left",
@@ -321,10 +371,10 @@ func (s *Sorter[T]) HandleKey(key string) bool {
 // Key matches: "↑" or "↓" when active, "" otherwise. Pages embed
 // this in their renderHeader output adjacent to the column title.
 func (s *Sorter[T]) ArrowFor(key string) string {
-	if s.cols[s.active].Key != key {
+	if s.cols[s.activeIndex()].Key != key {
 		return ""
 	}
-	if s.asc {
+	if s.activeDir() {
 		return "↑"
 	}
 	return "↓"
@@ -334,7 +384,7 @@ func (s *Sorter[T]) ArrowFor(key string) string {
 // column. Pages branch on this when applying theme.Table.HeaderActive
 // to the active column header.
 func (s *Sorter[T]) IsActive(key string) bool {
-	return s.cols[s.active].Key == key
+	return s.cols[s.activeIndex()].Key == key
 }
 
 // Bindings returns one action.Action per column with a non-zero
@@ -344,8 +394,8 @@ func (s *Sorter[T]) IsActive(key string) bool {
 // its own description string.
 func (s *Sorter[T]) Bindings(view string) []action.Action {
 	out := make([]action.Action, 0, len(s.cols)+1)
-	for _, c := range s.cols {
-		if c.Hotkey == 0 {
+	for i, c := range s.cols {
+		if c.Hotkey == 0 || s.isHidden(i) {
 			continue
 		}
 		desc := c.Description

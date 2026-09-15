@@ -119,7 +119,8 @@ func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntr
 // the marker rank never applies.
 func labelSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] {
 	out := make([]tablesort.Column[instanceEntry], 0, len(user))
-	for i, c := range user {
+	for _, c := range user {
+		idx := c.Index
 		// A column with no sort_key is not a sort axis at all, not
 		// merely one without a shortcut: this page's h/l walk visits
 		// zero-hotkey columns on purpose (SEVERITY is one), so
@@ -132,12 +133,36 @@ func labelSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] 
 		out = append(out, tablesort.Column[instanceEntry]{
 			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
 			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
-				return labelcol.Less(labelCellAt(a, i), labelCellAt(b, i))
+				return labelcol.Less(labelCellAt(a, idx), labelCellAt(b, idx))
 			}),
-			Tail: func(e *instanceEntry) bool { return labelcol.IsEmpty(labelCellAt(e, i)) },
+			Tail: func(e *instanceEntry) bool { return labelcol.IsEmpty(labelCellAt(e, idx)) },
 		})
 	}
 	return out
+}
+
+// isHiddenSortKey reports a sort axis the operator cannot see right
+// now, which is a wide column outside the wide tier. Installed on the
+// sorter so h/l steps over it and its hotkey stays dead.
+func (p *Page) isHiddenSortKey(key string) bool {
+	for _, c := range p.labelCols {
+		if c.Key == key {
+			return c.Wide && !p.wide
+		}
+	}
+	return false
+}
+
+// toggleWide flips the display tier. It reports false when the page
+// declares no wide column, which spares the caller a recompute that
+// would paint an identical frame.
+func (p *Page) toggleWide() bool {
+	if !labelcol.HasWide(p.labelCols) {
+		return false
+	}
+	p.wide = !p.wide
+	p.shownCols = labelcol.Visible(p.labelCols, p.wide)
+	return true
 }
 
 // labelCellAt reads an entry's cell for user column i. buildEntries
@@ -293,10 +318,19 @@ type Page struct {
 	logger             *slog.Logger
 	cancelBulk         context.CancelFunc
 
-	// labelCols are the resolved user-declared columns and
-	// labelWidths their measured cell widths, refreshed by recompute
-	// so the renderer never scans the rows itself.
+	// labelCols are the resolved user-declared columns. shownCols is
+	// the subset the current display tier renders, and wide is that
+	// tier: false hides every `wide: true` column until the operator
+	// presses Shift+W. A row's cells and the sorter's axes stay keyed
+	// by labelCols order through labelcol.Column.Index, so toggling
+	// the tier moves no cell.
+	//
+	// labelWidths are the measured cell widths of shownCols,
+	// refreshed by recompute so the renderer never scans the rows
+	// itself.
 	labelCols   []labelcol.Column
+	shownCols   []labelcol.Column
+	wide        bool
 	labelWidths []int
 
 	sorter      *tablesort.Sorter[instanceEntry]
@@ -345,6 +379,7 @@ func New(opts Options) *Page {
 		instances:       append([]backend.Alert(nil), opts.Instances...),
 		common:          map[string]string{},
 		labelCols:       labelCols,
+		shownCols:       labelcol.Visible(labelCols, false),
 		marks:           map[string]struct{}{},
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -356,6 +391,7 @@ func New(opts Options) *Page {
 		sorter:          tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
 	}
 	p.sorter.Bind(opts.SortMemory, viewName)
+	p.sorter.SetHidden(p.isHiddenSortKey)
 	p.Recompute = p.recompute
 	p.FilterValidate = listpage.LabelFilterValidate
 	p.RowCount = func() int { return len(p.view) }
@@ -456,6 +492,9 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+F", Description: "state filter", View: viewName},
 		action.Action{Key: "Shift+C", Description: "common labels", View: viewName},
 	)
+	if labelcol.HasWide(p.labelCols) {
+		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: viewName})
+	}
 	out = append(out, sortBindings...)
 	out = append(out,
 		action.Action{Key: "Shift+T", Description: "state format", View: viewName},

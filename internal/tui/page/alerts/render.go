@@ -106,9 +106,9 @@ func (p *Page) renderHeader(width int) string {
 // at the same point; this function is the header's copy of that
 // order, not the shared source of it.
 func (p *Page) headerKeys() []string {
-	out := make([]string, 0, 5+len(p.labelCols))
+	out := make([]string, 0, 5+len(p.shownCols))
 	out = append(out, sortKeySeverity, sortKeyName)
-	for _, c := range p.labelCols {
+	for _, c := range p.shownCols {
 		out = append(out, c.Key)
 	}
 	return append(out, sortKeyCount, sortKeyState, sortKeyAge)
@@ -226,12 +226,14 @@ func (p *Page) renderRow(i int, g alertGroup, ctx rowCtx) string {
 		sevCell = hl.Cell(sevLabel, p.styles.Severity.ForLabel(sevLabel))
 	}
 	stateCell := p.stateCell(g, ctx, rowStyled, hl)
-	row := make([]string, 0, 6+len(g.labelCells))
+	row := make([]string, 0, 6+len(p.shownCols))
 	if ctx.showTenant {
 		row = append(row, g.tenant)
 	}
 	row = append(row, sevCell, alertNameCell(g))
-	row = append(row, g.labelCells...)
+	for _, c := range p.shownCols {
+		row = append(row, labelCellAt(&g, c.Index))
+	}
 	row = append(row,
 		countCell(g),
 		stateCell,
@@ -358,7 +360,7 @@ func (p *Page) flexColumnIndex() int {
 // ALERTNAME column.
 func (p *Page) isLabelColumn(i int) bool {
 	flexIdx := p.flexColumnIndex()
-	return i > flexIdx && i <= flexIdx+len(p.labelCols)
+	return i > flexIdx && i <= flexIdx+len(p.shownCols)
 }
 
 // columnWidths returns the per-column widths (TENANT optional,
@@ -453,7 +455,7 @@ func (p *Page) columnSpecs() []format.Column {
 		ageContent = ageMin
 	}
 
-	specs := make([]format.Column, 0, 6+len(p.labelCols))
+	specs := make([]format.Column, 0, 6+len(p.shownCols))
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		specs = append(specs, format.Column{Min: tenantMin, Content: max(tenantMin, tenantContent), Weight: 0})
 	}
@@ -494,17 +496,17 @@ const labelColumnWidthFloor = 6
 // calling it once per frame: the scan is O(rows x columns) and the
 // widths only move when the rows do.
 func (p *Page) measureLabelColumns() []int {
-	if len(p.labelCols) == 0 {
+	if len(p.shownCols) == 0 {
 		return nil
 	}
-	out := make([]int, len(p.labelCols))
-	for i, c := range p.labelCols {
+	out := make([]int, len(p.shownCols))
+	for i, c := range p.shownCols {
 		if c.Width > 0 {
 			continue
 		}
 		content := labelcol.HeaderWidth(c)
 		for j := range p.groups {
-			if w := lipgloss.Width(labelCellAt(&p.groups[j], i)); w > content {
+			if w := lipgloss.Width(labelCellAt(&p.groups[j], c.Index)); w > content {
 				content = w
 			}
 		}
@@ -523,8 +525,8 @@ func (p *Page) measureLabelColumns() []int {
 // collapsing the row. A column with a configured width is pinned
 // there, because that is what the operator asked for.
 func (p *Page) labelColumnSpecs() []format.Column {
-	out := make([]format.Column, 0, len(p.labelCols))
-	for i, c := range p.labelCols {
+	out := make([]format.Column, 0, len(p.shownCols))
+	for i, c := range p.shownCols {
 		if c.Width > 0 {
 			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
 			continue

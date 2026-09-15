@@ -125,7 +125,8 @@ func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 // pinned to the tail in both directions (ADR 0048).
 func labelSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 	out := make([]tablesort.Column[alertGroup], 0, len(user))
-	for i, c := range user {
+	for _, c := range user {
+		idx := c.Index
 		// A column with no sort_key is not a sort axis at all, not
 		// merely one without a shortcut: tablesort's h/l walk visits
 		// zero-hotkey columns, so registering it would make a column
@@ -137,12 +138,36 @@ func labelSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 		out = append(out, tablesort.Column[alertGroup]{
 			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
-				return labelcol.Less(labelCellAt(a, i), labelCellAt(b, i))
+				return labelcol.Less(labelCellAt(a, idx), labelCellAt(b, idx))
 			}),
-			Tail: func(g *alertGroup) bool { return labelcol.IsEmpty(labelCellAt(g, i)) },
+			Tail: func(g *alertGroup) bool { return labelcol.IsEmpty(labelCellAt(g, idx)) },
 		})
 	}
 	return out
+}
+
+// isHiddenSortKey reports a sort axis the operator cannot see right
+// now, which is a wide column outside the wide tier. Installed on the
+// sorter so h/l steps over it and its hotkey stays dead.
+func (p *Page) isHiddenSortKey(key string) bool {
+	for _, c := range p.labelCols {
+		if c.Key == key {
+			return c.Wide && !p.wide
+		}
+	}
+	return false
+}
+
+// toggleWide flips the display tier. It reports false when the page
+// declares no wide column, which spares the caller a recompute that
+// would paint an identical frame.
+func (p *Page) toggleWide() bool {
+	if !labelcol.HasWide(p.labelCols) {
+		return false
+	}
+	p.wide = !p.wide
+	p.shownCols = labelcol.Visible(p.labelCols, p.wide)
+	return true
 }
 
 // labelCellAt reads a group's cell for user column i. aggregate fills
@@ -404,10 +429,16 @@ type Page struct {
 	cancelBulk context.CancelFunc
 
 	// labelCols are the user-declared label columns, resolved once at
-	// construction.
+	// construction. shownCols is the subset the current display tier
+	// renders, and wide is that tier: false hides every `wide: true`
+	// column until the operator presses Shift+W. A row's cells and
+	// the sorter's axes stay keyed by labelCols order through
+	// labelcol.Column.Index, so toggling the tier moves no cell.
 	labelCols []labelcol.Column
+	shownCols []labelcol.Column
+	wide      bool
 
-	// labelWidths is the measured cell width of each labelCols entry
+	// labelWidths is the measured cell width of each shownCols entry
 	// over the whole filtered view, refreshed by recompute so the
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
@@ -476,6 +507,7 @@ func New(opts Options) *Page {
 		stateFormat:     opts.StateFormat,
 		byTenant:        map[string][]backend.Alert{},
 		labelCols:       labelCols,
+		shownCols:       labelcol.Visible(labelCols, false),
 		groupDetailCols: opts.GroupDetailColumns,
 		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
 		marks:           map[string]struct{}{},
@@ -491,6 +523,7 @@ func New(opts Options) *Page {
 		sortMemory:      opts.SortMemory,
 	}
 	p.sorter.Bind(opts.SortMemory, resourceAlerts)
+	p.sorter.SetHidden(p.isHiddenSortKey)
 	p.Recompute = p.recompute
 	p.FilterValidate = listpage.LabelFilterValidate
 	p.RowCount = func() int { return len(p.groups) }
@@ -579,6 +612,9 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
 		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
 	)
+	if labelcol.HasWide(p.labelCols) {
+		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: resourceAlerts})
+	}
 	out = append(out, sortBindings...)
 	// 'r' is global; surface it here for discoverability.
 	out = append(out,

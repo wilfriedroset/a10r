@@ -22,9 +22,55 @@ func TestResolve(t *testing.T) {
 	})
 
 	require.Equal(t, []labelcol.Column{
-		{Label: "cluster", Title: "CLUSTER", Key: "label:cluster"},
-		{Label: "pod", Title: "WORKLOAD", Key: "label:pod", Hotkey: 'P', Width: 9, Wide: true},
+		{Label: "cluster", Title: "CLUSTER", Key: "label:cluster", Index: 0},
+		{Label: "pod", Title: "WORKLOAD", Key: "label:pod", Hotkey: 'P', Width: 9, Wide: true, Index: 1},
 	}, got)
+}
+
+// A wide column is out of view until the operator presses Shift+W.
+// The surviving columns keep their Index, which is what the cell
+// slices and the sorter are keyed by, so hiding one cannot shift a
+// row's cells under the remaining headers.
+func TestVisibleDropsWideColumnsUntilTheWideTier(t *testing.T) {
+	t.Parallel()
+
+	cols := labelcol.Resolve([]config.Column{
+		{Label: "cluster"},
+		{Label: "pod", Wide: true},
+		{Label: "team"},
+	})
+
+	narrow := labelcol.Visible(cols, false)
+	require.Equal(t, []string{"cluster", "team"}, labelsOf(narrow))
+	require.Equal(t, []int{0, 2}, indicesOf(narrow))
+	require.Equal(t, cols, labelcol.Visible(cols, true))
+}
+
+// HasWide gates the Shift+W binding and its hint chip: a key that
+// changes nothing must not be advertised.
+func TestHasWide(t *testing.T) {
+	t.Parallel()
+
+	plain := labelcol.Resolve([]config.Column{{Label: "cluster"}})
+	require.False(t, labelcol.HasWide(plain))
+	require.False(t, labelcol.HasWide(nil))
+	require.True(t, labelcol.HasWide(labelcol.Resolve([]config.Column{{Label: "pod", Wide: true}})))
+}
+
+func labelsOf(cols []labelcol.Column) []string {
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		out = append(out, c.Label)
+	}
+	return out
+}
+
+func indicesOf(cols []labelcol.Column) []int {
+	out := make([]int, 0, len(cols))
+	for _, c := range cols {
+		out = append(out, c.Index)
+	}
+	return out
 }
 
 func TestResolveEmptyStaysNil(t *testing.T) {

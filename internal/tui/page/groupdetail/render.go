@@ -148,9 +148,9 @@ const sortKeyState = "state"
 // renderRow, padColumns and columnSpecs splice at the same point;
 // this function is not the shared source of that order.
 func (p *Page) headerKeys() []string {
-	out := make([]string, 0, 4+len(p.labelCols))
+	out := make([]string, 0, 4+len(p.shownCols))
 	out = append(out, sortKeySeverity, sortKeyInstance)
-	for _, c := range p.labelCols {
+	for _, c := range p.shownCols {
 		out = append(out, c.Key)
 	}
 	return append(out, sortKeyState, sortKeyAge)
@@ -176,7 +176,7 @@ func (p *Page) headerTitle(k string) string {
 const labelBlockStart = 2
 
 func (p *Page) isLabelColumn(i int) bool {
-	return i >= labelBlockStart && i < labelBlockStart+len(p.labelCols)
+	return i >= labelBlockStart && i < labelBlockStart+len(p.shownCols)
 }
 
 // measureLabelColumns measures each user-declared column over the
@@ -186,17 +186,17 @@ func (p *Page) isLabelColumn(i int) bool {
 // recompute calls this once per row change rather than the renderer
 // calling it once per frame.
 func (p *Page) measureLabelColumns() []int {
-	if len(p.labelCols) == 0 {
+	if len(p.shownCols) == 0 {
 		return nil
 	}
-	out := make([]int, len(p.labelCols))
-	for i, c := range p.labelCols {
+	out := make([]int, len(p.shownCols))
+	for i, c := range p.shownCols {
 		if c.Width > 0 {
 			continue
 		}
 		content := labelcol.HeaderWidth(c)
 		for j := range p.view {
-			if w := lipgloss.Width(labelCellAt(&p.view[j], i)); w > content {
+			if w := lipgloss.Width(labelCellAt(&p.view[j], c.Index)); w > content {
 				content = w
 			}
 		}
@@ -214,8 +214,8 @@ func (p *Page) measureLabelColumns() []int {
 // configured width is pinned there, because that is what the operator
 // asked for.
 func (p *Page) labelColumnSpecs() []format.Column {
-	out := make([]format.Column, 0, len(p.labelCols))
-	for i, c := range p.labelCols {
+	out := make([]format.Column, 0, len(p.shownCols))
+	for i, c := range p.shownCols {
 		if c.Width > 0 {
 			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
 			continue
@@ -302,9 +302,11 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int, previewed bool) st
 	if isCursor {
 		prefix = "▸ "
 	}
-	row := make([]string, 0, 4+len(entry.labelCells))
+	row := make([]string, 0, 4+len(p.shownCols))
 	row = append(row, sevCell, labels)
-	row = append(row, entry.labelCells...)
+	for _, c := range p.shownCols {
+		row = append(row, labelCellAt(&entry, c.Index))
+	}
 	row = append(row, stateToken(a.State, p.stateFormat), ageLabel)
 	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 	switch {
@@ -464,7 +466,7 @@ func (p *Page) columnSpecs() []format.Column {
 		ageContent = ageMin
 	}
 
-	out := make([]format.Column, 0, 4+len(p.labelCols))
+	out := make([]format.Column, 0, 4+len(p.shownCols))
 	out = append(out,
 		format.Column{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
 		format.Column{Min: instanceMin, Content: format.FlexUnbounded, Weight: 1},

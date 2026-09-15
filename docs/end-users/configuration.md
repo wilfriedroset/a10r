@@ -229,8 +229,15 @@ User columns render after ALERTNAME on the alerts page, and after
 INSTANCE on the group-detail page, in the order you list them. You
 cannot remove or reorder the built-in columns.
 
-One part of this is accepted but not yet built: `wide` renders the
-column as if it were `false`. It lands in a later release.
+A column with `wide: true` stays out of view until you press
+`Shift+W`, which toggles the wide tier for the page you are on. The
+tier is per page and lasts for as long as that page stays open. If
+you sort by a wide column and then leave the tier, the page falls
+back to its default sort and direction, then gives your choice back
+when you return. If you sort again while the wide column is out of
+view, that new sort replaces the parked one.
+A sort survives a page re-entry, but the tier does not, so a
+remembered sort on a wide column starts parked.
 
 An alerts row is an alertname aggregate, so several instances share
 one cell. The cell shows the value when every instance agrees. When

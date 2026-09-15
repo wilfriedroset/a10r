@@ -49,10 +49,11 @@ var (
 
 	// fuzzColumns gives the fuzzer a user-declared column with a sort
 	// key, so Shift+L walks into a comparator the built-in set does
-	// not own.
+	// not own. The second column is wide and also a sort axis, so
+	// Shift+W drives the tier toggle and the parked-sort path.
 	fuzzColumns = []config.Column{
 		{Label: "cluster", SortKey: "L"},
-		{Label: "team", Title: "OWNER", Width: 8},
+		{Label: "team", Title: "OWNER", Width: 8, Wide: true, SortKey: "O"},
 	}
 )
 
@@ -170,14 +171,15 @@ func bootApp(t *testing.T) tea.Model {
 	}
 	homeFactory := func() app.Page {
 		return alerts.New(alerts.Options{
-			Styles:          styles,
-			Now:             func() time.Time { return fuzzNow },
-			Scope:           "all",
-			Clients:         clients,
-			Creator:         "fuzz",
-			BulkConcurrency: 4,
-			Logger:          slog.Default(),
-			Columns:         fuzzColumns,
+			Styles:             styles,
+			Now:                func() time.Time { return fuzzNow },
+			Scope:              "all",
+			Clients:            clients,
+			Creator:            "fuzz",
+			BulkConcurrency:    4,
+			Logger:             slog.Default(),
+			Columns:            fuzzColumns,
+			GroupDetailColumns: fuzzColumns,
 		})
 	}
 
@@ -267,4 +269,14 @@ func addAppSeeds(f *testing.F) {
 
 	// Tenant picker open/close (Ctrl+T).
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKeyCtrl('t'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
+
+	// Wide tier: sort on the wide column, hide it so the sort parks,
+	// then walk the axes with h/l while it is out of view. h/l rather
+	// than Left/Right because the frame codec carries printable ASCII
+	// and the two pairs reach the same sorter primitives.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('W'), testutil.FuzzFrameKey('O'), testutil.FuzzFrameKey('W'),
+		testutil.FuzzFrameKey('h'), testutil.FuzzFrameKey('l'),
+		testutil.FuzzFrameKey('W'),
+	))
 }

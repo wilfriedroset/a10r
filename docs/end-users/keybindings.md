@@ -101,7 +101,7 @@ On a list page, `Shift+<letter>` sorts by a column. Pressing the same shortcut t
 
 Switching to a new column resets to that column's *default* direction. Severity defaults to descending (worst-first); everything else defaults to ascending.
 
-A label column you declare in the configuration joins the same set. Give it a `sort_key` and `Shift+<that letter>` sorts by it, `h`/`l` walk onto it, and the help overlay lists it. A column with no `sort_key` still renders, but nothing sorts by it. Rows whose cell is empty sort last in both directions. A `<N values>` rollup marker ranks after every plain value, so it lands at the end ascending and at the front descending. Group-detail rows are single instances, so they carry no marker. See [configuration.md](configuration.md#label-columns).
+A label column you declare in the configuration joins the same set. Give it a `sort_key` and `Shift+<that letter>` sorts by it, `h`/`l` walk onto it, and the help overlay lists it. A column with no `sort_key` still renders, but nothing sorts by it. Rows whose cell is empty sort last in both directions. A `<N values>` rollup marker ranks after every plain value, so it lands at the end ascending and at the front descending. Group-detail rows are single instances, so they carry no marker. A `wide` column is not a sort axis while it is out of view: `Shift+<letter>` does nothing and `h`/`l` step over it. A sort you already made on one is parked, not lost. The page falls back to its default sort and direction, then restores your choice when `Shift+W` brings the column back. See [configuration.md](configuration.md#label-columns).
 
 ## Per-view shortcuts
 
@@ -117,6 +117,7 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | `/` | Substring filter over the instances. |
 | `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all. |
 | `Shift+T` | Toggle the STATE breakdown between full (`9 active · 3 suppressed`) and compact (`9ac 3su`) — app-wide. |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. |
 | `Shift+S` | Sort by severity (worst in the group). |
 | `Shift+N` | Sort by alertname. |
 | `Shift+C` | Sort by instance count. |
@@ -136,6 +137,7 @@ The instance list for one alert, reached by `Enter` on a multi-instance row. Row
 | `/` | Substring filter. |
 | `Shift+F` | Cycle the state filter. |
 | `Shift+T` | Toggle the STATE rendering (full / compact). |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. |
 | `Shift+N` | Sort by instance labels. |
 | `Shift+A` | Sort by age. |
 
