@@ -19,6 +19,7 @@ func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
 	p.view = p.applyFilter(flat)
+	p.labelWidths = p.measureLabelColumns()
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))
@@ -35,7 +36,22 @@ func (p *Page) buildEntries() []instanceEntry {
 			a:                  a,
 			lowerComposite:     lowerComposite(a),
 			distinguishSummary: distinguishingSummary(a, p.common),
+			labelCells:         p.labelCellsFor(a),
 		})
+	}
+	return out
+}
+
+// labelCellsFor reads one raw label value per user-declared column.
+// Returns nil when none is configured, so a page without them
+// allocates nothing per entry.
+func (p *Page) labelCellsFor(a backend.Alert) []string {
+	if len(p.labelCols) == 0 {
+		return nil
+	}
+	out := make([]string, len(p.labelCols))
+	for i, c := range p.labelCols {
+		out[i] = a.Labels[c.Label]
 	}
 	return out
 }

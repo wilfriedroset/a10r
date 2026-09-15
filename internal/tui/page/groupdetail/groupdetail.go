@@ -39,6 +39,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -65,8 +66,8 @@ const viewName = "instances"
 // Severity defaults DESC (critical first); the rest read naturally
 // ascending. Every comparator falls back to fingerprint ASC so the
 // order is total and deterministic across re-sorts / poll ticks.
-func instanceSortColumns() []tablesort.Column[instanceEntry] {
-	return []tablesort.Column[instanceEntry]{
+func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] {
+	cols := []tablesort.Column[instanceEntry]{
 		{
 			// Severity is the default column, so it needs no direct
 			// hotkey — reachable via h/l. Crucially, `Shift+S` and `S`
@@ -95,14 +96,56 @@ func instanceSortColumns() []tablesort.Column[instanceEntry] {
 				return a.distinguishSummary < b.distinguishSummary
 			}),
 		},
-		{
-			Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
-			Description: "sort by age",
-			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
-				return a.a.StartsAt.Before(b.a.StartsAt)
-			}),
-		},
 	}
+	// The user block goes before AGE, not after it, so the h/l walk
+	// order matches the rendered order. STATE is not sortable, so the
+	// match is exact on this page.
+	cols = append(cols, labelSortColumns(user)...)
+	return append(cols, tablesort.Column[instanceEntry]{
+		Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
+		Description: "sort by age",
+		Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
+			return a.a.StartsAt.Before(b.a.StartsAt)
+		}),
+	})
+}
+
+// labelSortColumns turns each user-declared column into a sortable
+// axis over the pre-computed labelCells slice. Cells compare
+// byte-wise and an empty cell is pinned to the tail in both
+// directions (ADR 0048). There is no rollup marker on this page, so
+// the marker rank never applies.
+func labelSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] {
+	out := make([]tablesort.Column[instanceEntry], 0, len(user))
+	for i, c := range user {
+		// A column with no sort_key is not a sort axis at all, not
+		// merely one without a shortcut: this page's h/l walk visits
+		// zero-hotkey columns on purpose (SEVERITY is one), so
+		// registering it would make a column the operator declared
+		// unsortable the active sort and persist it to the
+		// sort-memory file.
+		if c.Hotkey == 0 {
+			continue
+		}
+		out = append(out, tablesort.Column[instanceEntry]{
+			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
+			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
+				return labelcol.Less(labelCellAt(a, i), labelCellAt(b, i))
+			}),
+			Tail: func(e *instanceEntry) bool { return labelcol.IsEmpty(labelCellAt(e, i)) },
+		})
+	}
+	return out
+}
+
+// labelCellAt reads an entry's cell for user column i. buildEntries
+// fills one cell per column for every entry, so the guard only
+// catches an entry built before the column set was resolved.
+func labelCellAt(e *instanceEntry, i int) string {
+	if i >= len(e.labelCells) {
+		return ""
+	}
+	return e.labelCells[i]
 }
 
 // tieBreakFingerprint wraps a comparator so equal-by-primary entries
@@ -175,6 +218,10 @@ type Options struct {
 	// SortMemory persists the active sort column across runs; nil
 	// disables sort memory for this page.
 	SortMemory tablesort.Memory
+	// Columns are the operator's extra label columns, rendered
+	// between INSTANCE and STATE (ADR 0048). Empty renders the page
+	// exactly as it did before the feature existed.
+	Columns []config.Column
 }
 
 // instanceEntry wraps one alert instance with the precomputed
@@ -189,6 +236,10 @@ type instanceEntry struct {
 	// label string used for both the row cell and the instance-sort
 	// tie-break. Built once at recompute against the stable common set.
 	distinguishSummary string
+	// labelCells holds one cell per user-declared column, in config
+	// order. A row here is a single instance, so each cell is the raw
+	// label value with no rollup. Nil when no column is configured.
+	labelCells []string
 }
 
 // markKey hands the listpage mark and range helpers the fingerprint,
@@ -240,6 +291,12 @@ type Page struct {
 	logger             *slog.Logger
 	cancelBulk         context.CancelFunc
 
+	// labelCols are the resolved user-declared columns and
+	// labelWidths their measured cell widths, refreshed by recompute
+	// so the renderer never scans the rows itself.
+	labelCols   []labelcol.Column
+	labelWidths []int
+
 	sorter      *tablesort.Sorter[instanceEntry]
 	stateFilter string
 	timeFormat  timerender.Format
@@ -267,6 +324,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
+	labelCols := labelcol.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Tenant,
 		BackendHealth:   map[string]listpage.BackendHealth{},
@@ -284,7 +342,7 @@ func New(opts Options) *Page {
 		alertName:       opts.AlertName,
 		instances:       append([]backend.Alert(nil), opts.Instances...),
 		common:          map[string]string{},
-		sorter:          tablesort.New(instanceSortColumns(), sortKeySeverity),
+		labelCols:       labelCols,
 		marks:           map[string]struct{}{},
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -293,6 +351,7 @@ func New(opts Options) *Page {
 		submitCtx:       opts.SubmitCtx,
 		editorResolver:  opts.EditorResolver,
 		editorCtx:       opts.EditorCtx,
+		sorter:          tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
 	}
 	p.sorter.Bind(opts.SortMemory, viewName)
 	p.Recompute = p.recompute

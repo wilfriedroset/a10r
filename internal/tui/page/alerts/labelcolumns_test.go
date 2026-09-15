@@ -369,3 +369,25 @@ func TestLabelColumn_NarrowSortableColumnKeepsItsArrow(t *testing.T) {
 	header := rowContaining(t, testutil.StripStyle(p.View(200, 24)), "ENV")
 	require.Contains(t, header, "ENV ↑")
 }
+
+// The L2 page is built here, not by the boot factory, so this is the
+// only path `pages.group_detail.columns` has to reach it. Without
+// this the whole chain can be deleted and every other test stays
+// green.
+func TestLabelColumn_GroupDetailColumnsReachTheDrillDown(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:             pagetest.Styles(t),
+		Now:                func() time.Time { return fixedNow },
+		GroupDetailColumns: []config.Column{{Label: "cluster", Title: "FLEET"}},
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		clusterAlert("Multi", "fp1", "eu-1"),
+		clusterAlert("Multi", "fp2", "us-1"),
+	}})
+
+	out := testutil.StripStyle(p.buildGroupPage(p.groups[0]).View(160, 20))
+	require.Contains(t, out, "FLEET")
+	require.Contains(t, rowContaining(t, out, "fp1"), "eu-1")
+}

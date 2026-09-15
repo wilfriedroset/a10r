@@ -332,5 +332,6 @@ func (p *Page) buildGroupPage(g alertGroup) app.Page {
 		EditorResolver:  p.editorResolver,
 		EditorCtx:       p.editorCtx,
 		SortMemory:      p.sortMemory,
+		Columns:         p.groupDetailCols,
 	})
 }

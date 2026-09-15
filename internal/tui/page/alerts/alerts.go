@@ -258,6 +258,11 @@ type Options struct {
 	// the page renders them in order. Empty leaves the table on its
 	// built-in columns alone.
 	Columns []config.Column
+	// GroupDetailColumns are `pages.group_detail.columns`, carried
+	// through rather than read here: the L2 page is constructed on
+	// drill-down from this page, so this is the only path the
+	// configuration has to reach it.
+	GroupDetailColumns []config.Column
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -398,6 +403,9 @@ type Page struct {
 	// over the whole filtered view, refreshed by recompute so the
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
+	// groupDetailCols is the L2 page's column configuration, held
+	// only to hand to groupdetail.New on drill-down.
+	groupDetailCols []config.Column
 
 	// sorter: comparators from alertSortColumns.
 	sorter *tablesort.Sorter[alertGroup]
@@ -460,6 +468,7 @@ func New(opts Options) *Page {
 		stateFormat:     opts.StateFormat,
 		byTenant:        map[string][]backend.Alert{},
 		labelCols:       labelCols,
+		groupDetailCols: opts.GroupDetailColumns,
 		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
 		marks:           map[string]struct{}{},
 		bulkConcurrency: concurrency,

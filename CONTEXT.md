@@ -67,8 +67,8 @@ _Avoid_: mixed, multi, varies.
 **Group detail**:
 The L2 list page reached by Enter on a multi-instance **alert** at
 L1. Rows on **alert instances** (one per fingerprint); columns
-`SEVERITY <specific-labels> STATE AGE` — the L1 order minus
-TENANT/COUNT, with the flex column holding each instance's
+`SEVERITY <specific-labels> [label columns] STATE AGE` — the L1 order
+minus TENANT/COUNT, with the flex column holding each instance's
 instance-specific labels (those outside the common set) — the
 `instance` label pinned first so truncation never eats the primary
 identifier, the rest ellipsized to one line. Live: polls the alerts

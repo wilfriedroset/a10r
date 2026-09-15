@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -106,7 +107,7 @@ func (p *Page) renderCommonStrip() string {
 // active column. SEVERITY, INSTANCE (flex), STATE, AGE — no TENANT,
 // no COUNT.
 func (p *Page) renderHeader(width int) string {
-	cols := []string{sortKeySeverity, sortKeyInstance, sortKeyState, sortKeyAge}
+	cols := p.headerKeys()
 	widths := p.columnWidths(width)
 	headerFg := p.styles.Table.HeaderFg
 	activeFg := p.styles.Table.HeaderActiveFg
@@ -120,7 +121,7 @@ func (p *Page) renderHeader(width int) string {
 		if idx > 0 {
 			b.WriteString(colSep)
 		}
-		label := headerLabel(k)
+		label := p.headerTitle(k)
 		// STATE has no sort column; only the sortable columns get an
 		// arrow / active tint.
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
@@ -142,12 +143,96 @@ func (p *Page) renderHeader(width int) string {
 // real keys.
 const sortKeyState = "state"
 
-func headerLabel(k string) string {
+// headerKeys is the header's copy of the rendered column order, with
+// the user-declared block spliced between INSTANCE and STATE.
+// renderRow, padColumns and columnSpecs splice at the same point;
+// this function is not the shared source of that order.
+func (p *Page) headerKeys() []string {
+	out := make([]string, 0, 4+len(p.labelCols))
+	out = append(out, sortKeySeverity, sortKeyInstance)
+	for _, c := range p.labelCols {
+		out = append(out, c.Key)
+	}
+	return append(out, sortKeyState, sortKeyAge)
+}
+
+// headerTitle maps a header key to its rendered title. A user column
+// carries its own, already upper-cased by the config loader.
+func (p *Page) headerTitle(k string) string {
+	for _, c := range p.labelCols {
+		if c.Key == k {
+			return c.Title
+		}
+	}
 	if k == sortKeyState {
 		return "STATE"
 	}
 	return strings.ToUpper(k)
 }
+
+// labelBlockStart is the row index the user-declared column block
+// begins at: after SEVERITY and INSTANCE. No TENANT column on this
+// page, so it never shifts.
+const labelBlockStart = 2
+
+func (p *Page) isLabelColumn(i int) bool {
+	return i >= labelBlockStart && i < labelBlockStart+len(p.labelCols)
+}
+
+// measureLabelColumns measures each user-declared column over the
+// whole filtered view, so a vertical scroll never shifts a width. A
+// column with a configured Width needs no measuring and is left at
+// zero, because labelColumnSpecs pins it before it reads this slice.
+// recompute calls this once per row change rather than the renderer
+// calling it once per frame.
+func (p *Page) measureLabelColumns() []int {
+	if len(p.labelCols) == 0 {
+		return nil
+	}
+	out := make([]int, len(p.labelCols))
+	for i, c := range p.labelCols {
+		if c.Width > 0 {
+			continue
+		}
+		content := labelcol.HeaderWidth(c)
+		for j := range p.view {
+			if w := lipgloss.Width(labelCellAt(&p.view[j], i)); w > content {
+				content = w
+			}
+		}
+		out[i] = content
+	}
+	return out
+}
+
+// labelColumnSpecs turns the measured widths into allocator columns.
+// A measured column flexes rather than reserving its full width:
+// label values run long, and a weight-0 request that wide pushes the
+// allocator into its proportional shrink, which takes the built-in
+// columns below their own floors. Flexing reserves only the floor and
+// grows into what is left alongside INSTANCE. A column with a
+// configured width is pinned there, because that is what the operator
+// asked for.
+func (p *Page) labelColumnSpecs() []format.Column {
+	out := make([]format.Column, 0, len(p.labelCols))
+	for i, c := range p.labelCols {
+		if c.Width > 0 {
+			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
+			continue
+		}
+		w := 0
+		if i < len(p.labelWidths) {
+			w = p.labelWidths[i]
+		}
+		out = append(out, format.Column{Min: min(labelColumnWidthFloor, w), Content: w, Weight: 1})
+	}
+	return out
+}
+
+// labelColumnWidthFloor is the smallest a measured user column
+// shrinks to before the allocator starts taking cells from the
+// built-ins.
+const labelColumnWidthFloor = 6
 
 // renderRows returns the visible window of data rows, reconciling the
 // scroll window against the cursor each frame.
@@ -217,7 +302,10 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int, previewed bool) st
 	if isCursor {
 		prefix = "▸ "
 	}
-	row := []string{sevCell, labels, stateToken(a.State, p.stateFormat), ageLabel}
+	row := make([]string, 0, 4+len(entry.labelCells))
+	row = append(row, sevCell, labels)
+	row = append(row, entry.labelCells...)
+	row = append(row, stateToken(a.State, p.stateFormat), ageLabel)
 	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
 	switch {
 	case isCursor:
@@ -237,9 +325,11 @@ const flexColumnIndex = 1
 
 // padColumns lays out the row at the pre-computed widths, joining
 // adjacent cells with a single inter-column space (colSep) so columns
-// never fuse. Cells arrive pre-clipped — renderRows middle-clips the
-// flex distinguishing-labels cell (and optionally colours it) before
-// calling — so this only pads each cell to its column width.
+// never fuse. Built-in cells arrive pre-clipped — renderRows
+// middle-clips the flex distinguishing-labels cell (and optionally
+// colours it) before calling. A user-declared cell is clipped here
+// instead, because its width is only known once the allocator has
+// run.
 func (p *Page) padColumns(parts []string, cols []int) string {
 	var b strings.Builder
 	for i, v := range parts {
@@ -248,6 +338,9 @@ func (p *Page) padColumns(parts []string, cols []int) string {
 		}
 		if i > 0 {
 			b.WriteString(colSep)
+		}
+		if p.isLabelColumn(i) {
+			v = format.Ellipsize(v, cols[i])
 		}
 		b.WriteString(format.PadRight(v, cols[i]))
 	}
@@ -371,12 +464,16 @@ func (p *Page) columnSpecs() []format.Column {
 		ageContent = ageMin
 	}
 
-	return []format.Column{
-		{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
-		{Min: instanceMin, Content: format.FlexUnbounded, Weight: 1},
-		{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
-		{Min: ageMin, Content: ageContent, Weight: 0},
-	}
+	out := make([]format.Column, 0, 4+len(p.labelCols))
+	out = append(out,
+		format.Column{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
+		format.Column{Min: instanceMin, Content: format.FlexUnbounded, Weight: 1},
+	)
+	out = append(out, p.labelColumnSpecs()...)
+	return append(out,
+		format.Column{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
+		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
+	)
 }
 
 // stateToken renders one instance's state per the active density.

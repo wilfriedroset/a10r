@@ -225,19 +225,21 @@ pages:
 | `width` | int | measured | Fixed cell count. Minimum 3. |
 | `wide` | bool | `false` | Hide the column behind the `Shift+W` tier. |
 
-User columns render after ALERTNAME on the alerts page, in the order
-you list them. You cannot remove or reorder the built-in columns.
+User columns render after ALERTNAME on the alerts page, and after
+INSTANCE on the group-detail page, in the order you list them. You
+cannot remove or reorder the built-in columns.
 
-Two parts of this are accepted but not yet built: `wide` renders the
-column as if it were `false`, and `pages.group_detail.columns`
-validates but renders nothing. The group-detail page will place user
-columns after INSTANCE. Both land in a later release.
+One part of this is accepted but not yet built: `wide` renders the
+column as if it were `false`. It lands in a later release.
 
 An alerts row is an alertname aggregate, so several instances share
 one cell. The cell shows the value when every instance agrees. When
 they disagree, it shows `<N values>`, where N is the number of
 distinct values. An instance with no such label counts as one
 distinct value.
+
+A group-detail row is a single instance, so its cell is the raw label
+value or empty. There is no rollup marker on that page.
 
 a10r rejects the configuration at startup when a column has an empty
 or space-padded `label`, a duplicate `label` on one page, a `width`
