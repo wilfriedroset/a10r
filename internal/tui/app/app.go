@@ -49,6 +49,9 @@ type Options struct {
 	// Scope is the tenant scope the app boots with: "all", one backend
 	// name, or a comma-joined subset. Empty reads as "all".
 	Scope string
+	// SaveScope is handed every scope the user switches to, so the
+	// next run can open on it. Nil is a no-op.
+	SaveScope func(scope string)
 	// TerminalTitle opts into writing the terminal window title; off
 	// leaves the title untouched.
 	TerminalTitle bool
@@ -75,7 +78,8 @@ type App struct {
 	// scope mirrors the active tenant scope so the window title can name
 	// it. Pages own their own copy; the App keeps one because the title
 	// outlives any single page.
-	scope string
+	scope     string
+	saveScope func(scope string)
 
 	// terminalTitle gates every write to tea.View.WindowTitle.
 	terminalTitle bool
@@ -194,6 +198,7 @@ func NewApp(opts Options) *App {
 		refresh:    opts.Refresh,
 		readOnly:   opts.ReadOnly,
 		scope:      opts.Scope,
+		saveScope:  opts.SaveScope,
 
 		autoTheme:  opts.AutoTheme && opts.LoadStyles != nil,
 		loadStyles: opts.LoadStyles,

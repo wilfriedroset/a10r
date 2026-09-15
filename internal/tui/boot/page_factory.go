@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -46,6 +47,9 @@ type pageEnv struct {
 	TenantConfigByName map[string]config.Backend
 	EditorResolver     edit.Resolver
 	Now                func() time.Time
+	// SortMemory is the per-page remembered sort column, handed to
+	// every page's Options. Never nil; a disabled store answers empty.
+	SortMemory tablesort.Memory
 }
 
 func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
@@ -68,6 +72,7 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 		InitialFilter:      filter,
 		Tenants:            env.TenantNames,
 		PollDelta:          env.Config.TUI.PollDelta,
+		SortMemory:         env.SortMemory,
 	})
 }
 
@@ -86,13 +91,15 @@ func newSilencesPage(env *pageEnv) app.Page {
 		BulkCtx:         env.EditorCtx,
 		SubmitCtx:       env.EditorCtx,
 		Tenants:         env.TenantNames,
+		SortMemory:      env.SortMemory,
 	})
 }
 
 func newReceiversPage(env *pageEnv) app.Page {
 	return receivers.New(receivers.Options{
-		Styles:  env.Styles,
-		Tenants: env.TenantNames,
+		Styles:     env.Styles,
+		Tenants:    env.TenantNames,
+		SortMemory: env.SortMemory,
 	})
 }
 
@@ -104,6 +111,7 @@ func newTenantPage(env *pageEnv, drill func(string) (app.Page, error)) app.Page 
 	p := tenant.New(tenant.Options{
 		Styles:       env.Styles,
 		DrillFactory: drill,
+		SortMemory:   env.SortMemory,
 	})
 	p.SetRows(env.TenantRows)
 	return p

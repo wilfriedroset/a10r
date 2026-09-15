@@ -24,6 +24,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/uistate"
 )
 
 // testDeps returns a Deps populated with fakes that let Build run
@@ -333,4 +334,107 @@ func TestBuild_LoadOptsFromFlagsForwardsConfigPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tmpDir, captured.Dir)
 	require.Equal(t, "custom.yaml", captured.File)
+}
+
+// writeUIState drops a `ui-state.yaml` into a fresh dir and returns
+// the dir, shaped for Deps.HistoryDir.
+func writeUIState(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, uistate.FileName), []byte(body), 0o600))
+	return dir
+}
+
+// depsWithState wires a remembered state file plus a two-backend
+// config, with tui.remember under the caller's control.
+func depsWithState(t *testing.T, remember bool, body string) Deps {
+	t.Helper()
+	deps := testDeps(t)
+	dir := writeUIState(t, body)
+	deps.HistoryDir = func() (string, error) { return dir, nil }
+	deps.LoadConfig = func(_ config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends: []config.Backend{
+				{Name: "prod", URL: "http://am-prod"},
+				{Name: "staging", URL: "http://am-staging"},
+			},
+			TUI: config.TUI{Remember: remember},
+		}, nil
+	}
+	return deps
+}
+
+// TestBuild_RemembersScope covers the boot-time scope precedence:
+// a remembered scope that still matches the config wins over the
+// built-in default, unknown names are pruned, and nothing
+// remembered falls back to scopeFor.
+func TestBuild_RemembersScope(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "remembered name wins over the built-in default", body: "scope: staging\n", want: "staging"},
+		{name: "remembered list survives", body: "scope: prod,staging\n", want: "prod,staging"},
+		{name: "unknown names are pruned", body: "scope: gone,prod\n", want: "prod"},
+		{name: "every name gone falls back to all", body: "scope: gone\n", want: scopeAll},
+		{name: "sort-only file leaves the scope at the default", body: "sort:\n  alerts: severity:asc\n", want: scopeAll},
+		{name: "malformed file leaves the scope at the default", body: "scope: [\n", want: scopeAll},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, true, tc.body))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, res.Close()) })
+			require.Equal(t, tc.want, res.env.Scope)
+		})
+	}
+}
+
+// TestBuild_RememberOffReadsNothing is the opt-in contract: with
+// tui.remember unset the state file on disk is never consulted and
+// the sorters get a memory that answers empty.
+func TestBuild_RememberOffReadsNothing(t *testing.T) {
+	t.Parallel()
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, false, "scope: staging\nsort:\n  alerts: name:asc\n"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Equal(t, scopeAll, res.env.Scope,
+		"tui.remember: false must leave boot on the built-in default scope")
+	require.Empty(t, res.store.Sort("alerts"),
+		"tui.remember: false must not read the sort entries either")
+	require.Empty(t, res.store.Scope())
+}
+
+// TestBuild_RememberedSortReachesThePages renders a page built by
+// the real factory, so the assertion fails if the memory stops at
+// pageEnv instead of reaching the page's sorter. The tenant page
+// boots with rows already, and its header arrow names the active
+// column.
+func TestBuild_RememberedSortReachesThePages(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		body  string
+		arrow string
+	}{
+		{name: "default", body: "", arrow: "NAME \u2191"},
+		{name: "remembered column", body: "sort:\n  tenant: url:desc\n", arrow: "URL \u2193"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, true, tc.body))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+			body := newTenantPage(res.env, nil).View(120, 20)
+			require.Contains(t, body, tc.arrow)
+		})
+	}
 }

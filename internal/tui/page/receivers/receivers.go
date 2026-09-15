@@ -100,6 +100,9 @@ type Options struct {
 	// poll or render. Empty disables the guard for tests / legacy
 	// wiring that don't pin the list.
 	Tenants []string
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // Page is the receivers list view.
@@ -147,6 +150,7 @@ func New(opts Options) *Page {
 		byTenant:      map[string][]string{},
 		sorter:        tablesort.New(receiverSortColumns(), sortKeyName),
 	}
+	p.sorter.Bind(opts.SortMemory, resourceReceivers)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus

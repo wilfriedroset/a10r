@@ -41,8 +41,10 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
+	"github.com/wilfriedroset/a10r/internal/uistate"
 )
 
 // Result bundles the post-Build state the wiring layer (cmd/tui.go)
@@ -62,17 +64,22 @@ type Result struct {
 	clients  map[string]backend.Client
 	registry *pollerRegistry
 	env      *pageEnv
+	store    *uistate.Store
 	stderr   io.Writer
 }
 
 // App returns the bubbletea Model that tea.NewProgram wraps.
 func (r *Result) App() *app.App { return r.app }
 
-// Close flushes the logger sink. Wired by cmd/tui.go's `defer
-// closer.Close()`. The method satisfies io.Closer; the error is
-// surfaced as a warning on stderr inside closeLogger (the program
-// is already exiting, so escalation has nothing to offer).
+// Close flushes the remembered view state, then the logger sink.
+// That order matters: the state store's last write happens while
+// the logger is still live, so a failing write still reaches the
+// audit trail. Wired by cmd/tui.go's `defer closer.Close()`. The
+// method satisfies io.Closer; the logger-close error is surfaced as
+// a warning on stderr inside closeLogger (the program is already
+// exiting, so escalation has nothing to offer).
 func (r *Result) Close() error {
+	_ = r.store.Close()
 	closeLogger(r.closer, r.stderr)
 	return nil
 }
@@ -147,6 +154,9 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		return nil, err
 	}
 
+	store := openStateStore(d, &effCfg)
+	scope := bootScope(store, &effCfg)
+
 	dispatcher := buildDispatcher()
 
 	// buildPageEnv → buildApp dance: pageEnv's TimeFormat closure
@@ -155,15 +165,17 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir)
+	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
 	if err != nil {
+		_ = store.Close()
 		return nil, err
 	}
 
 	registry := &pollerRegistry{}
-	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir)
+	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir, scope, store)
 
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
+		_ = store.Close()
 		return nil, fmt.Errorf("user keybindings: %w", err)
 	}
 
@@ -174,8 +186,45 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		clients:  clients,
 		registry: registry,
 		env:      env,
+		store:    store,
 		stderr:   errOut,
 	}, nil
+}
+
+// openStateStore opens the remembered-view-state file, or a
+// disabled store when tui.remember is off. Deps.HistoryDir is the
+// existing injectable seam onto the same state dir; a failure to
+// resolve it degrades to "no memory" rather than failing startup.
+func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
+	stateDir := ""
+	if effCfg.TUI.Remember {
+		dir, err := d.HistoryDir()
+		if err != nil {
+			slog.Debug("no state dir, tui.remember has nothing to write to",
+				slog.Any("err", err),
+			)
+		}
+		stateDir = dir
+	}
+	return uistate.Open(stateDir)
+}
+
+// bootScope resolves the one tenant scope both the page env and the
+// App boot on. A remembered scope beats the built-in default, but
+// only once pruned against the backends the config still declares —
+// "all" out of PruneScope means nothing usable was remembered.
+func bootScope(store *uistate.Store, effCfg *config.Config) string {
+	pruned, dropped := uistate.PruneScope(store.Scope(), backendNames(effCfg))
+	if pruned == scopeAll {
+		pruned = scopeFor(effCfg)
+	}
+	if len(dropped) > 0 {
+		slog.Warn("remembered tenant scope names backends the config no longer has",
+			slog.Any("dropped", dropped),
+			slog.String("scope", pruned),
+		)
+	}
+	return pruned
 }
 
 // resolveEffectiveConfig folds CLI > env > config > defaults into a
@@ -258,7 +307,7 @@ func buildDispatcher() *keys.Dispatcher {
 // User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
 // alias.
-func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir string) (*pageEnv, *cmdbar.Resolver, error) {
+func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
 	timeFormat := func() timerender.Format {
 		if *appPtr == nil {
 			return timerender.Relative
@@ -274,7 +323,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 	env := &pageEnv{
 		EditorCtx:          ctx,
 		Styles:             styles,
-		Scope:              scopeFor(effCfg),
+		Scope:              scope,
 		SilenceClients:     silenceClients,
 		Creator:            os.Getenv("USER"),
 		TenantRows:         tenantRows,
@@ -287,6 +336,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		TenantConfigByName: tenantConfigIndex(effCfg),
 		EditorResolver:     d.EditorResolver(),
 		Now:                d.Now,
+		SortMemory:         sortMemory,
 	}
 	resolver := newResolver(env)
 	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
@@ -301,7 +351,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 // pollers once Result.StartPollers fills the registry in (the user
 // can only press `r` after Run starts, which is after StartPollers
 // has settled).
-func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir string) *app.App {
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store) *app.App {
 	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
 	return app.NewApp(app.Options{
 		Styles:     styles,
@@ -311,7 +361,8 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		Refresh:    registry.Refresh,
 		ReadOnly:   effCfg.Defaults.ReadOnly,
 		HistoryDir: historyDir,
-		Scope:      scopeFor(effCfg),
+		Scope:      scope,
+		SaveScope:  store.SetScope,
 
 		AutoTheme: isAutoTheme(effCfg.Theme.Name),
 		LoadStyles: func(name string) (*theme.Styles, error) {

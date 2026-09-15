@@ -8,6 +8,14 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Remembered scope and sort** — with `tui.remember: true`, a10r
+  reopens on the tenant scope you last selected and on the sort
+  column and direction you last picked for each list page. The values
+  live in `ui-state.yaml` in the state dir, next to the prompt
+  history. A remembered tenant that is no longer in the config is
+  dropped with a warning and the scope falls back to every backend. A
+  page back on its built-in sort drops out of the file, so what stays
+  on disk is short enough to read and edit by hand. Off by default.
 - **Poll delta flash** — with `tui.poll_delta: true`, a poll that adds
   or removes an alertname in the alerts list flashes one line, for
   example `+3 new, -1 resolved`. A poll that changes nothing stays

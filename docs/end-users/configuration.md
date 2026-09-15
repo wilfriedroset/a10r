@@ -18,6 +18,22 @@ Resolution order (first match wins):
 For options 2-4 the file inside the resolved directory is
 `a10r.yaml`; `--config` / `-c` names the file directly.
 
+### State files
+
+a10r remembers a little between runs. Those files live in the state
+dir, not the config dir: `$XDG_STATE_HOME/a10r/` (Linux/macOS,
+default `~/.local/state/a10r/`) or `%LOCALAPPDATA%\a10r\` (Windows).
+
+| File | Holds |
+|---|---|
+| `cmd-history` | recent `:` commands |
+| `filter-history` | recent `/` filters |
+| `silence-matcher-history` | recent silence-page matchers |
+| `ui-state.yaml` | last tenant scope and per-page sort column, only when `tui.remember: true` |
+
+Every one of them is optional. Delete any of them to start fresh;
+a10r writes them again as you work.
+
 ## Schema
 
 A backend is an Alertmanager v2 endpoint — vanilla Alertmanager or
@@ -85,6 +101,7 @@ tui:
   tips_interval: 8s                # optional cadence; falls back to 8s when omitted
   terminal_title: false            # optional terminal window title (off by default)
   poll_delta: false                # optional flash of what each poll changed (off by default)
+  remember: false                  # optional memory of the last scope and sort column (off by default)
 keys:                              # optional rebindings (empty = use defaults)
 ```
 
@@ -225,9 +242,10 @@ Merge rules:
   only overrides the fields it sets — unrelated fields from the base
   survive untouched, so you can ship a snippet that only tweaks
   `defaults.poll_interval` without erasing `defaults.log_format`.
-  `defaults.read_only`, `tui.tips`, `tui.terminal_title` and
-  `tui.poll_delta` are one-way (any-true wins) so a drop-in can lock
-  them on but not back off — edit the layer that set them.
+  `defaults.read_only`, `tui.tips`, `tui.terminal_title`,
+  `tui.poll_delta` and `tui.remember` are one-way (any-true wins) so a
+  drop-in can lock them on but not back off — edit the layer that set
+  them.
 - **Order** is base file first, then drop-ins in lexical order of
   their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
   ordering, the same convention as systemd `*.d/` overrides.

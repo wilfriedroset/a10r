@@ -213,6 +213,9 @@ type Options struct {
 	// that adds or removes an aggregate flashes the delta. Opt-in,
 	// like tui.tips and tui.terminal_title.
 	PollDelta bool
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -340,7 +343,11 @@ type Page struct {
 	cancelBulk context.CancelFunc
 
 	// sorter: comparators from alertSortColumns.
-	sorter      *tablesort.Sorter[alertGroup]
+	sorter *tablesort.Sorter[alertGroup]
+
+	// sortMemory is held only to hand down to the L2 group-detail
+	// page, which this page constructs and boot never sees.
+	sortMemory  tablesort.Memory
 	stateFilter string // "" = all, otherwise an AlertState value
 
 	// timeFormat is flipped by app.TimeFormatChangedMsg so all list pages agree.
@@ -405,7 +412,9 @@ func New(opts Options) *Page {
 		stateFilter:     opts.InitialStateFilter,
 		editorResolver:  opts.EditorResolver,
 		editorCtx:       opts.EditorCtx,
+		sortMemory:      opts.SortMemory,
 	}
+	p.sorter.Bind(opts.SortMemory, resourceAlerts)
 	p.Recompute = p.recompute
 	p.FilterValidate = listpage.LabelFilterValidate
 	p.RowCount = func() int { return len(p.groups) }

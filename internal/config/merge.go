@@ -203,7 +203,7 @@ func mergePage(base *PageConfig, overlay PageConfig) {
 }
 
 // mergeTUI folds overlay TUI fields onto base. Tips,
-// TerminalTitle and PollDelta are one-way:
+// TerminalTitle, PollDelta and Remember are one-way:
 // once any layer enables it, later layers cannot turn it back off
 // — same idiom as Defaults.ReadOnly. The user toggles it off by
 // editing the layer that set it to true. TipsInterval follows the
@@ -221,5 +221,8 @@ func mergeTUI(base *TUI, overlay TUI) {
 	}
 	if overlay.PollDelta {
 		base.PollDelta = true
+	}
+	if overlay.Remember {
+		base.Remember = true
 	}
 }

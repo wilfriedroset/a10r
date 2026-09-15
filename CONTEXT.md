@@ -389,6 +389,20 @@ by the end user. Resolved ahead of bundled skins in the loader;
 shadow-warns if its name matches a bundled skin.
 _Avoid_: custom theme, override skin.
 
+### View memory
+
+**View memory**:
+The tenant scope and the per-page sort column a10r reopens on, held
+in `ui-state.yaml` in the state dir and gated behind `tui.remember`.
+Only the choice is kept, never the data behind it: no filters, no
+marks, no cursor position, no page stack. A choice that matches the
+built-in default drops out of the file, and a remembered tenant the
+config no longer declares is dropped at startup.
+_Avoid_: session (a10r restores no session, only two values), cache
+(nothing here is a copy of backend data), prompt history (the `:`
+and `/` rings, which persist separately and are not gated by
+`tui.remember`).
+
 ## Relationships
 
 - An **Alert** rolls up one or more **alert instances** sharing the

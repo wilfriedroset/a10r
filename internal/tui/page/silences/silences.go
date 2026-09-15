@@ -270,6 +270,9 @@ type Options struct {
 	// list on `n` via matcher.FromLabels — same prefill as
 	// alert-detail `s`. Only meaningful alongside RestrictIDs.
 	AlertLabels map[string]string
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 func New(opts Options) *Page {
@@ -313,6 +316,7 @@ func New(opts Options) *Page {
 			p.restrictIDs[id] = struct{}{}
 		}
 	}
+	p.sorter.Bind(opts.SortMemory, resourceSilences)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus

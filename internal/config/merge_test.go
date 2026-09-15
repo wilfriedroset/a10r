@@ -407,6 +407,22 @@ func TestLoad_DropIn_TUIPollDeltaOneWayWins(t *testing.T) {
 	require.True(t, cfg.TUI.PollDelta)
 }
 
+func TestLoad_DropIn_TUIRememberOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// remember follows the other tui bools: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  remember: false\n",
+		map[string]string{
+			"10-remember.yaml": "tui:\n  remember: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.Remember)
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

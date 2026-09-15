@@ -61,6 +61,84 @@ type Sorter[T any] struct {
 	active     int
 	asc        bool
 	defaultIdx int
+
+	// mem and resource are set by Bind. A nil mem means an unbound
+	// sorter, which behaves exactly as it did before sort memory
+	// existed.
+	mem      Memory
+	resource string
+}
+
+// Memory is the persistence seam a Sorter writes its active column
+// through. internal/uistate.Store satisfies it.
+type Memory interface {
+	Sort(resource string) string
+	SetSort(resource, value string)
+}
+
+// Bind restores the remembered column for resource and arms the
+// sorter to persist every later change. A nil Memory is a no-op. A
+// remembered column key the page no longer has is ignored, so
+// dropping a column is not a breaking change for anyone's state
+// file.
+func (s *Sorter[T]) Bind(m Memory, resource string) {
+	if m == nil {
+		return
+	}
+	s.mem = m
+	s.resource = resource
+	key, asc, ok := parseSort(m.Sort(resource))
+	if !ok {
+		return
+	}
+	i := indexOf(s.cols, key)
+	if i < 0 {
+		return
+	}
+	// Assigned directly rather than through selectIndex, which
+	// would read the restore as a same-column press and flip the
+	// direction the user actually left the page on.
+	s.active, s.asc = i, asc
+}
+
+// persist is the single choke point every state mutation funnels
+// through. A sorter sitting on its construction default writes the
+// empty string, which the memory reads as "forget this entry" —
+// that is what keeps the state file to the pages the user actually
+// re-sorted.
+func (s *Sorter[T]) persist() {
+	if s.mem == nil {
+		return
+	}
+	if s.active == s.defaultIdx && s.asc == s.cols[s.defaultIdx].DefaultAsc {
+		s.mem.SetSort(s.resource, "")
+		return
+	}
+	s.mem.SetSort(s.resource, formatSort(s.cols[s.active].Key, s.asc))
+}
+
+func formatSort(key string, asc bool) string {
+	if asc {
+		return key + ":asc"
+	}
+	return key + ":desc"
+}
+
+// parseSort splits the `<column key>:<asc|desc>` wire format. ok is
+// false for anything else, which the caller treats as "nothing
+// remembered".
+func parseSort(v string) (key string, asc, ok bool) {
+	key, dir, found := strings.Cut(v, ":")
+	if !found || key == "" {
+		return "", false, false
+	}
+	switch dir {
+	case "asc":
+		return key, true, true
+	case "desc":
+		return key, false, true
+	}
+	return "", false, false
 }
 
 // New constructs a Sorter over the supplied columns. defaultKey
@@ -147,6 +225,7 @@ func (s *Sorter[T]) SelectByKey(key string) bool {
 func (s *Sorter[T]) Reset() {
 	s.active = s.defaultIdx
 	s.asc = s.cols[s.defaultIdx].DefaultAsc
+	s.persist()
 }
 
 // selectIndex is the shared transition: same-column flips, new
@@ -154,10 +233,12 @@ func (s *Sorter[T]) Reset() {
 func (s *Sorter[T]) selectIndex(i int) {
 	if s.active == i {
 		s.asc = !s.asc
+		s.persist()
 		return
 	}
 	s.active = i
 	s.asc = s.cols[i].DefaultAsc
+	s.persist()
 }
 
 // WalkRight selects the next column in registration order, wrapping
@@ -172,6 +253,7 @@ func (s *Sorter[T]) WalkRight() bool {
 	next := (s.active + 1) % len(s.cols)
 	s.active = next
 	s.asc = s.cols[next].DefaultAsc
+	s.persist()
 	return true
 }
 
@@ -186,6 +268,7 @@ func (s *Sorter[T]) WalkLeft() bool {
 	}
 	s.active = prev
 	s.asc = s.cols[prev].DefaultAsc
+	s.persist()
 	return true
 }
 

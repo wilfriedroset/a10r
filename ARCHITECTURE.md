@@ -100,6 +100,10 @@ are defined in CONTEXT.md and used here without redefinition.
 - `internal/xdg` -- env-var slot names, the unix state-directory
   resolver, the atomic state-file write, and the Windows fallback for
   OS-conformant path resolution.
+- `internal/uistate` -- the `ui-state.yaml` store behind
+  `tui.remember`: the last tenant scope and each page's sort column,
+  written off the update loop and forgotten when they match the
+  built-in defaults.
 
 ### TUI (`internal/tui`)
 

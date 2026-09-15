@@ -67,6 +67,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// App keeps its own copy because the window title names the
 		// scope and no page reports it back.
 		a.scope = m.Scope
+		if a.saveScope != nil {
+			a.saveScope(m.Scope)
+		}
 	}
 	cmd := a.forwardToTop(msg)
 	return a, cmd

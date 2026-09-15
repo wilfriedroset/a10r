@@ -74,6 +74,7 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	require.Equal(t, 12*time.Second, got.TUI.TipsInterval)
 	require.True(t, got.TUI.TerminalTitle)
 	require.True(t, got.TUI.PollDelta)
+	require.True(t, got.TUI.Remember)
 }
 
 func TestConfig_RoundTripPreservesEverything(t *testing.T) {
@@ -214,6 +215,7 @@ func TestTUI_DefaultIsTipsOff(t *testing.T) {
 		"tui.tips_interval must default to zero (wiring fills in the package default)")
 	require.False(t, c.TUI.TerminalTitle, "tui.terminal_title must default to false")
 	require.False(t, c.TUI.PollDelta, "tui.poll_delta must default to false")
+	require.False(t, c.TUI.Remember, "tui.remember must default to false")
 }
 
 func TestTUI_RoundTrip(t *testing.T) {
@@ -237,6 +239,12 @@ func TestTUI_RoundTrip(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(body, &withDelta))
 	require.True(t, withDelta.TUI.PollDelta,
 		"explicit tui.poll_delta: true must round-trip")
+
+	body = []byte("tui:\n  remember: true\n")
+	var withRemember Config
+	require.NoError(t, yaml.Unmarshal(body, &withRemember))
+	require.True(t, withRemember.TUI.Remember,
+		"explicit tui.remember: true must round-trip")
 }
 
 func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {

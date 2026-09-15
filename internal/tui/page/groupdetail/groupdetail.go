@@ -172,6 +172,9 @@ type Options struct {
 	// immediately, before the first poll tick. Replaced wholesale by
 	// each in-tenant DataMsg's alertname-filtered subset.
 	Instances []backend.Alert
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // instanceEntry wraps one alert instance with the precomputed
@@ -291,6 +294,7 @@ func New(opts Options) *Page {
 		editorResolver:  opts.EditorResolver,
 		editorCtx:       opts.EditorCtx,
 	}
+	p.sorter.Bind(opts.SortMemory, viewName)
 	p.Recompute = p.recompute
 	p.FilterValidate = listpage.LabelFilterValidate
 	p.RowCount = func() int { return len(p.view) }

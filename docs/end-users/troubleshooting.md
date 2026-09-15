@@ -95,6 +95,14 @@ mv ~/.config/a10r/a10r.yaml ~/.config/a10r/a10r.yaml.bak
 a10r
 ```
 
+## a10r opens on the wrong tenant
+
+With `tui.remember: true`, a10r reopens on the tenant scope you last
+selected. The scope lives in `ui-state.yaml` in the state dir (see
+[configuration](configuration.md)). Delete that file to forget the
+scope, or set `tui.remember: false` to stop a10r remembering it at
+all. The same file holds the remembered sort column for each page.
+
 ## `:tenant` quick-switch doesn't match my config order
 
 The numeric quick-switch (`1`-`9`) maps to the order in the
