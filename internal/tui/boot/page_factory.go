@@ -73,6 +73,7 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 		Tenants:            env.TenantNames,
 		PollDelta:          env.Config.TUI.PollDelta,
 		SortMemory:         env.SortMemory,
+		Columns:            env.Config.Pages.Alerts.Columns,
 	})
 }
 

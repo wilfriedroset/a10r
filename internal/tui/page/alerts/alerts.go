@@ -46,6 +46,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -81,8 +82,8 @@ const labelAlertname = "alertname"
 // Severity uses Hotkey 'S' (Shift+S): unlike the L2 page, alerts L1
 // has no uppercase `S` verb — silence is lowercase `s` — so the
 // shortcut is free.
-func alertSortColumns() []tablesort.Column[alertGroup] {
-	return []tablesort.Column[alertGroup]{
+func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
+	return append([]tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -107,7 +108,43 @@ func alertSortColumns() []tablesort.Column[alertGroup] {
 				return a.oldestStart.Before(b.oldestStart)
 			}),
 		},
+	}, labelSortColumns(user)...)
+}
+
+// labelSortColumns turns each user-declared column into a sortable
+// axis over the pre-computed labelCells slice. Cells compare
+// byte-wise with rollup markers ranked last, and an empty cell is
+// pinned to the tail in both directions (ADR 0048).
+func labelSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
+	out := make([]tablesort.Column[alertGroup], 0, len(user))
+	for i, c := range user {
+		// A column with no sort_key is not a sort axis at all, not
+		// merely one without a shortcut: tablesort's h/l walk visits
+		// zero-hotkey columns, so registering it would make a column
+		// the operator declared unsortable the active sort and
+		// persist it to the sort-memory file.
+		if c.Hotkey == 0 {
+			continue
+		}
+		out = append(out, tablesort.Column[alertGroup]{
+			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
+			Less: tieBreakGroup(func(a, b *alertGroup) bool {
+				return labelcol.Less(labelCellAt(a, i), labelCellAt(b, i))
+			}),
+			Tail: func(g *alertGroup) bool { return labelcol.IsEmpty(labelCellAt(g, i)) },
+		})
 	}
+	return out
+}
+
+// labelCellAt reads a group's cell for user column i. aggregate fills
+// one cell per column for every group, so the guard is there for
+// hand-built alertGroup literals in tests.
+func labelCellAt(g *alertGroup, i int) string {
+	if i >= len(g.labelCells) {
+		return ""
+	}
+	return g.labelCells[i]
 }
 
 // tieBreakGroup wraps a comparator so equal-by-primary groups fall
@@ -216,6 +253,11 @@ type Options struct {
 	// SortMemory persists the active sort column across runs; nil
 	// disables sort memory for this page.
 	SortMemory tablesort.Memory
+	// Columns are the user-declared label columns from
+	// `pages.alerts.columns`. The config loader has validated them;
+	// the page renders them in order. Empty leaves the table on its
+	// built-in columns alone.
+	Columns []config.Column
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -253,6 +295,12 @@ type alertGroup struct {
 	active      int
 	suppressed  int
 	unprocessed int
+	// labelCells holds one rolled-up cell per user-declared label
+	// column, in config order. Computed once per aggregate so the
+	// sort comparators and the row renderer never walk the instance
+	// slice again — the render budget is O(rows), not O(rows x
+	// instances).
+	labelCells []string
 }
 
 // key is the group's stable identity — the cursor-focus anchor and
@@ -342,6 +390,15 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
+	// labelCols are the user-declared label columns, resolved once at
+	// construction.
+	labelCols []labelcol.Column
+
+	// labelWidths is the measured cell width of each labelCols entry
+	// over the whole filtered view, refreshed by recompute so the
+	// renderer never re-scans the rows per frame.
+	labelWidths []int
+
 	// sorter: comparators from alertSortColumns.
 	sorter *tablesort.Sorter[alertGroup]
 
@@ -386,6 +443,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
+	labelCols := labelcol.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Scope,
 		Filter:          opts.InitialFilter,
@@ -401,7 +459,8 @@ func New(opts Options) *Page {
 		timeFormat:      opts.TimeFormat,
 		stateFormat:     opts.StateFormat,
 		byTenant:        map[string][]backend.Alert{},
-		sorter:          tablesort.New(alertSortColumns(), sortKeySeverity),
+		labelCols:       labelCols,
+		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
 		marks:           map[string]struct{}{},
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,

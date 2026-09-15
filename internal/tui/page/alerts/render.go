@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -57,7 +58,7 @@ func (p *Page) emptyState() string {
 const sortKeyState = "state"
 
 func (p *Page) renderHeader(width int) string {
-	cols := []string{sortKeySeverity, sortKeyName, sortKeyCount, sortKeyState, sortKeyAge}
+	cols := p.headerKeys()
 	widths := p.columnWidths(width)
 	// fg-only renderers so the header keeps the terminal default
 	// background — painting palette bg inside the unstyled body
@@ -80,7 +81,7 @@ func (p *Page) renderHeader(width int) string {
 		if idx > 0 {
 			b.WriteString(colSep)
 		}
-		label := strings.ToUpper(k)
+		label := p.headerTitle(k)
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
 		}
@@ -97,6 +98,32 @@ func (p *Page) renderHeader(width int) string {
 		idx++
 	}
 	return b.String()
+}
+
+// headerKeys is the rendered column order as sorter keys: the
+// built-ins with the user-declared label columns spliced in after
+// ALERTNAME. renderRow, padColumns and columnSpecs splice the block
+// at the same point; this function is the header's copy of that
+// order, not the shared source of it.
+func (p *Page) headerKeys() []string {
+	out := make([]string, 0, 5+len(p.labelCols))
+	out = append(out, sortKeySeverity, sortKeyName)
+	for _, c := range p.labelCols {
+		out = append(out, c.Key)
+	}
+	return append(out, sortKeyCount, sortKeyState, sortKeyAge)
+}
+
+// headerTitle maps a rendered column key to its header text. A user
+// column carries a configured title; a built-in is its own key,
+// upper-cased.
+func (p *Page) headerTitle(key string) string {
+	for _, c := range p.labelCols {
+		if c.Key == key {
+			return c.Title
+		}
+	}
+	return strings.ToUpper(key)
 }
 
 // renderRows returns the visible window of data rows. The window
@@ -199,13 +226,13 @@ func (p *Page) renderRow(i int, g alertGroup, ctx rowCtx) string {
 		sevCell = hl.Cell(sevLabel, p.styles.Severity.ForLabel(sevLabel))
 	}
 	stateCell := p.stateCell(g, ctx, rowStyled, hl)
-	row := make([]string, 0, 6)
+	row := make([]string, 0, 6+len(g.labelCells))
 	if ctx.showTenant {
 		row = append(row, g.tenant)
 	}
+	row = append(row, sevCell, alertNameCell(g))
+	row = append(row, g.labelCells...)
 	row = append(row,
-		sevCell,
-		alertNameCell(g),
 		countCell(g),
 		stateCell,
 		ageLabel,
@@ -273,8 +300,9 @@ const stateContentCap = 24
 
 // padColumns lays out the row's columns at pre-computed cols
 // widths. The leading TENANT column is optional — added when
-// scope spans multiple backends and parts has 5 entries instead
-// of 4. The alertname column is the flex slot: when its assigned
+// scope spans multiple backends — so a row carries 4 or 5 built-in
+// cells plus one per user-declared label column. The alertname
+// column is the flex slot: when its assigned
 // width is narrower than the label, the cell is ellipsized with
 // format.Ellipsize so the truncation appends the EllipsizeSuffix
 // ("…") and reads as intentional rather than as a silent slice.
@@ -298,7 +326,10 @@ func (p *Page) padColumns(parts []string, cols []int, hl format.Highlighter) str
 		if i > 0 {
 			b.WriteString(colSep)
 		}
-		if i == flexIdx {
+		// The flex column and every user-declared column ellipsize:
+		// both can be assigned less than their content, and a silent
+		// slice of a label value reads as a different value.
+		if i == flexIdx || p.isLabelColumn(i) {
 			v = format.Ellipsize(v, cols[i])
 		}
 		// The cells a producer already coloured (SEVERITY, STATE) come
@@ -320,6 +351,14 @@ func (p *Page) flexColumnIndex() int {
 		return 2
 	}
 	return 1
+}
+
+// isLabelColumn reports whether rendered column index i is one of
+// the user-declared label columns — the block that follows the flex
+// ALERTNAME column.
+func (p *Page) isLabelColumn(i int) bool {
+	flexIdx := p.flexColumnIndex()
+	return i > flexIdx && i <= flexIdx+len(p.labelCols)
 }
 
 // columnWidths returns the per-column widths (TENANT optional,
@@ -414,7 +453,7 @@ func (p *Page) columnSpecs() []format.Column {
 		ageContent = ageMin
 	}
 
-	specs := make([]format.Column, 0, 6)
+	specs := make([]format.Column, 0, 6+len(p.labelCols))
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		specs = append(specs, format.Column{Min: tenantMin, Content: max(tenantMin, tenantContent), Weight: 0})
 	}
@@ -428,6 +467,9 @@ func (p *Page) columnSpecs() []format.Column {
 		// leave dead space the user could otherwise spend on the
 		// labels they're scanning.
 		format.Column{Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1},
+	)
+	specs = append(specs, p.labelColumnSpecs()...)
+	specs = append(specs,
 		format.Column{Min: countMin, Content: max(countMin, countContent), Weight: 0},
 		// STATE: cap the requested width so a wide 3-bucket breakdown
 		// can't starve ALERTNAME. The renderer ellipsizes the breakdown
@@ -437,6 +479,63 @@ func (p *Page) columnSpecs() []format.Column {
 		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
 	)
 	return specs
+}
+
+// labelColumnWidthFloor is the narrowest a measured label column
+// gets. Below this a value is an ellipsis and a character or two,
+// which says less than an empty cell would.
+const labelColumnWidthFloor = 6
+
+// measureLabelColumns measures each user-declared column over the
+// whole filtered view, so a vertical scroll never shifts a width. A
+// column with a configured Width needs no measuring and is left at
+// zero, because labelColumnSpecs pins it before it reads this slice.
+// recompute calls this once per row change rather than the renderer
+// calling it once per frame: the scan is O(rows x columns) and the
+// widths only move when the rows do.
+func (p *Page) measureLabelColumns() []int {
+	if len(p.labelCols) == 0 {
+		return nil
+	}
+	out := make([]int, len(p.labelCols))
+	for i, c := range p.labelCols {
+		if c.Width > 0 {
+			continue
+		}
+		content := labelcol.HeaderWidth(c)
+		for j := range p.groups {
+			if w := lipgloss.Width(labelCellAt(&p.groups[j], i)); w > content {
+				content = w
+			}
+		}
+		out[i] = content
+	}
+	return out
+}
+
+// labelColumnSpecs turns the measured widths into allocator columns.
+// A measured column flexes rather than reserving its full width:
+// label values run long (a pod name, an instance URL), and a weight-0
+// request that wide pushes the allocator into its proportional
+// shrink, which takes the built-in columns below their own floors.
+// Flexing reserves only the floor and grows into what is left
+// alongside ALERTNAME, so a long value ellipsizes instead of
+// collapsing the row. A column with a configured width is pinned
+// there, because that is what the operator asked for.
+func (p *Page) labelColumnSpecs() []format.Column {
+	out := make([]format.Column, 0, len(p.labelCols))
+	for i, c := range p.labelCols {
+		if c.Width > 0 {
+			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
+			continue
+		}
+		w := 0
+		if i < len(p.labelWidths) {
+			w = p.labelWidths[i]
+		}
+		out = append(out, format.Column{Min: min(labelColumnWidthFloor, w), Content: w, Weight: 1})
+	}
+	return out
 }
 
 // formatTime renders ts according to the page's active time

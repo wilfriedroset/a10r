@@ -101,6 +101,8 @@ On a list page, `Shift+<letter>` sorts by a column. Pressing the same shortcut t
 
 Switching to a new column resets to that column's *default* direction. Severity defaults to descending (worst-first); everything else defaults to ascending.
 
+A label column you declare in the configuration joins the same set. Give it a `sort_key` and `Shift+<that letter>` sorts by it, `h`/`l` walk onto it, and the help overlay lists it. A column with no `sort_key` still renders, but nothing sorts by it. Rows whose cell is empty sort last in both directions. A `<N values>` rollup marker ranks after every plain value, so it lands at the end ascending and at the front descending. See [configuration.md](configuration.md#label-columns).
+
 ## Per-view shortcuts
 
 ### Alerts list

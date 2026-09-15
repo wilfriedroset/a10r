@@ -45,6 +45,23 @@ off the list and surface only on the instance view.
 _Avoid_: status (AM wire field name), firing / pending (Grafana
 ruler vocabulary — AM has no pending state).
 
+**Label column**:
+An extra table column the operator declares in the configuration,
+one per alert label, rendered after ALERTNAME on the alerts page and
+after INSTANCE on the group detail page. Display-only text: it does
+not change grouping, filtering, or what a silence matches. Built-in
+columns cannot be removed or reordered around it.
+_Avoid_: custom column, extra field, computed column (nothing is
+computed — the cell is a label value).
+
+**Rollup marker**:
+The `<N values>` text a **label column** renders on an **Alert** row
+when the group's instances disagree on that label. N is the count of
+distinct values, and an instance with no such label counts as one of
+them. A row where every instance agrees shows the shared value
+instead. The marker is plain text, never a sample of one instance.
+_Avoid_: mixed, multi, varies.
+
 ### Alert drill-down
 
 **Group detail**:

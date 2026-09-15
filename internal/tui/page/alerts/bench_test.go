@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -180,5 +181,54 @@ func BenchmarkAlertsRecomputeExpr10k(b *testing.B) {
 				p.recompute()
 			}
 		})
+	}
+}
+
+// benchColumns is a five-column configuration over a mix of labels
+// the synthetic set has and labels it does not, so the rollup pays
+// for both the agreeing-value path and the missing-label path.
+func benchColumns() []config.Column {
+	return []config.Column{
+		{Label: "severity", Title: "SEV"},
+		{Label: "instance"},
+		{Label: "team"},
+		{Label: "cluster"},
+		{Label: "region"},
+	}
+}
+
+// BenchmarkAlertsRecomputeLabelColumns measures what five
+// user-declared columns add to recompute. Read it against
+// BenchmarkAlertsRecompute1k: aggregate now walks every instance once
+// per column, and that gap is the whole ingest-side price of the
+// feature.
+func BenchmarkAlertsRecomputeLabelColumns(b *testing.B) {
+	styles := testutil.LoadStyles(b)
+	p := New(Options{Styles: styles, Now: time.Now, Columns: benchColumns()})
+	p.byTenant = benchAlerts(1000, 4)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		p.recompute()
+	}
+}
+
+// BenchmarkAlertsRenderRowsLabelColumns measures one frame with five
+// user columns. Read it against BenchmarkAlertsRenderRows: the widths
+// are measured in recompute, so the gap here is per-row cell work
+// only. A regression that moves the measuring scan back into the
+// frame shows up as a multiple, not a margin.
+func BenchmarkAlertsRenderRowsLabelColumns(b *testing.B) {
+	styles := testutil.LoadStyles(b)
+	p := New(Options{Styles: styles, Now: time.Now, Columns: benchColumns()})
+	p.byTenant = benchAlerts(1000, 4)
+	p.recompute()
+	p.SetViewport(40, len(p.groups))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_ = p.renderRows(160, 40)
 	}
 }

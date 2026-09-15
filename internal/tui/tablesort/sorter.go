@@ -44,6 +44,12 @@ type Column[T any] struct {
 	Hotkey     rune
 	DefaultAsc bool
 	Less       func(a, b *T) bool
+	// Tail flags entries that must sort after every other row in
+	// BOTH directions — Apply partitions on it before consulting
+	// Less, so the DESC arg-flip cannot float them to the top. Used
+	// for cells whose value is unknown rather than small (ADR 0048).
+	// Nil pins nothing.
+	Tail func(*T) bool
 	// Description overrides the help-overlay text for this column's
 	// hotkey. Empty falls back to "sort by <lowercased title>" —
 	// most pages get the right description for free, but a column
@@ -124,14 +130,17 @@ func formatSort(key string, asc bool) string {
 	return key + ":desc"
 }
 
-// parseSort splits the `<column key>:<asc|desc>` wire format. ok is
-// false for anything else, which the caller treats as "nothing
-// remembered".
+// parseSort splits the `<column key>:<asc|desc>` wire format at the
+// LAST colon, because a key is free to contain one of its own — a
+// user-declared label column is keyed "label:<name>". The direction
+// never is. ok is false for anything else, which the caller treats
+// as "nothing remembered".
 func parseSort(v string) (key string, asc, ok bool) {
-	key, dir, found := strings.Cut(v, ":")
-	if !found || key == "" {
+	i := strings.LastIndex(v, ":")
+	if i <= 0 {
 		return "", false, false
 	}
+	key, dir := v[:i], v[i+1:]
 	switch dir {
 	case "asc":
 		return key, true, true
@@ -174,9 +183,15 @@ func New[T any](cols []Column[T], defaultKey string) *Sorter[T] {
 // Tied-entry stability is what keeps the cursor on the same row
 // content across consecutive Apply calls when nothing else changed.
 func (s *Sorter[T]) Apply(in []T) {
-	less := s.cols[s.active].Less
-	asc := s.asc
+	col := s.cols[s.active]
+	less, tail, asc := col.Less, col.Tail, s.asc
 	sort.SliceStable(in, func(i, j int) bool {
+		if tail != nil {
+			ti, tj := tail(&in[i]), tail(&in[j])
+			if ti != tj {
+				return tj
+			}
+		}
 		if asc {
 			return less(&in[i], &in[j])
 		}

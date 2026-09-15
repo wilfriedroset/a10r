@@ -225,9 +225,13 @@ pages:
 | `width` | int | measured | Fixed cell count. Minimum 3. |
 | `wide` | bool | `false` | Hide the column behind the `Shift+W` tier. |
 
-User columns render after ALERTNAME on the alerts page, and after
-INSTANCE on the group-detail page, in the order you list them. You
-cannot remove or reorder the built-in columns.
+User columns render after ALERTNAME on the alerts page, in the order
+you list them. You cannot remove or reorder the built-in columns.
+
+Two parts of this are accepted but not yet built: `wide` renders the
+column as if it were `false`, and `pages.group_detail.columns`
+validates but renders nothing. The group-detail page will place user
+columns after INSTANCE. Both land in a later release.
 
 An alerts row is an alertname aggregate, so several instances share
 one cell. The cell shows the value when every instance agrees. When

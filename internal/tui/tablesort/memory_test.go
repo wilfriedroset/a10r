@@ -140,3 +140,28 @@ func TestUnboundSorterNeverPersists(t *testing.T) {
 		})
 	}
 }
+
+// A user-declared label column is keyed "label:<name>", so the
+// remembered value carries two colons. Splitting it at the first one
+// yields a truncated key and an unparseable direction, which the
+// restore path silently drops: the sort is written every time and
+// never comes back.
+func TestPersist_RoundTripsAKeyThatContainsAColon(t *testing.T) {
+	t.Parallel()
+
+	const keyLabel = "label:cluster"
+	cols := append(fixtureCols(), tablesort.Column[row]{
+		Key: keyLabel, Title: "CLUSTER", Hotkey: 'L', DefaultAsc: true, Less: nameLess,
+	})
+
+	mem := newFakeMemory("")
+	s := tablesort.New(cols, keyScore)
+	s.Bind(mem, resourceFixture)
+	s.SelectByHotkey('L')
+	require.Equal(t, keyLabel+":asc", mem.lastVal)
+
+	restored := tablesort.New(cols, keyScore)
+	restored.Bind(mem, resourceFixture)
+	require.Equal(t, keyLabel, restored.ActiveKey())
+	require.True(t, restored.Asc())
+}

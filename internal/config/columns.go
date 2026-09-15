@@ -17,7 +17,9 @@ type Column struct {
 	// upper-cased Label.
 	Title string `yaml:"title,omitempty"`
 	// SortKey is the uppercase letter that binds Shift+<letter> to
-	// this column. Empty leaves the column reachable by h/l only.
+	// this column. Empty means the column is not sortable at all:
+	// the h/l walk skips it rather than making a column the operator
+	// declared unsortable the active sort.
 	SortKey string `yaml:"sort_key,omitempty"`
 	// Width pins the column to a fixed cell count. Zero measures the
 	// widest cell in view, as the built-in columns do.

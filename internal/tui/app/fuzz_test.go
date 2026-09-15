@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
@@ -25,15 +26,33 @@ var (
 	fuzzNow    = time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	fuzzAlerts = []backend.Alert{
 		{
-			Labels:   map[string]string{"alertname": "HighCPU", "severity": "critical"},
+			Labels:   map[string]string{"alertname": "HighCPU", "severity": "critical", "cluster": "eu-1"},
 			State:    backend.AlertStateActive,
 			StartsAt: fuzzNow.Add(-time.Minute),
 		},
+		// Same aggregate as the row above with a different cluster, so
+		// the label-column rollup renders its `<N values>` marker and
+		// the marker comparator gets fuzzed alongside the plain cells.
+		{
+			Labels:   map[string]string{"alertname": "HighCPU", "severity": "warning", "cluster": "us-1"},
+			State:    backend.AlertStateSuppressed,
+			StartsAt: fuzzNow.Add(-2 * time.Minute),
+		},
+		// No cluster label at all, so the empty-cell tail-sort path is
+		// reachable too.
 		{
 			Labels:   map[string]string{"alertname": "LowDisk", "severity": "warning"},
 			State:    backend.AlertStateActive,
 			StartsAt: fuzzNow.Add(-time.Minute),
 		},
+	}
+
+	// fuzzColumns gives the fuzzer a user-declared column with a sort
+	// key, so Shift+L walks into a comparator the built-in set does
+	// not own.
+	fuzzColumns = []config.Column{
+		{Label: "cluster", SortKey: "L"},
+		{Label: "team", Title: "OWNER", Width: 8},
 	}
 )
 
@@ -158,6 +177,7 @@ func bootApp(t *testing.T) tea.Model {
 			Creator:         "fuzz",
 			BulkConcurrency: 4,
 			Logger:          slog.Default(),
+			Columns:         fuzzColumns,
 		})
 	}
 

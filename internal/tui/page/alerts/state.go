@@ -14,6 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 )
 
 // totalGroups is the unfiltered group count within the current
@@ -116,7 +117,8 @@ func (p *Page) recompute() {
 	total, knownKey := p.scanScope()
 	flat := p.flatten(total)
 	survivors := p.applyFilter(flat)
-	p.groups = aggregate(survivors)
+	p.groups = aggregate(survivors, p.labelCols)
+	p.labelWidths = p.measureLabelColumns()
 	p.sorter.Apply(p.groups)
 	p.resolveFocus(knownKey)
 	p.Clamp(len(p.groups))
@@ -175,7 +177,7 @@ func (p *Page) flatten(total int) []alertEntry {
 // rows. A missing alertname (Labels["alertname"]=="") groups under
 // the synthetic empty-name key; the renderer surfaces it as
 // "(no alertname)".
-func aggregate(in []alertEntry) []alertGroup {
+func aggregate(in []alertEntry, cols []labelcol.Column) []alertGroup {
 	byKey := map[string]*alertGroup{}
 	order := make([]string, 0)
 	for _, e := range in {
@@ -210,7 +212,21 @@ func aggregate(in []alertEntry) []alertGroup {
 		sort.Slice(g.instances, func(i, j int) bool {
 			return g.instances[i].Fingerprint < g.instances[j].Fingerprint
 		})
+		g.labelCells = rollupCells(g.instances, cols)
 		out = append(out, *g)
+	}
+	return out
+}
+
+// rollupCells returns nil when no columns are configured, so a page
+// without them allocates nothing per group.
+func rollupCells(instances []backend.Alert, cols []labelcol.Column) []string {
+	if len(cols) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(cols))
+	for _, c := range cols {
+		out = append(out, labelcol.AggregateCell(instances, c.Label))
 	}
 	return out
 }

@@ -421,7 +421,7 @@ func TestSort_TotalOrderTieBreakAlertnameThenTenant(t *testing.T) {
 		{tenant: "a", alertName: "Same", count: 1, severityRank: 2},
 		{tenant: "m", alertName: "Other", count: 1, severityRank: 2},
 	}
-	cols := alertSortColumns()
+	cols := alertSortColumns(nil)
 	var sevLess func(a, b *alertGroup) bool
 	for _, c := range cols {
 		if c.Key == sortKeySeverity {
@@ -437,7 +437,7 @@ func TestSort_TotalOrderTieBreakAlertnameThenTenant(t *testing.T) {
 func TestSort_StateSortDropped(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range alertSortColumns() {
+	for _, c := range alertSortColumns(nil) {
 		require.NotEqual(t, "state", c.Key, "the state sort column must be dropped")
 	}
 }

@@ -189,7 +189,12 @@ Chrome, overlays, and rendering helpers:
   pages because alert-detail already imports silence-detail to
   push it, so hosting the seam there would close an import cycle.
 - `internal/tui/tablesort` -- the shared `Shift+<letter>` sort-state
-  machine for table pages.
+  machine for table pages. A page's column set is built at
+  construction, not at package level, because user-declared label
+  columns come from the configuration and add their own sort axes.
+- `internal/tui/page/labelcol` -- resolves the configured label
+  columns into their rendered form, rolls a label up over an
+  aggregate's instances, and owns the cell comparator.
 - `internal/tui/stateformat` -- the app-global full/compact
   state-breakdown toggle.
 - `internal/tui/timerender` -- the four CONTEXT.md time vocabularies
