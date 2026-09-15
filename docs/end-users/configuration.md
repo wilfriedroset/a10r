@@ -196,6 +196,54 @@ pages:
 Recognised page names: `alerts`, `silences`, `receivers`,
 `status`. Omitted pages keep their backend-derived default.
 
+### Label columns
+
+The alerts page and the group-detail page render a fixed set of
+columns. Add more with a `columns:` list, one entry per alert label.
+The group-detail page is named `group_detail` and takes columns only,
+because it rides the alerts poll feed and has no interval of its own.
+
+```yaml
+pages:
+  alerts:
+    columns:
+      - label: cluster
+        title: CLUSTER     # optional, default is the upper-cased label
+        sort_key: L        # optional, binds Shift+L to sort by this column
+        width: 12          # optional, fixed cells; default measures the view
+        wide: true         # optional, hides the column until you press Shift+W
+  group_detail:
+    columns:
+      - label: pod
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `label` | string | required | The alert label to read the cell from. |
+| `title` | string | `label` | The header text. a10r upper-cases it. |
+| `sort_key` | string | none | One uppercase letter. Binds `Shift+<letter>`. |
+| `width` | int | measured | Fixed cell count. Minimum 3. |
+| `wide` | bool | `false` | Hide the column behind the `Shift+W` tier. |
+
+User columns render after ALERTNAME on the alerts page, and after
+INSTANCE on the group-detail page, in the order you list them. You
+cannot remove or reorder the built-in columns.
+
+An alerts row is an alertname aggregate, so several instances share
+one cell. The cell shows the value when every instance agrees. When
+they disagree, it shows `<N values>`, where N is the number of
+distinct values. An instance with no such label counts as one
+distinct value.
+
+a10r rejects the configuration at startup when a column has an empty
+or space-padded `label`, a duplicate `label` on one page, a `width`
+below 3, a `sort_key` that is not one uppercase letter, a `sort_key`
+or `title` another column already uses, or a `sort_key` or `title`
+that a built-in already uses. The letters `A C F G N S T V W` are
+taken on both pages. `G` is the jump-to-bottom motion, and the cursor
+answers it before any sort does. Only `alerts` and `group_detail`
+accept `columns`.
+
 ## Themes
 
 Eight skins ship bundled in the `catppuccin` family (`frappe`,
@@ -251,6 +299,12 @@ Merge rules:
   `tui.poll_delta` and `tui.remember` are one-way (any-true wins) so a
   drop-in can lock them on but not back off — edit the layer that set
   them.
+- **Column lists** (`pages.alerts.columns`,
+  `pages.group_detail.columns`) replace the whole list, they do not
+  append. The last layer that declares any column for a page owns
+  that page's column set. A drop-in that sets only
+  `poll_interval` leaves the base list alone, and so does an explicit
+  empty list: to remove a column, edit the layer that declared it.
 - **Order** is base file first, then drop-ins in lexical order of
   their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
   ordering, the same convention as systemd `*.d/` overrides.

@@ -53,3 +53,18 @@ backends:
     headers:
       X-Gateway-Token: ${A10R_GW_TOKEN}
       X-Trace-Id: a10r
+
+pages:
+  alerts:
+    poll_interval: 5s
+    columns:
+      - label: cluster
+        title: CLUSTER
+        sort_key: L
+        width: 12
+      - label: namespace
+        wide: true
+  group_detail:
+    columns:
+      - label: pod
+        sort_key: P

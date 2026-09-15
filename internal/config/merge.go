@@ -190,7 +190,11 @@ func mergeLog(base *Log, overlay Log) {
 }
 
 func mergePages(base *PageOverrides, overlay PageOverrides) {
-	mergePage(&base.Alerts, overlay.Alerts)
+	if overlay.Alerts.PollInterval != 0 {
+		base.Alerts.PollInterval = overlay.Alerts.PollInterval
+	}
+	mergeColumns(&base.Alerts.Columns, overlay.Alerts.Columns)
+	mergeColumns(&base.GroupDetail.Columns, overlay.GroupDetail.Columns)
 	mergePage(&base.Silences, overlay.Silences)
 	mergePage(&base.Receivers, overlay.Receivers)
 	mergePage(&base.Status, overlay.Status)
@@ -199,6 +203,17 @@ func mergePages(base *PageOverrides, overlay PageOverrides) {
 func mergePage(base *PageConfig, overlay PageConfig) {
 	if overlay.PollInterval != 0 {
 		base.PollInterval = overlay.PollInterval
+	}
+}
+
+// mergeColumns replaces the whole column list rather than appending
+// to it. A list is not a scalar: appending across layers would leave
+// the rendered order and the duplicate-label check dependent on which
+// drop-ins happen to be installed, so the last layer that declares
+// any column owns the page's column set.
+func mergeColumns(base *[]Column, overlay []Column) {
+	if len(overlay) > 0 {
+		*base = overlay
 	}
 }
 

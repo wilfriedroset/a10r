@@ -353,7 +353,7 @@ func TestPageInterval_PageOverrideWins(t *testing.T) {
 
 	cfg := &config.Config{
 		Defaults: config.Defaults{PollInterval: 30 * time.Second},
-		Pages:    config.PageOverrides{Alerts: config.PageConfig{PollInterval: 5 * time.Second}},
+		Pages:    config.PageOverrides{Alerts: config.AlertsPageConfig{PollInterval: 5 * time.Second}},
 	}
 	be := config.Backend{Name: "prod", URL: "http://am", PollInterval: 60 * time.Second}
 
@@ -383,7 +383,7 @@ func TestPageOverride_AllResources(t *testing.T) {
 	t.Parallel()
 
 	p := config.PageOverrides{
-		Alerts:    config.PageConfig{PollInterval: 1 * time.Second},
+		Alerts:    config.AlertsPageConfig{PollInterval: 1 * time.Second},
 		Silences:  config.PageConfig{PollInterval: 2 * time.Second},
 		Receivers: config.PageConfig{PollInterval: 4 * time.Second},
 		Status:    config.PageConfig{PollInterval: 5 * time.Second},

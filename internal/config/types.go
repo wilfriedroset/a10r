@@ -78,10 +78,13 @@ type Config struct {
 // page on its backend-derived default; non-zero fields override the
 // backend's value for that page only.
 type PageOverrides struct {
-	Alerts    PageConfig `yaml:"alerts,omitempty"`
-	Silences  PageConfig `yaml:"silences,omitempty"`
-	Receivers PageConfig `yaml:"receivers,omitempty"`
-	Status    PageConfig `yaml:"status,omitempty"`
+	Alerts    AlertsPageConfig `yaml:"alerts,omitempty"`
+	Silences  PageConfig       `yaml:"silences,omitempty"`
+	Receivers PageConfig       `yaml:"receivers,omitempty"`
+	Status    PageConfig       `yaml:"status,omitempty"`
+	// GroupDetail is the alerts drill-down (L2). It rides the alerts
+	// poll feed, so it carries columns and nothing else.
+	GroupDetail GroupDetailConfig `yaml:"group_detail,omitempty"`
 }
 
 // PageConfig is the per-page knob set. PollInterval, when non-zero,
@@ -90,6 +93,23 @@ type PageOverrides struct {
 // resolved default".
 type PageConfig struct {
 	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+}
+
+// AlertsPageConfig is the alerts page's knob set: a poll interval
+// plus the user-declared label columns. Columns live on their own
+// type rather than on PageConfig so strict decoding rejects
+// `columns:` under a page that has none (ADR 0048 keeps the silences
+// page out).
+type AlertsPageConfig struct {
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+	Columns      []Column      `yaml:"columns,omitempty"`
+}
+
+// GroupDetailConfig is the group-detail page's knob set. The page
+// rides the alerts poll feed, so it has no interval of its own and
+// must not advertise one.
+type GroupDetailConfig struct {
+	Columns []Column `yaml:"columns,omitempty"`
 }
 
 // Backend describes one Alertmanager (or Mimir) endpoint a10r polls.
@@ -194,6 +214,12 @@ func (c *Config) Validate() error {
 		if err := b.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := validateColumns(pageAlerts, c.Pages.Alerts.Columns); err != nil {
+		return err
+	}
+	if err := validateColumns(pageGroupDetail, c.Pages.GroupDetail.Columns); err != nil {
+		return err
 	}
 	return c.Defaults.Validate()
 }

@@ -75,6 +75,16 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	require.True(t, got.TUI.TerminalTitle)
 	require.True(t, got.TUI.PollDelta)
 	require.True(t, got.TUI.Remember)
+
+	require.Equal(t, 5*time.Second, got.Pages.Alerts.PollInterval)
+	require.Equal(t,
+		[]Column{
+			{Label: "cluster", Title: "CLUSTER", SortKey: "L", Width: 12},
+			{Label: "namespace", Wide: true},
+		},
+		got.Pages.Alerts.Columns)
+	require.Equal(t, []Column{{Label: "pod", SortKey: "P"}}, got.Pages.GroupDetail.Columns)
+	require.NoError(t, got.Validate())
 }
 
 func TestConfig_RoundTripPreservesEverything(t *testing.T) {
