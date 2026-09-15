@@ -211,7 +211,8 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 
 	// SEVERITY, INSTANCE, pod, STATE, AGE.
 	floors := []int{12, 10, labelColumnWidthFloor, 8, 12}
-	widths := p.columnWidths(80)
+	widths, win := p.columnWidths(80)
+	require.Len(t, win.Cols, win.Total, "every column must fit at this width")
 	require.Len(t, widths, len(floors))
 	for i, floor := range floors {
 		require.GreaterOrEqual(t, widths[i], floor, "column %d fell below its floor", i)

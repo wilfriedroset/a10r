@@ -84,10 +84,33 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleMotion(m) {
 		return p, nil
 	}
+	if p.handleScroll(m) {
+		return p, nil
+	}
 	if p.handleSort(m) {
 		return p, nil
 	}
 	return p.handleAction(m)
+}
+
+// handleScroll processes the horizontal-column scroll. It runs before
+// handleSort, which binds Left/Right as aliases of the h/l sort walk
+// on every other table page: this page takes the two arrows for the
+// view window instead, and h/l keep the sort walk here as well.
+// Returns true when the key was an arrow, so the key is consumed even
+// on a row that already fits and the sort walk never sees it.
+func (p *Page) handleScroll(m tea.KeyPressMsg) bool {
+	key := m.String()
+	if key != "left" && key != "right" {
+		return false
+	}
+	_, win := p.columnWidths(p.scroll.Width)
+	if key == "left" {
+		p.scroll.Left(win)
+	} else {
+		p.scroll.Right(win)
+	}
+	return true
 }
 
 func (p *Page) handleMotion(m tea.KeyPressMsg) bool {

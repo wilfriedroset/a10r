@@ -39,6 +39,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -333,6 +334,8 @@ type Page struct {
 	wide        bool
 	labelWidths []int
 
+	scroll format.Scroll
+
 	sorter      *tablesort.Sorter[instanceEntry]
 	stateFilter string
 	timeFormat  timerender.Format
@@ -500,6 +503,10 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+T", Description: "state format", View: viewName},
 		action.Action{Key: "r", Description: "refresh", View: viewName},
 		action.Action{Key: "w", Description: "toggle watch", View: viewName},
+		// Last on purpose: the keys do nothing on a terminal wide
+		// enough for every column, and the fixed-size hint strip drops
+		// the tail first.
+		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: viewName},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

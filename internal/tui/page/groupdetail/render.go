@@ -22,6 +22,9 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
+	// The scroll keys need to know whether the row fits, and no width
+	// reaches the page at key time.
+	p.scroll.Width = width
 	band := p.RenderErrorBand(p.now(), width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
@@ -107,32 +110,33 @@ func (p *Page) renderCommonStrip() string {
 // active column. SEVERITY, INSTANCE (flex), STATE, AGE — no TENANT,
 // no COUNT.
 func (p *Page) renderHeader(width int) string {
-	cols := p.headerKeys()
-	widths := p.columnWidths(width)
+	keys := p.headerKeys()
+	widths, win := p.columnWidths(width)
 	headerFg := p.styles.Table.HeaderFg
 	activeFg := p.styles.Table.HeaderActiveFg
 
 	var b strings.Builder
-	b.WriteString(strings.Repeat(" ", format.RowPrefixCols))
-	for idx, k := range cols {
-		if idx >= len(widths) {
-			break
-		}
-		if idx > 0 {
+	b.WriteString(format.ScrollPrefix(win.ClipLeft))
+	for j, ci := range win.Cols {
+		if j > 0 {
 			b.WriteString(colSep)
 		}
+		k := keys[ci]
 		label := p.headerTitle(k)
 		// STATE has no sort column; only the sortable columns get an
 		// arrow / active tint.
 		if arrow := p.sorter.ArrowFor(k); arrow != "" {
 			label = label + " " + arrow
 		}
-		padded := format.PadRight(label, widths[idx])
+		padded := format.PadRight(label, widths[j])
 		if p.sorter.IsActive(k) {
 			b.WriteString(activeFg.Render(padded))
 		} else {
 			b.WriteString(headerFg.Render(padded))
 		}
+	}
+	if win.ClipRight {
+		b.WriteString(format.ScrollRightMarker)
 	}
 	return b.String()
 }
@@ -251,10 +255,15 @@ func (p *Page) renderRows(width, maxRows int) string {
 		return ""
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
-	cols := p.columnWidths(width)
+	cols, win := p.columnWidths(width)
+	// A scrolled row renumbers its columns, so the flex width comes
+	// from the window, not from the spec position.
 	flexW := 0
-	if flexColumnIndex < len(cols) {
-		flexW = cols[flexColumnIndex]
+	for j, ci := range win.Cols {
+		if ci == flexColumnIndex {
+			flexW = cols[j]
+			break
+		}
 	}
 	// An open range previews as marked rows; the keys only reach
 	// p.marks on commit, so the span is resolved per frame.
@@ -262,7 +271,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, cols, flexW, width, visual.Covers(i)))
+		b.WriteString(p.renderRow(i, cols, win, flexW, width, visual.Covers(i)))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -272,7 +281,7 @@ func (p *Page) renderRows(width, maxRows int) string {
 
 // renderRow renders one instance row at the pre-computed column
 // widths. See renderRows for the colour-by-state contract.
-func (p *Page) renderRow(i int, cols []int, flexW, width int, previewed bool) string {
+func (p *Page) renderRow(i int, cols []int, win format.Window, flexW, width int, previewed bool) string {
 	entry := p.view[i]
 	a := entry.a
 	ageLabel := p.formatTime(a.StartsAt)
@@ -308,7 +317,7 @@ func (p *Page) renderRow(i int, cols []int, flexW, width int, previewed bool) st
 		row = append(row, labelCellAt(&entry, c.Index))
 	}
 	row = append(row, stateToken(a.State, p.stateFormat), ageLabel)
-	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols), width)
+	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols, win), width)
 	switch {
 	case isCursor:
 		return p.styles.Table.CursorOver(p.styles.Severity.ForLabel(a.Labels["severity"]).GetForeground()).Render(line)
@@ -332,19 +341,20 @@ const flexColumnIndex = 1
 // colours it) before calling. A user-declared cell is clipped here
 // instead, because its width is only known once the allocator has
 // run.
-func (p *Page) padColumns(parts []string, cols []int) string {
+func (p *Page) padColumns(parts []string, cols []int, win format.Window) string {
 	var b strings.Builder
-	for i, v := range parts {
-		if i >= len(cols) {
+	for j, ci := range win.Cols {
+		if ci >= len(parts) {
 			break
 		}
-		if i > 0 {
+		if j > 0 {
 			b.WriteString(colSep)
 		}
-		if p.isLabelColumn(i) {
-			v = format.Ellipsize(v, cols[i])
+		v := parts[ci]
+		if p.isLabelColumn(ci) {
+			v = format.Ellipsize(v, cols[j])
 		}
-		b.WriteString(format.PadRight(v, cols[i]))
+		b.WriteString(format.PadRight(v, cols[j]))
 	}
 	return b.String()
 }
@@ -433,9 +443,23 @@ func truncateLeft(s string, w int) string {
 // columnWidths returns the SEVERITY, INSTANCE (flex), STATE, AGE
 // widths via the duf-style distributor. INSTANCE is the unbounded
 // weight-1 flex column; the rest are fixed at max(min, content).
-func (p *Page) columnWidths(width int) []int {
+func (p *Page) columnWidths(width int) ([]int, format.Window) {
+	specs := p.columnSpecs()
 	budget := max(0, width-format.RowPrefixCols)
-	return format.Distribute(p.columnSpecs(), budget, colSeparator)
+	win := format.WindowAt(specs, budget, colSeparator, p.scroll.Offset)
+	if len(win.Cols) < win.Total {
+		// A clipped row keeps one cell out of the column budget for the
+		// ">" marker, so the header never runs past the body width and
+		// wraps. Re-running the window on the smaller budget can only
+		// drop a further column, never bring one back.
+		budget = max(0, budget-1)
+		win = format.WindowAt(specs, budget, colSeparator, p.scroll.Offset)
+	}
+	shown := make([]format.Column, len(win.Cols))
+	for i, ci := range win.Cols {
+		shown[i] = specs[ci]
+	}
+	return format.Distribute(shown, budget, colSeparator), win
 }
 
 func (p *Page) columnSpecs() []format.Column {

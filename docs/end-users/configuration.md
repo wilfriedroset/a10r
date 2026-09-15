@@ -230,8 +230,8 @@ INSTANCE on the group-detail page, in the order you list them. You
 cannot remove or reorder the built-in columns.
 
 Every column you add makes the row wider. When the row no longer fits
-the terminal, the alerts page drops columns off the right edge instead
-of squeezing all of them, and the header marks the cut with `>`. Press
+the terminal, the page drops columns off the right edge instead of
+squeezing all of them, and the header marks the cut with `>`. Press
 `→` to scroll to the columns out of view and `←` to come back. The
 first data column stays pinned so the row keeps its identity.
 
