@@ -21,8 +21,11 @@ For options 2-4 the file inside the resolved directory is
 ### State files
 
 a10r remembers a little between runs. Those files live in the state
-dir, not the config dir: `$XDG_STATE_HOME/a10r/` (Linux/macOS,
-default `~/.local/state/a10r/`) or `%LOCALAPPDATA%\a10r\` (Windows).
+dir, not the config dir: `$XDG_STATE_HOME/a10r/` when that variable is
+set, else `~/.local/state/a10r/` on every platform. `a10r info` prints
+the resolved path. The log file is the exception and follows the
+platform convention instead, so on macOS and Windows it sits
+elsewhere.
 
 | File | Holds |
 |---|---|
@@ -32,7 +35,9 @@ default `~/.local/state/a10r/`) or `%LOCALAPPDATA%\a10r\` (Windows).
 | `ui-state.yaml` | last tenant scope and per-page sort column, only when `tui.remember: true` |
 
 Every one of them is optional. Delete any of them to start fresh;
-a10r writes them again as you work.
+a10r writes them again as you work. A `ui-state.yaml` that does not
+parse turns the memory off for that run, and a10r leaves the file
+alone so you can fix it.
 
 ## Schema
 
@@ -323,5 +328,6 @@ otherwise.
 a10r info
 ```
 
-Prints the resolved config dir, log path, backend list with
-capability flags, and the active theme.
+Prints the resolved config dir, state dir, log path, alias count,
+active theme, remembered tenant scope, and the backend list with
+capability flags.

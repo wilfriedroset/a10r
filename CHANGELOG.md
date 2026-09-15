@@ -15,7 +15,8 @@ to [Semantic Versioning][semver].
   history. A remembered tenant that is no longer in the config is
   dropped with a warning and the scope falls back to every backend. A
   page back on its built-in sort drops out of the file, so what stays
-  on disk is short enough to read and edit by hand. Off by default.
+  on disk is short enough to read and edit by hand. `a10r info` now
+  reports the state dir and the remembered scope. Off by default.
 - **Poll delta flash** — with `tui.poll_delta: true`, a poll that adds
   or removes an alertname in the alerts list flashes one line, for
   example `+3 new, -1 resolved`. A poll that changes nothing stays

@@ -192,8 +192,8 @@ a10r -c examples/demo.yaml
 `a10r validate <path>` exits 0 when the config parses cleanly,
 with a line-precise error message otherwise.
 
-`a10r info` prints the resolved config dir, log path, and the
-backend list with capability flags.
+`a10r info` prints the resolved config dir, state dir, log path,
+active theme, and the backend list with capability flags.
 
 ## Keybindings
 

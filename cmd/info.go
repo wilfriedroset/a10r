@@ -12,6 +12,8 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/log"
+	"github.com/wilfriedroset/a10r/internal/uistate"
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
 // newInfoCmd returns the `a10r info` subcommand. Diagnostic output
@@ -66,6 +68,8 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		fileTheme = cfg.Theme.Name
 	}
 
+	stateDir, rememberedScope := stateReport(cfg)
+
 	return renderInfo(out, infoContext{
 		Theme:      config.ResolveTheme(flags.Theme, fileTheme),
 		Version:    version,
@@ -76,7 +80,38 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		Config:     cfg,
 		NotFound:   errors.Is(loadErr, config.ErrNotFound),
 		AliasCount: len(aliases),
+
+		StateDir:        stateDir,
+		RememberedScope: rememberedScope,
 	})
+}
+
+// stateReport resolves the state directory and, when tui.remember is
+// on, the tenant scope a10r would boot on. The stored scope is pruned
+// against the configured backends exactly as boot prunes it, so info
+// never names a tenant a10r would silently drop. An unresolvable
+// directory reports empty rather than failing the command: info is a
+// diagnostic, and a missing HOME is the very thing an operator runs
+// it to find out.
+func stateReport(cfg *config.Config) (dir, scope string) {
+	dir, err := xdg.DefaultStateDir()
+	if err != nil {
+		return "", ""
+	}
+	if cfg == nil || !cfg.TUI.Remember {
+		return dir, ""
+	}
+	store := uistate.Open(dir)
+	defer func() { _ = store.Close() }()
+	names := make([]string, len(cfg.Backends))
+	for i, b := range cfg.Backends {
+		names[i] = b.Name
+	}
+	pruned, _ := uistate.PruneScope(store.Scope(), names)
+	if pruned == config.ScopeAll {
+		return dir, ""
+	}
+	return dir, pruned
 }
 
 // infoContext is the deterministic input renderInfo consumes. Pulled
@@ -91,6 +126,15 @@ type infoContext struct {
 	Config     *config.Config // nil when NotFound is true
 	NotFound   bool
 	AliasCount int // resolved <config-dir>/aliases.yaml entry count
+	// StateDir is the parent of the prompt history files and
+	// ui-state.yaml. Empty when it could not be resolved. The log
+	// file only joins them on unix; macOS and Windows put logs
+	// elsewhere.
+	StateDir string
+	// RememberedScope is the tenant scope ui-state.yaml holds, and is
+	// empty both when tui.remember is off and when nothing is
+	// remembered. Sort entries are not listed: open the file for those.
+	RememberedScope string
 	// Theme is the skin name after CLI-over-file precedence, so
 	// `a10r info --theme X` reports the skin the TUI would use.
 	Theme string
@@ -103,9 +147,15 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 	w := &writer{out: out}
 	w.printf("a10r %s commit=%s built=%s\n\n", ctx.Version, ctx.Commit, ctx.Date)
 	w.printf("config dir: %s\n", ctx.ConfigDir)
+	if ctx.StateDir != "" {
+		w.printf("state dir:  %s\n", ctx.StateDir)
+	}
 	w.printf("log path:   %s\n", ctx.LogPath)
 	w.printf("aliases:    %d\n", ctx.AliasCount)
 	w.printf("theme:      %s\n", themeLabel(ctx.Theme))
+	if ctx.RememberedScope != "" {
+		w.printf("scope:      %s (remembered)\n", ctx.RememberedScope)
+	}
 
 	if ctx.NotFound {
 		w.printf("\nconfig: not found (run `a10r` with no subcommand to launch the first-run wizard)\n")

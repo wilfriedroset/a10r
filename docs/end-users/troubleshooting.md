@@ -77,10 +77,11 @@ export EDITOR='subl --wait'         # Sublime Text
 
 ## Logs are nowhere to be found
 
-`a10r info` prints the resolved log path. By default it's under
-`$XDG_STATE_HOME/a10r/` (Linux/macOS) or `%LOCALAPPDATA%\a10r\`
-(Windows). Override with `--log <path>` or `log.path` in the
-config.
+`a10r info` prints the resolved log path. The default follows the
+platform convention: `$XDG_STATE_HOME/a10r/a10r.log` on Linux,
+`~/Library/Logs/a10r/a10r.log` on macOS, and
+`%LOCALAPPDATA%\a10r\Logs\a10r.log` on Windows. Override with
+`--log <path>` or `log.path` in the config.
 
 `--debug` raises the level to debug for the current run; `--quiet`
 drops it to warn.
@@ -98,8 +99,8 @@ a10r
 ## a10r opens on the wrong tenant
 
 With `tui.remember: true`, a10r reopens on the tenant scope you last
-selected. The scope lives in `ui-state.yaml` in the state dir (see
-[configuration](configuration.md)). Delete that file to forget the
+selected. `a10r info` reports that scope and the state dir holding
+`ui-state.yaml` (see [configuration](configuration.md)). Delete that file to forget the
 scope, or set `tui.remember: false` to stop a10r remembering it at
 all. The same file holds the remembered sort column for each page.
 
