@@ -61,10 +61,10 @@ func (c *Confirm) Update(msg tea.Msg) (Modal, tea.Cmd) {
 		return c, func() tea.Msg { return ConfirmResultMsg{Yes: true} }
 	case "n", "N":
 		return c, func() tea.Msg { return ConfirmResultMsg{Yes: false} }
-	case "enter":
+	case keyEnter:
 		yes := c.def == ConfirmDefaultYes
 		return c, func() tea.Msg { return ConfirmResultMsg{Yes: yes} }
-	case "esc":
+	case keyEsc:
 		return c, func() tea.Msg { return ConfirmResultMsg{Cancelled: true} }
 	}
 	return c, nil
