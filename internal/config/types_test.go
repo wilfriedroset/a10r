@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"gopkg.in/yaml.v3"
+
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
 func TestConfig_ZeroValueRoundTrips(t *testing.T) {
@@ -84,6 +87,18 @@ func TestConfig_LoadValidFull(t *testing.T) {
 		},
 		got.Pages.Alerts.Columns)
 	require.Equal(t, []Column{{Label: "pod", SortKey: "P"}}, got.Pages.GroupDetail.Columns)
+
+	require.Equal(t, guardrail.Set{
+		{
+			Tenants: []string{"prod-*"},
+			Actions: []string{"silence.expire"},
+			Deny:    true,
+			Reason:  "expire prod silences from the change ticket, not a10r",
+		},
+		{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+		{MaxBulk: 20},
+	}, got.Guardrails)
+
 	require.NoError(t, got.Validate())
 }
 

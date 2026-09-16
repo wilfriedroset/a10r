@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/uistate"
 	"github.com/wilfriedroset/a10r/internal/xdg"
@@ -169,7 +170,62 @@ func renderInfo(out io.Writer, ctx infoContext) error {
 	for _, b := range ctx.Config.Backends {
 		renderBackend(w, b)
 	}
+	renderGuardrails(w, ctx.Config)
 	return w.err
+}
+
+// renderGuardrails lists the write policy in config order, then the
+// tenant globs that match no configured backend. The whole block is
+// skipped when no rule exists so the common report stays short; an
+// operator with no guardrails must not have to read a line telling
+// them so.
+func renderGuardrails(w *writer, cfg *config.Config) {
+	if len(cfg.Guardrails) == 0 {
+		return
+	}
+	w.printf("\nguardrails (%d):\n", len(cfg.Guardrails))
+	for _, r := range cfg.Guardrails {
+		w.printf("  %s\n", guardrailLine(r))
+	}
+
+	names := make([]string, len(cfg.Backends))
+	for i, b := range cfg.Backends {
+		names[i] = b.Name
+	}
+	for _, g := range cfg.Guardrails.UnmatchedTenants(names) {
+		w.printf("  warning: tenant glob %q matches no configured backend\n", g)
+	}
+}
+
+// guardrailLine renders one rule as a single line.
+func guardrailLine(r guardrail.Rule) string {
+	parts := []string{
+		"tenants=" + globList(r.Tenants),
+		"actions=" + globList(r.Actions),
+	}
+	if r.Deny {
+		parts = append(parts, "deny")
+	}
+	if r.Confirmation != "" {
+		parts = append(parts, "confirmation="+string(r.Confirmation))
+	}
+	if r.MaxBulk > 0 {
+		parts = append(parts, fmt.Sprintf("max_bulk=%d", r.MaxBulk))
+	}
+	if r.Reason != "" {
+		parts = append(parts, fmt.Sprintf("reason=%q", r.Reason))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// globList renders an omitted glob list as the catch-all it means, so
+// the report never leaves the reader guessing what an empty field
+// matches.
+func globList(globs []string) string {
+	if len(globs) == 0 {
+		return "*"
+	}
+	return strings.Join(globs, ",")
 }
 
 // themeLabel names the resolved skin for the info report. The auto

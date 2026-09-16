@@ -1,0 +1,17 @@
+backends:
+  - name: prod-eu
+    url: https://am-prod-eu.internal
+  - name: staging
+    url: https://am-staging.internal
+
+guardrails:
+  - tenants: ["prod-*"]
+    actions: ["silence.expire"]
+    deny: true
+    reason: expire prod silences from the change ticket, not a10r
+
+  - tenants: ["prod-*"]
+    confirmation: type-tenant-name
+
+  - tenants: ["*"]
+    max_bulk: 20

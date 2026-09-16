@@ -108,6 +108,11 @@ tui:
   poll_delta: false                # optional flash of what each poll changed (off by default)
   remember: false                  # optional memory of the last scope and sort column (off by default)
 keys:                              # optional rebindings (empty = use defaults)
+guardrails:                        # optional write policy, see "Guardrails" below
+  - tenants: ["prod-*"]
+    actions: ["silence.expire"]
+    deny: true
+    reason: use the change ticket
 ```
 
 ## Authentication
@@ -324,6 +329,10 @@ Merge rules:
   that page's column set. A drop-in that sets only
   `poll_interval` leaves the base list alone, and so does an explicit
   empty list: to remove a column, edit the layer that declared it.
+- **Guardrail rules** (`guardrails`) are concatenated, not replaced.
+  A rule only ever tightens what a write may do, so a drop-in can add
+  a restriction but can never drop one the base file declared. To
+  loosen a rule, edit the layer that declared it.
 - **Order** is base file first, then drop-ins in lexical order of
   their absolute path. Use a numeric prefix (`10-`, `20-`, …) to pin
   ordering, the same convention as systemd `*.d/` overrides.
@@ -384,7 +393,70 @@ Three sources, any-true wins (one-way):
 3. CLI flag `--read-only`.
 
 Read-only hides every Dangerous binding (silence create / edit /
-expire) so you can't accidentally write while triaging.
+expire) so you can't accidentally write while triaging. For a
+narrower restriction — one verb, one set of tenants — see
+[Guardrails](#guardrails).
+
+## Guardrails
+
+Read-only is all-or-nothing. Guardrails are the finer tool: they
+restrict a single write verb on a single set of tenants, and leave
+the rest of your setup alone.
+
+```yaml
+guardrails:
+  - tenants: ["prod-*"]            # glob list; omit to match every tenant
+    actions: ["silence.expire"]    # glob list; omit to match every verb
+    deny: true                     # refuse the verb outright
+    reason: use the change ticket  # shown to the user on refusal
+
+  - tenants: ["prod-*"]
+    confirmation: type-tenant-name # make the user type the backend name
+
+  - max_bulk: 20                   # cap the targets of one bulk run
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `tenants` | list of globs | Backend names the rule covers. Omitted or empty matches every backend. |
+| `actions` | list of globs | Write verbs the rule covers. Omitted or empty matches every verb. |
+| `deny` | bool | Refuse the verb. |
+| `confirmation` | `plain` or `type-tenant-name` | The confirmation the user must clear. |
+| `max_bulk` | positive int | Largest number of targets one bulk run may touch, per tenant. Omit it (or write `0`) to leave bulk uncapped. To block bulk entirely, use `deny`. |
+| `reason` | string | Text shown on a refusal. Ignored by `confirmation` and `max_bulk`. |
+
+The verbs are `silence.create`, `silence.update`, `silence.expire`,
+and `silence.recreate`. Bulk is not a separate verb: a bulk run
+matches the same name as its single form, and only `max_bulk` reads
+the number of targets.
+
+The only wildcard is `*`, which matches any run of characters.
+Everything else is literal. a10r rejects `?`, `[`, and `\` at load
+so a pattern always means what it looks like.
+
+Every rule that matches the tenant and the verb applies together:
+
+- Any `deny` refuses the write.
+- The smallest `max_bulk` wins.
+- The strongest `confirmation` wins.
+
+Rule order does not change the outcome. It decides only which
+`reason` a refusal quotes when two rules deny.
+
+A rule can only tighten. It can raise a verb's confirmation and it
+can never lower one, and a `config.d` fragment adds rules to the base
+file rather than replacing them.
+
+Read-only is checked first and wins. On a read-only backend a10r
+names read-only, never a guardrail.
+
+a10r refuses to start on a rule it cannot understand: an unknown verb
+or confirmation level, a negative `max_bulk`, or a rule that sets none
+of `deny`, `confirmation`, and `max_bulk`. A `tenants` glob that
+matches no configured backend is a warning instead of an error, so
+you can share one `config.d` fragment across machines that do not all
+have every tenant. Run `a10r info` to see the warnings and the active
+rules.
 
 ## Validating a config
 
@@ -402,5 +474,6 @@ a10r info
 ```
 
 Prints the resolved config dir, state dir, log path, alias count,
-active theme, remembered tenant scope, and the backend list with
-capability flags.
+active theme, remembered tenant scope, the backend list with
+capability flags, and the guardrail rules with any tenant glob that
+matches no configured backend.

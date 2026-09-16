@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
 // User-facing defaults pinned by the schema. Changing any of these
@@ -64,13 +66,15 @@ const (
 
 // Config is the top-level shape of a10r.yaml.
 type Config struct {
-	Backends []Backend     `yaml:"backends,omitempty"`
-	Defaults Defaults      `yaml:"defaults,omitempty"`
-	Theme    Theme         `yaml:"theme,omitempty"`
-	Log      Log           `yaml:"log,omitempty"`
-	Keys     Keys          `yaml:"keys,omitempty"`
-	Pages    PageOverrides `yaml:"pages,omitempty"`
-	TUI      TUI           `yaml:"tui,omitempty"`
+	Backends []Backend `yaml:"backends,omitempty"`
+	Defaults Defaults  `yaml:"defaults,omitempty"`
+	Theme    Theme     `yaml:"theme,omitempty"`
+	Log      Log       `yaml:"log,omitempty"`
+	Keys     Keys      `yaml:"keys,omitempty"`
+	// Guardrails restricts write verbs per tenant beyond read-only.
+	Guardrails guardrail.Set `yaml:"guardrails,omitempty"`
+	Pages      PageOverrides `yaml:"pages,omitempty"`
+	TUI        TUI           `yaml:"tui,omitempty"`
 }
 
 // PageOverrides carries per-page runtime knobs that a user can
@@ -219,6 +223,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := validateColumns(pageGroupDetail, c.Pages.GroupDetail.Columns); err != nil {
+		return err
+	}
+	//nolint:wrapcheck // The error already names guardrails[i] and its field.
+	if err := c.Guardrails.Validate(); err != nil {
 		return err
 	}
 	return c.Defaults.Validate()

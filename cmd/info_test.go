@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/uistate"
 	"github.com/wilfriedroset/a10r/internal/xdg"
 )
@@ -319,4 +320,38 @@ func TestThemeLabel(t *testing.T) {
 			require.Equal(t, tc.want, themeLabel(tc.in))
 		})
 	}
+}
+
+func TestRenderInfo_Guardrails(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Backends: []config.Backend{{Name: "prod-eu", URL: "https://am-prod-eu.internal"}},
+		Guardrails: guardrail.Set{
+			{
+				Tenants: []string{"prod-*"},
+				Actions: []string{"silence.expire"},
+				Deny:    true,
+				Reason:  "change ticket only",
+			},
+			{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+			{MaxBulk: 20},
+			// A glob no backend answers: the shared config.d fragment
+			// case the report warns about rather than rejecting.
+			{Tenants: []string{"lab-*"}, Deny: true},
+		},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, renderInfo(&buf, infoContext{
+		Version:   "dev",
+		Commit:    "test",
+		Date:      "test",
+		ConfigDir: "/home/test/.config/a10r",
+		LogPath:   "/home/test/.local/state/a10r/a10r.log",
+		StateDir:  "/home/test/.local/state/a10r",
+		Config:    cfg,
+		Theme:     config.DefaultThemeName,
+	}))
+	assertGolden(t, "info_guardrails.golden", buf.String())
 }

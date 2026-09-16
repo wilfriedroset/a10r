@@ -54,6 +54,15 @@ backends:
       X-Gateway-Token: ${A10R_GW_TOKEN}
       X-Trace-Id: a10r
 
+guardrails:
+  - tenants: ["prod-*"]
+    actions: ["silence.expire"]
+    deny: true
+    reason: expire prod silences from the change ticket, not a10r
+  - tenants: ["prod-*"]
+    confirmation: type-tenant-name
+  - max_bulk: 20
+
 pages:
   alerts:
     poll_interval: 5s

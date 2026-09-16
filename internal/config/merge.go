@@ -140,6 +140,11 @@ func mergeInto(base, overlay *Config, overlayPath string, backendSource map[stri
 		base.Backends = append(base.Backends, b)
 	}
 
+	// Guardrails concatenate instead of last-layer-wins: a rule is a
+	// restriction, so a drop-in must be able to add one and must never
+	// be able to drop one the base file declared.
+	base.Guardrails = append(base.Guardrails, overlay.Guardrails...)
+
 	mergeDefaults(&base.Defaults, overlay.Defaults)
 	mergeTheme(&base.Theme, overlay.Theme)
 	mergeLog(&base.Log, overlay.Log)
