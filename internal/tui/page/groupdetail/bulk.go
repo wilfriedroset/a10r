@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -56,6 +57,14 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	targets := p.resolveBulkSilenceTargets()
 	if len(targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked instances remain")
+	}
+	// The cap is read before the confirm modal, so a refused run never
+	// asks a question it would not honour. The marks stay set on
+	// purpose: narrowing them is the retry. One count, because the
+	// page never leaves its tenant.
+	if msg := p.guardrails.BulkBreach("bulk silence", guardrail.ActionSilenceCreate,
+		map[string]int{p.tenant: len(targets)}); msg != "" {
+		return footer.ShowFlash(footer.FlashWarn, msg)
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
 	if len(targets) == 1 {

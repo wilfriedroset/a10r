@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -137,6 +138,9 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	if len(targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
+	if msg := p.bulkCapBreach(targets); msg != "" {
+		return footer.ShowFlash(footer.FlashWarn, msg)
+	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
 	if len(targets) == 1 {
 		return p.pushBulkSilenceForm()
@@ -145,6 +149,17 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewConfirm(question, modal.ConfirmDefaultYes)
 	})
+}
+
+// bulkCapBreach runs before the confirm modal, so a refused run never
+// asks a question it would not honour, and it leaves the marks alone
+// so the user can narrow them.
+func (p *Page) bulkCapBreach(targets []bulkSilenceTarget) string {
+	counts := make(map[string]int, len(targets))
+	for _, t := range targets {
+		counts[t.Tenant]++
+	}
+	return p.guardrails.BulkBreach("bulk silence", guardrail.ActionSilenceCreate, counts)
 }
 
 // resolveBulkSilenceTargets walks the current groups so a marked group

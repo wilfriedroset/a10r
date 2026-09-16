@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -114,6 +115,9 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	// Sort by ID for deterministic confirm-question wording and
 	// stable iteration order across runs / tests.
 	sort.Slice(ids, func(i, j int) bool { return ids[i].id < ids[j].id })
+	if msg := p.bulkCapBreach(ids); msg != "" {
+		return footer.ShowFlash(footer.FlashWarn, msg)
+	}
 	p.pendingExpire = pendingExpire{ids: ids, bulk: true}
 	var question string
 	if len(ids) == 1 {
@@ -124,6 +128,21 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
 	})
+}
+
+// bulkCapBreach runs before the confirm modal, so a refused run never
+// asks a question it would not honour, and it leaves the marks alone
+// so the user can narrow them. ids already carries every marked
+// silence, including one on a tenant with no writeable client, and the
+// count keeps it: refusing a press that would have failed anyway costs
+// nothing, and dropping it would let a capped tenant through whenever
+// its client is missing at that moment.
+func (p *Page) bulkCapBreach(ids []pendingExpireID) string {
+	counts := make(map[string]int, len(ids))
+	for _, id := range ids {
+		counts[id.tenant]++
+	}
+	return p.guardrails.BulkBreach("bulk expire", guardrail.ActionSilenceExpire, counts)
 }
 
 func formatTenantBreakdown(ids []pendingExpireID) string {

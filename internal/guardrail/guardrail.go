@@ -19,6 +19,7 @@ package guardrail
 
 import (
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -125,6 +126,18 @@ func (v Verdict) ExceedsBulk(count int) bool {
 	return v.MaxBulk > 0 && count > v.MaxBulk
 }
 
+// BulkMessage is the one sentence a surface prints when a target count
+// breaches the cap. Empty when the count fits. lead names the verb the
+// reader recognizes, which differs per surface: the TUI says "bulk
+// expire" because that is the key the user pressed, and the headless
+// path says "silence.expire" because that is the rule name to edit.
+func (v Verdict) BulkMessage(lead, tenant string, count int) string {
+	if !v.ExceedsBulk(count) {
+		return ""
+	}
+	return fmt.Sprintf("%s on %s: %d targets exceed max_bulk %d", lead, tenant, count, v.MaxBulk)
+}
+
 // DenyMessage is the one sentence a surface prints when policy refuses
 // a verb. It lives here so the TUI flash and the headless stderr line
 // cannot word the same refusal differently. Empty when nothing denies.
@@ -171,6 +184,19 @@ func (s Set) Evaluate(tenant, action string) Verdict {
 		v.Confirmation = v.Confirmation.Stronger(r.Confirmation)
 	}
 	return v
+}
+
+// BulkBreach names the first breached tenant in name order, or "" when
+// every count fits. Callers pass a count per tenant, never the run
+// total: a cap restricts what lands in one backend, so a run spread
+// over three tenants is three counts.
+func (s Set) BulkBreach(lead, action string, counts map[string]int) string {
+	for _, t := range slices.Sorted(maps.Keys(counts)) {
+		if msg := s.Evaluate(t, action).BulkMessage(lead, t, counts[t]); msg != "" {
+			return msg
+		}
+	}
+	return ""
 }
 
 // Validate checks every rule and returns the first problem, naming the

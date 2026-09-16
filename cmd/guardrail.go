@@ -69,10 +69,9 @@ func guardrailBlockFor(v guardrail.Verdict, name, tenant string, count int, conf
 
 	case v.ExceedsBulk(count):
 		return &guardrailBlock{
-			tenant: tenant,
-			note:   fmt.Sprintf("max_bulk %d exceeded", v.MaxBulk),
-			message: fmt.Sprintf("%s%s on %s: %d targets exceed max_bulk %d",
-				guardrailPrefix, name, tenant, count, v.MaxBulk),
+			tenant:  tenant,
+			note:    fmt.Sprintf("max_bulk %d exceeded", v.MaxBulk),
+			message: guardrailPrefix + v.BulkMessage(name, tenant, count),
 		}
 
 	// A plain confirmation has no headless form: typing the id on the

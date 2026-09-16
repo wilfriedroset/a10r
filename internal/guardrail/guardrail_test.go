@@ -380,3 +380,93 @@ func TestVerdict_DenyMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestVerdict_BulkMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		verdict Verdict
+		lead    string
+		count   int
+		want    string
+	}{
+		{
+			name:    "the TUI leads with the verb the user pressed",
+			verdict: Verdict{MaxBulk: 20},
+			lead:    "bulk expire",
+			count:   25,
+			want:    "bulk expire on prod-eu: 25 targets exceed max_bulk 20",
+		},
+		{
+			name:    "the headless surface leads with the action name",
+			verdict: Verdict{MaxBulk: 20},
+			lead:    ActionSilenceExpire,
+			count:   25,
+			want:    "silence.expire on prod-eu: 25 targets exceed max_bulk 20",
+		},
+		{
+			name:    "a count inside the cap has nothing to say",
+			verdict: Verdict{MaxBulk: 20},
+			lead:    "bulk expire",
+			count:   20,
+			want:    "",
+		},
+		{
+			name:    "an uncapped verdict has nothing to say",
+			verdict: Verdict{},
+			lead:    "bulk expire",
+			count:   99,
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.verdict.BulkMessage(tt.lead, "prod-eu", tt.count))
+		})
+	}
+}
+
+func TestSet_BulkBreach(t *testing.T) {
+	t.Parallel()
+
+	set := Set{
+		{Tenants: []string{"prod-eu"}, MaxBulk: 20},
+		{Tenants: []string{"prod-us"}, MaxBulk: 5},
+	}
+	tests := []struct {
+		name   string
+		counts map[string]int
+		want   string
+	}{
+		{
+			name:   "the first breached tenant in name order answers",
+			counts: map[string]int{"prod-eu": 25, "prod-us": 9},
+			want:   "bulk expire on prod-eu: 25 targets exceed max_bulk 20",
+		},
+		{
+			name:   "a tenant inside its cap does not hide the one over it",
+			counts: map[string]int{"prod-eu": 20, "prod-us": 9},
+			want:   "bulk expire on prod-us: 9 targets exceed max_bulk 5",
+		},
+		{
+			name:   "the cap counts one tenant at a time, never the run total",
+			counts: map[string]int{"prod-eu": 15, "prod-us": 5},
+			want:   "",
+		},
+		{
+			name:   "an unruled tenant is uncapped",
+			counts: map[string]int{"staging": 900},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, set.BulkBreach("bulk expire", ActionSilenceExpire, tt.counts))
+		})
+	}
+}

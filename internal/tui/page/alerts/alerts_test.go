@@ -1244,3 +1244,41 @@ func TestGuardrail_TheInstancePageInheritsThePolicy(t *testing.T) {
 	}
 	t.Fatal("the pushed page must keep its silence row")
 }
+
+// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins spec item
+// 8 on the alerts page: the check runs before the confirm modal and
+// the marks survive, so the user can narrow the selection and retry.
+func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants: []string{"prod-eu"},
+			Actions: []string{guardrail.ActionSilenceCreate},
+			MaxBulk: 2,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+		mkAlert("OOM", "warning", backend.AlertStateActive, "fp3", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 3)
+	for range p.groups {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a capped run flashes instead of opening the confirm modal")
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "bulk silence on prod-eu: 3 targets exceed max_bulk 2", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+}

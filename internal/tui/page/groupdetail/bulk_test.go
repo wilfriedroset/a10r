@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -153,4 +154,44 @@ func TestBulkSilence_FanoutRoundTripDropsMarksAndFlashes(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, footer.FlashSuccess, flash.Level)
 	require.Contains(t, flash.Text, "silenced 2 instances")
+}
+
+// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins spec item
+// 8 on this page: the check runs before the confirm modal and leaves
+// the marks set, so the user can narrow the selection and retry.
+func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	insts := make([]backend.Alert, 3)
+	for i := range insts {
+		insts[i] = instance(fmt.Sprintf("fp-%d", i), "warning", backend.AlertStateActive,
+			map[string]string{sortKeyInstance: fmt.Sprintf("web-%d", i)})
+	}
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+		Instances: insts,
+		Guardrails: guardrail.Set{{
+			Tenants: []string{tenant},
+			Actions: []string{guardrail.ActionSilenceCreate},
+			MaxBulk: 2,
+		}},
+	})
+	for range insts {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a capped run flashes instead of opening the confirm modal")
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "bulk silence on "+tenant+": 3 targets exceed max_bulk 2", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
 }

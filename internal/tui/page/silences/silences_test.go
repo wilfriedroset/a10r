@@ -2456,3 +2456,73 @@ func TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress(t *testing.T) {
 	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
 	require.Len(t, p.marks, 1, "a refusal leaves the marks so the user can narrow them")
 }
+
+// TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal pins spec item
+// 8: the count is per tenant, the check runs before the confirm modal,
+// and the marks survive so the user can narrow them.
+func TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants: []string{"prod"},
+			Actions: []string{guardrail.ActionSilenceExpire},
+			MaxBulk: 2,
+		}},
+	})
+	sils := make([]backend.Silence, 0, 3)
+	for _, id := range []string{"sil-1", "sil-2", "sil-3"} {
+		sils = append(sils, pagetest.Silence(pagetest.SilenceOptions{
+			ID: id, CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour,
+		}))
+	}
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: sils})
+	for range sils {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	msg := flashFrom(t, cmd)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "bulk expire on prod: 3 targets exceed max_bulk 2", msg.Text)
+	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
+	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+}
+
+// TestGuardrail_TheCapCountsOneTenantAtATime keeps a run that spreads
+// over two backends legal when neither backend goes over its own cap.
+func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Actions: []string{guardrail.ActionSilenceExpire},
+			MaxBulk: 1,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-2", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	_, isFlash := cmd().(footer.FlashShowMsg)
+	require.False(t, isFlash, "one target per tenant fits a cap of one")
+	require.Len(t, p.pendingExpire.ids, 2)
+}

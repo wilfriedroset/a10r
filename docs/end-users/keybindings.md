@@ -234,6 +234,14 @@ verb still works elsewhere, and `?` keeps listing it with a `[guarded]`
 suffix rather than dropping the row. Read-only is checked first, so a
 read-only session never mentions a rule.
 
+A `max_bulk` rule caps how many targets one press can send to one
+backend. The count is per tenant, not per run: a run that spreads ten
+targets over two capped backends counts what each backend gets, never
+the ten. Over the cap, the confirm modal never opens and the press
+flashes a warning such as `bulk expire on prod-eu: 25 targets exceed
+max_bulk 20`. Your marks stay set, so you can unmark rows and press
+again.
+
 ## Conventions you'll spot in the chrome
 
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.
