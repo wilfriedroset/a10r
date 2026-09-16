@@ -72,8 +72,9 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 		bulk: false,
 	}
 	question := "expire silence " + entry.s.ID + "?"
+	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceExpire, []string{entry.tenant})
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
 }
 
@@ -125,8 +126,13 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	} else {
 		question = fmt.Sprintf("expire %d silences? (tenant %s)", len(ids), formatTenantBreakdown(ids))
 	}
+	// markedTenants reads the same marks against the same byTenant map
+	// that built ids, so the prompt asks for the backends the run
+	// really touches. It keeps a mark on a tenant with no writeable
+	// client for the reason bulkCapBreach gives below.
+	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceExpire, p.markedTenants())
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
 }
 

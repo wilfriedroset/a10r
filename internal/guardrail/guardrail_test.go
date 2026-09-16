@@ -470,3 +470,45 @@ func TestSet_BulkBreach(t *testing.T) {
 		})
 	}
 }
+
+func TestSet_TypedTenants(t *testing.T) {
+	t.Parallel()
+
+	set := Set{
+		{Tenants: []string{"prod-*"}, Confirmation: ConfirmationTypeTenantName},
+		{Tenants: []string{"staging"}, Confirmation: ConfirmationPlain},
+		{Tenants: []string{"lab"}, Actions: []string{ActionSilenceCreate}, Confirmation: ConfirmationTypeTenantName},
+	}
+	tests := []struct {
+		name    string
+		action  string
+		tenants []string
+		want    []string
+	}{
+		{
+			name:    "only the tenants a typed rule covers are asked, in the given order",
+			action:  ActionSilenceExpire,
+			tenants: []string{"prod-us", "staging", "prod-eu"},
+			want:    []string{"prod-us", "prod-eu"},
+		},
+		{
+			name:    "a rule on another action asks for nothing",
+			action:  ActionSilenceExpire,
+			tenants: []string{"lab"},
+			want:    nil,
+		},
+		{
+			name:    "a plain rule stays plain",
+			action:  ActionSilenceExpire,
+			tenants: []string{"staging"},
+			want:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, set.TypedTenants(tt.action, tt.tenants))
+		})
+	}
+}

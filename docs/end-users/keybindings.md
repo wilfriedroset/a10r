@@ -242,6 +242,14 @@ flashes a warning such as `bulk expire on prod-eu: 25 targets exceed
 max_bulk 20`. Your marks stay set, so you can unmark rows and press
 again.
 
+A `confirmation: type-tenant-name` rule replaces the yes/no confirm with
+a typed prompt: you retype the backend name and press Enter. A typo
+keeps the prompt open and repeats what to type, and Esc cancels. A run
+that touches several restricted backends asks for each one in turn, and
+one Esc cancels the whole run before any write lands. A rule only
+strengthens the confirmation a key already has, so a verb no rule names
+keeps its usual prompt.
+
 ## Conventions you'll spot in the chrome
 
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.

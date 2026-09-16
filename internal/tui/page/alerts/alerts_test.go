@@ -1282,3 +1282,61 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
 	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
 }
+
+// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6
+// on the bulk silence path of this page.
+func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	for range p.groups {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+}
+
+// TestGuardrail_ATypedRuleReplacesTheSilenceAllModal pins spec item 6
+// on the cursor silence-all of a group with several instances.
+func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+}

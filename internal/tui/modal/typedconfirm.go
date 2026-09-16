@@ -27,6 +27,17 @@ type TypedConfirm struct {
 	mismatch bool
 }
 
+// NewGuardedConfirm picks the confirmation a write gets. typed names
+// the target tenants a guardrail rule restricts to the typed level, so
+// an empty list leaves the verb the yes/no prompt it has today: a rule
+// can only strengthen a confirmation, never weaken it.
+func NewGuardedConfirm(question string, def ConfirmDefault, typed []string) Modal {
+	if len(typed) > 0 {
+		return NewTypedConfirm(question, typed)
+	}
+	return NewConfirm(question, def)
+}
+
 // NewTypedConfirm builds the prompt for one write over the given
 // restricted tenants, in the order they are asked.
 func NewTypedConfirm(question string, tenants []string) *TypedConfirm {

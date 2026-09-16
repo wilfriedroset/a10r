@@ -199,3 +199,25 @@ func TestTypedConfirm_CtrlUClearsTheBuffer(t *testing.T) {
 	require.NotNil(t, cmd)
 	require.Equal(t, ConfirmResultMsg{Yes: true}, cmd())
 }
+
+func TestNewGuardedConfirm(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		typed []string
+		want  Modal
+	}{
+		{name: "no restricted tenant keeps the yes/no modal", typed: nil, want: &Confirm{}},
+		{name: "one restricted tenant demands the typed prompt", typed: []string{"prod"}, want: &TypedConfirm{}},
+		{name: "several restricted tenants demand the typed prompt", typed: []string{"prod", "prod-eu"}, want: &TypedConfirm{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := NewGuardedConfirm("expire silence sil-1?", ConfirmDefaultNo, tt.typed)
+			require.IsType(t, tt.want, got)
+			require.Contains(t, got.View(60, 12), "expire silence sil-1?")
+		})
+	}
+}

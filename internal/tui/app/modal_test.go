@@ -12,8 +12,20 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
+
+// TestOpenModal_ReadableByPageTests pins the open message against the
+// page test helper that reads it by field name. The helper cannot
+// name the unexported message type, so a rename here is caught next
+// to the file that caused it rather than in the page suites.
+func TestOpenModal_ReadableByPageTests(t *testing.T) {
+	t.Parallel()
+	want := modal.NewConfirm("expire silence sil-1?", modal.ConfirmDefaultNo)
+	got := pagetest.OpenedModal(t, OpenModal(func() modal.Modal { return want }))
+	require.Same(t, want, got)
+}
 
 func TestModal_KeysCapturedBeforeDispatcher(t *testing.T) {
 	t.Parallel()

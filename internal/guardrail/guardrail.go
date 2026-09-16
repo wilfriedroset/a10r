@@ -199,6 +199,20 @@ func (s Set) BulkBreach(lead, action string, counts map[string]int) string {
 	return ""
 }
 
+// TypedTenants lists the tenants, in the order given, that demand the
+// typed confirmation for this action. Empty means the verb keeps the
+// confirmation it has today, because a rule can only strengthen the
+// prompt, never weaken it.
+func (s Set) TypedTenants(action string, tenants []string) []string {
+	var out []string
+	for _, t := range tenants {
+		if s.Evaluate(t, action).Confirmation.rank() >= ConfirmationTypeTenantName.rank() {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // Validate checks every rule and returns the first problem, naming the
 // rule by its index in config order. It is fail-closed by design: a
 // guardrail the loader cannot understand must stop startup rather than

@@ -70,8 +70,10 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	if len(targets) == 1 {
 		return p.pushBulkSilenceForm()
 	}
+	question := bulkSilenceQuestion(len(targets), p.tenant)
+	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, []string{p.tenant})
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(bulkSilenceQuestion(len(targets), p.tenant), modal.ConfirmDefaultYes)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
 }
 

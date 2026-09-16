@@ -2526,3 +2526,102 @@ func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
 	require.False(t, isFlash, "one target per tenant fits a cap of one")
 	require.Len(t, p.pendingExpire.ids, 2)
 }
+
+// TestGuardrail_ATypedRuleReplacesTheYesNoModal pins spec item 6 on the
+// cursor row: the rule strengthens the prompt the verb already has, and
+// the prompt asks for the tenant the write lands in.
+func TestGuardrail_ATypedRuleReplacesTheYesNoModal(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceExpire},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(60, 12), `type "prod" to confirm`)
+}
+
+// TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone
+// keeps the per-tenant contract of spec item 6 on the bulk expire
+// path: a run over two backends asks only for the restricted one.
+func TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod"},
+			Actions:      []string{guardrail.ActionSilenceExpire},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-2", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	view := m.View(60, 12)
+	require.Contains(t, view, `type "prod" to confirm`)
+	require.NotContains(t, view, "tenant 1 of 2", "only the restricted tenant is asked for")
+}
+
+// TestGuardrail_ARuleOnAnotherTenantKeepsTheYesNoModal keeps the
+// default confirmation of every write the policy does not restrict.
+func TestGuardrail_ARuleOnAnotherTenantKeepsTheYesNoModal(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{
+		Tenants:      []string{"staging"},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.IsType(t, &modal.Confirm{}, pagetest.OpenedModal(t, cmd))
+}
+
+// TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant keeps a run that
+// marks several rows on one backend to a single question: the prompt
+// asks for a backend name, so two rows on the same backend are one
+// answer, not two.
+func TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod"},
+			Actions:      []string{guardrail.ActionSilenceExpire},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-2", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.NotContains(t, m.View(70, 14), "tenant 1 of 2", "one backend is one question")
+}

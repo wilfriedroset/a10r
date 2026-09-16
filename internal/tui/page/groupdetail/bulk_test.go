@@ -195,3 +195,38 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
 	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
 }
+
+// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6
+// on this page: the rule strengthens the prompt the verb already has.
+func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
+	t.Parallel()
+
+	insts := make([]backend.Alert, 2)
+	for i := range insts {
+		insts[i] = instance(fmt.Sprintf("fp-%d", i), "warning", backend.AlertStateActive,
+			map[string]string{sortKeyInstance: fmt.Sprintf("web-%d", i)})
+	}
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+		Instances: insts,
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{tenant},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	for range insts {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "`+tenant+`" to confirm`)
+}

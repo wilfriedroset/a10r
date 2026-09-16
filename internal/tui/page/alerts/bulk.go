@@ -146,8 +146,9 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return p.pushBulkSilenceForm()
 	}
 	question := fmt.Sprintf("silence %d alerts? (tenant %s)", len(targets), formatTenantBreakdownAlerts(targets))
+	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, tenants)
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultYes)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
 }
 
