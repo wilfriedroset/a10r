@@ -13,6 +13,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 )
 
+// pageTenant is the `:` alias of the tenant page. The other four
+// snapshot pages double as poll-resource labels and take their
+// constants from poller.go; this one has no poller, so it lives
+// next to the registration that owns the name.
+const pageTenant = "tenant"
+
 // newResolver builds the cmdbar resolver with the in-tree alias
 // catalogue. Each `:command` handler hands an env-bound page factory
 // to app.PushPage; pageEnv carries the shared deps so the resolver
@@ -41,7 +47,7 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 	tenantFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
-	r.RegisterGroup([]string{"tenant", "tenants"}, tenantFactory)
+	r.RegisterGroup([]string{pageTenant, "tenants"}, tenantFactory)
 	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
 	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can
 	// Close() every page on the stack (cancelling in-flight bulk

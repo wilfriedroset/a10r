@@ -64,6 +64,7 @@ type Result struct {
 	clients  map[string]backend.Client
 	registry *pollerRegistry
 	env      *pageEnv
+	resolver *cmdbar.Resolver
 	store    *uistate.Store
 	stderr   io.Writer
 }
@@ -186,6 +187,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		clients:  clients,
 		registry: registry,
 		env:      env,
+		resolver: resolver,
 		store:    store,
 		stderr:   errOut,
 	}, nil
