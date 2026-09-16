@@ -326,6 +326,7 @@ func (p *Page) buildInstancePage(g alertGroup) app.Page {
 		Creator:         p.creator,
 		TimeFormat:      p.timeFormat,
 		ReadOnly:        p.readOnly,
+		Guardrails:      p.guardrails,
 		BulkConcurrency: p.bulkConcurrency,
 		Logger:          p.logger,
 		BulkCtx:         p.bulkCtx,

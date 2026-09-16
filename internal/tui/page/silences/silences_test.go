@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -2262,4 +2263,196 @@ func TestBindings_MarkIsShared(t *testing.T) {
 		}
 	}
 	require.True(t, found, "silences page binds Space/mark")
+}
+
+// guardedRowsPage builds a populated silences page over tenant "prod"
+// with the given write policy, so the tests below read the guardrail
+// path and nothing else.
+func guardedRowsPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator:    "wilfried",
+		Guardrails: rules,
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}, Tenant: "prod"})
+	return p
+}
+
+// flashFrom reads the flash a refused press returns. A press that
+// opens a modal instead must fail the test rather than panic.
+func flashFrom(t *testing.T, cmd tea.Cmd) footer.FlashShowMsg {
+	t.Helper()
+	out := cmd()
+	msg, ok := out.(footer.FlashShowMsg)
+	require.True(t, ok, "expected a flash, got %T", out)
+	return msg
+}
+
+// guardedKeys lists the keys the page currently reports as guarded, so
+// a test names the whole outcome rather than one binding at a time.
+func guardedKeys(p *Page) []string {
+	var out []string
+	for _, b := range p.Bindings() {
+		if b.Guarded {
+			out = append(out, b.Key)
+		}
+	}
+	return out
+}
+
+// TestGuardrail_DenyMarksOnlyTheDeniedVerb pins the action mapping: a
+// rule names one of the four silence verbs, and only the keys that
+// reach that verb carry the [guarded] suffix.
+func TestGuardrail_DenyMarksOnlyTheDeniedVerb(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		action string
+		want   []string
+	}{
+		{guardrail.ActionSilenceCreate, []string{"n"}},
+		{guardrail.ActionSilenceUpdate, []string{"e", "Ctrl+E"}},
+		{guardrail.ActionSilenceExpire, []string{"x"}},
+		{guardrail.ActionSilenceRecreate, []string{"Ctrl+N"}},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			t.Parallel()
+
+			p := guardedRowsPage(t, guardrail.Set{{
+				Tenants: []string{"prod"},
+				Actions: []string{tc.action},
+				Deny:    true,
+			}})
+			require.Equal(t, tc.want, guardedKeys(p))
+		})
+	}
+}
+
+func TestGuardrail_DeniedKeyFlashesTheRefusal(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{
+		Tenants: []string{"prod"},
+		Actions: []string{guardrail.ActionSilenceExpire},
+		Deny:    true,
+		Reason:  "use the change ticket",
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	msg := flashFrom(t, cmd)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
+}
+
+// TestGuardrail_ReadOnlyOutranksTheRule pins spec item 11: the
+// read-only gate runs first, so a page that is both read-only and
+// denied reports read-only and never quotes the rule.
+func TestGuardrail_ReadOnlyOutranksTheRule(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		ReadOnly:   true,
+		Guardrails: guardrail.Set{{Deny: true, Reason: "frozen"}},
+	})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}, Tenant: "prod"})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	msg := flashFrom(t, cmd)
+	require.Equal(t, hintReadOnly, msg.Text)
+}
+
+func TestGuardrail_ARuleOnAnotherTenantLeavesEveryVerbAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{Tenants: []string{"staging"}, Deny: true}})
+	require.Empty(t, guardedKeys(p))
+}
+
+// TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress covers the
+// range branch of `x`: the rows are not marked until the press commits
+// them, so the commit has to run before the policy reads the marks.
+func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants: []string{"prod"},
+			Actions: []string{guardrail.ActionSilenceExpire},
+			Deny:    true,
+			Reason:  "use the change ticket",
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-2", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}})
+	require.Len(t, p.view, 2)
+	require.Equal(t, "prod", p.view[0].tenant, "the range must start on the denied tenant")
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a denied press flashes instead of opening the confirm modal")
+	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
+	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
+}
+
+// TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress pins the
+// walk the policy uses. openBulkExpireConfirm queues from p.byTenant
+// so a mark survives a filter change, and the policy has to read the
+// same source or a hidden mark reaches the write unchecked.
+func TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants: []string{"prod"},
+			Actions: []string{guardrail.ActionSilenceExpire},
+			Deny:    true,
+			Reason:  "use the change ticket",
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-2", CreatedBy: "bob", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+	}})
+	require.Equal(t, "prod", p.view[0].tenant)
+
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 1)
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "bob"})
+	require.Len(t, p.view, 1, "the marked row is hidden")
+	require.Equal(t, "staging", p.view[0].tenant)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	msg := flashFrom(t, cmd)
+	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
+	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
+	require.Len(t, p.marks, 1, "a refusal leaves the marks so the user can narrow them")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -1135,4 +1136,93 @@ func TestPage_ReadOnlyKeepsCopyFieldBinding(t *testing.T) {
 	}
 	require.Contains(t, keys, "Y", "copying a field mutates nothing, so read-only mode keeps it")
 	require.NotContains(t, keys, "s", "silencing is Dangerous and stays filtered")
+}
+
+// guardedPage builds a page whose tenant a deny rule covers, so the
+// tests below read the guardrail path and nothing else.
+func guardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	return New(Options{
+		Alert:      sample(),
+		Tenant:     "prod",
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Guardrails: rules,
+	})
+}
+
+func TestGuardrail_DenyKeepsTheBindingButMarksIt(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{
+		Tenants: []string{"prod"},
+		Actions: []string{guardrail.ActionSilenceCreate},
+		Deny:    true,
+	}})
+
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.True(t, b.Guarded, "the help overlay keeps the row and says why")
+			return
+		}
+	}
+	t.Fatal("the s binding must survive a deny rule")
+}
+
+func TestGuardrail_SilenceKeyFlashesTheDeny(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{
+		Tenants: []string{"prod"},
+		Actions: []string{guardrail.ActionSilenceCreate},
+		Deny:    true,
+		Reason:  "use the change ticket",
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	flash := flashFrom(t, cmd)
+	require.Equal(t, footer.FlashWarn, flash.Level)
+	require.Equal(t, "silence.create denied on prod: use the change ticket", flash.Text)
+}
+
+func TestGuardrail_ARuleOnAnotherTenantLeavesTheVerbAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"staging"}, Deny: true}})
+
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+			return
+		}
+	}
+	t.Fatal("the s binding must survive a rule on another tenant")
+}
+
+// TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy pins the
+// wiring: boot is not the only place a silences page is built, and a
+// page built here with an empty rule set would let every verb through
+// on a tenant a rule denies.
+func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
+	t.Parallel()
+
+	rules := guardrail.Set{{
+		Tenants: []string{"prod"},
+		Actions: []string{guardrail.ActionSilenceExpire},
+		Deny:    true,
+	}}
+	p := New(Options{
+		Alert:      suppressedSample([]string{"sil-1", "sil-2"}, nil, nil),
+		Tenant:     "prod",
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Guardrails: rules,
+		ReadOnly:   true,
+	})
+
+	opts := p.silencesPageOptions()
+	require.Equal(t, rules, opts.Guardrails)
+	require.True(t, opts.ReadOnly, "the read-only gate travels with it")
+	require.Equal(t, []string{"sil-1", "sil-2"}, opts.RestrictIDs)
 }

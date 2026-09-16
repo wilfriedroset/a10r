@@ -5,12 +5,14 @@ package silences
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -150,23 +152,23 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "n":
-		cmd := p.runWriteAction(p.openNewSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceCreate, p.openNewSilenceForm)
 		return p, cmd
 	case "e":
-		cmd := p.runWriteAction(p.openEditSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceUpdate, p.openEditSilenceForm)
 		return p, cmd
 	case "x", "delete":
-		cmd := p.runWriteAction(p.openExpireConfirmUnified)
+		cmd := p.runWriteAction(guardrail.ActionSilenceExpire, p.openExpireConfirmUnified)
 		return p, cmd
 	case "space":
 		listpage.MarkOrCommit(&p.Base, p.view, p.marks, markKey)
 	case "V":
 		listpage.StartOrCommitVisual(&p.Base, p.view, p.marks, markKey)
 	case "ctrl+e":
-		cmd := p.runWriteAction(p.openEditorForCursor)
+		cmd := p.runWriteAction(guardrail.ActionSilenceUpdate, p.openEditorForCursor)
 		return p, cmd
 	case "ctrl+n":
-		cmd := p.runWriteAction(p.openRecreateSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceRecreate, p.openRecreateSilenceForm)
 		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
@@ -180,16 +182,83 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
-// runWriteAction is the read-only gate applied to every Dangerous
-// keypress on the page. When the page is read-only it short-circuits
-// with a single Warn flash; otherwise it dispatches the wrapped
-// handler. Centralised here so the read-only contract has one
-// touch-point and a stray new write verb cannot bypass it.
-func (p *Page) runWriteAction(action func() tea.Cmd) tea.Cmd {
+// runWriteAction is the read-only and write-policy gate applied to
+// every Dangerous keypress on the page. Read-only is checked first and
+// always wins, so a rule is never quoted on a backend that cannot be
+// written to at all (guardrails spec item 11). Centralised here so both
+// contracts have one touch-point and a stray new write verb cannot
+// bypass them. name is a guardrail.ActionSilence* constant, never a
+// hand-written string: a name no rule can match would fail open.
+func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
 	if p.readOnly {
 		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 	}
+	if name == guardrail.ActionSilenceExpire {
+		// Expire is the one verb that fans out over marks, and an open
+		// range is not marked until something commits it. The commit
+		// runs here so the policy sees the rows the press would really
+		// reach, and after the read-only gate so a read-only refusal
+		// leaves the range alone. A guardrail refusal keeps the marks
+		// on purpose, so the user can narrow them.
+		listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
+	}
+	if msg, denied := p.writeDeny(name); denied {
+		return footer.ShowFlash(footer.FlashWarn, msg)
+	}
 	return action()
+}
+
+// writeDeny asks the write policy about the tenants the named verb
+// would land in. It returns the flash sentence for the first denied
+// tenant, because one refusal already stops the whole press.
+func (p *Page) writeDeny(name string) (string, bool) {
+	if len(p.guardrails) == 0 {
+		return "", false
+	}
+	for _, t := range p.writeTenants(name) {
+		if v := p.guardrails.Evaluate(t, name); v.Denied {
+			return v.DenyMessage(name, t), true
+		}
+	}
+	return "", false
+}
+
+// writeTenants lists the tenants the named verb would write to, once
+// each. Expire is the only verb that fans out over marks; the others
+// act on one row, and a new silence lands wherever pickWriteTarget
+// resolves when the cursor row cannot host it.
+func (p *Page) writeTenants(name string) []string {
+	switch {
+	case name == guardrail.ActionSilenceCreate:
+		if t, _, ok := p.pickWriteTarget(); ok {
+			return []string{t}
+		}
+		return nil
+	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
+		return p.markedTenants()
+	case p.Index() < len(p.view):
+		return []string{p.view[p.Index()].tenant}
+	}
+	return nil
+}
+
+// markedTenants lists the tenants the marked silences live in, once
+// each and in a stable order. It walks byTenant rather than the
+// filtered view because openBulkExpireConfirm queues from byTenant
+// too: a mark the active filter hides still reaches the write, so the
+// policy has to see the same rows.
+func (p *Page) markedTenants() []string {
+	var out []string
+	for tenant, sils := range p.byTenant {
+		for _, s := range sils {
+			if _, marked := p.marks[s.ID]; marked {
+				out = append(out, tenant)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // hintReadOnly is the flash text emitted when a write keystroke

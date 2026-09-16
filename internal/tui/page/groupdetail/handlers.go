@@ -218,6 +218,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 	editorResolver := p.editorResolver
 	editorCtx := p.editorCtx
 	tenant := p.tenant
+	guardrails := p.guardrails
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
 			Alert:           entry.a,
@@ -228,6 +229,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 			Creator:         creator,
 			TimeFormat:      tf,
 			ReadOnly:        readOnly,
+			Guardrails:      guardrails,
 			BulkConcurrency: bulkConcurrency,
 			Logger:          logger,
 			BulkCtx:         bulkCtx,
@@ -295,41 +297,38 @@ func (p *Page) openSilencesView() tea.Cmd {
 	if len(union) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no silences attached to this alert")
 	}
-	styles := p.styles
-	now := p.now
-	clients := p.clients
-	creator := p.creator
-	editorResolver := p.editorResolver
-	timeFormat := p.timeFormat
-	bulkConcurrency := p.bulkConcurrency
-	logger := p.logger
-	readOnly := p.readOnly
-	editorCtx := p.editorCtx
-	bulkCtx := p.bulkCtx
-	submitCtx := p.submitCtx
-	tenant := p.tenant
-	alertName := p.alertName
-	labels := p.commonLabelsCopy()
+	// The options are built here, outside the closure, so the pushed
+	// page captures a value rather than this page.
+	opts := p.silencesPageOptions(union)
 	return app.PushPage(func() app.Page {
-		return silencespage.New(silencespage.Options{
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			EditorResolver:  editorResolver,
-			TimeFormat:      timeFormat,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			ReadOnly:        readOnly,
-			EditorCtx:       editorCtx,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			Tenants:         []string{tenant},
-			RestrictIDs:     union,
-			AlertName:       alertName,
-			AlertLabels:     labels,
-		})
+		return silencespage.New(opts)
 	})
+}
+
+// silencesPageOptions is what the restricted silences list inherits
+// from this page. Every write-policy field has to travel: boot is not
+// the only construction site, and a page built without the guardrails
+// would let a denied verb through.
+func (p *Page) silencesPageOptions(restrictIDs []string) silencespage.Options {
+	return silencespage.Options{
+		Styles:          p.styles,
+		Now:             p.now,
+		Clients:         p.clients,
+		Creator:         p.creator,
+		EditorResolver:  p.editorResolver,
+		TimeFormat:      p.timeFormat,
+		BulkConcurrency: p.bulkConcurrency,
+		Logger:          p.logger,
+		ReadOnly:        p.readOnly,
+		Guardrails:      p.guardrails,
+		EditorCtx:       p.editorCtx,
+		BulkCtx:         p.bulkCtx,
+		SubmitCtx:       p.submitCtx,
+		Tenants:         []string{p.tenant},
+		RestrictIDs:     restrictIDs,
+		AlertName:       p.alertName,
+		AlertLabels:     p.commonLabelsCopy(),
+	}
 }
 
 // silencedByUnion collects the distinct SilencedBy IDs across all

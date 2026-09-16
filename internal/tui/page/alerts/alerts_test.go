@@ -1220,3 +1220,27 @@ func (f *fakeSilenceClient) callsCopy() []backend.SilenceSpec {
 	copy(out, f.calls)
 	return out
 }
+
+// TestGuardrail_TheInstancePageInheritsThePolicy pins the wiring: the
+// drill-down builds the alert detail page here, so a page built with
+// an empty rule set would let a denied silence through one Enter away
+// from a guarded list.
+func TestGuardrail_TheInstancePageInheritsThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{
+		Tenants: []string{"prod-*"},
+		Actions: []string{guardrail.ActionSilenceCreate},
+		Deny:    true,
+	}})
+
+	page, ok := p.buildInstancePage(p.groups[0]).(*alert.Page)
+	require.True(t, ok)
+	for _, b := range page.Bindings() {
+		if b.Key == "s" {
+			require.True(t, b.Guarded, "the pushed page reads the same rules")
+			return
+		}
+	}
+	t.Fatal("the pushed page must keep its silence row")
+}

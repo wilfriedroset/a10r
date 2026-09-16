@@ -94,6 +94,7 @@ func newSilencesPage(env *pageEnv) app.Page {
 		BulkConcurrency: env.Config.Defaults.BulkConcurrencyOrDefault(),
 		Logger:          slog.Default(),
 		ReadOnly:        env.ReadOnly,
+		Guardrails:      env.Guardrails,
 		EditorCtx:       env.EditorCtx,
 		BulkCtx:         env.EditorCtx,
 		SubmitCtx:       env.EditorCtx,

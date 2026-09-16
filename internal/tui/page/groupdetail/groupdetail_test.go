@@ -471,3 +471,22 @@ func TestBindings_MarkIsShared(t *testing.T) {
 	}
 	require.True(t, found, "group detail binds Space/mark")
 }
+
+// TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy pins the
+// wiring: boot is not the only place a silences page is built, and a
+// page built here with an empty rule set would let every verb through
+// on a tenant a rule denies.
+func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
+	t.Parallel()
+
+	rules := guardrail.Set{{
+		Tenants: []string{tenant},
+		Actions: []string{guardrail.ActionSilenceExpire},
+		Deny:    true,
+	}}
+	p := guardedPage(t, rules)
+
+	opts := p.silencesPageOptions([]string{"sil-1"})
+	require.Equal(t, rules, opts.Guardrails)
+	require.Equal(t, []string{"sil-1"}, opts.RestrictIDs)
+}

@@ -19,6 +19,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
@@ -51,6 +52,9 @@ type Options struct {
 	Alert  backend.Alert
 	Tenant string
 	Styles *theme.Styles
+	// Guardrails is the per-tenant write policy. The page sits on one
+	// tenant, so a rule that denies the verb there marks `s` guarded.
+	Guardrails guardrail.Set
 	// Clipboard handles `c` (copy fingerprint) and `Y` (copy any
 	// field); nil defaults to OSC52.
 	Clipboard clipboard.Clipboard
@@ -123,6 +127,9 @@ type Page struct {
 	// readOnly filters Dangerous bindings and turns `s` into a flash hint.
 	readOnly bool
 
+	// guardrails: see Options.Guardrails.
+	guardrails guardrail.Set
+
 	// rawYAML toggles the body to a raw payload dump (k9s-style escape
 	// hatch). Per-page, not persisted across pushes, so a fresh drill-in
 	// always opens on the more legible structured view.
@@ -161,6 +168,7 @@ func New(opts Options) *Page {
 		timeFormat:      opts.TimeFormat,
 		silences:        map[string]backend.Silence{},
 		readOnly:        opts.ReadOnly,
+		guardrails:      opts.Guardrails,
 		editorResolver:  opts.EditorResolver,
 		editorCtx:       opts.EditorCtx,
 		bulkConcurrency: opts.BulkConcurrency,
@@ -192,8 +200,9 @@ func (p *Page) Title() string {
 // Bindings returns the page's key bindings; Dangerous (`s`) entries
 // are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
+	_, guarded := p.silenceDeny()
 	out := []action.Action{
-		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true},
+		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true, Guarded: guarded},
 		{Key: "S", Description: "open silences", View: viewAlert},
 		{Key: "y", Description: "yaml", View: viewAlert},
 		{Key: "c", Description: "copy fp", View: viewAlert},
@@ -262,6 +271,9 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if p.readOnly {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
+		if msg, denied := p.silenceDeny(); denied {
+			return p, footer.ShowFlash(footer.FlashWarn, msg)
+		}
 		cmd := p.openSilenceForm()
 		return p, cmd
 	case "S":
@@ -321,6 +333,16 @@ func (p *Page) openSilenceForm() tea.Cmd {
 }
 
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
+
+// silenceDeny asks the write policy about this page's single tenant.
+// It returns the flash sentence when a rule denies the verb.
+func (p *Page) silenceDeny() (string, bool) {
+	if len(p.guardrails) == 0 {
+		return "", false
+	}
+	v := p.guardrails.Evaluate(p.tenant, guardrail.ActionSilenceCreate)
+	return v.DenyMessage(guardrail.ActionSilenceCreate, p.tenant), v.Denied
+}
 
 func (p *Page) copyFingerprint() tea.Cmd {
 	if p.a.Fingerprint == "" {
@@ -598,42 +620,38 @@ func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 1 {
 		return p.openSilenceDetail(p.silencedBy[0])
 	}
-	silencedBy := p.silencedBy
-	styles := p.styles
-	now := p.now
-	clients := p.clients
-	creator := p.creator
-	editorResolver := p.editorResolver
-	timeFormat := p.timeFormat
-	bulkConcurrency := p.bulkConcurrency
-	logger := p.logger
-	readOnly := p.readOnly
-	editorCtx := p.editorCtx
-	bulkCtx := p.bulkCtx
-	submitCtx := p.submitCtx
-	tenant := p.tenant
-	alertName := p.a.Labels["alertname"]
-	labels := p.a.Labels
+	// The options are built here, outside the closure, so the pushed
+	// page captures a value rather than this page.
+	opts := p.silencesPageOptions()
 	return app.PushPage(func() app.Page {
-		return silencespage.New(silencespage.Options{
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			EditorResolver:  editorResolver,
-			TimeFormat:      timeFormat,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			ReadOnly:        readOnly,
-			EditorCtx:       editorCtx,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			Tenants:         []string{tenant},
-			RestrictIDs:     silencedBy,
-			AlertName:       alertName,
-			AlertLabels:     labels,
-		})
+		return silencespage.New(opts)
 	})
+}
+
+// silencesPageOptions is what the restricted silences list inherits
+// from this page. Every write-policy field has to travel: boot is not
+// the only construction site, and a page built without the guardrails
+// would let a denied verb through.
+func (p *Page) silencesPageOptions() silencespage.Options {
+	return silencespage.Options{
+		Styles:          p.styles,
+		Now:             p.now,
+		Clients:         p.clients,
+		Creator:         p.creator,
+		EditorResolver:  p.editorResolver,
+		TimeFormat:      p.timeFormat,
+		BulkConcurrency: p.bulkConcurrency,
+		Logger:          p.logger,
+		ReadOnly:        p.readOnly,
+		Guardrails:      p.guardrails,
+		EditorCtx:       p.editorCtx,
+		BulkCtx:         p.bulkCtx,
+		SubmitCtx:       p.submitCtx,
+		Tenants:         []string{p.tenant},
+		RestrictIDs:     p.silencedBy,
+		AlertName:       p.a.Labels["alertname"],
+		AlertLabels:     p.a.Labels,
+	}
 }
 
 // dedupStrings preserves first-occurrence order to match the stable

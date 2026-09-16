@@ -28,6 +28,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -188,6 +189,9 @@ type Page struct {
 	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
 	readOnly bool
 
+	// guardrails: see Options.Guardrails.
+	guardrails guardrail.Set
+
 	// editorCtx is the parent context the editor subprocess
 	// inherits when the user presses Ctrl+E. Wired to the
 	// program's RunE ctx so a parent shutdown aborts a hung
@@ -234,6 +238,10 @@ type Options struct {
 	// from the resolved defaults.read_only / --read-only / A10R_READ_ONLY
 	// chain so a misclick or stray paste cannot mutate state.
 	ReadOnly bool
+	// Guardrails is the per-tenant write policy. Each of the page's
+	// four write verbs asks it about the tenants that key would land
+	// in, so a rule can guard `x` on one backend and leave `n` alone.
+	Guardrails guardrail.Set
 	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
 	// inherits. Cancelling kills the editor so a parent shutdown
 	// can abort a hung session. nil falls back to
@@ -304,6 +312,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		guardrails:      opts.Guardrails,
 		editorCtx:       opts.EditorCtx,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
@@ -401,15 +410,19 @@ func (*Page) PollResources() []string { return []string{resourceSilences} }
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings(resourceSilences)
 	out := make([]action.Action, 0, 8+len(sortBindings))
+	_, create := p.writeDeny(guardrail.ActionSilenceCreate)
+	_, update := p.writeDeny(guardrail.ActionSilenceUpdate)
+	_, expire := p.writeDeny(guardrail.ActionSilenceExpire)
+	_, recreate := p.writeDeny(guardrail.ActionSilenceRecreate)
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: resourceSilences},
-		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true, Guarded: create},
+		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true, Guarded: update},
+		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true, Guarded: expire},
 		action.Action{Key: "Space", Description: "mark", View: resourceSilences, Shared: true},
 		action.Action{Key: "Shift+V", Description: "mark range", View: resourceSilences, Shared: true},
-		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true, Guarded: update},
+		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true, Guarded: recreate},
 	)
 	out = append(out, sortBindings...)
 	out = append(out,
