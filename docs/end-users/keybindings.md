@@ -220,6 +220,20 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 
 `--read-only` (or `read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
 
+## Guardrails
+
+A `guardrails:` rule can deny a write verb on the tenants it names (see
+[configuration.md](configuration.md#guardrails)). A denied verb follows
+the same hiding rule as read-only: the key stops appearing in the
+right-hand hint strip, and pressing it flashes a warning such as
+`silence.create denied on prod-eu: use the change ticket` instead of
+acting.
+
+The difference from read-only is scope. A rule names tenants, so the
+verb still works elsewhere, and `?` keeps listing it with a `[guarded]`
+suffix rather than dropping the row. Read-only is checked first, so a
+read-only session never mentions a rule.
+
 ## Conventions you'll spot in the chrome
 
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.

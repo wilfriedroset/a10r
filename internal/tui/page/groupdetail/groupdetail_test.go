@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
@@ -387,6 +388,51 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
 	require.Contains(t, msg.Text, "read-only")
+}
+
+func guardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	return New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Tenant:     tenant,
+		AlertName:  alertName,
+		Guardrails: rules,
+		Instances:  []backend.Alert{instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1})},
+	})
+}
+
+func TestGuardrail_DenyKeepsTheBindingButMarksIt(t *testing.T) {
+	t.Parallel()
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{tenant}, Deny: true}})
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			found = true
+			require.True(t, b.Guarded, "a denied verb is marked, not dropped")
+		}
+	}
+	require.True(t, found, "the help overlay still needs the silence row")
+}
+
+func TestGuardrail_SilenceKeyFlashesTheDeny(t *testing.T) {
+	t.Parallel()
+	p := guardedPage(t, guardrail.Set{{Deny: true, Reason: "frozen"}})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "silence.create denied on prod: frozen", msg.Text)
+}
+
+func TestGuardrail_ARuleOnAnotherTenantLeavesTheVerbAlone(t *testing.T) {
+	t.Parallel()
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"staging"}, Deny: true}})
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+		}
+	}
 }
 
 func TestTitle_CountsAndFilteredForm(t *testing.T) {

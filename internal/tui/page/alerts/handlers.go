@@ -221,7 +221,14 @@ func (p *Page) requestRefresh() tea.Cmd {
 // the ≥2-marks bulk confirm are distinct paths with separate pending
 // state — see bulk.go.
 func (p *Page) openSilenceForS() tea.Cmd {
+	// The deny check sits after the commit, not in handleAction: an
+	// open range is not marked yet, so checking earlier would read the
+	// cursor group alone and let the range carry a denied tenant
+	// through. Marks are additive, so a refusal here keeps them.
 	listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey)
+	if msg, denied := p.silenceDeny(); denied {
+		return footer.ShowFlash(footer.FlashWarn, msg)
+	}
 	if len(p.marks) == 0 {
 		return p.openSilenceAllForCursor()
 	}
@@ -352,6 +359,7 @@ func (p *Page) buildGroupPage(g alertGroup) app.Page {
 		TimeFormat:      p.timeFormat,
 		StateFormat:     p.stateFormat,
 		ReadOnly:        p.readOnly,
+		Guardrails:      p.guardrails,
 		BulkConcurrency: p.bulkConcurrency,
 		Logger:          p.logger,
 		BulkCtx:         p.bulkCtx,

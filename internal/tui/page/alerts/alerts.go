@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -232,6 +234,11 @@ type Options struct {
 	// fanout surfaces individual CreateSilence failures. Nil
 	// suppresses logging.
 	Logger *slog.Logger
+	// Guardrails is the per-tenant write policy. The page consults it
+	// for the tenants the `s` key would write to, so a rule that names
+	// one backend leaves the verb working on the others.
+	Guardrails guardrail.Set
+
 	// ReadOnly hides the page's Dangerous bindings (`s` for
 	// silence) from the hint strip / help overlay and turns the
 	// keystroke into a flash hint. Wired from the resolved
@@ -356,6 +363,45 @@ func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + aler
 // so a re-sort carries a mark with its row instead of its index.
 func markKey(g alertGroup) string { return g.key() }
 
+// silenceDeny asks the write policy about the tenants an `s` press
+// would land in: every marked group when marks are set, the cursor
+// group otherwise. It returns the flash sentence for the first denied
+// tenant, because one refusal already stops the whole press.
+func (p *Page) silenceDeny() (string, bool) {
+	if len(p.guardrails) == 0 {
+		return "", false
+	}
+	for _, g := range p.silenceTargets() {
+		v := p.guardrails.Evaluate(g, guardrail.ActionSilenceCreate)
+		if v.Denied {
+			return v.DenyMessage(guardrail.ActionSilenceCreate, g), true
+		}
+	}
+	return "", false
+}
+
+// silenceTargets lists the tenants `s` would write to, once each. It
+// keeps a marked tenant with no writeable client, which
+// resolveBulkSilenceTargets drops: refusing a press that would have
+// flashed "no writeable backend" costs nothing, and aligning the two
+// walks would let a denied tenant through whenever its client is
+// missing at that moment.
+func (p *Page) silenceTargets() []string {
+	var out []string
+	if len(p.marks) > 0 {
+		for _, g := range p.groups {
+			if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
+				out = append(out, g.tenant)
+			}
+		}
+		return out
+	}
+	if p.Index() < len(p.groups) {
+		out = append(out, p.groups[p.Index()].tenant)
+	}
+	return out
+}
+
 // allSuppressed reports whether every instance in the group is
 // suppressed — the row-dim condition. A zero-count group is never
 // "all suppressed" (there is nothing to dim).
@@ -466,6 +512,9 @@ type Page struct {
 	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
 	readOnly bool
 
+	// guardrails: see Options.Guardrails.
+	guardrails guardrail.Set
+
 	// pollDelta: see Options.PollDelta.
 	pollDelta bool
 
@@ -517,6 +566,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		guardrails:      opts.Guardrails,
 		pollDelta:       opts.PollDelta,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
@@ -605,13 +655,14 @@ func (*Page) PollResources() []string { return []string{resourceAlerts} }
 
 // When read-only, Dangerous entries ('s') are stripped before returning.
 func (p *Page) Bindings() []action.Action {
+	_, guarded := p.silenceDeny()
 	sortBindings := p.sorter.Bindings(resourceAlerts)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: resourceAlerts},
 		action.Action{Key: "Space", Description: "mark", View: resourceAlerts, Shared: true},
 		action.Action{Key: "Shift+V", Description: "mark range", View: resourceAlerts, Shared: true},
-		action.Action{Key: "s", Description: "silence", View: resourceAlerts, Dangerous: true},
+		action.Action{Key: "s", Description: "silence", View: resourceAlerts, Dangerous: true, Guarded: guarded},
 		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
 		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
 	)

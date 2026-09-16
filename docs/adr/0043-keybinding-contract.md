@@ -75,7 +75,11 @@ global override sets `read_only: true`, tagged bindings are
 hidden from both the help overlay and the hint strip, and a
 press is a no-op with a flash naming the read-only backend.
 The tag is the single source for this filtering — read-only
-mode is not a second list to maintain.
+mode is not a second list to maintain. A verb a `guardrails:`
+rule denies on a tenant the press would write to follows the same
+hiding rule on the hint strip, but the help overlay keeps its
+row with a `[guarded]` suffix, because the rule names tenants
+rather than the whole session.
 
 Related: ADR 0010 fixes the canonical key form bindings parse
 into (`Shift+X`, `Ctrl+X`, chords); ADR 0037 governs how a

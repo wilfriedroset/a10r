@@ -81,3 +81,26 @@ func TestAction_ChipKey(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterGuarded_DropsGuarded(t *testing.T) {
+	t.Parallel()
+
+	in := []Action{
+		{Key: "s", Description: "silence", Dangerous: true, Guarded: true},
+		{Key: "y", Description: "yaml"},
+	}
+
+	out := FilterGuarded(in)
+	require.Len(t, out, 1)
+	require.Equal(t, "y", out[0].Key)
+}
+
+func TestFilterGuarded_ReturnsFreshSlice(t *testing.T) {
+	t.Parallel()
+
+	in := []Action{{Key: "y", Description: "yaml"}}
+	out := FilterGuarded(in)
+	out[0].Key = "changed"
+	require.Equal(t, "y", in[0].Key,
+		"FilterGuarded must not share storage with its input")
+}

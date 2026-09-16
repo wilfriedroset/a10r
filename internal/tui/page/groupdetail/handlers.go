@@ -152,6 +152,9 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		if p.readOnly {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
+		if msg, denied := p.silenceDeny(); denied {
+			return p, footer.ShowFlash(footer.FlashWarn, msg)
+		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "S":

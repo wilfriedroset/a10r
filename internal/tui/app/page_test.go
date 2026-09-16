@@ -261,6 +261,28 @@ func TestStack_HeaderContentFromTopPage(t *testing.T) {
 		"top-of-stack page's bindings must populate the panel hint column")
 }
 
+// TestStack_GuardedBindingLeavesTheHintStrip pins the other half of the
+// guarded-verb rule ADR 0043 records: the strip drops the key, and the
+// help overlay (tested in internal/tui/help) keeps its row.
+func TestStack_GuardedBindingLeavesTheHintStrip(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	page.hints = []action.Action{
+		{Key: "s", Description: "silence", Guarded: true},
+		{Key: "r", Description: "refresh"},
+	}
+	drive(t, a, PushPage(func() Page { return page }))
+
+	visible := testutil.StripStyle(a.View().Content)
+	require.NotContains(t, visible, "<s>",
+		"the strip must not offer a key that can only answer with a refusal")
+	require.Contains(t, visible, "<r>")
+}
+
 func TestStack_CrumbsTrackStack(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)

@@ -34,6 +34,13 @@ type Action struct {
 	// (silence create / update / expire, future Mimir config writes).
 	Dangerous bool
 
+	// Guarded flags a verb a `guardrails:` rule denies on the tenant
+	// the page currently points at. Unlike Dangerous it is per tenant
+	// and per render, so the verb stays in Bindings() and the help
+	// overlay keeps showing it with a [guarded] suffix; only the hint
+	// strip drops it, the way read-only drops a Dangerous verb.
+	Guarded bool
+
 	// Bulk flags actions requiring prior Space-mark selection. The
 	// dispatcher flashes a hint when one fires with no rows marked rather
 	// than silently no-oping.
@@ -53,6 +60,19 @@ func (a Action) ChipKey() string {
 		return a.DisplayKey
 	}
 	return a.Key
+}
+
+// FilterGuarded returns a fresh slice of the entries no guardrail rule
+// denies, so the hint strip stops advertising a key that would only
+// flash a refusal.
+func FilterGuarded(in []Action) []Action {
+	out := make([]Action, 0, len(in))
+	for _, a := range in {
+		if !a.Guarded {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // FilterDangerous returns a fresh slice of the entries whose Dangerous

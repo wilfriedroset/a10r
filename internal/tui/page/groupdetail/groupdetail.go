@@ -35,6 +35,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -205,6 +206,9 @@ type Options struct {
 	// Clients is the per-tenant write surface handed to the silence
 	// form on `s`. Empty / missing tenant flashes a hint.
 	Clients map[string]silenceform.Client
+	// Guardrails is the per-tenant write policy. The page sits on one
+	// tenant, so a rule that denies the verb there marks `s` guarded.
+	Guardrails guardrail.Set
 	// Creator seeds the silence form's CreatedBy field; empty falls
 	// back to "a10r" in the form factory.
 	Creator string
@@ -346,6 +350,9 @@ type Page struct {
 
 	readOnly bool
 
+	// guardrails: see Options.Guardrails.
+	guardrails guardrail.Set
+
 	bulkCtx   context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 
@@ -387,6 +394,7 @@ func New(opts Options) *Page {
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
 		readOnly:        opts.ReadOnly,
+		guardrails:      opts.Guardrails,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
 		editorResolver:  opts.EditorResolver,
@@ -483,13 +491,14 @@ func (*Page) PollResources() []string { return []string{"alerts"} }
 // lives on every table view via TableMotions and isn't repeated.
 // Dangerous entries (`s`) are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
+	_, guarded := p.silenceDeny()
 	sortBindings := p.sorter.Bindings(viewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: viewName},
 		action.Action{Key: "Space", Description: "mark", View: viewName, Shared: true},
 		action.Action{Key: "Shift+V", Description: "mark range", View: viewName, Shared: true},
-		action.Action{Key: "s", Description: "silence", View: viewName, Dangerous: true},
+		action.Action{Key: "s", Description: "silence", View: viewName, Dangerous: true, Guarded: guarded},
 		action.Action{Key: "S", Description: "open silences", View: viewName},
 		action.Action{Key: "/", Description: "filter", View: viewName},
 		action.Action{Key: "Shift+F", Description: "state filter", View: viewName},
@@ -512,4 +521,11 @@ func (p *Page) Bindings() []action.Action {
 		return action.FilterDangerous(out)
 	}
 	return out
+}
+
+// silenceDeny asks the write policy about this page's single tenant.
+// It returns the flash sentence when a rule denies the verb.
+func (p *Page) silenceDeny() (string, bool) {
+	v := p.guardrails.Evaluate(p.tenant, guardrail.ActionSilenceCreate)
+	return v.DenyMessage(guardrail.ActionSilenceCreate, p.tenant), v.Denied
 }

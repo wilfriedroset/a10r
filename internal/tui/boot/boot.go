@@ -334,6 +334,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		TimeFormat:         timeFormat,
 		StateFormat:        stateFormat,
 		ReadOnly:           effCfg.Defaults.ReadOnly,
+		Guardrails:         effCfg.Guardrails,
 		TenantNames:        backendNames(effCfg),
 		TenantConfigByName: tenantConfigIndex(effCfg),
 		EditorResolver:     d.EditorResolver(),

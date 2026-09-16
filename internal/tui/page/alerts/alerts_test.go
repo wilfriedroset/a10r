@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -841,6 +842,163 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
 	require.Contains(t, msg.Text, "read-only")
+}
+
+func guardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Guardrails: rules,
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	return p
+}
+
+func TestGuardrail_DenyKeepsTheBindingButMarksIt(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"prod-*"}, Deny: true}})
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			found = true
+			require.True(t, b.Guarded, "a denied verb is marked, not dropped")
+		}
+	}
+	require.True(t, found, "the help overlay still needs the silence row")
+}
+
+func TestGuardrail_SilenceKeyFlashesTheDeny(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+}
+
+func TestGuardrail_ARuleOnAnotherTenantLeavesTheVerbAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"staging"}, Deny: true}})
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+		}
+	}
+}
+
+// twoTenantGuardedPage puts one group on a denied tenant and one on an
+// allowed tenant, so a test can leave the cursor on the allowed row and
+// still reach the denied one through marks.
+func twoTenantGuardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Guardrails: rules,
+		Clients: map[string]silenceform.Client{
+			"prod-eu": &fakeSilenceClient{},
+			"staging": &fakeSilenceClient{},
+		},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Alert{
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 2)
+	return p
+}
+
+// moveCursorTo walks the cursor down to idx the way a user would.
+func moveCursorTo(t *testing.T, p *Page, idx int) {
+	t.Helper()
+	for range len(p.groups) {
+		if p.Index() == idx {
+			break
+		}
+		key := "j"
+		if p.Index() > idx {
+			key = "k"
+		}
+		_, _ = p.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
+	}
+	require.Equal(t, idx, p.Index())
+}
+
+// tenantRow reports which row sits on the named tenant, so a test does
+// not depend on the sort order the page happens to pick.
+func tenantRow(t *testing.T, p *Page, tenant string) int {
+	t.Helper()
+	for i, g := range p.groups {
+		if g.tenant == tenant {
+			return i
+		}
+	}
+	t.Fatalf("no row on tenant %s", tenant)
+	return -1
+}
+
+// TestGuardrail_AMarkOnADeniedTenantStopsThePress covers the fan-out
+// branch: the cursor sits on an allowed row, so only the marked tenant
+// can refuse the press.
+func TestGuardrail_AMarkOnADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := twoTenantGuardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	moveCursorTo(t, p, tenantRow(t, p, "prod-eu"))
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	moveCursorTo(t, p, tenantRow(t, p, "staging"))
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a denied press flashes instead of opening the form")
+	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+	require.Len(t, p.marks, 1, "a refusal keeps the marks the user set")
+}
+
+// TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress covers the
+// range branch: the rows are not marked until `s` commits them, so the
+// check has to run after the commit or the range slips through.
+func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := twoTenantGuardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	moveCursorTo(t, p, tenantRow(t, p, "prod-eu"))
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	moveCursorTo(t, p, tenantRow(t, p, "staging"))
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a denied press flashes instead of opening the confirm modal")
+	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+}
+
+func TestGuardrail_ARuleOnAnotherVerbLeavesSilenceAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Actions: []string{"silence.expire"}, Deny: true}})
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+		}
+	}
 }
 
 // --- Bindings --------------------------------------------------------

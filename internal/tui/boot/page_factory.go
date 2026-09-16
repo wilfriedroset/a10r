@@ -10,6 +10,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -32,17 +33,20 @@ import (
 // struct-field change instead of an N-arg propagation across two
 // call sites (the resolver and the startup home factory).
 type pageEnv struct {
-	EditorCtx          context.Context //nolint:containedctx // construction-time plumbing for page BulkCtx / SubmitCtx fields, not session state.
-	Styles             *theme.Styles
-	Scope              string
-	SilenceClients     map[string]silenceform.Client
-	Creator            string
-	TenantRows         []tenant.Row
-	Config             *config.Config
-	Clients            map[string]backend.Client
-	TimeFormat         func() timerender.Format
-	StateFormat        func() stateformat.Format
-	ReadOnly           bool
+	EditorCtx      context.Context //nolint:containedctx // construction-time plumbing for page BulkCtx / SubmitCtx fields, not session state.
+	Styles         *theme.Styles
+	Scope          string
+	SilenceClients map[string]silenceform.Client
+	Creator        string
+	TenantRows     []tenant.Row
+	Config         *config.Config
+	Clients        map[string]backend.Client
+	TimeFormat     func() timerender.Format
+	StateFormat    func() stateformat.Format
+	ReadOnly       bool
+	// Guardrails is the per-tenant write policy every write page
+	// consults before it offers or runs a verb.
+	Guardrails         guardrail.Set
 	TenantNames        []string
 	TenantConfigByName map[string]config.Backend
 	EditorResolver     edit.Resolver
@@ -65,6 +69,7 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 		BulkConcurrency:    env.Config.Defaults.BulkConcurrencyOrDefault(),
 		Logger:             slog.Default(),
 		ReadOnly:           env.ReadOnly,
+		Guardrails:         env.Guardrails,
 		EditorCtx:          env.EditorCtx,
 		BulkCtx:            env.EditorCtx,
 		SubmitCtx:          env.EditorCtx,

@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
@@ -85,7 +86,10 @@ func (a *App) panelState() panel.State {
 		Tenants: tenantBindings(a.tenants),
 	}
 	if p := a.topPage(); p != nil {
-		state.Hints = p.Bindings()
+		// A guarded verb stays in Bindings() for the help overlay but
+		// leaves the strip, so the chrome never offers a key that can
+		// only answer with a refusal.
+		state.Hints = action.FilterGuarded(p.Bindings())
 	}
 	return state
 }
