@@ -28,6 +28,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
@@ -2624,4 +2625,72 @@ func TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant(t *testing.T) {
 	m := pagetest.OpenedModal(t, cmd)
 	require.IsType(t, &modal.TypedConfirm{}, m)
 	require.NotContains(t, m.View(70, 14), "tenant 1 of 2", "one backend is one question")
+}
+
+// TestGuardrail_TheNewSilenceFormCarriesThePolicy pins spec item 13 on
+// the create path: the form, not the key press, is the gate, because
+// the user picks the target tenant on the form itself.
+func TestGuardrail_TheNewSilenceFormCarriesThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceCreate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, "alertname=X"))
+}
+
+// TestGuardrail_TheEditFormReadsTheUpdateVerb pins that an edit submit
+// is silence.update: a rule naming only that verb reaches it.
+func TestGuardrail_TheEditFormReadsTheUpdateVerb(t *testing.T) {
+	t.Parallel()
+
+	p := guardedRowsPage(t, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, "alertname=X"))
+}
+
+// TestGuardrail_TheRecreateFormReadsTheRecreateVerb pins the third
+// verb the form can perform: a rule naming only silence.recreate must
+// reach the form Ctrl+N pushes. The form opens focused on Ends with a
+// blank value, so the submit here fills that field and nothing else.
+func TestGuardrail_TheRecreateFormReadsTheRecreateVerb(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod"},
+			Actions:      []string{guardrail.ActionSilenceRecreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{
+		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{
+			ID: "sil-expired", CreatedBy: "alice", State: backend.SilenceStateExpired,
+			EndsIn: -time.Hour, Comment: "ack",
+			Matchers: []backend.Matcher{{Name: "alertname", Value: "X", IsEqual: true}},
+		})},
+		Tenant: "prod",
+	})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
+	form, ok := pagetest.PushedPage(t, cmd).(*silenceform.Form)
+	require.True(t, ok, "expected the silence form")
+	for _, r := range "2h" {
+		_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, submit := form.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, submit))
 }

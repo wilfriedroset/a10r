@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -274,15 +275,18 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	clients := p.clients
 	tenant := p.tenant
 	submitCtx := p.submitCtx
+	guardrails := p.guardrails
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			SubmitCtx:  submitCtx,
+			Guardrails: guardrails,
+			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
 }

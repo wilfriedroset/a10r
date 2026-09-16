@@ -320,14 +320,17 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	now := p.now
 	clients := p.clients
 	tenant := p.tenant
+	guardrails := p.guardrails
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:  clients,
-			Tenant:   tenant,
-			Styles:   styles,
-			Now:      now,
-			Creator:  creator,
-			Matchers: matchers,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			Guardrails: guardrails,
+			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
 }

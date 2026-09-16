@@ -30,6 +30,10 @@ type pendingSilenceAll struct {
 	tenant    string
 	alertName string
 	scopeNote string
+	// confirmed records that the blast-radius modal already collected
+	// the answer a guardrail rule asks for, so the form it pushes does
+	// not ask the same tenant again for the same write.
+	confirmed bool
 }
 
 // alertnameMatcher returns the single equality matcher that defines a
@@ -91,16 +95,24 @@ func (p *Page) pushSilenceAllForm() tea.Cmd {
 	matchers := alertnameMatcher(pending.alertName)
 	scopeNote := pending.scopeNote
 	submitCtx := p.submitCtx
+	guardrails := p.guardrails
+	var confirmedTenant string
+	if pending.confirmed {
+		confirmedTenant = pending.tenant
+	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			ScopeNote: scopeNote,
-			SubmitCtx: submitCtx,
+			Clients:         clients,
+			Tenant:          tenant,
+			Styles:          styles,
+			Now:             now,
+			Creator:         creator,
+			Matchers:        matchers,
+			ScopeNote:       scopeNote,
+			SubmitCtx:       submitCtx,
+			Guardrails:      guardrails,
+			Action:          guardrail.ActionSilenceCreate,
+			ConfirmedTenant: confirmedTenant,
 		})
 	})
 }
@@ -278,6 +290,7 @@ func (p *Page) handleSilenceAllConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		p.pendingSilenceAll = pendingSilenceAll{}
 		return nil
 	}
+	p.pendingSilenceAll.confirmed = true
 	return p.pushSilenceAllForm()
 }
 

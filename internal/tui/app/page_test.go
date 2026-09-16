@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -880,4 +881,16 @@ func TestStack_PushSuspendsTheCoveredPage(t *testing.T) {
 	drive(t, a, PushPage(func() Page { return newFakePage("alert-detail") }))
 	require.Equal(t, 1, suspends,
 		"the covered page drops its transient state when a drill-down lands on top")
+}
+
+// TestPushPage_ReadableByPageTests pins the push message against the
+// page test helper that reads it by field name, the way
+// TestOpenModal_ReadableByPageTests pins the open message. The helper
+// cannot name the unexported message type, so a rename is caught here
+// rather than in the page suites.
+func TestPushPage_ReadableByPageTests(t *testing.T) {
+	t.Parallel()
+	want := newFakePage("alerts")
+	got := pagetest.PushedPage(t, PushPage(func() Page { return want }))
+	require.Same(t, want, got)
 }

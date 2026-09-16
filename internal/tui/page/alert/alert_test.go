@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -1225,4 +1226,20 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 	require.Equal(t, rules, opts.Guardrails)
 	require.True(t, opts.ReadOnly, "the read-only gate travels with it")
 	require.Equal(t, []string{"sil-1", "sil-2"}, opts.RestrictIDs)
+}
+
+// TestGuardrail_TheSilenceFormCarriesThePolicy pins spec item 13: a
+// single write is gated on the form, because the form owns the target
+// tenant, so a typed rule prompts on submit and not on the key press.
+func TestGuardrail_TheSilenceFormCarriesThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceCreate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
 }

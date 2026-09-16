@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -229,4 +230,30 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 	m := pagetest.OpenedModal(t, cmd)
 	require.IsType(t, &modal.TypedConfirm{}, m)
 	require.Contains(t, m.View(70, 14), `type "`+tenant+`" to confirm`)
+}
+
+// TestGuardrail_TheSilenceOneFormCarriesThePolicy pins spec item 13 on
+// this page: the unmarked `s` pushes the form, and the form asks the
+// write policy when it submits.
+func TestGuardrail_TheSilenceOneFormCarriesThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+		Instances: []backend.Alert{
+			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
+		},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{tenant},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
 }

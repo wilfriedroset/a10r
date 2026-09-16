@@ -10,7 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
 // submitDoneMsg is the result of an async CreateSilence /
@@ -198,7 +200,52 @@ func (f *Form) submitNow() tea.Cmd {
 	if !ok || client == nil {
 		return f.fail("no client for tenant " + f.tenant)
 	}
+	if cmd, blocked := f.guardrailGate(); blocked {
+		return cmd
+	}
 	return f.submit.Start(client, f.editID, spec)
+}
+
+// guardrailGate is the last policy check before a single write leaves
+// the form. A read-only session never reaches it, because the key that
+// opens the form is filtered before the form exists, which is how spec
+// item 11 holds here: policy is never quoted on a backend a10r cannot
+// write to at all.
+//
+// A rule that asks for any confirmation opens the prompt and stops
+// here. The answer arrives as a ConfirmResultMsg and re-enters
+// submitNow, which finds the tenant already confirmed and lets the
+// write through.
+func (f *Form) guardrailGate() (tea.Cmd, bool) {
+	v := f.guardrails.Evaluate(f.tenant, f.action)
+	if v.Denied {
+		return footer.ShowFlash(footer.FlashWarn, v.DenyMessage(f.action, f.tenant)), true
+	}
+	if v.Confirmation == "" || f.confirmedTenant == f.tenant {
+		return nil, false
+	}
+	typed := f.guardrails.TypedTenants(f.action, []string{f.tenant})
+	question := "submit " + f.action + " on " + f.tenant + "?"
+	f.awaitingConfirm = true
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
+	}), true
+}
+
+// applyGuardrailConfirm resumes a submit the guardrail prompt
+// interrupted. A refused or cancelled prompt is silent on purpose: the
+// form is still on screen with everything the user typed, so the retry
+// is one Ctrl+S away.
+func (f *Form) applyGuardrailConfirm(m modal.ConfirmResultMsg) tea.Cmd {
+	if !f.awaitingConfirm {
+		return nil
+	}
+	f.awaitingConfirm = false
+	if m.Cancelled || !m.Yes {
+		return nil
+	}
+	f.confirmedTenant = f.tenant
+	return f.submitNow()
 }
 
 // applySubmitDone routes a submitDoneMsg back into the form. Stale

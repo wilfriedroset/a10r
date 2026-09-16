@@ -250,6 +250,13 @@ one Esc cancels the whole run before any write lands. A rule only
 strengthens the confirmation a key already has, so a verb no rule names
 keeps its usual prompt.
 
+The silence form is a write as well, so the rules reach it too. A deny
+refuses the submit with the same warning, and a rule that asks for a
+confirmation asks when you submit. One write asks once: a key that
+already put the question to you before it opened the form does not ask
+again, and that covers the bulk form, where the key owns the whole run. The form is where the target backend is picked, so a change of
+tenant after an answer asks again for the new backend.
+
 ## Conventions you'll spot in the chrome
 
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.

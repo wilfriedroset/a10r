@@ -334,18 +334,21 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	tenant := entry.tenant
 	s := entry.s
 	submitCtx := p.submitCtx
+	guardrails := p.guardrails
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  s.Matchers,
-			Comment:   s.Comment,
-			EndsAt:    s.EndsAt,
-			EditID:    s.ID,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   s.Matchers,
+			Comment:    s.Comment,
+			EndsAt:     s.EndsAt,
+			EditID:     s.ID,
+			Guardrails: guardrails,
+			Action:     guardrail.ActionSilenceUpdate,
+			SubmitCtx:  submitCtx,
 		})
 	})
 }
@@ -372,16 +375,18 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend), false
 	}
 	return silenceform.Options{
-		Clients:   p.clients,
-		Tenant:    entry.tenant,
-		Styles:    p.styles,
-		Now:       p.now,
-		Creator:   p.defaultCreator(),
-		Matchers:  entry.s.Matchers,
-		Comment:   entry.s.Comment,
-		BlankEnds: true,
-		FocusEnds: true,
-		SubmitCtx: p.submitCtx,
+		Clients:    p.clients,
+		Tenant:     entry.tenant,
+		Styles:     p.styles,
+		Now:        p.now,
+		Creator:    p.defaultCreator(),
+		Matchers:   entry.s.Matchers,
+		Comment:    entry.s.Comment,
+		BlankEnds:  true,
+		FocusEnds:  true,
+		Guardrails: p.guardrails,
+		Action:     guardrail.ActionSilenceRecreate,
+		SubmitCtx:  p.submitCtx,
 	}, nil, true
 }
 
@@ -599,19 +604,22 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	styles := p.styles
 	clients := p.clients
 	submitCtx := p.submitCtx
+	guardrails := p.guardrails
 	var matchers []backend.Matcher
 	if len(p.alertLabels) > 0 {
 		matchers = matcher.FromLabels(p.alertLabels)
 	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			Guardrails: guardrails,
+			Action:     guardrail.ActionSilenceCreate,
+			SubmitCtx:  submitCtx,
 		})
 	})
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
@@ -1339,4 +1340,61 @@ func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
 	m := pagetest.OpenedModal(t, cmd)
 	require.IsType(t, &modal.TypedConfirm{}, m)
 	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+}
+
+// TestGuardrail_TheSilenceAllFormCarriesThePolicy pins spec item 13 on
+// the silence-all path of a group with one instance, which skips the
+// blast-radius modal and pushes the form straight away.
+func TestGuardrail_TheSilenceAllFormCarriesThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("Solo", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
+}
+
+// TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm pins that one
+// write asks once. The blast-radius modal already collected the typed
+// answer for this tenant, so the form it pushes writes on submit
+// instead of asking the same question a second time.
+func TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": client},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, cmd))
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	submit := silencetest.Submit(t, push, "")
+	require.NotNil(t, submit)
+	_ = submit()
+	require.Len(t, client.calls, 1, "the answered modal lets the submit write")
 }
