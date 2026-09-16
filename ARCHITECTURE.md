@@ -123,7 +123,10 @@ Shell and orchestration:
   named-stage list ([ADR 0033](docs/adr/0033-boot-stage-extraction.md)).
   `frame_test.go` renders whole frames headlessly against the goldens
   in `testdata/frames/`, boot included, with no terminal and no
-  network.
+  network. `snapshot.go` does the same against live backends for the
+  hidden `a10r snapshot` command: it drives the real bubbletea
+  program with the renderer and the input disabled, waits for the
+  first poll of every backend, and returns the frame as text.
 - `internal/tui/keys` -- the keybindings dispatcher: five precedence
   layers (modal > prompt > per-view > table-context > global), first
   match wins, 500 ms chords.

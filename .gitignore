@@ -5,6 +5,9 @@
 coverage.out
 *.test
 *.prof
+# `make screenshots` output: regenerated on demand, and every run
+# moves the AGE column, so a committed copy is diff noise.
+docs/screenshots/*.txt
 
 # Go workspace files (not used in this single-module repo)
 go.work

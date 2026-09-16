@@ -66,6 +66,19 @@ There are two commands because `-update` is registered per test
 binary: `go test ./... -update` fails on every package that does
 not define the flag.
 
+The hidden `a10r snapshot <page>` command renders the same kind of
+frame against live backends and writes it to stdout, for eyeballing
+a layout without a terminal. `make screenshots` runs it over every
+page against `examples/demo.yaml` and drops the text under
+`docs/screenshots/`, which is gitignored because every run moves the
+AGE column. It is a maintainer tool, so it is absent from
+`a10r --help`, from `docs/end-users/cli.md`, and from the embedded
+agent skill.
+
+```sh
+a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
+```
+
 Coverage runs via `make cover` (Go's `go test -coverprofile=...`).
 There is no minimum-coverage gate; the standard is "every public
 behaviour is locked by a test."

@@ -199,6 +199,12 @@ A new CLI flag or subcommand:
 - `docs/end-users/output-formats.md` when the flag changes the shape of
   the output
 
+A command marked `Hidden: true` is a maintainer tool rather than a
+user surface, so it lands in `cmd/` and in `CONTRIBUTING.md` only.
+It stays out of the two end-user documents above on purpose. Keep
+its `GroupID` all the same, so unhiding it later cannot drop it into
+the ungrouped bucket.
+
 A new exit code:
 
 - the constant in `cmd/exit.go`
