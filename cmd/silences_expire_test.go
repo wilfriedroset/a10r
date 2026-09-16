@@ -50,7 +50,7 @@ func TestSilenceExpire_OneID(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false, nil)
 	require.NoError(t, err)
 	require.Equal(t, "prod\tsil-1\n", out.String())
 	require.Equal(t, "recreate with: a10r silences recreate sil-1\n", errOut.String(),
@@ -66,7 +66,7 @@ func TestSilenceExpire_MultipleIDs(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "sil-2"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "sil-2"}, "", false, nil)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"sil-1", "sil-2"}, client.expired)
 	require.Empty(t, errOut.String(), "multi-id expire suppresses the recreate hint")
@@ -80,7 +80,7 @@ func TestSilenceExpire_NotFoundIDIsPerIDFailureLenient(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "ghost"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "ghost"}, "", false, nil)
 	require.Error(t, err, "a missing id makes the command exit non-zero")
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -100,7 +100,7 @@ func TestSilenceExpire_AllNotFoundExits5(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"ghost"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"ghost"}, "", false, nil)
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -118,7 +118,7 @@ func TestSilenceExpire_AllNotFoundUnreachable(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"ghost"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"ghost"}, "", false, nil)
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -136,7 +136,7 @@ func TestSilenceExpire_PartialJSONCarriesIDNoTenant(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "ghost"}, "json", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1", "ghost"}, "json", false, nil)
 	require.Error(t, err)
 
 	var got []writeResult
@@ -161,7 +161,7 @@ func TestSilenceExpire_AlreadyExpiredReportedNonZero(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false, nil)
 	require.Error(t, err)
 	require.Empty(t, client.expired, "an already-expired silence is not re-expired")
 	require.Contains(t, errOut.String(), "already expired")
@@ -175,7 +175,7 @@ func TestSilenceExpire_ReadOnlyTargetFailsClosed(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "prod")
 	require.Empty(t, client.expired)
@@ -189,7 +189,7 @@ func TestSilenceExpire_GlobalReadOnlyFailsClosed(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, true, build, []string{"sil-1"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, true, build, []string{"sil-1"}, "", false, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read-only")
 	require.Empty(t, client.expired)
@@ -203,7 +203,7 @@ func TestSilenceExpire_ExpireRPCFailureReported(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", false, nil)
 	require.Error(t, err)
 	require.Contains(t, errOut.String(), "boom")
 }

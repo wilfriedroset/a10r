@@ -90,5 +90,7 @@ func TestExitCodes_StableValues(t *testing.T) {
 	require.Equal(t, 2, ExitConfigInvalid)
 	require.Equal(t, 3, ExitUnreachable)
 	require.Equal(t, 4, ExitAuthFailed)
+	require.Equal(t, 5, ExitNotFound)
+	require.Equal(t, 6, ExitGuardrailRefused)
 	require.Equal(t, 10, ExitFailMatched)
 }

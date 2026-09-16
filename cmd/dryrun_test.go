@@ -14,6 +14,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -83,7 +84,7 @@ func TestRunDryRun_ExpireOmitsSpecFields(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1"}} // expire carries an id, no spec
 
 	var out, errOut bytes.Buffer
-	require.NoError(t, runDryRun(&out, &errOut, cfg, output.FormatJSON, "expire", targets, false))
+	require.NoError(t, runDryRun(&out, &errOut, cfg, output.FormatJSON, guardrail.ActionSilenceExpire, targets, false, nil))
 
 	var got []plannedWrite
 	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
@@ -147,7 +148,7 @@ func TestSilenceExpire_DryRunActiveNoWrite(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true, nil)
 	require.NoError(t, err)
 	require.Empty(t, client.expired, "dry-run must not call ExpireSilence")
 	require.Contains(t, out.String(), "would expire")
@@ -162,7 +163,7 @@ func TestSilenceExpire_DryRunAlreadyExpiredSkipExitsNonZero(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true, nil)
 	require.Error(t, err, "a skipped target exits non-zero, mirroring the real run")
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -229,7 +230,7 @@ func TestRunDryRun_ExitCodeCleanIsNil(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1"}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, "", "expire", targets, false)
+	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
 	require.NoError(t, err)
 }
 
@@ -240,7 +241,7 @@ func TestRunDryRun_ExitCodeSkipIsNonZero(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1", skip: errSkipTest}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, "", "expire", targets, false)
+	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -259,7 +260,7 @@ func TestRunDryRun_SpecRendersMatchersAndTimes(t *testing.T) {
 	}}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, output.FormatYAML, "create", targets, false)
+	err := runDryRun(&out, &errOut, cfg, output.FormatYAML, guardrail.ActionSilenceCreate, targets, false, nil)
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "severity")
 	require.Contains(t, out.String(), testNow.Add(2*time.Hour).UTC().Format(time.RFC3339))

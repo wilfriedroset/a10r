@@ -30,6 +30,13 @@ const (
 	// (retry later).
 	ExitNotFound = 5
 
+	// ExitGuardrailRefused means a guardrail rule refused the write
+	// before anything was mutated: a denied verb, a bulk run over
+	// max_bulk, or a tenant whose rule wants --confirm-tenant. Distinct
+	// from ExitRuntimeError so CI can tell a policy refusal (change the
+	// request, or the policy) from a crash (retry, or file a bug).
+	ExitGuardrailRefused = 6
+
 	// ExitFailMatched means --fail was set and at least one row matched, so
 	// on-call wrappers can page without parsing output.
 	ExitFailMatched = 10

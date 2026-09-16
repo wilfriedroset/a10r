@@ -49,6 +49,7 @@ defaults to **JSON on stdout**, including the write verbs. So:
 | `3`  | Every backend in scope unreachable — fix connectivity (retry later). |
 | `4`  | Every backend in scope rejected credentials (401/403) — fix auth. |
 | `5`  | Resource not found (a `get`/`update`/`expire`/`recreate` target) while a backend answered — it is gone, not unreachable. |
+| `6`  | A `guardrails:` rule refused the write (denied verb, `max_bulk` exceeded, or the tenant needs `--confirm-tenant <name>`). Nothing was written. |
 | `10` | `--fail` predicate matched: a list command found matching rows. |
 
 These values are a stable, append-only contract (`docs/end-users/exit-codes.md`
@@ -69,6 +70,12 @@ Before any of them:
   gate. Always dry-run a write you are not certain about, and show the user the plan.
 - **`--read-only`** hard-disables every write verb for the session. Dry-run still
   plans under it (it never writes), marking targets `read_only: true`.
+- **Guardrails** (`guardrails:` in `a10r.yaml`) restrict write verbs per tenant.
+  A refusal writes nothing and exits `6`: the verb is denied, the run exceeds that
+  tenant's `max_bulk`, or the tenant needs `--confirm-tenant <name>` (repeatable,
+  and it clears only the tenant it names). Dry-run reports the same refusal on the
+  plan line as `[guardrail: denied]`, `[guardrail: max_bulk N exceeded]`, or
+  `[guardrail: needs --confirm-tenant <name>]`, so check before you write.
 - After a successful write, a **next-step hint is on stderr**: `expire with: …`
   after create/recreate (the undo), `recreate with: …` after a *single* expire,
   `verify with: …` after update. Capture it to offer the user an undo or check.

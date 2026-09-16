@@ -347,3 +347,36 @@ func TestSetUnmatchedTenants(t *testing.T) {
 		})
 	}
 }
+
+func TestVerdict_DenyMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		verdict Verdict
+		want    string
+	}{
+		{
+			name:    "a reason is appended after a colon",
+			verdict: Verdict{Denied: true, Reason: "use the change ticket"},
+			want:    "silence.expire denied on prod-eu: use the change ticket",
+		},
+		{
+			name:    "without a reason the sentence ends at the tenant",
+			verdict: Verdict{Denied: true},
+			want:    "silence.expire denied on prod-eu",
+		},
+		{
+			name:    "a verdict that does not deny has nothing to say",
+			verdict: Verdict{MaxBulk: 3},
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, tt.verdict.DenyMessage(ActionSilenceExpire, "prod-eu"))
+		})
+	}
+}

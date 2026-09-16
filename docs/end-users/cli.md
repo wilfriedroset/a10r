@@ -109,6 +109,29 @@ the session is read-only (`--read-only`, `A10R_READ_ONLY`, or
 the command writes nothing and tells you which backend blocked it.
 Narrow `--tenant` to the writable set to proceed.
 
+The same fail-closed rule covers the `guardrails:` policy, which
+restricts write verbs per tenant beyond read-only (see
+[configuration.md](configuration.md#guardrails)). a10r evaluates it
+once the target set is resolved and before the first write. A denied
+verb, or a run that exceeds a tenant's `max_bulk`, refuses the whole
+command, writes nothing, and exits `6`. Every refusal line on stderr
+starts with `guardrail:` and names the verb and the tenant. A `deny`
+rule also quotes its `reason`. A `max_bulk` breach quotes the cap and
+the target count instead.
+
+A rule that asks for `confirmation: type-tenant-name` has no
+interactive form on the command line. Pass **`--confirm-tenant
+<name>`** (repeatable) instead. It clears the rule for the tenant it
+names and no other, so a fan-out still has to name each restricted
+tenant. Without it a10r prints `guardrail: prod-eu requires
+--confirm-tenant prod-eu` and exits `6`.
+
+`--dry-run` reports the same refusals rather than hiding them: the
+plan line gains `[guardrail: denied]`, `[guardrail: max_bulk 20
+exceeded]`, or `[guardrail: needs --confirm-tenant prod-eu]`, and the
+dry run exits `6`. Read-only is checked first and always wins, so a
+read-only target is never reported as a guardrail refusal.
+
 ## Output and exit codes
 
 See [output-formats.md](output-formats.md) for the `--output` contract

@@ -125,6 +125,20 @@ func (v Verdict) ExceedsBulk(count int) bool {
 	return v.MaxBulk > 0 && count > v.MaxBulk
 }
 
+// DenyMessage is the one sentence a surface prints when policy refuses
+// a verb. It lives here so the TUI flash and the headless stderr line
+// cannot word the same refusal differently. Empty when nothing denies.
+func (v Verdict) DenyMessage(action, tenant string) string {
+	if !v.Denied {
+		return ""
+	}
+	msg := action + " denied on " + tenant
+	if v.Reason != "" {
+		msg += ": " + v.Reason
+	}
+	return msg
+}
+
 // Set is the configured rule list. Rule order carries no meaning for
 // the outcome; it decides only which of several reasons a multi-deny
 // verdict quotes, and the order Validate and UnmatchedTenants report

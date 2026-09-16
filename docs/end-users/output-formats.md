@@ -107,9 +107,13 @@ A create/recreate plan carries the resolved `matchers`, `starts_at`,
 `ends_at`, `comment`, and `created_by` (but no `id` — that is minted at
 apply); a skipped target carries a `skip` reason; a target in a
 read-only backend carries `read_only: true` (dry-run plans even under
-read-only — it never writes, so it is never refused). The dry-run exit
-code mirrors the real run's pre-mutation phase, so a clean dry-run is a
-true pre-commit gate (see [exit-codes.md](exit-codes.md)).
+read-only — it never writes, so it is never refused); a target a
+`guardrails:` rule would refuse carries `guardrail` with the short
+reason (`denied`, `max_bulk 20 exceeded`, `needs --confirm-tenant
+prod-eu`), which the lines mode prints as a trailing `[guardrail: …]`.
+The dry-run exit code mirrors the real run's pre-mutation phase, so a
+clean dry-run is a true pre-commit gate (see
+[exit-codes.md](exit-codes.md)).
 
 ## Errors
 

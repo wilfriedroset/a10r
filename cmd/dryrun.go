@@ -29,12 +29,20 @@ type plannedWrite struct {
 	CreatedBy string   `json:"created_by,omitempty" yaml:"created_by,omitempty"`
 	Skip      string   `json:"skip,omitempty" yaml:"skip,omitempty"`
 	ReadOnly  bool     `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	// Guardrail is the short refusal note ("denied", "max_bulk 20
+	// exceeded") when the write policy would stop this tenant. Empty on
+	// a read-only target: read-only is checked first and wins, so a10r
+	// never names a guardrail where read-only was the real answer.
+	Guardrail string `json:"guardrail,omitempty" yaml:"guardrail,omitempty"`
 }
 
 // runDryRun renders the resolved write plan and returns without calling
-// the mutating op (ADR 0046: the command minus its mutation). It runs
-// after target-building and instead of ensureWritableTargets/runWrites,
-// so read-only is noted on the plan rather than aborting — with no
+// the mutating op (ADR 0046: the command minus its mutation). action is
+// a guardrail.ActionSilence* constant; the plan's display verb is
+// derived from it so the rendered word and the evaluated rule name can
+// never drift apart. It runs after target-building and instead of
+// ensureWritableTargets/runWrites, so read-only is noted on the plan
+// rather than aborting — with no
 // mutation in flight the fail-closed gate is moot. The exit code is
 // faithful: a target carrying a skip exits non-zero exactly as the real
 // run would, a fully writable plan exits zero.
@@ -45,17 +53,23 @@ func runDryRun(
 	action string,
 	targets []writeTarget,
 	globalReadOnly bool,
+	confirmTenants []string,
 ) error {
 	readOnly := make(map[string]bool, len(cfg.Backends))
 	for _, be := range cfg.Backends {
 		readOnly[be.Name] = be.ReadOnly
 	}
 
+	notes := guardrailNotes(cfg, action, targets, globalReadOnly, readOnly, confirmTenants)
+
+	verb := strings.TrimPrefix(action, "silence.")
 	plans := make([]plannedWrite, 0, len(targets))
 	results := make([]writeResult, 0, len(targets))
 	for _, t := range targets {
 		ro := globalReadOnly || readOnly[t.tenant]
-		plans = append(plans, plannedWriteFrom(t, action, ro))
+		p := plannedWriteFrom(t, verb, ro)
+		p.Guardrail = notes[t.tenant]
+		plans = append(plans, p)
 		if t.skip != nil {
 			results = append(results, writeResult{Tenant: t.tenant, ID: t.id, Status: writeStatusError, Error: t.skip.Error()})
 			continue
@@ -76,7 +90,60 @@ func runDryRun(
 		dryRunLines(out, errOut, plans)
 	}
 
+	// A guardrail refuses the whole command, so its code outranks the
+	// per-target skip accounting. The notes are already on the plan the
+	// user just read, which is why the error is marked emitted.
+	if len(notes) > 0 {
+		return newEmittedError(ExitGuardrailRefused,
+			fmt.Errorf("%swould refuse %s; no silence would be written",
+				guardrailPrefix, strings.Join(refusedTenants(targets, notes), ", ")))
+	}
 	return writeExitError(results, nil)
+}
+
+// guardrailNotes maps each refused tenant to its short note. Read-only
+// targets are dropped before the policy is consulted: read-only is
+// checked first and always wins (spec item 11), and dropping them also
+// keeps a read-only tenant out of the max_bulk count.
+func guardrailNotes(
+	cfg *config.Config,
+	action string,
+	targets []writeTarget,
+	globalReadOnly bool,
+	readOnly map[string]bool,
+	confirmTenants []string,
+) map[string]string {
+	if globalReadOnly || len(cfg.Guardrails) == 0 {
+		return nil
+	}
+	writable := make([]writeTarget, 0, len(targets))
+	for _, t := range targets {
+		if !readOnly[t.tenant] {
+			writable = append(writable, t)
+		}
+	}
+	blocks := guardrailBlocks(cfg.Guardrails, action, writable, confirmTenants)
+	if len(blocks) == 0 {
+		return nil
+	}
+	notes := make(map[string]string, len(blocks))
+	for _, b := range blocks {
+		notes[b.tenant] = b.note
+	}
+	return notes
+}
+
+// refusedTenants lists the refused tenants once each, in the order the
+// targets first name them, so the error reads in the same order as the
+// plan the user just read.
+func refusedTenants(targets []writeTarget, notes map[string]string) []string {
+	out := make([]string, 0, len(notes))
+	for _, t := range targetTenants(targets) {
+		if _, ok := notes[t]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // plannedWriteFrom projects one resolved target onto its dry-run record:
@@ -154,6 +221,9 @@ func dryRunLine(p plannedWrite) string {
 	}
 	if p.ReadOnly {
 		b.WriteString(" [read-only: " + dryRunReadOnlyRefused + "]")
+	}
+	if p.Guardrail != "" {
+		b.WriteString(" [guardrail: " + p.Guardrail + "]")
 	}
 	return b.String()
 }

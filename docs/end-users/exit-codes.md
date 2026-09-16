@@ -13,6 +13,7 @@ types without parsing stderr — for example `a10r alerts list
 | `3`  | Backend unreachable. Every configured backend in the active scope failed to respond at the network layer (DNS, timeout, connection refused). Operator action: fix network connectivity. |
 | `4`  | Backend authentication failed. Every configured backend in the active scope rejected the credentials with 401/403. Operator action: fix credentials. |
 | `5`  | Not found. A `get` / `update` / `expire` / `recreate` command named a resource (alert fingerprint, silence id) that no backend in scope confirmed, while at least one backend answered. Distinct from `3` so a script can tell "the resource is gone" (e.g. recreate it) from "I could not reach a backend to check" (retry later). |
+| `6`  | Guardrail refused the write. A `guardrails:` rule denied the verb for a target tenant, the run exceeded that tenant's `max_bulk`, or the tenant needs `--confirm-tenant <name>`. Nothing was written. Operator action: narrow the request, pass `--confirm-tenant`, or change the policy. Read-only is reported as its own error, never as this code. |
 | `10` | `--fail` predicate matched. A list-style command (`alerts list`, `silences list`) was invoked with `--fail` and at least one row matched the filter. |
 
 ## Partial failure (multi-tenant)
@@ -44,10 +45,10 @@ plain stderr message; either way the exit code is the contract. See
 `--dry-run` exits with the code the real run's pre-mutation phase would
 produce: `0` when every target is cleanly writable, and the same
 non-zero code the real run would give when a target cannot land — a
-not-found or already-expired id, or an all-unreachable scope. (Writes
-are not lenient, so a reported skip is non-zero, unlike the read
-fan-out's partial rule above.) A clean dry-run is therefore a reliable
-pre-commit gate.
+not-found or already-expired id, an all-unreachable scope, or a
+guardrail refusal (`6`). (Writes are not lenient, so a reported skip is
+non-zero, unlike the read fan-out's partial rule above.) A clean
+dry-run is therefore a reliable pre-commit gate.
 
 ## Stability
 
