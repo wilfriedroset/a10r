@@ -450,15 +450,15 @@ type Page struct {
 	marks map[string]struct{}
 
 	// pendingBulkSilence captures the resolved bulk-silence targets
-	// between an opened confirm modal (N≥2 marks) and its
-	// ConfirmResultMsg, or between an opened bulk form (any N≥1)
-	// and its BulkSubmittedMsg. Cleared after consumption.
+	// between an opened confirm modal and its ConfirmResultMsg, or
+	// between an opened bulk form and its BulkSubmittedMsg. Cleared
+	// after consumption.
 	pendingBulkSilence pendingBulkSilence
 
 	// pendingSilenceAll captures the single-cursor silence-all target
 	// (count>1) between its blast-radius confirm modal and the
 	// ConfirmResultMsg. DISTINCT from pendingBulkSilence: the
-	// single-cursor confirm and the ≥2-marks bulk confirm are separate
+	// single-cursor confirm and the marked bulk confirm are separate
 	// code paths and must not share state. Cleared after consumption.
 	pendingSilenceAll pendingSilenceAll
 

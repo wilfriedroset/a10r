@@ -254,8 +254,11 @@ The silence form is a write as well, so the rules reach it too. A deny
 refuses the submit with the same warning, and a rule that asks for a
 confirmation asks when you submit. One write asks once: a key that
 already put the question to you before it opened the form does not ask
-again, and that covers the bulk form, where the key owns the whole run. The form is where the target backend is picked, so a change of
-tenant after an answer asks again for the new backend.
+again, and that covers the bulk form, where the key owns the whole run.
+The form is where the target backend is picked, so a change of tenant
+after an answer asks again for the new backend. `Ctrl+E` writes without
+ever opening the form, so it asks its own question before your editor
+takes the screen.
 
 ## Conventions you'll spot in the chrome
 

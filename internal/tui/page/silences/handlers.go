@@ -101,6 +101,9 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 		// non-event from the user's perspective.
 		return nil
 	case modal.ConfirmResultMsg:
+		if cmd, mine := p.applyEditConfirm(m); mine {
+			return cmd
+		}
 		return p.handleExpireConfirm(m)
 	case bulkExpireDoneMsg:
 		return p.handleBulkExpireDone(m)
@@ -442,6 +445,16 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
+	if cmd, asked := p.confirmEdit(entry); asked {
+		return cmd
+	}
+	return p.startEditor(entry)
+}
+
+// startEditor hands one captured row to the editor. It takes the row
+// rather than reading the cursor, so a round resumed after a
+// confirmation edits the silence the question named.
+func (p *Page) startEditor(entry silenceEntry) tea.Cmd {
 	body, err := silenceToYAML(entry.s)
 	if err != nil {
 		return footer.ShowFlash(footer.FlashError, "yaml encode: "+err.Error())
@@ -453,6 +466,39 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 		Extension:  editorExtensionYAML,
 		Ctx:        p.editorCtx,
 	})
+}
+
+// confirmEdit asks the confirmation a guardrail rule demands before
+// the editor takes over the screen. Ctrl+E is the one silence.update
+// route that never opens the form, so the prompt the form owns at
+// submit has to live here as well, or the same verb would be asked on
+// one route and waved through on the other. A deny is already refused
+// upstream in runWriteAction.
+func (p *Page) confirmEdit(entry silenceEntry) (tea.Cmd, bool) {
+	if !p.guardrails.AsksConfirmation(guardrail.ActionSilenceUpdate, []string{entry.tenant}) {
+		return nil, false
+	}
+	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceUpdate, []string{entry.tenant})
+	captured := entry
+	p.pendingEditConfirm = &captured
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewGuardedConfirm("edit silence "+entry.s.ID+"?", modal.ConfirmDefaultNo, typed)
+	}), true
+}
+
+// applyEditConfirm claims a confirm result the editor prompt asked
+// for. The expire flow reads the same message type, so the latch says
+// which question the answer belongs to.
+func (p *Page) applyEditConfirm(m modal.ConfirmResultMsg) (tea.Cmd, bool) {
+	if p.pendingEditConfirm == nil {
+		return nil, false
+	}
+	entry := *p.pendingEditConfirm
+	p.pendingEditConfirm = nil
+	if m.Cancelled || !m.Yes {
+		return nil, true
+	}
+	return p.startEditor(entry), true
 }
 
 // handleEditorFinished consumes a FinishedMsg arriving after an

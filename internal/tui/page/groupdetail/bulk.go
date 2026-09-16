@@ -30,8 +30,7 @@ type bulkSilenceTarget struct {
 }
 
 // pendingBulkSilence captures the resolved targets between the
-// confirm modal (N≥2) / bulk-form push and its result. Empty between
-// rounds.
+// confirm modal or bulk-form push and its result. Empty between rounds.
 type pendingBulkSilence struct {
 	targets []bulkSilenceTarget
 }
@@ -44,8 +43,9 @@ type pendingBulkSilence struct {
 const silenceOneWarnThreshold = 10
 
 // openBulkSilence resolves the marked instances into targets and
-// either pushes the bulk form directly (N=1) or opens a confirm modal
-// first (N≥2). Marks that no longer match any current instance are
+// either pushes the bulk form directly or opens a confirm modal
+// first. One mark skips the modal, unless a guardrail rule asks for a
+// confirmation. Marks that no longer match any current instance are
 // dropped silently.
 func (p *Page) openBulkSilence() tea.Cmd {
 	if len(p.clients) == 0 {
@@ -67,11 +67,14 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashWarn, msg)
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
-	if len(targets) == 1 {
+	// A single target skips the blast-radius question, but not a
+	// guardrail one: the bulk form leaves policy to this page, so
+	// nothing downstream would ask on its behalf.
+	if len(targets) == 1 && !p.guardrails.AsksConfirmation(guardrail.ActionSilenceCreate, []string{p.tenant}) {
 		return p.pushBulkSilenceForm()
 	}
-	question := bulkSilenceQuestion(len(targets), p.tenant)
 	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, []string{p.tenant})
+	question := bulkSilenceQuestion(len(targets), p.tenant)
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
@@ -82,7 +85,11 @@ func (p *Page) openBulkSilence() tea.Cmd {
 // Esc and use silence-all instead of fanning out N full-label
 // silences.
 func bulkSilenceQuestion(n int, tenant string) string {
-	q := fmt.Sprintf("silence %d instances? (tenant %s)", n, tenant)
+	noun := "instances"
+	if n == 1 {
+		noun = "instance"
+	}
+	q := fmt.Sprintf("silence %d %s? (tenant %s)", n, noun, tenant)
 	if n >= silenceOneWarnThreshold {
 		q += fmt.Sprintf("\n%d individual silences will be created — Esc and use silence-all to silence the whole alert instead.", n)
 	}
@@ -150,8 +157,8 @@ func bulkSilenceBanner(n int, tenant string) string {
 	return fmt.Sprintf("applies to %d %s (tenant %s) — each silenced with its own labels", n, word, tenant)
 }
 
-// handleBulkSilenceConfirm consumes the pre-form confirm (N≥2). Yes
-// pushes the bulk form; No / Cancelled drops the pending state.
+// handleBulkSilenceConfirm consumes the pre-form confirm. Yes pushes
+// the bulk form; No / Cancelled drops the pending state.
 func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	pending := p.pendingBulkSilence
 	if len(pending.targets) == 0 {

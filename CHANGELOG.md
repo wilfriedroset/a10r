@@ -8,6 +8,20 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Guardrails** — a `guardrails:` list in the config restricts write
+  verbs per tenant. A rule can deny a verb, so the key stops appearing
+  in the hint strip and a press flashes the reason instead of acting.
+  A rule can cap how many targets one press sends to one backend with
+  `max_bulk`, counted per tenant rather than per run. A rule can raise
+  the confirmation a verb asks for to `type-tenant-name`, where you
+  retype the backend name before the write goes out, once per
+  restricted backend the run touches. Rules only tighten, never
+  loosen: read-only is checked first and always wins, and a verb no
+  rule names keeps the prompt it already had. `a10r config validate`
+  refuses a rule that names an unknown verb or level, and `a10r info`
+  lists the rules in force plus any rule whose tenants match no
+  backend. See ADR 0049.
+
 - **Label columns** — add your own columns to the alerts list and the
   group detail page with a `columns:` list under `pages`, one entry
   per alert label. Each column takes an optional title, a fixed

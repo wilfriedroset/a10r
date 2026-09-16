@@ -199,6 +199,19 @@ func (s Set) BulkBreach(lead, action string, counts map[string]int) string {
 	return ""
 }
 
+// AsksConfirmation reports whether any of these tenants demands a
+// confirmation for this action. A caller that skips its prompt on a
+// small run asks this first, because the level can be plain, which
+// TypedTenants leaves out by design.
+func (s Set) AsksConfirmation(action string, tenants []string) bool {
+	for _, t := range tenants {
+		if s.Evaluate(t, action).Confirmation != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // TypedTenants lists the tenants, in the order given, that demand the
 // typed confirmation for this action. Empty means the verb keeps the
 // confirmation it has today, because a rule can only strengthen the

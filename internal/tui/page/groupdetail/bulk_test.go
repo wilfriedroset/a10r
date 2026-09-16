@@ -257,3 +257,66 @@ func TestGuardrail_TheSilenceOneFormCarriesThePolicy(t *testing.T) {
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
 }
+
+// TestGuardrail_APlainRuleAsksOnASingleMarkedInstance keeps the weaker
+// level on the same route.
+func TestGuardrail_APlainRuleAsksOnASingleMarkedInstance(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+		Instances: []backend.Alert{
+			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
+		},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{tenant},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationPlain,
+		}},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.Confirm{}, pagetest.OpenedModal(t, cmd))
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}
+
+// TestGuardrail_ATypedRuleAsksOnASingleMarkedInstance closes the same
+// one-target hole on this page: one mark skips the confirm modal, and
+// the bulk form leaves policy to the page.
+func TestGuardrail_ATypedRuleAsksOnASingleMarkedInstance(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+		Instances: []backend.Alert{
+			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
+		},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{tenant},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "`+tenant+`" to confirm`)
+	require.NotContains(t, m.View(70, 14), "1 instances?", "one target reads as one instance")
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}

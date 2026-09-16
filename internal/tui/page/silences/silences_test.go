@@ -251,11 +251,18 @@ type recordingResolver struct {
 // the test can drive the FinishedMsg branch deterministically.
 func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *Page {
 	t.Helper()
+	return guardedEditorPage(t, fake, rec, nil)
+}
+
+// guardedEditorPage is editorPage under a write policy.
+func guardedEditorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver, rules guardrail.Set) *Page {
+	t.Helper()
 	p := New(Options{
-		Styles:  pagetest.Styles(t),
-		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]silenceform.Client{"prod": fake},
-		Creator: "wilfried",
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Clients:    map[string]silenceform.Client{"prod": fake},
+		Creator:    "wilfried",
+		Guardrails: rules,
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true", // satisfies "editor configured" guard
 			ExecRunner: func(_ *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
@@ -2693,4 +2700,91 @@ func TestGuardrail_TheRecreateFormReadsTheRecreateVerb(t *testing.T) {
 	}
 	_, submit := form.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, submit))
+}
+
+// TestGuardrail_ATypedRuleAsksBeforeTheEditorOpens closes the hole the
+// external editor left: Ctrl+E writes through UpdateSilence without
+// ever opening the form, which is where every other update is asked.
+func TestGuardrail_ATypedRuleAsksBeforeTheEditorOpens(t *testing.T) {
+	t.Parallel()
+
+	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod" to confirm`)
+	require.Equal(t, pendingEdit{}, p.pendingEdit, "no editor round starts before the answer")
+
+	_, open := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.NotNil(t, open, "the cleared prompt opens the editor")
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit)
+}
+
+// TestGuardrail_ACancelledEditorPromptOpensNothing pins that Esc on the
+// prompt leaves the row alone.
+func TestGuardrail_ACancelledEditorPromptOpensNothing(t *testing.T) {
+	t.Parallel()
+
+	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+	_, cmd := p.Update(modal.ConfirmResultMsg{Cancelled: true})
+	require.Nil(t, cmd)
+	require.Equal(t, pendingEdit{}, p.pendingEdit)
+}
+
+// TestGuardrail_APlainRuleAsksBeforeTheEditorOpens keeps the weaker
+// level on the same route, so the editor gate reads the rule and not
+// only its typed flavour.
+func TestGuardrail_APlainRuleAsksBeforeTheEditorOpens(t *testing.T) {
+	t.Parallel()
+
+	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Confirmation: guardrail.ConfirmationPlain,
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	require.IsType(t, &modal.Confirm{}, pagetest.OpenedModal(t, cmd))
+	require.Equal(t, pendingEdit{}, p.pendingEdit)
+}
+
+// TestGuardrail_TheEditorPromptKeepsItsOwnRow pins the window the
+// prompt opens: a poll tick reaches the page while the modal is up, so
+// the cursor can sit on another silence by the time the answer lands.
+// The answer belongs to the row the question named.
+func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
+	t.Parallel()
+
+	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
+		Tenants:      []string{"prod"},
+		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Confirmation: guardrail.ConfirmationTypeTenantName,
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{{
+		ID:        "sil-z",
+		CreatedBy: "bob",
+		State:     backend.SilenceStateActive,
+		StartsAt:  fixedNow.Add(-time.Hour),
+		EndsAt:    fixedNow.Add(2 * time.Hour),
+		Comment:   "other",
+		Matchers:  []backend.Matcher{{Name: "alertname", Value: "Disk", IsEqual: true}},
+	}}})
+
+	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.NotNil(t, cmd)
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+		"the confirmed row is edited, not whatever the cursor reached")
 }

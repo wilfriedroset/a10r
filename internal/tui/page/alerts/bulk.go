@@ -128,7 +128,7 @@ type bulkSilenceTarget struct {
 }
 
 // pendingBulkSilence captures the resolved bulk silence-all targets
-// between the confirm modal (N≥2) / bulk-form push and its result.
+// between the confirm modal / bulk-form push and its result.
 // Empty between rounds. tenants is a stable alphabetical list of
 // distinct tenant names for the confirm question and the form banner.
 type pendingBulkSilence struct {
@@ -138,8 +138,9 @@ type pendingBulkSilence struct {
 
 // openBulkSilence resolves the marked groups into bulkSilenceTargets
 // (one `alertname=X` silence per marked group, paired with its tenant)
-// and either pushes the bulk form directly (N=1) or opens a confirm
-// modal first (N≥2). Marks that no longer correspond to any in-scope
+// and either pushes the bulk form directly or opens a confirm modal
+// first. One mark skips the modal, unless a guardrail rule asks for a
+// confirmation. Marks that no longer correspond to any in-scope
 // group are dropped silently. Empty Clients flashes the standard hint;
 // no marks left after resolution drops to a soft Info flash.
 func (p *Page) openBulkSilence() tea.Cmd {
@@ -154,11 +155,18 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashWarn, msg)
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
-	if len(targets) == 1 {
+	// A single target skips the blast-radius question, but not a
+	// guardrail one: the bulk form leaves policy to this page, so
+	// nothing downstream would ask on its behalf.
+	if len(targets) == 1 && !p.guardrails.AsksConfirmation(guardrail.ActionSilenceCreate, tenants) {
 		return p.pushBulkSilenceForm()
 	}
-	question := fmt.Sprintf("silence %d alerts? (tenant %s)", len(targets), formatTenantBreakdownAlerts(targets))
 	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, tenants)
+	word := resourceAlerts
+	if len(targets) == 1 {
+		word = wordAlert
+	}
+	question := fmt.Sprintf("silence %d %s? (tenant %s)", len(targets), word, formatTenantBreakdownAlerts(targets))
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
@@ -269,7 +277,7 @@ func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 }
 
 // handleConfirmResult routes a ConfirmResultMsg to whichever round is
-// pending — the single-cursor silence-all (count>1) or the ≥2-marks
+// pending — the single-cursor silence-all (count>1) or the marked
 // bulk silence-all. The two are distinct paths with separate pending
 // state; only one is ever set when a confirm result arrives.
 func (p *Page) handleConfirmResult(m modal.ConfirmResultMsg) tea.Cmd {
@@ -295,8 +303,8 @@ func (p *Page) handleSilenceAllConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 }
 
 // handleBulkSilenceConfirm consumes a ConfirmResultMsg from the
-// pre-form bulk confirm modal (N≥2 path). Yes pushes the bulk form;
-// No / Cancelled drops the pending state silently. An incoming message
+// pre-form bulk confirm modal. Yes pushes the bulk form; No /
+// Cancelled drops the pending state silently. An incoming message
 // with no pending state is a plain no-op.
 func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	pending := p.pendingBulkSilence

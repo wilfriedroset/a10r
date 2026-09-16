@@ -1398,3 +1398,64 @@ func TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm(t *testing.T) {
 	_ = submit()
 	require.Len(t, client.calls, 1, "the answered modal lets the submit write")
 }
+
+// TestGuardrail_APlainRuleAsksOnASingleMarkedTarget keeps the weaker
+// level on the same route, so the one-target gate reads the rule and
+// not only its typed flavour.
+func TestGuardrail_APlainRuleAsksOnASingleMarkedTarget(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": client},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationPlain,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.Confirm{}, pagetest.OpenedModal(t, cmd))
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}
+
+// TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget closes the hole a
+// one-target run left: the page skips its blast-radius modal at one
+// mark, and the bulk form leaves policy to the page, so nothing asked.
+func TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{guardrail.ActionSilenceCreate},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}},
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+	require.NotContains(t, m.View(70, 14), "1 alerts?", "one target reads as one alert")
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}

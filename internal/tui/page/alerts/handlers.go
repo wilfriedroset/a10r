@@ -219,7 +219,7 @@ func (p *Page) requestRefresh() tea.Cmd {
 // directly, count>1 opens a blast-radius confirm modal first (CONTEXT
 // "Silence-all"). With marks → the bulk silence-all fanout (one
 // alertname silence per marked group). The single-cursor confirm and
-// the ≥2-marks bulk confirm are distinct paths with separate pending
+// the marked bulk confirm are distinct paths with separate pending
 // state — see bulk.go.
 func (p *Page) openSilenceForS() tea.Cmd {
 	// The deny check sits after the commit, not in handleAction: an

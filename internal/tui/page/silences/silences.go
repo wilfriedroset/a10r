@@ -156,6 +156,13 @@ type Page struct {
 	// $EDITOR so the FinishedMsg handler can call UpdateSilence
 	// against the right backend. Empty between rounds.
 	pendingEdit pendingEdit
+	// pendingEditConfirm holds the row a guardrail prompt is open for,
+	// nil between rounds. It is a captured copy rather than a flag for
+	// the reason pendingEdit and pendingExpire are: a poll tick lands
+	// on the page while the modal is up, so the cursor can move between
+	// the question and the answer, and the answer belongs to the row
+	// the question named.
+	pendingEditConfirm *silenceEntry
 
 	// bulkConcurrency: tenants always parallel; this limits the inner pool per tenant.
 	bulkConcurrency int
