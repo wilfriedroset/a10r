@@ -423,6 +423,65 @@ func TestLoad_DropIn_TUIRememberOneWayWins(t *testing.T) {
 	require.True(t, cfg.TUI.Remember)
 }
 
+func TestLoad_DropIn_TUINotifyEnabledOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// notify.enabled follows the other tui bools: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    enabled: false\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    enabled: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.Notify.Enabled)
+}
+
+func TestLoad_DropIn_TUINotifyFieldsNonZeroWins(t *testing.T) {
+	t.Parallel()
+
+	// Bell is non-nil-wins so a drop-in can silence the bell an
+	// earlier layer asked for; desktop and min_severity are plain
+	// non-empty-wins; command replaces the whole list.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    enabled: true\n    bell: true\n    desktop: osc9\n    min_severity: info\n    command: [\"old\"]\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    bell: false\n    desktop: both\n    min_severity: critical\n    command: [\"notify-send\", \"$MESSAGE\"]\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	n := cfg.TUI.Notify
+	require.True(t, n.Enabled, "the base opt-in must survive a drop-in that only tunes fields")
+	require.False(t, n.BellOrDefault(), "an explicit false in a drop-in must reach the resolved config")
+	require.Equal(t, NotifyDesktopBoth, n.Desktop)
+	require.Equal(t, "critical", n.MinSeverity)
+	require.Equal(t, []string{"notify-send", "$MESSAGE"}, n.Command)
+}
+
+func TestLoad_DropIn_TUINotifyUnsetLeavesBaseAlone(t *testing.T) {
+	t.Parallel()
+
+	// A drop-in that only flips enabled must not erase the base's
+	// bell, transport, floor, or argv.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    bell: false\n    desktop: osc9\n    min_severity: critical\n    command: [\"notify-send\"]\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    enabled: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	n := cfg.TUI.Notify
+	require.True(t, n.Enabled)
+	require.False(t, n.BellOrDefault())
+	require.Equal(t, NotifyDesktopOSC9, n.Desktop)
+	require.Equal(t, "critical", n.MinSeverity)
+	require.Equal(t, []string{"notify-send"}, n.Command)
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

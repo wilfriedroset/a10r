@@ -229,6 +229,9 @@ func (c *Config) Validate() error {
 	if err := c.Guardrails.Validate(); err != nil {
 		return err
 	}
+	if err := c.TUI.Notify.Validate(); err != nil {
+		return err
+	}
 	return c.Defaults.Validate()
 }
 
@@ -477,11 +480,14 @@ type Keys struct{}
 // is opt-in for the same reason; when it is false a poll never
 // flashes what changed. Remember is opt-in for the same reason;
 // when it is false a10r neither reads nor writes ui-state.yaml and
-// every run opens on the built-in scope and sort defaults.
+// every run opens on the built-in scope and sort defaults. Notify is
+// opt-in for the same reason; when its own `enabled` is false a10r
+// never rings the bell nor emits a notification.
 type TUI struct {
 	Tips          bool          `yaml:"tips,omitempty"`
 	TipsInterval  time.Duration `yaml:"tips_interval,omitempty"`
 	TerminalTitle bool          `yaml:"terminal_title,omitempty"`
 	PollDelta     bool          `yaml:"poll_delta,omitempty"`
 	Remember      bool          `yaml:"remember,omitempty"`
+	Notify        Notify        `yaml:"notify,omitempty"`
 }

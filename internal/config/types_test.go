@@ -78,6 +78,11 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	require.True(t, got.TUI.TerminalTitle)
 	require.True(t, got.TUI.PollDelta)
 	require.True(t, got.TUI.Remember)
+	require.True(t, got.TUI.Notify.Enabled)
+	require.False(t, got.TUI.Notify.BellOrDefault())
+	require.Equal(t, NotifyDesktopBoth, got.TUI.Notify.Desktop)
+	require.Equal(t, "critical", got.TUI.Notify.MinSeverity)
+	require.Equal(t, []string{"notify-send", "a10r", "$MESSAGE"}, got.TUI.Notify.Command)
 
 	require.Equal(t, 5*time.Second, got.Pages.Alerts.PollInterval)
 	require.Equal(t,
@@ -132,6 +137,8 @@ func TestDefaultsAreThePinnedConstants(t *testing.T) {
 		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
 	require.Equal(t, "Bearer", DefaultAuthorizationType,
 		"DefaultAuthorizationType matches Prometheus's HTTPClientConfig.Authorization default")
+	require.Equal(t, "warning", DefaultNotifyMinSeverity,
+		"the notify severity floor catches warning and above")
 	require.Equal(t, 4, DefaultBulkConcurrency,
 		"DefaultBulkConcurrency is the per-tenant worker-pool size when defaults.bulk_concurrency is unset")
 }
@@ -241,6 +248,7 @@ func TestTUI_DefaultIsTipsOff(t *testing.T) {
 	require.False(t, c.TUI.TerminalTitle, "tui.terminal_title must default to false")
 	require.False(t, c.TUI.PollDelta, "tui.poll_delta must default to false")
 	require.False(t, c.TUI.Remember, "tui.remember must default to false")
+	require.False(t, c.TUI.Notify.Enabled, "tui.notify.enabled must default to false")
 }
 
 func TestTUI_RoundTrip(t *testing.T) {
@@ -270,6 +278,21 @@ func TestTUI_RoundTrip(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal(body, &withRemember))
 	require.True(t, withRemember.TUI.Remember,
 		"explicit tui.remember: true must round-trip")
+
+	// An explicit `bell: false` must survive a marshal: omitempty on a
+	// *bool drops nil only, never a pointer to false.
+	body = []byte("tui:\n  notify:\n    enabled: true\n    bell: false\n")
+	var withNotify Config
+	require.NoError(t, yaml.Unmarshal(body, &withNotify))
+	require.True(t, withNotify.TUI.Notify.Enabled)
+	require.False(t, withNotify.TUI.Notify.BellOrDefault())
+
+	out, err := yaml.Marshal(withNotify)
+	require.NoError(t, err)
+	var back Config
+	require.NoError(t, yaml.Unmarshal(out, &back))
+	require.False(t, back.TUI.Notify.BellOrDefault(),
+		"explicit tui.notify.bell: false must survive a round-trip")
 }
 
 func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {

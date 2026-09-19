@@ -16,6 +16,12 @@ tui:
   terminal_title: true
   poll_delta: true
   remember: true
+  notify:
+    enabled: true
+    bell: false
+    desktop: both
+    min_severity: critical
+    command: ["notify-send", "a10r", "$MESSAGE"]
 
 backends:
   - name: prod-vanilla

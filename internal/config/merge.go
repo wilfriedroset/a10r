@@ -245,4 +245,27 @@ func mergeTUI(base *TUI, overlay TUI) {
 	if overlay.Remember {
 		base.Remember = true
 	}
+	mergeNotify(&base.Notify, overlay.Notify)
+}
+
+// mergeNotify folds overlay notify fields onto base. Enabled is
+// one-way like the sibling TUI bools; Bell is non-nil-wins because nil
+// is its "unset". Command replaces the whole list for the same reason
+// as mergeColumns: a list is not a scalar.
+func mergeNotify(base *Notify, overlay Notify) {
+	if overlay.Enabled {
+		base.Enabled = true
+	}
+	if overlay.Bell != nil {
+		base.Bell = overlay.Bell
+	}
+	if overlay.Desktop != "" {
+		base.Desktop = overlay.Desktop
+	}
+	if overlay.MinSeverity != "" {
+		base.MinSeverity = overlay.MinSeverity
+	}
+	if len(overlay.Command) > 0 {
+		base.Command = overlay.Command
+	}
 }
