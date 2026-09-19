@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -67,6 +68,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// App keeps its own copy because the window title names the
 		// scope and no page reports it back.
 		a.scope = m.Scope
+		a.notify.SetScope(m.Scope)
 		if a.saveScope != nil {
 			a.saveScope(m.Scope)
 		}
@@ -136,12 +138,26 @@ func (a *App) handlePollMsg(msg tea.Msg) (tea.Cmd, bool) {
 		if m.ResourceLabel != "" {
 			a.cacheDataMsg(m)
 		}
-		return a.forwardToTop(m), true
+		return tea.Batch(a.forwardToTop(m), a.observeAlerts(m)), true
 	case poll.BackendStatusMsg:
 		a.cacheStatusMsg(m)
 		return a.forwardToTop(m), true
 	}
 	return nil, false
+}
+
+// observeAlerts hands an alerts payload to the notifier. Every
+// resource shares poll.DataMsg, so a silences or status payload
+// arrives here too and is a silent no-op rather than an error.
+func (a *App) observeAlerts(m poll.DataMsg) tea.Cmd {
+	if m.ResourceLabel != resourceAlerts {
+		return nil
+	}
+	alerts, ok := m.Resource.([]backend.Alert)
+	if !ok {
+		return nil
+	}
+	return a.notify.Observe(m.Tenant, alerts)
 }
 
 // handleStackMsg routes page-stack and modal-slot operations

@@ -4,6 +4,7 @@ package app_test
 
 import (
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -54,6 +56,16 @@ var (
 			StartsAt: fuzzNow.Add(-time.Minute),
 		},
 	}
+
+	// fuzzNotifyAlerts carries every row of fuzzAlerts plus one alert
+	// whose name holds a `;` and an ESC. A poll of it after the warm-up
+	// poll is what makes the notifier diff, sanitise and emit, so the
+	// hostile name reaches tea.Raw on the fuzzed path.
+	fuzzNotifyAlerts = append(slices.Clone(fuzzAlerts), backend.Alert{
+		Labels:   map[string]string{"alertname": "Evil;\x1b]9;own", "severity": "critical"},
+		State:    backend.AlertStateActive,
+		StartsAt: fuzzNow.Add(-time.Minute),
+	})
 
 	// fuzzColumns gives the fuzzer a user-declared column with a sort
 	// key, so Shift+L walks into a comparator the built-in set does
@@ -191,6 +203,11 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		// Notifications on with both escape transports. The two
+		// warm-up polls below only seed the firing set; the third one
+		// carries a new alertname and is what drives the diff, the
+		// sanitiser and the raw emission.
+		Notify: notify.New(config.Notify{Enabled: true, Desktop: config.NotifyDesktopBoth}),
 	})
 
 	clients := map[string]silenceform.Client{
@@ -226,6 +243,15 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 	m = step(m, poll.DataMsg{
 		Resource:      fuzzAlerts,
 		Tenant:        "staging",
+		ResourceLabel: "alerts",
+		At:            fuzzNow,
+	})
+	// prod polls a second time with one alertname the poll before it
+	// did not have, which is the only thing that makes the notifier
+	// speak.
+	m = step(m, poll.DataMsg{
+		Resource:      fuzzNotifyAlerts,
+		Tenant:        "prod",
 		ResourceLabel: "alerts",
 		At:            fuzzNow,
 	})
@@ -306,6 +332,14 @@ func addAppSeeds(f *testing.F) {
 
 	// Tenant picker open/close (Ctrl+T).
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKeyCtrl('t'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
+
+	// Scope narrowing and widening, which drops the notifier's
+	// per-tenant firing set. The codec cannot synthesise a poll, so
+	// the re-warm half is out of the fuzzer's reach.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('1'), testutil.FuzzFrameKey('r'),
+		testutil.FuzzFrameKey('0'), testutil.FuzzFrameKey('r'),
+	))
 
 	// Wide tier: sort on the wide column, hide it so the sort parks,
 	// then walk the axes with h/l while it is out of view. h/l rather

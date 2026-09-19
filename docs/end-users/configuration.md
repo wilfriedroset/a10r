@@ -107,6 +107,12 @@ tui:
   terminal_title: false            # optional terminal window title (off by default)
   poll_delta: false                # optional flash of what each poll changed (off by default)
   remember: false                  # optional memory of the last scope and sort column (off by default)
+  notify:                          # optional alert notifications (off by default)
+    enabled: false                 # ring and notify on a new firing alert
+    bell: true                     # terminal bell, one per poll
+    desktop: osc777                # osc777 | osc9 | both | off
+    min_severity: warning          # critical | warning | info
+    command: []                    # optional argv; "$MESSAGE" is one whole argument
 keys:                              # optional rebindings (empty = use defaults)
 guardrails:                        # optional write policy, see "Guardrails" below
   - tenants: ["prod-*"]
@@ -268,6 +274,94 @@ taken on both pages. `G` is the jump-to-bottom motion, and the cursor
 answers it before any sort does. Only `alerts` and `group_detail`
 accept `columns`.
 
+## Notifications
+
+a10r can ring the terminal bell and raise a desktop notification when
+a poll brings a firing alert that the poll before it did not have.
+The feature is off. Set `tui.notify.enabled: true` to turn it on.
+
+```yaml
+tui:
+  notify:
+    enabled: true
+    bell: true
+    desktop: osc777
+    min_severity: warning
+    command: ["notify-send", "a10r", "$MESSAGE"]
+```
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | Turn the whole feature on. |
+| `bell` | bool | `true` | Ring the terminal bell. One ring per poll, whatever the number of new alerts. |
+| `desktop` | string | `osc777`, or `off` when `command` is set | The escape sequence a10r writes. One of `osc777`, `osc9`, `both`, `off`. |
+| `min_severity` | string | `warning` | The floor a group must reach to notify. One of `critical`, `warning`, `info`. |
+| `command` | list of strings | empty | Argv of a program to run instead of, or beside, the escape sequence. The first element names the program, so it must be neither empty nor `$MESSAGE`. |
+
+a10r rejects the configuration at startup when `desktop` is not one
+of the four names, when `min_severity` is not one of the three
+severities, or when the first element of `command` is empty or is
+`$MESSAGE`.
+
+a10r ranks three severities: `critical`, `warning` and `info`. An
+alert with no `severity` label, or with a value that is none of the
+three, stays below every floor and never notifies. No value of
+`min_severity` notifies on everything.
+
+The notification also writes one line to the flash strip, so the
+in-app signal reaches you when every transport is off. The strip holds
+one line at a time. With `tui.poll_delta` on as well, a poll that
+brings a new alert raises two lines and you see only one of them, and
+which one is not fixed. Turn `tui.poll_delta` off when you want the
+notification line every time.
+
+`command` runs the program directly. There is no shell, so there is
+no word splitting and no variable expansion. a10r replaces each
+element that is exactly `$MESSAGE` with the notification text as one
+argument. Quote nothing yourself. Write the element as `$MESSAGE` and
+never as `${MESSAGE}`: a10r expands `${NAME}` from the environment
+while it reads the file, and it stops at startup when the variable is
+unset.
+
+`command` and `desktop` are independent. You can run a program and
+write an escape sequence in the same poll. When you set `command` and
+leave `desktop` unset, `desktop` resolves to `off`, because a user
+inside a multiplexer normally wants the program and not the escape.
+Set `desktop` yourself to get both.
+
+### Which `desktop` value your terminal understands
+
+The table below records what each terminal documents. Read it as a
+starting point, then test with one alert.
+
+| Terminal | `osc777` | `osc9` | Use |
+| --- | --- | --- | --- |
+| Ghostty | yes | yes | `osc777` |
+| kitty | not confirmed | yes | `osc9` |
+| WezTerm | yes | yes | `osc777` |
+| foot | yes | yes | `osc777` |
+| iTerm2 | no | yes | `osc9` |
+| Windows Terminal | behind a setting | no | `osc777`, after you set `compatibility.allowOSC777` to `true` |
+| tmux | no | no | `off` plus `command` |
+
+Notes on the table:
+
+- kitty documents OSC 9 as the legacy protocol it accepts. Its own
+  documentation does not name OSC 777, so this guide does not claim
+  it.
+- Windows Terminal gained OSC 777 behind the
+  `compatibility.allowOSC777` setting, which starts as `false`. Check
+  that your build has the setting before you pick `osc777`.
+- tmux eats both sequences. It handles OSC 9 itself and understands
+  only the progress payload, and it drops OSC 777. Neither one
+  reaches the terminal outside. Inside tmux, leave `desktop` at its
+  default of `off` and set `command` to a program such as
+  `notify-send`, `terminal-notifier`, or `osascript`. Other
+  multiplexers are untested here, so treat them the same way until
+  you prove otherwise.
+- When you do not know what your terminal accepts, set `desktop` to
+  `both`. A terminal that does not know a sequence ignores it.
+
 ## Themes
 
 Eight skins ship bundled in the `catppuccin` family (`frappe`,
@@ -320,9 +414,11 @@ Merge rules:
   survive untouched, so you can ship a snippet that only tweaks
   `defaults.poll_interval` without erasing `defaults.log_format`.
   `defaults.read_only`, `tui.tips`, `tui.terminal_title`,
-  `tui.poll_delta` and `tui.remember` are one-way (any-true wins) so a
-  drop-in can lock them on but not back off — edit the layer that set
-  them.
+  `tui.poll_delta`, `tui.remember` and `tui.notify.enabled` are
+  one-way (any-true wins) so a drop-in can lock them on but not back
+  off — edit the layer that set them. `tui.notify.command` is a list,
+  so it follows the column rule below: the last layer that declares
+  any element owns the whole argv.
 - **Column lists** (`pages.alerts.columns`,
   `pages.group_detail.columns`) replace the whole list, they do not
   append. The last layer that declares any column for a page owns

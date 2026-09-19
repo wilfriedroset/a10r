@@ -39,6 +39,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -373,6 +374,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		},
 
 		TerminalTitle: effCfg.TUI.TerminalTitle,
+		Notify:        notify.New(effCfg.TUI.Notify),
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,

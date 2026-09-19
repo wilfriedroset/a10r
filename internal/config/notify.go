@@ -20,6 +20,10 @@ const (
 	NotifyDesktopOff    = "off"
 )
 
+// NotifyMessagePlaceholder is the argv element a10r replaces with the
+// notification text, as one whole argument.
+const NotifyMessagePlaceholder = "$MESSAGE"
+
 // DefaultNotifyMinSeverity is the severity floor a notification must
 // clear when the user leaves `tui.notify.min_severity` unset. warning
 // catches more than critical, which is what an on-caller watching a
@@ -62,6 +66,11 @@ func (n Notify) Validate() error {
 	}
 	if len(n.Command) > 0 && strings.TrimSpace(n.Command[0]) == "" {
 		return errors.New("tui.notify.command[0]: must not be empty")
+	}
+	// The head of the argv is the program a10r runs. The placeholder
+	// carries an alertname the backend chose, so it must not name it.
+	if len(n.Command) > 0 && n.Command[0] == NotifyMessagePlaceholder {
+		return fmt.Errorf("tui.notify.command[0]: must not be %q", NotifyMessagePlaceholder)
 	}
 	return nil
 }

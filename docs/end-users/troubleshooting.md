@@ -110,3 +110,40 @@ The numeric quick-switch (`1`-`9`) maps to the order in the
 `backends:` array. Reorder the array if you want a different
 mnemonic. The tenant picker (`Ctrl+T`) shows the alphabetical
 order to keep the visual list stable across config edits.
+
+## No desktop notification arrives
+
+With `tui.notify.enabled: true`, a10r writes an escape sequence and
+the terminal turns it into a desktop notification. Two things stop the
+sequence.
+
+- A multiplexer sits between a10r and the terminal. tmux reads OSC 9
+  and OSC 777 itself and passes neither one out, so the terminal never
+  sees them. Treat every other multiplexer the same way until you
+  prove otherwise.
+- The terminal does not know the sequence you picked. The table in
+  [configuration.md](configuration.md#notifications) records what each
+  terminal documents.
+
+Run a10r outside the multiplexer and wait for one new firing alert. A
+notification that arrives there names the multiplexer as the cause.
+
+The way out is `tui.notify.command`. a10r runs the program you name
+and passes the message as one argument:
+
+```yaml
+tui:
+  notify:
+    enabled: true
+    command: ["notify-send", "a10r", "$MESSAGE"]
+```
+
+a10r resolves `desktop` to `off` when you set `command` and leave
+`desktop` unset, so the program runs alone. Name `desktop` yourself to
+get both.
+
+The bell travels in the same write as the escape sequence, but a
+multiplexer passes a bell through to the terminal. The flash strip is
+drawn by a10r itself. Both reach you wherever a10r runs. Keep
+`bell: true` for an audible signal when no desktop notification is
+possible.

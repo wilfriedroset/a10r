@@ -8,6 +8,20 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **Alert notifications** — with `tui.notify.enabled: true`, a poll
+  that brings a firing alert the poll before it did not have rings the
+  terminal bell, writes a desktop notification, and flashes one line.
+  The line reads `prod-eu: HighLatency (critical)`, or `prod-eu: 3 new
+  firing alerts, worst critical` when the poll brings several. One
+  poll raises one notification and one bell, whatever the number of
+  new alerts. `desktop` picks the escape sequence (`osc777`, `osc9`,
+  `both`, `off`) and `min_severity` sets the floor a group must reach.
+  `command` runs a program such as `notify-send` instead of, or beside,
+  the escape sequence, and it runs without a shell: a10r replaces each
+  `$MESSAGE` element of the argv with the text as one argument. The
+  first poll of a backend only seeds the set and stays quiet, and so
+  does a backend that returns to the tenant scope. Off by default.
+
 - **Guardrails** — a `guardrails:` list in the config restricts write
   verbs per tenant. A rule can deny a verb, so the key stops appearing
   in the hint strip and a press flashes the reason instead of acting.

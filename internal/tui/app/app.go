@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -26,6 +27,7 @@ const (
 	keyNameEsc       = "Esc"
 	keyDescDown      = "down"
 	resourceSilences = "silences"
+	resourceAlerts   = "alerts"
 )
 
 // Options collects the dependencies the App needs to operate.
@@ -63,6 +65,9 @@ type Options struct {
 	// LoadStyles compiles a skin by name for the auto-theme swap. Nil
 	// disables the swap, which leaves the provisional skin in place.
 	LoadStyles func(name string) (*theme.Styles, error)
+	// Notify rings and raises a desktop notification on a new firing
+	// alert. Nil is the feature turned off; every method tolerates it.
+	Notify *notify.Notifier
 }
 
 // App is the root bubbletea tea.Model. Pointer-receiver because it owns
@@ -80,6 +85,10 @@ type App struct {
 	// outlives any single page.
 	scope     string
 	saveScope func(scope string)
+
+	// notify watches the alert polls for a newly firing aggregate. Nil
+	// when the feature is off, which its own methods handle.
+	notify *notify.Notifier
 
 	// terminalTitle gates every write to tea.View.WindowTitle.
 	terminalTitle bool
@@ -199,6 +208,7 @@ func NewApp(opts Options) *App {
 		readOnly:   opts.ReadOnly,
 		scope:      opts.Scope,
 		saveScope:  opts.SaveScope,
+		notify:     opts.Notify,
 
 		autoTheme:  opts.AutoTheme && opts.LoadStyles != nil,
 		loadStyles: opts.LoadStyles,
@@ -214,6 +224,10 @@ func NewApp(opts Options) *App {
 		},
 		histories: newAppHistories(opts.HistoryDir),
 	}
+	// The boot scope has to reach the notifier here: a run that starts
+	// narrowed would otherwise announce every tenant until the user
+	// changes the scope.
+	a.notify.SetScope(opts.Scope)
 	a.registerGlobalBindings()
 	a.registerTenantBindings()
 	return a

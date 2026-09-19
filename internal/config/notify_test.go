@@ -74,6 +74,15 @@ func TestNotify_Validate(t *testing.T) {
 			notify:  Notify{Command: []string{"  \t "}},
 			wantErr: `tui.notify.command[0]: must not be empty`,
 		},
+		{
+			name:    "the placeholder cannot be the program name",
+			notify:  Notify{Command: []string{"$MESSAGE"}},
+			wantErr: `tui.notify.command[0]: must not be "$MESSAGE"`,
+		},
+		{
+			name:   "the placeholder is legal past the program name",
+			notify: Notify{Command: []string{"notify-send", "$MESSAGE"}},
+		},
 	}
 
 	for _, tc := range tests {

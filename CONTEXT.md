@@ -337,6 +337,15 @@ because it reports the backend, not the view.
 _Avoid_: timeline, change log (a10r keeps no history between polls),
 diff.
 
+**New firing alert**:
+An alertname aggregate key that the previous poll of that tenant did
+not carry, and whose state is **active**. A suppressed or unprocessed
+instance does not count. With `tui.notify` on, a10r flashes, rings the
+terminal bell and raises a desktop notification once per poll that
+brings one. The first poll of a tenant seeds the set and stays quiet.
+_Avoid_: new alert (an instance, where this is an aggregate), alert
+storm.
+
 ### List-page chrome
 
 **Chrome**:
