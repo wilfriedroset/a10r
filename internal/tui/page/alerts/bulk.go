@@ -71,6 +71,13 @@ func (p *Page) activeFilterDesc() string {
 	return strings.Join(parts, ", ")
 }
 
+func alertNoun(n int) string {
+	if n == 1 {
+		return wordAlert
+	}
+	return wordAlerts
+}
+
 // silenceAllQuestion is the blast-radius confirm prompt for a
 // single-cursor silence-all of a COUNT>1 group — the gate is the
 // instance count, not a mark count.
@@ -162,11 +169,8 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return p.pushBulkSilenceForm()
 	}
 	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, tenants)
-	word := resourceAlerts
-	if len(targets) == 1 {
-		word = wordAlert
-	}
-	question := fmt.Sprintf("silence %d %s? (tenant %s)", len(targets), word, formatTenantBreakdownAlerts(targets))
+	question := fmt.Sprintf("silence %d %s? (tenant %s)",
+		len(targets), alertNoun(len(targets)), formatTenantBreakdownAlerts(targets))
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
@@ -266,12 +270,8 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 // fanout (distinct from the L2 silence-one full-label fanout).
 func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 	n := len(targets)
-	word := resourceAlerts
-	if n == 1 {
-		word = wordAlert
-	}
 	if len(tenants) == 1 {
-		return fmt.Sprintf("applies to %d %s (tenant %s) — one alertname silence each", n, word, tenants[0])
+		return fmt.Sprintf("applies to %d %s (tenant %s) — one alertname silence each", n, alertNoun(n), tenants[0])
 	}
 	return fmt.Sprintf("applies to %d alerts across %d tenants — one alertname silence each", n, len(tenants))
 }

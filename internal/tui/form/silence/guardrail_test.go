@@ -21,16 +21,26 @@ import (
 
 // guardedForm builds a ready-to-submit form on tenant "prod" under the
 // given policy, so each test below reads the guardrail gate and not the
-// field validation.
+// field validation. The arguments own opts.Clients, opts.Guardrails and
+// opts.Tenant, because the tenant names the one client the map holds.
+// Every other field is a default the caller can override on opts.
 func guardedForm(t *testing.T, client Client, rules guardrail.Set, opts Options) *Form {
 	t.Helper()
 	opts.Clients = map[string]Client{defaultTenant: client}
-	opts.Tenant = defaultTenant
-	opts.Styles = testutil.LoadStyles(t)
-	opts.Now = func() time.Time { return fixedNow }
-	opts.Creator = "alice"
-	opts.Comment = "ack"
 	opts.Guardrails = rules
+	opts.Tenant = defaultTenant
+	if opts.Styles == nil {
+		opts.Styles = testutil.LoadStyles(t)
+	}
+	if opts.Now == nil {
+		opts.Now = func() time.Time { return fixedNow }
+	}
+	if opts.Creator == "" {
+		opts.Creator = "alice"
+	}
+	if opts.Comment == "" {
+		opts.Comment = "ack"
+	}
 	if opts.Matchers == nil {
 		opts.Matchers = []backend.Matcher{{Name: "alertname", Value: "X", IsEqual: true}}
 	}

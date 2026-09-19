@@ -65,8 +65,11 @@ const (
 )
 
 const (
+	// resourceAlerts is the page's resource id. wordAlert / wordAlerts
+	// are operator-facing prose, so the id must not double as a noun.
 	resourceAlerts = "alerts"
 	wordAlert      = "alert"
+	wordAlerts     = "alerts"
 )
 
 // labelAlertname is the Alertmanager wire-format label key. Distinct

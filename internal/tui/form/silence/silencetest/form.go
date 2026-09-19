@@ -35,10 +35,12 @@ func Submit(tb testing.TB, cmd tea.Cmd, matchers string) tea.Cmd {
 		tb.Fatal("expected the silence form")
 	}
 	typeInto(form, matchers)
-	// The comment sits four rows below the matchers, and it is the
-	// other field a submit refuses to go without. The walk assumes the
-	// form opened on the matchers, so a form opened with FocusEnds (the
-	// recreate path) needs its own submit rather than this helper.
+	// The comment is the other field a submit refuses to go without,
+	// and it sits four Tab stops below the matchers. Four is a fixed
+	// walk because the form exports no way to read or set focus, so
+	// this helper only serves forms that open on the matchers: from a
+	// FocusEnds form (the recreate path) the same walk overshoots the
+	// comment by two stops, so that path must drive its own submit.
 	for range 4 {
 		_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	}

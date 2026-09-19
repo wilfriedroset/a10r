@@ -80,16 +80,19 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	})
 }
 
+func instanceNoun(n int) string {
+	if n == 1 {
+		return "instance"
+	}
+	return "instances"
+}
+
 // bulkSilenceQuestion formats the confirm prompt. At or above the
 // warn threshold it appends a second line nudging the operator to
 // Esc and use silence-all instead of fanning out N full-label
 // silences.
 func bulkSilenceQuestion(n int, tenant string) string {
-	noun := "instances"
-	if n == 1 {
-		noun = "instance"
-	}
-	q := fmt.Sprintf("silence %d %s? (tenant %s)", n, noun, tenant)
+	q := fmt.Sprintf("silence %d %s? (tenant %s)", n, instanceNoun(n), tenant)
 	if n >= silenceOneWarnThreshold {
 		q += fmt.Sprintf("\n%d individual silences will be created — Esc and use silence-all to silence the whole alert instead.", n)
 	}
@@ -150,11 +153,7 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 // bulkSilenceBanner formats the form's banner — "applies to N
 // instances (tenant prod) — each silenced with its own labels".
 func bulkSilenceBanner(n int, tenant string) string {
-	word := "instances"
-	if n == 1 {
-		word = "instance"
-	}
-	return fmt.Sprintf("applies to %d %s (tenant %s) — each silenced with its own labels", n, word, tenant)
+	return fmt.Sprintf("applies to %d %s (tenant %s) — each silenced with its own labels", n, instanceNoun(n), tenant)
 }
 
 // handleBulkSilenceConfirm consumes the pre-form confirm. Yes pushes

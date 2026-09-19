@@ -22,16 +22,19 @@ func OpenedModal(tb testing.TB, cmd tea.Cmd) modal.Modal {
 	return m
 }
 
-// PushedPage builds the page a command pushes, so a test can drive the
-// pushed page itself. The result is untyped because app.Page lives in
-// the package this one is deliberately kept out of, so callers assert
-// the concrete page type they expect.
+// PushedPage builds the page a command carries, so a test can drive
+// that page itself. A replace command qualifies too — both messages
+// carry the same factory and a test cares about the page, not which
+// stack operation delivered it. The result is untyped because app.Page
+// lives in the package this one is deliberately kept out of, so callers
+// assert the concrete page type they expect.
 func PushedPage(tb testing.TB, cmd tea.Cmd) any {
 	tb.Helper()
 	return factoryOutput(tb, cmd)
 }
 
-// factoryOutput runs the factory an app open or push message carries.
+// factoryOutput runs the factory an app open, push or replace message
+// carries.
 // Reflection is the only route from outside the app package: both
 // messages are unexported on purpose, and exporting a reader for them
 // would add a production API that no production caller needs. Both name
@@ -45,11 +48,11 @@ func factoryOutput(tb testing.TB, cmd tea.Cmd) any {
 	msg := cmd()
 	v := reflect.ValueOf(msg)
 	if v.Kind() != reflect.Struct {
-		tb.Fatalf("expected an app open or push message, got %T", msg)
+		tb.Fatalf("expected an app open, push or replace message, got %T", msg)
 	}
 	field := v.FieldByName("Factory")
 	if !field.IsValid() || field.Kind() != reflect.Func || field.IsNil() || field.Type().NumIn() != 0 {
-		tb.Fatalf("expected an app open or push message, got %T", msg)
+		tb.Fatalf("expected an app open, push or replace message, got %T", msg)
 	}
 	out := reflect.ValueOf(field.Interface()).Call(nil)
 	if len(out) != 1 {
