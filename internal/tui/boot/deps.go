@@ -85,12 +85,15 @@ type Deps struct {
 	// time.Now. Tests freeze it so a rendered frame is byte-stable.
 	Now func() time.Time
 
-	// Version, Commit are the ldflag-injected build identifiers. The
-	// caller (cmd/tui.go) reads its own package-level vars and passes
-	// them in; boot does not inherit cmd state. Empty/sentinel values
-	// fold into a User-Agent without a parenthesised commit suffix.
+	// Version, Commit, Date are the ldflag-injected build identifiers.
+	// The caller (cmd/tui.go) reads its own package-level vars and
+	// passes them in; boot does not inherit cmd state. Empty/sentinel
+	// Version and Commit fold into a User-Agent without a
+	// parenthesised commit suffix. Date reaches the `:info` report
+	// only, so it has no production default.
 	Version string
 	Commit  string
+	Date    string
 
 	// Stderr is the destination for non-fatal startup warnings
 	// (logger-close failures, factory.Build failures, "no config

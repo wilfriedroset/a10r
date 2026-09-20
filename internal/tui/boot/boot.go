@@ -130,7 +130,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		errOut = os.Stderr
 	}
 
-	cfg, err := loadConfigForTUI(flags, d.LoadConfig, errOut)
+	cfg, configFound, err := loadConfigForTUI(flags, d.LoadConfig, errOut)
 	if err != nil {
 		return nil, err
 	}
@@ -167,11 +167,19 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
+	env, resolver, aliasCount, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
 	}
+	env.InfoReport = buildInfoReport(infoInputs{
+		deps:       d,
+		cfg:        &effCfg,
+		configDir:  configDir,
+		aliasCount: aliasCount,
+		found:      configFound,
+		store:      store,
+	})
 
 	registry := &pollerRegistry{}
 	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir, scope, store)
@@ -309,8 +317,8 @@ func buildDispatcher() *keys.Dispatcher {
 // after the user toggles `t` then read the current app-global value.
 // User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
-// alias.
-func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
+// alias, and their count is returned for the `:info` report.
+func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, int, error) {
 	timeFormat := func() timerender.Format {
 		if *appPtr == nil {
 			return timerender.Relative
@@ -343,10 +351,11 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		SortMemory:         sortMemory,
 	}
 	resolver := newResolver(env)
-	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
-		return nil, nil, fmt.Errorf("user aliases: %w", err)
+	aliasCount, err := registerUserAliases(resolver, configDir, d.LoadAliases)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("user aliases: %w", err)
 	}
-	return env, resolver, nil
+	return env, resolver, aliasCount, nil
 }
 
 // buildApp constructs the bubbletea Model around the dispatcher,

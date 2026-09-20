@@ -6,16 +6,19 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
+	"github.com/wilfriedroset/a10r/internal/report"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
+	"github.com/wilfriedroset/a10r/internal/tui/page/selfreport"
 	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
@@ -54,6 +57,29 @@ type pageEnv struct {
 	// SortMemory is the per-page remembered sort column, handed to
 	// every page's Options. Never nil; a disabled store answers empty.
 	SortMemory tablesort.Memory
+	// InfoReport renders the `:info` body. Assigned after
+	// buildPageEnv returns because it closes over startup facts the
+	// env itself does not carry.
+	InfoReport func() report.InfoInput
+}
+
+func newInfoPage(env *pageEnv) app.Page {
+	return selfreport.New(selfreport.Options{
+		Title: pageInfo,
+		Render: func() string {
+			// InfoReport is a two-phase init: Build assigns it after
+			// buildPageEnv returns, so an env assembled anywhere else
+			// (tests that only exercise the resolver) has it nil.
+			if env.InfoReport == nil {
+				return "(no info report wired)"
+			}
+			var buf strings.Builder
+			if err := report.Info(&buf, env.InfoReport()); err != nil {
+				return fmt.Sprintf("(failed to render the info report: %v)", err)
+			}
+			return buf.String()
+		},
+	})
 }
 
 func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {

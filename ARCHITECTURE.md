@@ -164,6 +164,9 @@ Pages and shared page bases (`internal/tui/page`):
 - `page/receivers` -- the receivers list (Enter drills to a filtered
   alerts page).
 - `page/status` -- the Alertmanager status pane.
+- `page/selfreport` -- a scrollable read-only page over a renderer the
+  caller supplies, so `:info` prints the `internal/report` text the
+  `a10r info` subcommand prints rather than a second copy of it.
 - `page/tenant`, `page/tenantconfig` -- the configured-backend table
   and the per-tenant config inspector.
 - `page/format` -- width-aware text helpers (cell padding,

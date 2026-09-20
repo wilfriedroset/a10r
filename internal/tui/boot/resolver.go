@@ -19,6 +19,10 @@ import (
 // next to the registration that owns the name.
 const pageTenant = "tenant"
 
+// pageInfo is the `:` alias of the self-report page. It shows what
+// `a10r info` prints, from the same renderer.
+const pageInfo = "info"
+
 // newResolver builds the cmdbar resolver with the in-tree alias
 // catalogue. Each `:command` handler hands an env-bound page factory
 // to app.PushPage; pageEnv carries the shared deps so the resolver
@@ -48,6 +52,9 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
 	r.RegisterGroup([]string{pageTenant, "tenants"}, tenantFactory)
+	r.Register(pageInfo, func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return newInfoPage(env) })
+	})
 	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
 	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can
 	// Close() every page on the stack (cancelling in-flight bulk

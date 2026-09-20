@@ -76,3 +76,31 @@ func TestRunInfo_PrunesTheRememberedScope(t *testing.T) {
 	require.NotContains(t, buf.String(), "gone")
 	require.NotContains(t, buf.String(), "(remembered)")
 }
+
+// `a10r info` and the TUI's `:info` page print one report, so they
+// must agree on the log path and the skin for one config file. The
+// TUI resolves both through config.Resolve; info reading its raw
+// flag instead printed the default log path and the default theme
+// for a file that set either one.
+func TestRunInfo_ReportsTheResolvedLogPathAndTheme(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(xdg.StateHome, stateHome)
+	// config.Resolve reads the environment now, and A10R_LOG outranks
+	// the file, so a developer host that exports it would otherwise
+	// fail this test for the wrong reason.
+	t.Setenv("A10R_LOG", "")
+	t.Setenv("A10R_READ_ONLY", "")
+
+	cfgDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "from-config.log")
+	writeYAML(t, cfgDir, "a10r.yaml",
+		"backends:\n  - name: prod\n    url: http://x\n"+
+			"log:\n  path: "+logPath+"\n"+
+			"theme:\n  name: catppuccin-latte\n")
+
+	var buf bytes.Buffer
+	require.NoError(t, runInfo(&buf, &GlobalFlags{ConfigDir: cfgDir}))
+
+	require.Contains(t, buf.String(), "log path:   "+logPath)
+	require.Contains(t, buf.String(), "theme:      catppuccin-latte")
+}

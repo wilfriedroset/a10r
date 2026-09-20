@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -41,18 +42,31 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("resolve config dir: %w", err)
 	}
 
-	logPath := flags.LogPath
+	cfg, loadErr := config.Load(loadOptsFromFlags(flags))
+	if loadErr != nil && !errors.Is(loadErr, config.ErrNotFound) {
+		return fmt.Errorf("load config: %w", loadErr)
+	}
+
+	// The precedence chain runs through config.Resolve rather than the
+	// raw flags, so the report names the log file and the skin the
+	// process would actually use — the same two values the TUI's
+	// `:info` page resolves from the same file.
+	fileCfg := config.Config{}
+	if cfg != nil {
+		fileCfg = *cfg
+	}
+	eff, err := config.Resolve(*flags, os.Getenv, fileCfg)
+	if err != nil {
+		return fmt.Errorf("resolve config: %w", err)
+	}
+
+	logPath := eff.Config.Log.Path
 	if logPath == "" {
 		resolved, perr := log.DefaultPath()
 		if perr != nil {
 			return fmt.Errorf("resolve log path: %w", perr)
 		}
 		logPath = resolved
-	}
-
-	cfg, loadErr := config.Load(loadOptsFromFlags(flags))
-	if loadErr != nil && !errors.Is(loadErr, config.ErrNotFound) {
-		return fmt.Errorf("load config: %w", loadErr)
 	}
 
 	// Aliases are an optional overlay; a missing file is fine and
@@ -63,15 +77,10 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("load aliases: %w", aliasErr)
 	}
 
-	var fileTheme string
-	if cfg != nil {
-		fileTheme = cfg.Theme.Name
-	}
-
 	stateDir, rememberedScope := stateReport(cfg)
 
 	return report.Info(out, report.InfoInput{ //nolint:wrapcheck // the only error is the caller's own io.Writer, already named by report.Info.
-		Theme:      config.ResolveTheme(flags.Theme, fileTheme),
+		Theme:      eff.Config.Theme.Name,
 		Version:    version,
 		Commit:     commit,
 		Date:       date,
@@ -103,13 +112,5 @@ func stateReport(cfg *config.Config) (dir, scope string) {
 	}
 	store := uistate.Open(dir)
 	defer func() { _ = store.Close() }()
-	names := make([]string, len(cfg.Backends))
-	for i, b := range cfg.Backends {
-		names[i] = b.Name
-	}
-	pruned, _ := uistate.PruneScope(store.Scope(), names)
-	if pruned == config.ScopeAll {
-		return dir, ""
-	}
-	return dir, pruned
+	return dir, report.RememberedScope(cfg, store)
 }

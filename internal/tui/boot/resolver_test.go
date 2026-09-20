@@ -3,6 +3,7 @@
 package boot
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 
 // TestNewResolver_GroupsCatalogue pins the canonical+synonym shape
 // the help overlay (commit 7) reads from the resolver. Built-in
-// singletons (alerts, status) get one-name groups; synonym pairs
+// singletons (alerts, info, status) get one-name groups; synonym pairs
 // (q/quit, silences/sil, receivers/rec, tenant/tenants)
 // fold onto a single row each. A future contributor dropping a
 // synonym or renaming a canonical fails this test loudly rather
@@ -29,6 +30,7 @@ func TestNewResolver_GroupsCatalogue(t *testing.T) {
 	require.Equal(t,
 		[]cmdbar.AliasGroup{
 			{Names: []string{"alerts"}},
+			{Names: []string{"info"}},
 			{Names: []string{"q", "quit"}},
 			{Names: []string{"receivers", "rec"}},
 			{Names: []string{"silences", "sil"}},
@@ -65,4 +67,24 @@ func TestNewResolver_QuitAliases(t *testing.T) {
 			require.IsType(t, app.QuitRequestedMsg{}, cmd())
 		})
 	}
+}
+
+// `:in` must stay an unambiguous prefix for `:info`, because the
+// cmdbar completes on a unique prefix and a later alias starting
+// with "in" would silently turn a working keystroke sequence into an
+// ambiguity error.
+func TestNewResolver_InfoOwnsTheInPrefix(t *testing.T) {
+	t.Parallel()
+
+	r := newResolver(&pageEnv{})
+
+	var matched []string
+	for _, g := range r.Groups() {
+		for _, name := range g.Names {
+			if strings.HasPrefix(name, "in") {
+				matched = append(matched, name)
+			}
+		}
+	}
+	require.Equal(t, []string{"info"}, matched)
 }

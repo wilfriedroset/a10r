@@ -7,7 +7,7 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
 | `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
@@ -203,6 +203,21 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `v` | Jump to the version block |
 | `p` | Jump to the raw config block |
 | `Esc` / `q` | Back |
+
+### Info pane
+
+`:info` opens the same report `a10r info` prints, for the process you
+are in: resolved config dir, log path, state dir, alias count, theme,
+and the configured backends.
+
+| Key | What |
+| --- | --- |
+| `j` / `k` | Scroll down / up one line |
+| `Ctrl+D` / `Ctrl+U` | Half-page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full-page down / up |
+| `G` / `gg` | Jump to last / first line |
+| `r` | Re-render the report |
+| `Esc` | Back |
 
 ### Receivers / Tenant table
 
