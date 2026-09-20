@@ -35,6 +35,7 @@ func TestNewResolver_GroupsCatalogue(t *testing.T) {
 			{Names: []string{"info"}},
 			{Names: []string{"q", "quit"}},
 			{Names: []string{"receivers", "rec"}},
+			{Names: []string{"reload"}},
 			{Names: []string{"silences", "sil"}},
 			{Names: []string{"skin"}},
 			{Names: []string{"status"}},
@@ -88,6 +89,8 @@ func TestNewResolver_ShortPrefixesStayUnambiguous(t *testing.T) {
 		{prefix: "in", want: []string{"info"}},
 		{prefix: "co", want: []string{"config"}},
 		{prefix: "sk", want: []string{"skin"}},
+		{prefix: "rel", want: []string{"reload"}},
+		{prefix: "rec", want: []string{"receivers", "rec"}},
 	}
 
 	for _, tc := range tests {
@@ -105,6 +108,21 @@ func TestNewResolver_ShortPrefixesStayUnambiguous(t *testing.T) {
 			require.Equal(t, tc.want, matched)
 		})
 	}
+}
+
+// `:reload` and `:receivers` share two letters, so `:re` resolves to
+// neither. The error has to name both, because the user's next move
+// is to type the third letter.
+func TestNewResolver_ReIsAmbiguousBetweenReceiversAndReload(t *testing.T) {
+	t.Parallel()
+
+	r := newResolver(&pageEnv{})
+
+	_, err := r.Resolve("re")
+
+	require.ErrorIs(t, err, cmdbar.ErrAmbiguous)
+	require.Contains(t, err.Error(), "receivers")
+	require.Contains(t, err.Error(), "reload")
 }
 
 // `:skin` is the one verb whose behaviour splits on whether an

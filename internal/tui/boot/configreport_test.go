@@ -133,3 +133,25 @@ func captureTestLogger(c *a10rlog.Capture) *slog.Logger {
 	var sink bytes.Buffer
 	return slog.New(c.Wrap(slog.NewTextHandler(&sink, nil)))
 }
+
+// `:reload` re-reads the tree, and the two reports shipped alongside
+// it are the first place a user looks afterwards. A source list
+// frozen at boot answers "which of my files did a10r read" with the
+// set from before the edit.
+func TestBuildConfigReport_FollowsAReload(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfg := &config.Config{Theme: config.Theme{Name: "nord"}}
+	render := buildConfigReport(configInputs{cfg: cfg, configDir: dir, capture: &a10rlog.Capture{}})
+	require.Empty(t, render().Sources)
+
+	writeFile(t, filepath.Join(dir, config.AliasesFile))
+	writeFile(t, filepath.Join(dir, theme.SkinsDir, "gruvbox.yaml"))
+	cfg.Theme.Name = "gruvbox"
+
+	require.Equal(t, []config.Source{
+		{Kind: config.SourceAliases, Path: filepath.Join(dir, config.AliasesFile)},
+		{Kind: config.SourceSkin, Path: filepath.Join(dir, theme.SkinsDir, "gruvbox.yaml")},
+	}, render().Sources)
+}

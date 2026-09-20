@@ -557,3 +557,66 @@ func TestSetAction_ReRegisterClearsDisplayKey(t *testing.T) {
 	require.Empty(t, got[0].DisplayKey,
 		"re-registration must clear any prior SetActionDisplayKey override")
 }
+
+// `:reload` re-runs the key loader, so the extras from the previous
+// read have to come off first. Without this a key the user deleted
+// from the file keeps working until the next restart.
+func TestDispatcher_ClearOverridesRemovesTheExtras(t *testing.T) {
+	t.Parallel()
+
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "refresh", "refresh", "r", func() tea.Cmd { return nil })
+	require.NoError(t, d.ApplyOverrides(map[string][]string{"refresh": {"R"}}))
+
+	d.ClearOverrides()
+
+	consumed, _ := d.Dispatch("R")
+	require.False(t, consumed, "an override key must stop working once cleared")
+	consumed, _ = d.Dispatch("r")
+	require.True(t, consumed, "the built-in key must survive the clear")
+}
+
+// An override that shadows another action's built-in key must not
+// take that binding down with it: clearing restores what the key
+// meant before the override landed.
+func TestDispatcher_ClearOverridesRestoresAShadowedBuiltin(t *testing.T) {
+	t.Parallel()
+
+	var shadowed bool
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "refresh", "refresh", "r", func() tea.Cmd { return nil })
+	d.SetAction(LayerGlobal, "quit", "quit", "q", func() tea.Cmd {
+		shadowed = true
+		return nil
+	})
+	require.NoError(t, d.ApplyOverrides(map[string][]string{"refresh": {"q"}}))
+
+	d.ClearOverrides()
+
+	_, _ = d.Dispatch("q")
+	require.True(t, shadowed, "q must mean quit again once the override is cleared")
+}
+
+// Two overrides can claim one key across two ApplyOverrides calls,
+// and only the earliest entry holds the binding that predates both.
+// This is the case the backward walk exists for: forward, the second
+// entry would restore the first override instead of the built-in.
+func TestDispatcher_ClearOverridesUnwindsTwoClaimsOnOneKey(t *testing.T) {
+	t.Parallel()
+
+	var quit bool
+	d := New(newFakeClock())
+	d.SetAction(LayerGlobal, "quit", "quit", "q", func() tea.Cmd {
+		quit = true
+		return nil
+	})
+	d.SetAction(LayerGlobal, "refresh", "refresh", "r", func() tea.Cmd { return nil })
+	d.SetAction(LayerGlobal, "help", "help", "?", func() tea.Cmd { return nil })
+	require.NoError(t, d.ApplyOverrides(map[string][]string{"refresh": {"q"}}))
+	require.NoError(t, d.ApplyOverrides(map[string][]string{"help": {"q"}}))
+
+	d.ClearOverrides()
+
+	_, _ = d.Dispatch("q")
+	require.True(t, quit, "q must mean quit again, not the first override")
+}

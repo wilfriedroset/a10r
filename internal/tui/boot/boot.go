@@ -177,7 +177,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, aliasCount, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
+	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
@@ -188,16 +188,27 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		capture:   capture,
 	})
 	env.InfoReport = buildInfoReport(infoInputs{
-		deps:       d,
-		cfg:        &effCfg,
-		configDir:  configDir,
-		aliasCount: aliasCount,
+		deps:      d,
+		cfg:       &effCfg,
+		configDir: configDir,
+		// Asked of the resolver rather than counted at boot, because
+		// `:reload` swaps the whole user-alias set.
+		aliasCount: func() int { return len(resolver.UserAliases()) },
 		found:      configFound,
 		store:      store,
 	})
 
 	registry := &pollerRegistry{}
-	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir, scope, store)
+	rl := &reloader{
+		deps:       d,
+		flags:      flags,
+		env:        env,
+		registry:   registry,
+		resolver:   resolver,
+		dispatcher: dispatcher,
+		configDir:  configDir,
+	}
+	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir, scope, store, rl.reload)
 
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
 		_ = store.Close()
@@ -207,7 +218,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	return &Result{
 		app:      a,
 		closer:   closer,
-		cfg:      cfg,
+		cfg:      &effCfg,
 		clients:  clients,
 		registry: registry,
 		env:      env,
@@ -333,8 +344,8 @@ func buildDispatcher() *keys.Dispatcher {
 // after the user toggles `t` then read the current app-global value.
 // User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
-// alias, and their count is returned for the `:info` report.
-func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, int, error) {
+// alias.
+func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
 	timeFormat := func() timerender.Format {
 		if *appPtr == nil {
 			return timerender.Relative
@@ -367,11 +378,10 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		SortMemory:         sortMemory,
 	}
 	resolver := newResolver(env)
-	aliasCount, err := registerUserAliases(resolver, configDir, d.LoadAliases)
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("user aliases: %w", err)
+	if err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
+		return nil, nil, fmt.Errorf("user aliases: %w", err)
 	}
-	return env, resolver, aliasCount, nil
+	return env, resolver, nil
 }
 
 // buildApp constructs the bubbletea Model around the dispatcher,
@@ -380,7 +390,7 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 // pollers once Result.StartPollers fills the registry in (the user
 // can only press `r` after Run starts, which is after StartPollers
 // has settled).
-func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store) *app.App {
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store, reload func() tea.Cmd) *app.App {
 	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
 	return app.NewApp(app.Options{
 		Styles:     styles,
@@ -403,6 +413,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 			return theme.Names(filepath.Join(configDir, theme.SkinsDir))
 		},
 		SkinName: startupSkinName(effCfg.Theme.Name),
+		Reload:   reload,
 
 		TerminalTitle: effCfg.TUI.TerminalTitle,
 		Notify:        notify.New(effCfg.TUI.Notify),

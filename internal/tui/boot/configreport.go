@@ -24,23 +24,25 @@ type configInputs struct {
 // file and its drop-ins) and adds the three overlays the loader never
 // sees, because the page answers "which of my files did a10r read"
 // and the operator does not care which package read them.
+//
+// Everything is computed per render, not captured: `:reload` writes
+// through in.cfg and can create an overlay or move the skin, and a
+// list frozen at boot would name the files from before the edit. The
+// cost is four os.Stat calls a frame, which is below the noise floor
+// of one render.
 func buildConfigReport(in configInputs) func() report.ConfigInput {
-	sources := append([]config.Source(nil), in.cfg.Sources...)
-	sources = appendIfPresent(sources, config.SourceAliases,
-		filepath.Join(in.configDir, config.AliasesFile))
-	sources = appendIfPresent(sources, config.SourceKeys,
-		filepath.Join(in.configDir, config.KeysDir, config.DefaultKeysProfile+".yaml"))
-	for _, name := range skinFileNames(in.cfg.Theme.Name) {
-		sources = appendIfPresent(sources, config.SourceSkin,
-			filepath.Join(in.configDir, theme.SkinsDir, name))
-	}
-
 	return func() report.ConfigInput {
+		sources := append([]config.Source(nil), in.cfg.Sources...)
+		sources = appendIfPresent(sources, config.SourceAliases,
+			filepath.Join(in.configDir, config.AliasesFile))
+		sources = appendIfPresent(sources, config.SourceKeys,
+			filepath.Join(in.configDir, config.KeysDir, config.DefaultKeysProfile+".yaml"))
+		for _, name := range skinFileNames(in.cfg.Theme.Name) {
+			sources = appendIfPresent(sources, config.SourceSkin,
+				filepath.Join(in.configDir, theme.SkinsDir, name))
+		}
 		return report.ConfigInput{
-			Sources: sources,
-			// Read per render rather than captured at build time, so
-			// `r` shows the most recent window rather than a snapshot
-			// frozen when the page was first wired.
+			Sources:  sources,
 			Warnings: in.capture.Messages(),
 		}
 	}

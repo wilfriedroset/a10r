@@ -127,6 +127,8 @@ Shell and orchestration:
   skin, register key chords / aliases, build the page-environment
   resolver and the `App`. `boot.Build` reads top-to-bottom as a
   named-stage list ([ADR 0033](docs/adr/0033-boot-stage-extraction.md)).
+  `reload.go` re-runs the reloadable part of that list for `:reload`,
+  so the same package owns the startup read and the live re-read.
   `frame_test.go` renders whole frames headlessly against the goldens
   in `testdata/frames/`, boot included, with no terminal and no
   network. `snapshot.go` does the same against live backends for the

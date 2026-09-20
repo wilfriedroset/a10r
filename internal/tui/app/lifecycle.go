@@ -54,6 +54,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.applySkin(m.Name)
 		return a, cmd
 	}
+	if _, ok := msg.(ReloadRequestedMsg); ok {
+		cmd := a.reloadConfig()
+		return a, cmd
+	}
+	if m, ok := msg.(ReloadedMsg); ok {
+		cmd := a.applyReloaded(m)
+		return a, cmd
+	}
 	if _, ok := msg.(OpenSkinPickerMsg); ok {
 		cmd := a.openSkinPicker()
 		return a, cmd

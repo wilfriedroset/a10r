@@ -31,6 +31,12 @@ const pageConfig = "config"
 // applies that skin and stays where it is.
 const cmdSkin = "skin"
 
+// cmdReload is the `:` verb that re-reads the config, the aliases
+// and the keys. It shares the `re` prefix with `:receivers`, so
+// neither is reachable by two letters -- `:rel` and `:rec` are the
+// shortest unambiguous forms.
+const cmdReload = "reload"
+
 // newResolver builds the cmdbar resolver with the in-tree alias
 // catalogue. Each `:command` handler hands an env-bound page factory
 // to app.PushPage; pageEnv carries the shared deps so the resolver
@@ -74,6 +80,9 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 		}
 		return app.OpenSkinPicker()
 	})
+	r.Register(cmdReload, func(_ []string) tea.Cmd {
+		return app.Reload()
+	})
 	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
 	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can
 	// Close() every page on the stack (cancelling in-flight bulk
@@ -105,21 +114,17 @@ func applyUserKeyOverrides(d *keys.Dispatcher, configDir string, load func(strin
 // registerUserAliases reads aliases.yaml via the Deps-configured
 // loader, validates the entries against the resolver's built-in
 // alias set, and registers every user alias on the resolver.
-// Returns the count of registered aliases so callers can surface
-// "n user aliases loaded" as a startup signal.
 //
 // Missing file is not an error per the loader contract — operators
 // who don't curate aliases see no mention of the feature and pay
 // nothing for it.
-func registerUserAliases(r *cmdbar.Resolver, configDir string, load func(string) (config.AliasMap, error)) (int, error) {
+func registerUserAliases(r *cmdbar.Resolver, configDir string, load func(string) (config.AliasMap, error)) error {
 	user, err := load(configDir)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	for short, expanded := range user {
-		if err := r.RegisterUser(short, expanded); err != nil {
-			return 0, fmt.Errorf("register %q: %w", short, err)
-		}
+	if err := r.ReplaceUser(user); err != nil {
+		return fmt.Errorf("register user aliases: %w", err)
 	}
-	return len(user), nil
+	return nil
 }

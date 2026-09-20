@@ -73,6 +73,12 @@ type Options struct {
 	// as current. Under auto-detection it is the provisional one until
 	// the terminal answers.
 	SkinName string
+	// Reload re-reads the configuration and applies the reloadable
+	// subset, backing `:reload`. Nil disables the verb, which then
+	// says so rather than looking like a reload that changed nothing.
+	// The App refuses the request behind an open form before it calls
+	// this; everything else about the reload belongs to the caller.
+	Reload func() tea.Cmd
 	// Notify rings and raises a desktop notification on a new firing
 	// alert. Nil is the feature turned off; every method tolerates it.
 	Notify *notify.Notifier
@@ -111,6 +117,9 @@ type App struct {
 	// `:skin` agree on what is in force.
 	skinNames func() []string
 	skinName  string
+
+	// reload backs `:reload`; see Options.Reload.
+	reload func() tea.Cmd
 
 	crumbs  footer.Crumbs
 	prompt  footer.Prompt
@@ -228,6 +237,7 @@ func NewApp(opts Options) *App {
 		loadStyles: opts.LoadStyles,
 		skinNames:  opts.SkinNames,
 		skinName:   opts.SkinName,
+		reload:     opts.Reload,
 
 		terminalTitle: opts.TerminalTitle,
 		crumbs:        footer.NewCrumbs(),

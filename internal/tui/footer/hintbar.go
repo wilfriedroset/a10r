@@ -112,6 +112,33 @@ func (h HintBar) Start() tea.Cmd {
 	return h.tickCmd()
 }
 
+// Reconfigure rebuilds the bar under new options and returns the Cmd
+// that restarts its rotation, nil when there is nothing to schedule:
+// either the options normalise to what the bar already holds, in
+// which case the bar and its live timer come back untouched, or the
+// new options switch it off. Leaving an unchanged bar alone is what
+// keeps a reload from jumping the rotation back to the first tip.
+//
+// The generation advances, so the tick the previous configuration
+// scheduled drops on arrival instead of running a second timer
+// alongside the new one.
+func (h HintBar) Reconfigure(opts HintBarOptions) (bar HintBar, cmd tea.Cmd) {
+	if opts.Tips == nil {
+		// The receiver's catalogue, not the package default: a bar
+		// built with an injected one must not silently revert to
+		// help.Tips() the first time a reload touches it.
+		opts.Tips = h.tips
+	}
+	next := NewHintBar(opts)
+	// The catalogue is not compared: only the config-driven pair can
+	// move across a reload, and no caller swaps the tips themselves.
+	if next.enabled == h.enabled && next.interval == h.interval {
+		return h, nil
+	}
+	next.generation = h.generation + 1
+	return next, next.Start()
+}
+
 // Update routes a message into the bar. Returns the (possibly
 // advanced) state plus the next-tick Cmd when the message was a
 // hintBarTickMsg under the current generation. Disabled bars return

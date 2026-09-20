@@ -105,7 +105,7 @@ func TestBuildApp_ArmsAutoThemeFromConfig(t *testing.T) {
 			require.NoError(t, err)
 			cfg := &config.Config{Theme: config.Theme{Name: tc.themeName}}
 
-			a := buildApp(buildDispatcher(), nil, styles, cfg, &pollerRegistry{}, testDeps(t).resolved(), t.TempDir(), scopeAll, uistate.Open(""))
+			a := buildApp(buildDispatcher(), nil, styles, cfg, &pollerRegistry{}, testDeps(t).resolved(), t.TempDir(), scopeAll, uistate.Open(""), nil)
 			if tc.wantArmed {
 				require.NotNil(t, a.Init())
 				return

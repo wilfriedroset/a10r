@@ -14,10 +14,13 @@ import (
 // infoInputs are the startup facts the `:info` report needs that no
 // other stage already hands around.
 type infoInputs struct {
-	deps       Deps
-	cfg        *config.Config
-	configDir  string
-	aliasCount int
+	deps      Deps
+	cfg       *config.Config
+	configDir string
+	// A func, not a value: `:reload` re-registers the user aliases,
+	// and a count captured at boot would contradict what the command
+	// bar resolves once it has.
+	aliasCount func() int
 	found      bool
 	store      *uistate.Store
 }
@@ -46,7 +49,7 @@ func buildInfoReport(in infoInputs) func() report.InfoInput {
 			LogPath:         logPath,
 			Config:          in.cfg,
 			NotFound:        !in.found,
-			AliasCount:      in.aliasCount,
+			AliasCount:      in.aliasCount(),
 			StateDir:        stateDir,
 			RememberedScope: report.RememberedScope(in.cfg, in.store),
 			Theme:           in.cfg.Theme.Name,

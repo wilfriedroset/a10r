@@ -7,7 +7,7 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:skin`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:skin`, `:reload`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
 | `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
@@ -252,6 +252,43 @@ nothing; the flash carries the error.
 
 The change lasts for the session. It does not write `theme.name`, so
 the next start reads your config file as before.
+
+### Config reload
+
+`:reload` re-reads your config file, your aliases file, and your keys
+file. Your page stack, cursors, marks, filters, and tenant scope stay
+as they are.
+
+`:reload` applies these without a restart:
+
+- `theme.name`
+- `tui.tips` and `tui.tips_interval`
+- every `poll_interval`, which restarts the pollers that changed
+- `defaults.read_only`, at once for the title bar and the help overlay,
+  and for pages you open after the reload
+- your aliases and your keys, as a whole-file swap
+
+`:reload` reports success but changes nothing for `tui.notify`,
+`tui.terminal_title`, and `tui.remember`. The session wired those
+into the running program at startup. Restart a10r to pick them up.
+
+`:reload` refuses the whole reload when the new file changes a
+backend or the log. That covers the backend list, every field of a
+backend entry except `read_only` and `poll_interval`, every `log.*`
+key, and `defaults.log_format`. The session keeps the clients, the pollers, and
+the log file it started with, so the flash says
+`reload: backends or log changed, restart a10r` and nothing moves.
+
+Any error stops the reload before it applies anything: a config that
+no longer parses, an aliases file with a bad entry, or a keys file
+that names an action a10r does not have. The flash carries the error
+and the session keeps every value it had.
+
+`:reload` is refused while a silence form is open, with the flash
+`reload: close the form first`. Close the form and press it again.
+
+`:re` is not enough to reach it, because `:receivers` starts the same
+way. Type `:rel` for the reload and `:rec` for the receivers.
 
 ### Receivers / Tenant table
 

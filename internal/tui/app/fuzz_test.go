@@ -235,6 +235,7 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		}
 		return app.OpenSkinPicker()
 	})
+	resolver.Register("reload", func([]string) tea.Cmd { return app.Reload() })
 	a := app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -243,6 +244,14 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		SkinNames:  func() []string { return theme.Names("") },
 		SkinName:   theme.DefaultSkinName,
 		LoadStyles: fuzzLoadSkin,
+		// A reload that always succeeds and always repaints, so the
+		// seed below drives applyReloaded's skin swap and hint-bar
+		// rebuild rather than its refusal path.
+		Reload: func() tea.Cmd {
+			return func() tea.Msg {
+				return app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: time.Second}
+			}
+		},
 		// Notifications on with both escape transports. The two
 		// warm-up polls below only seed the firing set; the third one
 		// carries a new alertname and is what drives the diff, the
@@ -337,6 +346,14 @@ func addAppSeeds(f *testing.F) {
 		testutil.FuzzFrameKeyCode(tea.KeyEnter),
 		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKey('a'),
 		testutil.FuzzFrameKeyCode(tea.KeyEnter),
+	))
+
+	// `:reload` repaints and rebuilds the hint bar mid-session, so
+	// the frames after it exercise a swapped skin under a live stack.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('e'),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameResize(80, 24),
 	))
 
 	// Tenant quick-switch.

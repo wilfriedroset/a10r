@@ -461,7 +461,7 @@ deploy2: alerts list --state suppressed # equivalent — `list` is a no-op posit
 ```
 
 A user short that collides with a built-in (`:alerts`, `:silences`,
-`:sil`, `:info`, `:config`, `:skin`, `:tenant`, `:q`, `:quit`, …) is fail-closed: a10r refuses to start
+`:sil`, `:info`, `:config`, `:skin`, `:reload`, `:tenant`, `:q`, `:quit`, …) is fail-closed: a10r refuses to start
 and lists every offending name so you can fix them in one edit. An
 expansion that doesn't resolve to a known built-in fails the same
 way.
@@ -558,6 +558,57 @@ matches no configured backend is a warning instead of an error, so
 you can share one `config.d` fragment across machines that do not all
 have every tenant. Run `a10r info` to see the warnings and the active
 rules.
+
+## Reloading
+
+Run `:reload` from inside the TUI to re-read this file, your aliases
+file, and your keys file. You keep your page stack, your cursors,
+your marks, your filters, and your tenant scope.
+
+These apply without a restart:
+
+| Key | Note |
+| --- | --- |
+| `theme.name` | Repaints at once. The `auto` value is left as it is, because the terminal answered that question at startup. |
+| `tui.tips`, `tui.tips_interval` | Rebuilds the hint bar. |
+| `defaults.poll_interval`, per-backend `poll_interval`, `pages.<page>.poll_interval` | Restarts the pollers whose interval moved. |
+| `defaults.read_only` | Applies at once to the title bar and the help overlay. Pages already open keep the value they were built with. |
+| `defaults.bulk_concurrency` | Applies to pages you open after the reload. |
+| `guardrails` | Applies to pages you open after the reload. |
+| `tui.poll_delta`, `pages.<page>.columns` | Applies to pages you open after the reload. |
+| Aliases, keys | Swapped as a whole file, so an entry you deleted stops working. |
+
+These need a restart, and `:reload` refuses the whole file when one
+of them changed:
+
+| Key | Why |
+| --- | --- |
+| `backends`: the list itself, and every field of an entry except `read_only` and `poll_interval` | The session built its HTTP clients from these and keeps them for its lifetime. |
+| `log.*`, `defaults.log_format` | The audit trail writes to the file the session opened with the encoder it built. Re-opening it mid-session loses the write order. |
+
+These also need a restart, but `:reload` does not refuse them. It
+reports success and leaves them as they are, because the session
+wired them into the running program at startup:
+
+| Key | Why |
+| --- | --- |
+| `tui.notify` | The notifier is built once and handed to the app. |
+| `tui.terminal_title` | The title writer is built once and handed to the app. |
+| `tui.remember` | The state store is opened once, at startup. |
+
+When a refused key changed, `:reload` applies nothing at all and
+flashes `reload: backends or log changed, restart a10r`. A partly
+applied config is a session that disagrees with its own
+configuration, so a10r does not produce one.
+
+An error anywhere stops the reload before it applies anything. That
+covers a config that no longer parses, an aliases file with an entry
+a10r cannot resolve, and a keys file that names an unknown action.
+The flash carries the error and every live value stays as it was.
+
+`:reload` is refused while a silence form is open, with the flash
+`reload: close the form first`, because the reload rebuilds the values
+the form was opened against.
 
 ## Validating a config
 

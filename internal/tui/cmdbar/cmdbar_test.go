@@ -567,3 +567,41 @@ func TestResolver_RegisterAndRegisterGroupSingletonAreEquivalent(t *testing.T) {
 	require.Equal(t, r1.Groups(), r2.Groups(),
 		"Register and single-element RegisterGroup must produce equivalent Groups() output")
 }
+
+// `:reload` re-runs the alias loader, so the previous read has to
+// come off. Without this an alias the user deleted from the file
+// keeps resolving until the next restart.
+func TestResolver_ReplaceUserDropsThePreviousRead(t *testing.T) {
+	t.Parallel()
+
+	r := New()
+	r.Register("tenant", func([]string) tea.Cmd { return nil })
+	require.NoError(t, r.ReplaceUser(map[string]string{"prod": "tenant prod"}))
+
+	require.NoError(t, r.ReplaceUser(map[string]string{"eu": "tenant eu"}))
+
+	_, err := r.Resolve("prod")
+	require.ErrorIs(t, err, ErrUnknown)
+	require.Equal(t, []UserAlias{{Short: "eu", Expanded: "tenant eu"}}, r.UserAliases())
+
+	_, err = r.Resolve("tenant")
+	require.NoError(t, err, "a built-in must survive the replacement")
+}
+
+// A reload must keep the aliases the session already has when the
+// new file does not load. Validating the whole map before touching
+// the resolver is what makes a rejected file cost nothing.
+func TestResolver_ReplaceUserKeepsTheOldSetWhenOneEntryIsBad(t *testing.T) {
+	t.Parallel()
+
+	r := New()
+	r.Register("tenant", func([]string) tea.Cmd { return nil })
+	require.NoError(t, r.ReplaceUser(map[string]string{"prod": "tenant prod"}))
+
+	err := r.ReplaceUser(map[string]string{"eu": "tenant eu", "bad": "nosuchverb"})
+
+	require.ErrorIs(t, err, ErrUserAliasUnresolved)
+	require.Equal(t, []UserAlias{{Short: "prod", Expanded: "tenant prod"}}, r.UserAliases())
+	_, resolveErr := r.Resolve("eu")
+	require.ErrorIs(t, resolveErr, ErrUnknown, "a rejected file must register nothing")
+}
