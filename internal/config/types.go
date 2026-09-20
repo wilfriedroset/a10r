@@ -75,6 +75,11 @@ type Config struct {
 	Guardrails guardrail.Set `yaml:"guardrails,omitempty"`
 	Pages      PageOverrides `yaml:"pages,omitempty"`
 	TUI        TUI           `yaml:"tui,omitempty"`
+
+	// Sources lists the files the load read, in the order the merge
+	// applied them. It is a load result rather than a config key, so
+	// the strict decoder must keep rejecting a user file that names it.
+	Sources []Source `yaml:"-"`
 }
 
 // PageOverrides carries per-page runtime knobs that a user can

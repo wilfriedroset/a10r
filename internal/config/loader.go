@@ -74,9 +74,18 @@ func loadWithEnv(
 		return nil, err
 	}
 
-	if err := mergeDropIns(cfg, filepath.Join(dir, configDropInDir), path, env); err != nil {
+	dropIns, err := mergeDropIns(cfg, filepath.Join(dir, configDropInDir), path, env)
+	if err != nil {
 		return nil, err
 	}
+	// The drop-in walk absolutises every fragment path, so the base
+	// one matches it rather than echoing a relative --config-dir back
+	// into a list the `:config` page prints side by side.
+	basePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path %q: %w", path, err)
+	}
+	cfg.Sources = append([]Source{{Kind: SourceBase, Path: basePath}}, dropIns...)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate config %q: %w", path, err)
@@ -121,13 +130,16 @@ func loadOneFile(path string, env func(string) string) (*Config, error) {
 // drop-ins pay nothing. Empty / comment-only fragments are also
 // skipped — operators stage placeholder snippets via configuration
 // management and they should not crash startup before being filled in.
-func mergeDropIns(base *Config, dropInDir, basePath string, env func(string) string) error {
+//
+// The merged fragments are returned in application order so the
+// caller can record them as Config.Sources.
+func mergeDropIns(base *Config, dropInDir, basePath string, env func(string) string) ([]Source, error) {
 	paths, err := discoverDropIns(dropInDir)
 	if err != nil {
-		return fmt.Errorf("discover drop-ins: %w", err)
+		return nil, fmt.Errorf("discover drop-ins: %w", err)
 	}
 	if len(paths) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	backendSource := make(map[string]string, len(base.Backends)+len(paths))
@@ -138,13 +150,17 @@ func mergeDropIns(base *Config, dropInDir, basePath string, env func(string) str
 	for _, p := range paths {
 		overlay, err := loadDropIn(p, env)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := mergeInto(base, overlay, p, backendSource); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	sources := make([]Source, len(paths))
+	for i, p := range paths {
+		sources[i] = Source{Kind: SourceDropIn, Path: p}
+	}
+	return sources, nil
 }
 
 // loadDropIn reads, env-interpolates, and strict-decodes a single
