@@ -93,6 +93,9 @@ are defined in CONTEXT.md and used here without redefinition.
   `--matcher` flags, silence forms, and label selectors.
 - `internal/output` -- generic table / json / yaml encoders for the
   read-only command results.
+- `internal/report` -- renders the diagnostic report about a10r
+  itself, so `a10r info` and the TUI's `:info` page can share one
+  implementation and cannot drift apart.
 - `internal/clock` -- the time-injection seam keeping tests off the
   wall clock (ADR 0031).
 - `internal/log` -- builds the project `*slog.Logger` (json / logfmt,

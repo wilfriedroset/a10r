@@ -188,8 +188,9 @@ A new config field:
 - the reference table in `docs/end-users/configuration.md`
 - the wizard in `cmd/init.go` and `internal/wizard/` when a first-run
   user must set it
-- the report in `cmd/info.go` and its goldens in
-  `cmd/testdata/info_*.golden` when the value is worth showing
+- the report in `internal/report/info.go` and its goldens in
+  `internal/report/testdata/info_*.golden` when the value is worth
+  showing
 
 A new CLI flag or subcommand:
 
