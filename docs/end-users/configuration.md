@@ -383,6 +383,11 @@ A user skin with the same basename as a bundled skin shadows the
 bundled one; a10r prints a warning so the override isn't a
 silent surprise.
 
+To try a skin without restarting, run `:skin` from inside the TUI.
+It switches the live skin for the session and never writes
+`theme.name`. See
+[keybindings.md](keybindings.md#skin-switch).
+
 ## Drop-in fragments (`config.d/`)
 
 Anything you can put in `a10r.yaml` you can also stage as a fragment
@@ -456,7 +461,7 @@ deploy2: alerts list --state suppressed # equivalent — `list` is a no-op posit
 ```
 
 A user short that collides with a built-in (`:alerts`, `:silences`,
-`:sil`, `:info`, `:config`, `:tenant`, `:q`, `:quit`, …) is fail-closed: a10r refuses to start
+`:sil`, `:info`, `:config`, `:skin`, `:tenant`, `:q`, `:quit`, …) is fail-closed: a10r refuses to start
 and lists every offending name so you can fix them in one edit. An
 expansion that doesn't resolve to a known built-in fails the same
 way.

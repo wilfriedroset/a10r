@@ -27,9 +27,10 @@ func isUnsetColor(c color.Color) bool {
 // bundledNames lists every skin we ship inside the binary: eight
 // catppuccin variants synced from upstream (SOURCES.yaml.sources)
 // plus four ovhcloud variants authored in-tree (SOURCES.yaml.authored).
-// Test-local because the production code no longer exposes a
-// BundledNames() helper — SOURCES.yaml is the system-of-record for
-// what's embedded.
+// Spelled out test-side because SOURCES.yaml is the system-of-record
+// for what is embedded and it is not itself embedded. Names("") reads
+// the embed.FS at runtime for the `:skin` picker, so the two are
+// pinned against each other below.
 var bundledNames = []string{
 	"catppuccin-frappe", "catppuccin-frappe-transparent",
 	"catppuccin-latte", "catppuccin-latte-transparent",

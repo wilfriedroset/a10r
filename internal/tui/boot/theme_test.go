@@ -43,6 +43,30 @@ func TestIsAutoTheme(t *testing.T) {
 	}
 }
 
+func TestStartupSkinName(t *testing.T) {
+	t.Parallel()
+
+	// The picker marks this name as current, so it must be a name the
+	// loader can resolve rather than the sentinel the first frame was
+	// asked for.
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "sentinel resolves to the provisional dark skin", in: theme.AutoSkinName, want: theme.DefaultSkinName},
+		{name: "unset resolves the same way", in: "", want: theme.DefaultSkinName},
+		{name: "named skin is passed through", in: theme.LightSkinName, want: theme.LightSkinName},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, startupSkinName(tc.in))
+		})
+	}
+}
+
 func TestDefaultLoadStyles_AutoLoadsTheDarkSkinProvisionally(t *testing.T) {
 	t.Parallel()
 

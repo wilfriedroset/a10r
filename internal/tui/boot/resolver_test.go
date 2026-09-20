@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/app"
@@ -14,7 +15,7 @@ import (
 
 // TestNewResolver_GroupsCatalogue pins the canonical+synonym shape
 // the help overlay (commit 7) reads from the resolver. Built-in
-// singletons (alerts, config, info, status) get one-name groups; synonym pairs
+// singletons (alerts, config, info, skin, status) get one-name groups; synonym pairs
 // (q/quit, silences/sil, receivers/rec, tenant/tenants)
 // fold onto a single row each. A future contributor dropping a
 // synonym or renaming a canonical fails this test loudly rather
@@ -35,6 +36,7 @@ func TestNewResolver_GroupsCatalogue(t *testing.T) {
 			{Names: []string{"q", "quit"}},
 			{Names: []string{"receivers", "rec"}},
 			{Names: []string{"silences", "sil"}},
+			{Names: []string{"skin"}},
 			{Names: []string{"status"}},
 			{Names: []string{"tenant", "tenants"}},
 		},
@@ -85,6 +87,7 @@ func TestNewResolver_ShortPrefixesStayUnambiguous(t *testing.T) {
 	}{
 		{prefix: "in", want: []string{"info"}},
 		{prefix: "co", want: []string{"config"}},
+		{prefix: "sk", want: []string{"skin"}},
 	}
 
 	for _, tc := range tests {
@@ -100,6 +103,35 @@ func TestNewResolver_ShortPrefixesStayUnambiguous(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.want, matched)
+		})
+	}
+}
+
+// `:skin` is the one verb whose behaviour splits on whether an
+// argument is present, so the split is the contract: bare opens the
+// picker, named applies straight away without a stop at the picker.
+func TestNewResolver_SkinSplitsOnItsArgument(t *testing.T) {
+	t.Parallel()
+
+	r := newResolver(&pageEnv{})
+
+	tests := []struct {
+		name string
+		args []string
+		want tea.Msg
+	}{
+		{name: "bare opens the picker", args: nil, want: app.OpenSkinPickerMsg{}},
+		{name: "trailing space still opens the picker", args: []string{"  "}, want: app.OpenSkinPickerMsg{}},
+		{name: "named applies directly", args: []string{"nord"}, want: app.ApplySkinMsg{Name: "nord"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cmd, err := r.Resolve(strings.Join(append([]string{cmdSkin}, tc.args...), " "))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cmd())
 		})
 	}
 }

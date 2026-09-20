@@ -5,6 +5,7 @@ package app_test
 import (
 	"log/slog"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,12 +15,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // fuzzNow / fuzzAlerts are hoisted to package scope so the per-
@@ -193,16 +196,53 @@ func resolveCmd(cmd tea.Cmd) tea.Msg {
 	}
 }
 
+// fuzzSkins memoises the compiled skins across iterations, because
+// the fuzz target re-boots the app per input and every `:skin` seed
+// would otherwise pay a YAML parse and a full compile. The cached
+// value is only ever read: applySkin copies out of it.
+var fuzzSkins sync.Map
+
+func fuzzLoadSkin(name string) (*theme.Styles, error) {
+	if cached, ok := fuzzSkins.Load(name); ok {
+		styles, _ := cached.(*theme.Styles)
+		return styles, nil
+	}
+	styles, err := (&theme.Loader{}).Load(name)
+	if err != nil {
+		return nil, err
+	}
+	fuzzSkins.Store(name, styles)
+	return styles, nil
+}
+
 // bootApp constructs the App, pushes the alerts home page, and
 // hydrates it with one synthetic poll.DataMsg so the fuzzer's
 // random keys land on a populated table from the first iteration.
 func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 	t.Helper()
-	styles := testutil.LoadFuzzStyles(t)
+	// Copied, not shared: LoadFuzzStyles caches one pointer for the
+	// whole test binary, and applySkin swaps by writing through
+	// Options.Styles.
+	base := *testutil.LoadFuzzStyles(t)
+	styles := &base
+	// `:skin` is wired so the seeds below reach the picker's render
+	// and submit paths. The resolver is local rather than boot's: the
+	// fuzz app has no config to build the real one from.
+	resolver := cmdbar.New()
+	resolver.Register("skin", func(args []string) tea.Cmd {
+		if len(args) > 0 {
+			return app.ApplySkin(args[0])
+		}
+		return app.OpenSkinPicker()
+	})
 	a := app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		CmdBar:     resolver,
+		SkinNames:  func() []string { return theme.Names("") },
+		SkinName:   theme.DefaultSkinName,
+		LoadStyles: fuzzLoadSkin,
 		// Notifications on with both escape transports. The two
 		// warm-up polls below only seed the firing set; the third one
 		// carries a new alertname and is what drives the diff, the
@@ -285,6 +325,19 @@ func addAppSeeds(f *testing.F) {
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey('?'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey(':'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('a'), testutil.FuzzFrameKeyCode(tea.KeyEnter)))
+
+	// `:skin` both ways: the bare verb opens the picker (Esc closes
+	// it), and a named skin repaints every frame that follows.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('s'), testutil.FuzzFrameKey('k'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('s'), testutil.FuzzFrameKey('k'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKey('a'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter),
+	))
 
 	// Tenant quick-switch.
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey('1'), testutil.FuzzFrameKey('2'), testutil.FuzzFrameKey('0')))

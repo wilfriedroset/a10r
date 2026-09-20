@@ -16,6 +16,17 @@ func isAutoTheme(name string) bool {
 	return name == "" || name == theme.AutoSkinName
 }
 
+// startupSkinName is the skin the first frame renders with, which the
+// `:skin` picker marks as current. Under the auto sentinel that is the
+// dark default: defaultLoadStyles resolves it that way and the App
+// swaps it only once the terminal reports its background.
+func startupSkinName(name string) string {
+	if isAutoTheme(name) {
+		return theme.DefaultSkinName
+	}
+	return name
+}
+
 // defaultLoadStyles is the production wiring for Deps.LoadStyles.
 // Compiles the requested theme; the auto sentinel (and an empty
 // name) falls back to the default dark skin, which the App then

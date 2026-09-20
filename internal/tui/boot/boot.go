@@ -28,6 +28,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -396,6 +397,12 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		LoadStyles: func(name string) (*theme.Styles, error) {
 			return d.LoadStyles(name, configDir)
 		},
+		// Listed per call rather than once, so a skin file dropped in
+		// during the session shows up in the picker without a restart.
+		SkinNames: func() []string {
+			return theme.Names(filepath.Join(configDir, theme.SkinsDir))
+		},
+		SkinName: startupSkinName(effCfg.Theme.Name),
 
 		TerminalTitle: effCfg.TUI.TerminalTitle,
 		Notify:        notify.New(effCfg.TUI.Notify),

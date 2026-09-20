@@ -62,9 +62,17 @@ type Options struct {
 	// when the terminal reports a light background. Off means the user
 	// named a skin, and that choice is never second-guessed.
 	AutoTheme bool
-	// LoadStyles compiles a skin by name for the auto-theme swap. Nil
-	// disables the swap, which leaves the provisional skin in place.
+	// LoadStyles compiles a skin by name for the auto-theme swap and
+	// for `:skin`. Nil disables both, which leaves the provisional
+	// skin in place.
 	LoadStyles func(name string) (*theme.Styles, error)
+	// SkinNames lists every skin `:skin` can offer and apply. Nil
+	// disables `:skin`, which then says so rather than failing quietly.
+	SkinNames func() []string
+	// SkinName is the skin the app starts on, which the picker marks
+	// as current. Under auto-detection it is the provisional one until
+	// the terminal answers.
+	SkinName string
 	// Notify rings and raises a desktop notification on a new firing
 	// alert. Nil is the feature turned off; every method tolerates it.
 	Notify *notify.Notifier
@@ -97,6 +105,12 @@ type App struct {
 	// colour report, so detection runs once per process.
 	autoTheme  bool
 	loadStyles func(name string) (*theme.Styles, error)
+
+	// skinNames and skinName back `:skin`. skinName is the applied
+	// skin, kept so the picker can mark it and so auto-detection and
+	// `:skin` agree on what is in force.
+	skinNames func() []string
+	skinName  string
 
 	crumbs  footer.Crumbs
 	prompt  footer.Prompt
@@ -212,6 +226,8 @@ func NewApp(opts Options) *App {
 
 		autoTheme:  opts.AutoTheme && opts.LoadStyles != nil,
 		loadStyles: opts.LoadStyles,
+		skinNames:  opts.SkinNames,
+		skinName:   opts.SkinName,
 
 		terminalTitle: opts.TerminalTitle,
 		crumbs:        footer.NewCrumbs(),
@@ -284,4 +300,5 @@ func (a *App) applyAutoTheme(dark bool) {
 		return
 	}
 	*a.styles = *styles
+	a.skinName = theme.AutoSkinFor(dark)
 }

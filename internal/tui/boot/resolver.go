@@ -26,6 +26,11 @@ const pageInfo = "info"
 // pageConfig is the `:` alias of the resolved-configuration page.
 const pageConfig = "config"
 
+// cmdSkin is the `:` verb that switches the live skin. It opens a
+// page for nothing: bare it opens the picker, and with a name it
+// applies that skin and stays where it is.
+const cmdSkin = "skin"
+
 // newResolver builds the cmdbar resolver with the in-tree alias
 // catalogue. Each `:command` handler hands an env-bound page factory
 // to app.PushPage; pageEnv carries the shared deps so the resolver
@@ -60,6 +65,14 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 	})
 	r.Register(pageConfig, func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newConfigPage(env) })
+	})
+	r.Register(cmdSkin, func(args []string) tea.Cmd {
+		// Args reach a handler from strings.Fields, so a present token
+		// is never blank.
+		if len(args) > 0 {
+			return app.ApplySkin(args[0])
+		}
+		return app.OpenSkinPicker()
 	})
 	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
 	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can

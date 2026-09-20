@@ -38,12 +38,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
 			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
 		}
-		if pc, ok := msg.(modal.PickerCancelledMsg); ok && pc.Origin == PickerOriginScope {
-			// Cancelling the global scope picker is a no-op; other Origins
-			// fall through so the originator can react.
+		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginSkin {
+			return a, ApplySkin(skinFromSelection(pm.Selections))
+		}
+		if pc, ok := msg.(modal.PickerCancelledMsg); ok && (pc.Origin == PickerOriginScope || pc.Origin == PickerOriginSkin) {
+			// Cancelling a global picker is a no-op -- Esc keeps the
+			// applied scope or skin. Other Origins fall through so the
+			// originator can react.
 			return a, nil
 		}
 		cmd := a.forwardToTop(msg)
+		return a, cmd
+	}
+	if m, ok := msg.(ApplySkinMsg); ok {
+		cmd := a.applySkin(m.Name)
+		return a, cmd
+	}
+	if _, ok := msg.(OpenSkinPickerMsg); ok {
+		cmd := a.openSkinPicker()
 		return a, cmd
 	}
 	if _, ok := msg.(AutoPopMsg); ok {

@@ -7,7 +7,7 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:skin`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
 | `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
@@ -236,6 +236,22 @@ profile, and a user skin, when each one exists.
 | `w` | Jump to the warnings section |
 | `r` | Re-render the report |
 | `Esc` | Back |
+
+### Skin switch
+
+`:skin` with no argument opens a picker over every skin a10r can
+resolve: the bundled set plus the `.yaml` files in
+`<config-dir>/skins/`. The applied one is marked `(current)`. `Enter`
+applies the highlighted skin and `Esc` keeps the one you have.
+
+`:skin <name>` applies that skin without the picker. An unknown name
+changes nothing and flashes ``skin "<name>" not found``, because you
+named a specific skin and a silent fall back to the default would read
+as a10r ignoring you. A skin that fails to compile also changes
+nothing; the flash carries the error.
+
+The change lasts for the session. It does not write `theme.name`, so
+the next start reads your config file as before.
 
 ### Receivers / Tenant table
 

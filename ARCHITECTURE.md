@@ -219,7 +219,8 @@ Chrome, overlays, and rendering helpers:
   (relative, absolute, remaining, next attempt) plus a `Duration`
   primitive (ADR 0015).
 - `internal/tui/theme` -- parses k9s-format skins into a `Styles`
-  struct consumed by role name (ADR 0030).
+  struct consumed by role name (ADR 0030), and lists the resolvable
+  names behind the `:skin` picker.
 - `internal/tui/yamlstyle` -- applies skin YAML roles to a YAML body.
 
 ## Birth of a TUI page

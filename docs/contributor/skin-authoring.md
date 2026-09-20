@@ -238,6 +238,11 @@ collection), omit `palette_source` and keep only `files:`.
 
 ## Testing
 
+Drop the file in `<config-dir>/skins/` and run `:skin <name>` inside a
+running a10r to see it on the real chrome. The picker re-reads the
+directory on every open, so a file added mid-session needs no restart.
+The switch is session-local and does not write `theme.name`.
+
 Extend `internal/tui/theme/loader_test.go`:
 
 - Add every new skin name to `bundledNames`.
