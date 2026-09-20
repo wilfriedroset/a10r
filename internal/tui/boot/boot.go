@@ -140,7 +140,16 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	}
 	effCfg := effective.Config
 
-	logger, closer, err := initLogger(d, effCfg, effective)
+	// The capture window opens before the logger is built and closes
+	// when Build returns, so the `:config` page can show the startup
+	// warnings that otherwise only reach the log file the operator
+	// cannot read from inside the TUI. Opening it first is what
+	// catches log.New's own "log file unwritable" warning.
+	capture := &a10rlog.Capture{}
+	capture.Start()
+	defer capture.Stop()
+
+	logger, closer, err := initLogger(d, effCfg, effective, capture)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +181,11 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		_ = store.Close()
 		return nil, err
 	}
+	env.ConfigReport = buildConfigReport(configInputs{
+		cfg:       &effCfg,
+		configDir: configDir,
+		capture:   capture,
+	})
 	env.InfoReport = buildInfoReport(infoInputs{
 		deps:       d,
 		cfg:        &effCfg,
@@ -254,11 +268,12 @@ func resolveEffectiveConfig(flags *config.CLIFlags, cfg *config.Config) (config.
 // emit so silence write ops produce an audit trail and --log actually
 // reaches the file. The closer is returned so the caller's defer
 // Close flushes the lumberjack rotation buffer on shutdown.
-func initLogger(d Deps, effCfg config.Config, eff config.Effective) (*slog.Logger, io.Closer, error) {
+func initLogger(d Deps, effCfg config.Config, eff config.Effective, capture *a10rlog.Capture) (*slog.Logger, io.Closer, error) {
 	logger, closer, err := d.NewLogger(a10rlog.Opts{
-		Path:   effCfg.Log.Path,
-		Format: a10rlog.Format(effCfg.Defaults.LogFormat),
-		Level:  LevelFor(eff.Debug, eff.Quiet),
+		Path:    effCfg.Log.Path,
+		Format:  a10rlog.Format(effCfg.Defaults.LogFormat),
+		Level:   LevelFor(eff.Debug, eff.Quiet),
+		Capture: capture,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("init logger: %w", err)

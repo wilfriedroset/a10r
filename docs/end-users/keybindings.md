@@ -7,7 +7,7 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
 | `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
@@ -216,6 +216,24 @@ and the configured backends.
 | `Ctrl+D` / `Ctrl+U` | Half-page down / up |
 | `Ctrl+F` / `Ctrl+B` | Full-page down / up |
 | `G` / `gg` | Jump to last / first line |
+| `r` | Re-render the report |
+| `Esc` | Back |
+
+### Config pane
+
+`:config` lists the files this start read, in the order the merge
+applied them, and every warning that run produced. The source list
+covers the base `a10r.yaml`, its drop-ins, `aliases.yaml`, the keys
+profile, and a user skin, when each one exists.
+
+| Key | What |
+| --- | --- |
+| `j` / `k` | Scroll down / up one line |
+| `Ctrl+D` / `Ctrl+U` | Half-page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full-page down / up |
+| `G` / `gg` | Jump to last / first line |
+| `p` | Jump to the sources section |
+| `w` | Jump to the warnings section |
 | `r` | Re-render the report |
 | `Esc` | Back |
 

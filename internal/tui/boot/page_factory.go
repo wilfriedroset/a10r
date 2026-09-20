@@ -61,6 +61,29 @@ type pageEnv struct {
 	// buildPageEnv returns because it closes over startup facts the
 	// env itself does not carry.
 	InfoReport func() report.InfoInput
+	// ConfigReport renders the `:config` body. Assigned alongside
+	// InfoReport, for the same reason.
+	ConfigReport func() report.ConfigInput
+}
+
+func newConfigPage(env *pageEnv) app.Page {
+	return selfreport.New(selfreport.Options{
+		Title: pageConfig,
+		Anchors: []selfreport.Anchor{
+			{Key: "p", Description: "sources", Prefix: report.SourcesHeader},
+			{Key: "w", Description: "warnings", Prefix: report.WarningsHeader},
+		},
+		Render: func() string {
+			if env.ConfigReport == nil {
+				return "(no config report wired)"
+			}
+			var buf strings.Builder
+			if err := report.Config(&buf, env.ConfigReport()); err != nil {
+				return fmt.Sprintf("(failed to render the config report: %v)", err)
+			}
+			return buf.String()
+		},
+	})
 }
 
 func newInfoPage(env *pageEnv) app.Page {

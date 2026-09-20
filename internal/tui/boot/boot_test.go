@@ -39,8 +39,14 @@ func testDeps(t *testing.T) Deps {
 		LoadConfig: func(_ config.LoadOpts) (*config.Config, error) {
 			return &config.Config{}, nil
 		},
-		NewLogger: func(_ a10rlog.Opts) (*slog.Logger, io.Closer, error) {
-			return slog.New(slog.DiscardHandler), io.NopCloser(strings.NewReader("")), nil
+		NewLogger: func(opts a10rlog.Opts) (*slog.Logger, io.Closer, error) {
+			// Mirrors the production factory: Capture is honoured inside
+			// NewLogger, not wrapped around its result.
+			h := slog.DiscardHandler
+			if opts.Capture != nil {
+				h = opts.Capture.Wrap(h)
+			}
+			return slog.New(h), io.NopCloser(strings.NewReader("")), nil
 		},
 		BuildClient: func(_ config.Backend, _ string, _ ...factory.Option) (backend.Client, error) {
 			return &fakeStatusBackend{}, nil

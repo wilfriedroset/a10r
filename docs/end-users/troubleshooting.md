@@ -86,6 +86,19 @@ platform convention: `$XDG_STATE_HOME/a10r/a10r.log` on Linux,
 `--debug` raises the level to debug for the current run; `--quiet`
 drops it to warn.
 
+Inside the TUI, `:config` shows what the last start warned about
+without a trip to the log file. `--quiet` does not empty that list.
+
+## Which file set this value?
+
+`:config` lists every file a10r read, in the order the merge applied
+them: the base config, each drop-in in lexical order, then the
+aliases, keys, and skin overlays. Search that list for the file that
+set a value you did not expect. Most scalar keys are last-key-wins, so
+start from the last drop-in; see the merge rules in
+[configuration.md](configuration.md) for the keys that are not. `p`
+jumps to the source list and `w` to the warnings.
+
 ## Wizard ran, but I want to re-run it
 
 Delete or rename the existing config — the wizard refuses to

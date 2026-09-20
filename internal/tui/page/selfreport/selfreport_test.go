@@ -110,3 +110,66 @@ func TestPage_GoToFirstRowScrollsHome(t *testing.T) {
 	p.Update(app.GoToFirstRowMsg{})
 	require.Contains(t, testutil.StripStyle(p.View(40, 5)), "line 0")
 }
+
+// An anchor is how a long report stays usable without a search: the
+// `:config` page's warnings sit below however many sources the host
+// has, so `w` must land on them whatever that number is.
+func TestPage_AnchorJumpsToTheNamedLine(t *testing.T) {
+	t.Parallel()
+
+	body := []string{"sources (2):", "  base /a", "  drop-in /b", "", "warnings (1):", "  something"}
+	p := New(Options{
+		Title:  "config",
+		Render: func() string { return strings.Join(body, "\n") },
+		Anchors: []Anchor{
+			{Key: "p", Description: "sources", Prefix: "sources ("},
+			{Key: "w", Description: "warnings", Prefix: "warnings ("},
+		},
+	})
+
+	p.Update(keyPress("w"))
+	out := testutil.StripStyle(p.View(40, 2))
+	require.Contains(t, out, "warnings (1):")
+	require.NotContains(t, out, "sources (2):")
+
+	p.Update(keyPress("p"))
+	require.Contains(t, testutil.StripStyle(p.View(40, 2)), "sources (2):")
+}
+
+// The anchors join the hint strip, so the operator learns the two
+// jumps without opening the help overlay.
+func TestPage_AnchorsAppearInTheBindings(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Title:   "config",
+		Render:  func() string { return "sources (0):" },
+		Anchors: []Anchor{{Key: "p", Description: "sources", Prefix: "sources ("}},
+	})
+
+	bindings := p.Bindings()
+	keys := make([]string, 0, len(bindings))
+	for _, b := range bindings {
+		keys = append(keys, b.Key)
+	}
+	require.Contains(t, keys, "p")
+}
+
+// A report that never grew the anchored section must not scroll
+// somewhere arbitrary: no matching line means the key does nothing.
+func TestPage_AnchorWithNoMatchingLineDoesNotScroll(t *testing.T) {
+	t.Parallel()
+
+	body := make([]string, 0, 30)
+	for i := range 30 {
+		body = append(body, "line "+strconv.Itoa(i))
+	}
+	p := New(Options{
+		Title:   "config",
+		Render:  func() string { return strings.Join(body, "\n") },
+		Anchors: []Anchor{{Key: "w", Description: "warnings", Prefix: "warnings ("}},
+	})
+
+	p.Update(keyPress("w"))
+	require.Contains(t, testutil.StripStyle(p.View(40, 3)), "line 0")
+}

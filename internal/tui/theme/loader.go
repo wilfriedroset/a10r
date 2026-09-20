@@ -42,9 +42,10 @@ func AutoSkinFor(dark bool) string {
 	return LightSkinName
 }
 
-// skinsDir is the basename used both for the embedded skins/
-// directory and for the user-side <config-dir>/skins/ directory.
-const skinsDir = "skins"
+// SkinsDir is the basename used for the embedded skins/ directory,
+// for the user-side <config-dir>/skins/ directory, and by the boot
+// layer when it names the same path back to the operator.
+const SkinsDir = "skins"
 
 // ErrInvalidSkin wraps every parse / validate / compile failure so
 // callers can branch on a stable sentinel via errors.Is. Used by
@@ -168,7 +169,7 @@ func (l *Loader) warnShadow(name string) {
 // readBundled returns the raw bytes of the named bundled skin. The
 // embed path is `skins/<name>.yaml`.
 func readBundled(name string) ([]byte, error) {
-	path := skinsDir + "/" + name + ".yaml"
+	path := SkinsDir + "/" + name + ".yaml"
 	data, err := bundledSkins.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read bundled %q: %w", path, err)
@@ -178,7 +179,7 @@ func readBundled(name string) ([]byte, error) {
 
 // bundledExists reports whether name is in the embedded set.
 func bundledExists(name string) bool {
-	_, err := fs.Stat(bundledSkins, skinsDir+"/"+name+".yaml")
+	_, err := fs.Stat(bundledSkins, SkinsDir+"/"+name+".yaml")
 	return err == nil
 }
 

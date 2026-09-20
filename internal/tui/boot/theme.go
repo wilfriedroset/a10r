@@ -28,7 +28,7 @@ func defaultLoadStyles(name, configDir string) (*theme.Styles, error) {
 		name = theme.DefaultSkinName
 	}
 	loader := &theme.Loader{
-		UserDir: filepath.Join(configDir, "skins"),
+		UserDir: filepath.Join(configDir, theme.SkinsDir),
 		Logger:  slog.Default(),
 	}
 	return loader.Load(name) //nolint:wrapcheck // Loader.Load already wraps with the skin path.

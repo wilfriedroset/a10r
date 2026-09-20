@@ -3,6 +3,8 @@
 package boot
 
 import (
+	"fmt"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -12,9 +14,11 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
+	"github.com/wilfriedroset/a10r/internal/report"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // TestNewSilencesPage_CarriesTheGuardrails pins the wiring boot owns.
@@ -114,4 +118,93 @@ func TestNewInfoPage_ReportsTheScopeChosenAfterStartup(t *testing.T) {
 	page, _ = page.Update(tea.KeyPressMsg{Code: 'r', Text: "r"})
 
 	require.Contains(t, testutil.StripStyle(page.View(120, 40)), "scope:      stg (remembered)")
+}
+
+// A start that warns about a skin must be able to say so from inside
+// the TUI. The warning only ever reached the log file before, which
+// is the one place the operator cannot open without quitting.
+func TestNewConfigPage_ShowsTheStartupWarnings(t *testing.T) {
+	// Not parallel: the theme loader warns through slog.Default(),
+	// which Build reassigns, so a concurrent Build would collect this
+	// warning into its own capture.
+
+	deps := testDeps(t)
+	deps.LoadStyles = func(name, _ string) (*theme.Styles, error) {
+		slog.Warn("unknown skin; falling back to default", slog.String("requested", name))
+		return testutil.LoadStyles(t), nil
+	}
+	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
+		return &config.Config{Theme: config.Theme{Name: "nord"}}, nil
+	}
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	frame := testutil.StripStyle(newConfigPage(res.env).View(120, 40))
+
+	require.Contains(t, frame, "warnings (1):")
+	require.Contains(t, frame, "unknown skin; falling back to default (requested=nord)")
+}
+
+// The page reports startup, not the whole session. Drop the window
+// close in Build and every other test still passes while the section
+// silently turns into a live warning feed.
+func TestNewConfigPage_StopsCollectingWhenBuildReturns(t *testing.T) {
+	// Not parallel, for the same reason as the test above.
+
+	deps := testDeps(t)
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	slog.Warn("a warning raised long after startup")
+
+	frame := testutil.StripStyle(newConfigPage(res.env).View(120, 40))
+
+	require.Contains(t, frame, "warnings (0):")
+	require.NotContains(t, frame, "long after startup")
+}
+
+// The anchors are the reason the two sections are worth opening on a
+// host with many drop-ins: each must land on its header whatever the
+// source count above it is. The report is synthetic rather than built
+// from Build, so the source list is long enough for the jump to
+// matter and no concurrent test can log a warning into the count.
+func TestNewConfigPage_AnchorsReachTheirSections(t *testing.T) {
+	t.Parallel()
+
+	sources := make([]config.Source, 0, 30)
+	for i := range cap(sources) {
+		sources = append(sources, config.Source{
+			Kind: config.SourceDropIn,
+			Path: fmt.Sprintf("/etc/a10r/config.d/%02d-drop-in.yaml", i),
+		})
+	}
+	env := &pageEnv{ConfigReport: func() report.ConfigInput {
+		return report.ConfigInput{Sources: sources, Warnings: []string{"a startup warning"}}
+	}}
+
+	tests := []struct {
+		name string
+		// keys start from the top of the report, so `p` is only
+		// meaningful after something scrolled away from it.
+		keys []rune
+		want string
+	}{
+		{name: "w reaches the warnings", keys: []rune{'w'}, want: "warnings (1):"},
+		{name: "p returns to the sources", keys: []rune{'w', 'p'}, want: "sources (30):"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			page := newConfigPage(env)
+			for _, k := range tc.keys {
+				page, _ = page.Update(tea.KeyPressMsg{Code: k, Text: string(k)})
+			}
+
+			require.Contains(t, testutil.StripStyle(page.View(120, 2)), tc.want)
+		})
+	}
 }

@@ -15,9 +15,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
-// Run `go test ./internal/report -update -run TestInfo` to regenerate
-// every testdata/*.golden when the renderer's expected output
-// changes. Without the flag, assertGolden reads and compares.
+// Run `go test ./internal/report -update` to regenerate every
+// testdata/*.golden when a renderer's expected output changes.
+// Without the flag, assertGolden reads and compares.
 var updateGolden = flag.Bool("update", false, "regenerate golden files under testdata/")
 
 func assertGolden(t *testing.T, name, got string) {

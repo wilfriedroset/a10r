@@ -1,0 +1,10 @@
+sources (6):
+  base     /home/test/.config/a10r/a10r.yaml
+  drop-in  /home/test/.config/a10r/config.d/10-prod.yaml
+  drop-in  /home/test/.config/a10r/config.d/20-staging.yaml
+  aliases  /home/test/.config/a10r/aliases.yaml
+  keys     /home/test/.config/a10r/keys/default.yaml
+  skin     /home/test/.config/a10r/skins/nord.yaml
+
+warnings (1):
+  user skin shadows bundled skin of the same name (name=nord)

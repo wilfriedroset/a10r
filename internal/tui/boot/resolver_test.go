@@ -14,7 +14,7 @@ import (
 
 // TestNewResolver_GroupsCatalogue pins the canonical+synonym shape
 // the help overlay (commit 7) reads from the resolver. Built-in
-// singletons (alerts, info, status) get one-name groups; synonym pairs
+// singletons (alerts, config, info, status) get one-name groups; synonym pairs
 // (q/quit, silences/sil, receivers/rec, tenant/tenants)
 // fold onto a single row each. A future contributor dropping a
 // synonym or renaming a canonical fails this test loudly rather
@@ -30,6 +30,7 @@ func TestNewResolver_GroupsCatalogue(t *testing.T) {
 	require.Equal(t,
 		[]cmdbar.AliasGroup{
 			{Names: []string{"alerts"}},
+			{Names: []string{"config"}},
 			{Names: []string{"info"}},
 			{Names: []string{"q", "quit"}},
 			{Names: []string{"receivers", "rec"}},
@@ -69,22 +70,36 @@ func TestNewResolver_QuitAliases(t *testing.T) {
 	}
 }
 
-// `:in` must stay an unambiguous prefix for `:info`, because the
-// cmdbar completes on a unique prefix and a later alias starting
-// with "in" would silently turn a working keystroke sequence into an
-// ambiguity error.
-func TestNewResolver_InfoOwnsTheInPrefix(t *testing.T) {
+// The cmdbar completes on a unique prefix, so a later alias sharing
+// a short prefix silently turns a working keystroke sequence into an
+// ambiguity error. Each row pins the shortest prefix documented for
+// its page.
+func TestNewResolver_ShortPrefixesStayUnambiguous(t *testing.T) {
 	t.Parallel()
 
 	r := newResolver(&pageEnv{})
 
-	var matched []string
-	for _, g := range r.Groups() {
-		for _, name := range g.Names {
-			if strings.HasPrefix(name, "in") {
-				matched = append(matched, name)
-			}
-		}
+	tests := []struct {
+		prefix string
+		want   []string
+	}{
+		{prefix: "in", want: []string{"info"}},
+		{prefix: "co", want: []string{"config"}},
 	}
-	require.Equal(t, []string{"info"}, matched)
+
+	for _, tc := range tests {
+		t.Run(tc.prefix, func(t *testing.T) {
+			t.Parallel()
+
+			var matched []string
+			for _, g := range r.Groups() {
+				for _, name := range g.Names {
+					if strings.HasPrefix(name, tc.prefix) {
+						matched = append(matched, name)
+					}
+				}
+			}
+			require.Equal(t, tc.want, matched)
+		})
+	}
 }

@@ -38,6 +38,9 @@ type Deps struct {
 	LoadConfig func(opts config.LoadOpts) (*config.Config, error)
 
 	// NewLogger constructs the structured logger plus its sink Closer.
+	// An implementation must honour opts.Capture: the `:config` page
+	// reads its startup warnings from there, and one of them is emitted
+	// inside the factory before it returns.
 	// Production default: a10rlog.New. Tests override to capture the
 	// emitted records or to swap in a no-op closer.
 	NewLogger func(opts a10rlog.Opts) (*slog.Logger, io.Closer, error)

@@ -93,13 +93,16 @@ are defined in CONTEXT.md and used here without redefinition.
   `--matcher` flags, silence forms, and label selectors.
 - `internal/output` -- generic table / json / yaml encoders for the
   read-only command results.
-- `internal/report` -- renders the diagnostic report about a10r
-  itself, so `a10r info` and the TUI's `:info` page can share one
-  implementation and cannot drift apart.
+- `internal/report` -- renders the diagnostic reports about a10r
+  itself: the `a10r info` text, which the TUI's `:info` page shares so
+  the two cannot drift apart, and the sources-and-warnings text behind
+  `:config`.
 - `internal/clock` -- the time-injection seam keeping tests off the
   wall clock (ADR 0031).
 - `internal/log` -- builds the project `*slog.Logger` (json / logfmt,
-  no ANSI).
+  no ANSI) and the `Capture` side-channel that buffers the warnings of
+  an open window, so `:config` can show what startup warned about
+  without the operator leaving the TUI to read the log file.
 - `internal/xdg` -- env-var slot names, the unix state-directory
   resolver, the atomic state-file write, and the Windows fallback for
   OS-conformant path resolution.
@@ -167,6 +170,8 @@ Pages and shared page bases (`internal/tui/page`):
 - `page/selfreport` -- a scrollable read-only page over a renderer the
   caller supplies, so `:info` prints the `internal/report` text the
   `a10r info` subcommand prints rather than a second copy of it.
+  `:config` is the same page over the sources-and-warnings renderer,
+  with `p` / `w` section anchors.
 - `page/tenant`, `page/tenantconfig` -- the configured-backend table
   and the per-tenant config inspector.
 - `page/format` -- width-aware text helpers (cell padding,
