@@ -2788,3 +2788,28 @@ func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
 	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
 		"the confirmed row is edited, not whatever the cursor reached")
 }
+
+// Same live-reload contract as the alerts list: the four Dangerous
+// verbs have to leave Bindings() the moment `:reload` tightens
+// read_only, because the hint strip and `?` recompute from it.
+func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	require.True(t, hasBinding(p, "x"), "a writable page starts with the expire verb")
+
+	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
+	require.False(t, hasBinding(updated, "x"), "read-only must hide the verb without a restart")
+
+	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
+	require.True(t, hasBinding(updated, "x"), "loosening read_only must bring the verb back")
+}
+
+func hasBinding(p app.Page, key string) bool {
+	for _, b := range p.Bindings() {
+		if b.Key == key {
+			return true
+		}
+	}
+	return false
+}

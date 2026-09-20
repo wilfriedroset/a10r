@@ -67,8 +67,8 @@ The full cheat-sheet (per view) lives in [`keybindings.md`](keybindings.md).
 
 ## Read-only mode
 
-Pass `--read-only` (or set `read_only: true` in the config) to
-hide every Dangerous binding. Useful when you're sharing a
+Pass `--read-only` (or set `defaults.read_only: true` in the
+config) to hide every Dangerous binding. Useful when you're sharing a
 terminal session, screensharing a triage call, or just don't
 want a stray `s` to silence something by accident.
 

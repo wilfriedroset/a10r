@@ -1459,3 +1459,20 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget(t *testing.T) {
 	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
 	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
 }
+
+// A `:reload` that tightens read_only reaches this page while it is
+// already on the stack. Flipping the field is not enough: the hint
+// strip and the help overlay both re-read Bindings(), so a page that
+// kept stale chips would still advertise a key it now refuses.
+func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	require.True(t, hasBinding(p.Bindings(), "s"), "a writable page starts with the silence verb")
+
+	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
+	require.False(t, hasBinding(updated.Bindings(), "s"), "read-only must hide the verb without a restart")
+
+	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
+	require.True(t, hasBinding(updated.Bindings(), "s"), "loosening read_only must bring the verb back")
+}

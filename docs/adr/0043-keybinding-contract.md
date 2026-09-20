@@ -70,10 +70,12 @@ with no marks.
 
 **Dangerous-action tagging for read-only mode.** Every binding
 that mutates remote state (silence, expire, edit) is tagged
-Dangerous at registration. When the active backend or the
-global override sets `read_only: true`, tagged bindings are
-hidden from both the help overlay and the hint strip, and a
-press is a no-op with a flash naming the read-only backend.
+Dangerous at registration. When `defaults.read_only` is set, or
+every configured backend is read-only, tagged bindings are
+hidden from both the help overlay and the hint strip. A
+per-backend `read_only: true` short of that is per row: the
+hint strip drops the key on a frozen row, `?` keeps it with a
+`[guarded]` suffix, and a press refuses and names the backend.
 The tag is the single source for this filtering — read-only
 mode is not a second list to maintain. A verb a `guardrails:`
 rule denies on a tenant the press would write to follows the same

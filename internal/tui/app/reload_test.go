@@ -178,18 +178,35 @@ func TestApp_ReloadKeepsTheReadOnlyCaveatBesideASkinChange(t *testing.T) {
 	a.skinNames = func() []string { return []string{"nord"} }
 	a.loadStyles = func(string) (*theme.Styles, error) { return &theme.Styles{}, nil }
 
-	_, cmd := a.Update(ReloadedMsg{ThemeName: "nord", ReadOnlyChanged: true})
+	_, cmd := a.Update(ReloadedMsg{ThemeName: "nord", ReadOnly: true, ReadOnlyChanged: true})
 
 	require.Equal(t, "nord", a.skinName)
 	require.Equal(t,
-		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded, read_only applies to pages you open next"}},
+		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded, read_only applied"}},
 		drainFlashes(t, cmd),
 	)
 }
 
-// Until read_only propagates to pages already on the stack, a reload
-// that moved it must not report a plain success.
+// A reload that moved read_only must not report a plain success: the
+// user who tightened it needs to read that it took.
 func TestApp_ReloadQualifiesAReadOnlyChange(t *testing.T) {
+	t.Parallel()
+
+	a := newReloadApp(t, nil)
+
+	_, cmd := a.Update(ReloadedMsg{ReadOnly: true, ReadOnlyChanged: true})
+
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashInfo, Text: "reloaded, read_only applied"},
+		cmd(),
+	)
+}
+
+// Freezing one backend of several leaves the session-wide value
+// where it was, and the per-backend policy rides the guardrail set a
+// page copies at construction. The flash must keep the old caveat for
+// that case rather than claim a reach the broadcast does not have.
+func TestApp_ReloadKeepsTheCaveatForAPerBackendReadOnly(t *testing.T) {
 	t.Parallel()
 
 	a := newReloadApp(t, nil)
@@ -262,4 +279,61 @@ func TestApp_ReloadTightensTheAppLevelReadOnly(t *testing.T) {
 
 	require.True(t, a.readOnly, "the help overlay would still list the Dangerous bindings")
 	require.Contains(t, a.windowTitle(), "[read-only]")
+}
+
+// A reload that tightens read_only has to reach the page the user is
+// looking at, not only the ones they open next. The pages below the
+// top are in the same position: the user walks back to them with Esc
+// and would find the pre-reload policy waiting.
+func TestApplyReloaded_ReadOnlyReachesEveryPageOnTheStack(t *testing.T) {
+	t.Parallel()
+
+	a := newTestApp(t)
+	home, detail := newFakePage("alerts"), newFakePage("alert")
+	drive(t, a, PushPage(func() Page { return home }))
+	drive(t, a, PushPage(func() Page { return detail }))
+
+	_, _ = a.Update(ReloadedMsg{ReadOnly: true, ReadOnlyChanged: true})
+
+	for _, p := range []*fakePage{home, detail} {
+		require.Contains(t, *p.updateLog, ReadOnlyChangedMsg{ReadOnly: true},
+			"page %q must hear the new read-only state", p.name)
+	}
+}
+
+// The flash is the only thing telling the user how far the reload
+// reached, so it must not keep promising a restart-shaped caveat the
+// broadcast has removed.
+func TestApplyReloaded_FlashDoesNotDeferReadOnlyToTheNextPage(t *testing.T) {
+	t.Parallel()
+
+	a := newTestApp(t)
+	_, cmd := a.Update(ReloadedMsg{ReadOnly: true, ReadOnlyChanged: true})
+
+	flashes := drainFlashes(t, cmd)
+	require.Len(t, flashes, 1)
+	require.NotContains(t, flashes[0].Text, "open next")
+}
+
+// Loosening both layers at once is the case that catches an
+// over-claiming flash: the session-wide value rides the broadcast and
+// re-shows the Dangerous keys, while the per-backend flag rides the
+// guardrail set that open pages copied at construction. Claiming the
+// whole change landed would put the flash and the page in front of
+// the user in contradiction.
+func TestApp_ReloadKeepsTheCaveatWhenBothReadOnlyLayersMove(t *testing.T) {
+	t.Parallel()
+
+	a := newReloadApp(t, nil)
+	a.readOnly = true
+
+	_, cmd := a.Update(ReloadedMsg{
+		ReadOnly:               false,
+		ReadOnlyChanged:        true,
+		BackendReadOnlyChanged: true,
+	})
+
+	require.False(t, a.readOnly, "the session-wide value still applies at once")
+	require.Contains(t, drainFlashes(t, cmd),
+		footer.FlashShowMsg{Level: footer.FlashInfo, Text: "reloaded, read_only applies to pages you open next"})
 }

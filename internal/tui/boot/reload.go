@@ -116,6 +116,7 @@ func (r *reloader) reload() tea.Cmd {
 	}
 
 	reportReadOnly := readOnlyChanged(r.env.Config, &effCfg)
+	backendReadOnly := backendReadOnlyChanged(r.env.Config, &effCfg)
 	restartPollers := pollIntervalsChanged(r.env.Config, &effCfg)
 	r.apply(&effCfg)
 	if restartPollers {
@@ -123,11 +124,12 @@ func (r *reloader) reload() tea.Cmd {
 	}
 	return func() tea.Msg {
 		return app.ReloadedMsg{
-			ThemeName:       effCfg.Theme.Name,
-			Tips:            effCfg.TUI.Tips,
-			TipsInterval:    effCfg.TUI.TipsInterval,
-			ReadOnly:        effCfg.Defaults.ReadOnly,
-			ReadOnlyChanged: reportReadOnly,
+			ThemeName:              effCfg.Theme.Name,
+			Tips:                   effCfg.TUI.Tips,
+			TipsInterval:           effCfg.TUI.TipsInterval,
+			ReadOnly:               sessionReadOnly(&effCfg),
+			ReadOnlyChanged:        reportReadOnly,
+			BackendReadOnlyChanged: backendReadOnly,
 		}
 	}
 }
@@ -161,22 +163,29 @@ func (r *reloader) unknownAction(overrides config.KeyOverrides) string {
 // built after the reload disagree with the config beside it.
 func (r *reloader) apply(effCfg *config.Config) {
 	*r.env.Config = *effCfg
-	r.env.ReadOnly = effCfg.Defaults.ReadOnly
-	r.env.Guardrails = effCfg.Guardrails
+	r.env.ReadOnly = sessionReadOnly(effCfg)
+	r.env.Guardrails = writePolicy(effCfg)
 	r.env.TenantConfigByName = tenantConfigIndex(effCfg)
 }
 
-// readOnlyChanged reports whether the write policy moved, at either
-// layer. The caller only reports it: the new value reaches pages
-// opened after the reload, so a user who tightened read_only must
-// not read a plain success and assume the page in front of them is
-// covered.
+// readOnlyChanged reports whether the write policy moved at either
+// layer, which is what decides whether the flash mentions read_only
+// at all.
 //
 // Same length precondition as pollIntervalsChanged.
 func readOnlyChanged(old, next *config.Config) bool {
-	if old.Defaults.ReadOnly != next.Defaults.ReadOnly {
-		return true
-	}
+	return old.Defaults.ReadOnly != next.Defaults.ReadOnly || backendReadOnlyChanged(old, next)
+}
+
+// backendReadOnlyChanged reports whether any per-backend read_only
+// moved. Reported apart from the session-wide layer because the two
+// reach different places: the session-wide value rides a broadcast to
+// every open page, while a per-backend flag rides the guardrail set,
+// which a page copies at construction. A flash that claimed the whole
+// change landed would contradict the page in front of the user.
+//
+// Same length precondition as pollIntervalsChanged.
+func backendReadOnlyChanged(old, next *config.Config) bool {
 	for i := range old.Backends {
 		if old.Backends[i].ReadOnly != next.Backends[i].ReadOnly {
 			return true

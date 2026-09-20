@@ -177,6 +177,7 @@ func New(opts Options) *Page {
 		submitCtx:       opts.SubmitCtx,
 	}
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
+	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	return p
 }
 

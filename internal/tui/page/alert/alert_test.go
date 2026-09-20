@@ -1243,3 +1243,28 @@ func TestGuardrail_TheSilenceFormCarriesThePolicy(t *testing.T) {
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
 }
+
+// The alert detail page is a detailpage, not a list page, so it needs
+// its own wiring to hear the reload — and the same live-Bindings()
+// contract once it does.
+func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	require.True(t, hasBinding(p, "s"), "a writable page starts with the silence verb")
+
+	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
+	require.False(t, hasBinding(updated, "s"), "read-only must hide the verb without a restart")
+
+	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
+	require.True(t, hasBinding(updated, "s"), "loosening read_only must bring the verb back")
+}
+
+func hasBinding(p app.Page, key string) bool {
+	for _, b := range p.Bindings() {
+		if b.Key == key {
+			return true
+		}
+	}
+	return false
+}

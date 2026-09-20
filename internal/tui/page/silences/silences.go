@@ -337,6 +337,7 @@ func New(opts Options) *Page {
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
+	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	p.ClearMarks = p.handleClearMarks
 	return p
 }

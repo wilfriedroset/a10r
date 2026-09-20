@@ -264,8 +264,11 @@ as they are.
 - `theme.name`
 - `tui.tips` and `tui.tips_interval`
 - every `poll_interval`, which restarts the pollers that changed
-- `defaults.read_only`, at once for the title bar and the help overlay,
-  and for pages you open after the reload
+- `defaults.read_only`, at once everywhere — the title bar, the help
+  overlay, and every page already on your stack
+- per-backend `read_only`, for pages you open after the reload: it is
+  enforced as a guardrail, and a page keeps the rules it was built
+  with
 - your aliases and your keys, as a whole-file swap
 
 `:reload` reports success but changes nothing for `tui.notify`,
@@ -304,7 +307,9 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 
 ## Read-only mode
 
-`--read-only` (or `read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
+`--read-only` (or `defaults.read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
+
+A per-backend `read_only: true` is per row instead. The keys stay up while any configured backend is writable, whatever your current scope, and a press aimed at a frozen backend refuses and names it. See [Guardrails](#guardrails) below — the hiding and `[guarded]` rules are the same.
 
 ## Guardrails
 

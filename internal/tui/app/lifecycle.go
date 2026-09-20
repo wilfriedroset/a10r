@@ -215,6 +215,22 @@ func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// forwardToAll delivers msg to every page on the stack, swapping in
+// the derivatives they return. For the settings that must not go
+// stale under a page the user can still walk back to.
+func (a *App) forwardToAll(msg tea.Msg) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(a.stack))
+	for i := range a.stack {
+		page, cmd := a.stack[i].Update(msg)
+		a.stack[i] = page
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	a.refreshCrumbs()
+	return tea.Batch(cmds...)
+}
+
 // pushPage adds a new page on top, runs its Init, refreshes crumbs, and
 // replays cached poll snapshots so it hydrates without waiting for the
 // next tick. Returns the batched Init and replay Cmds.

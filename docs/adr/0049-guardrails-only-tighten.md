@@ -9,9 +9,17 @@ the verb applies at once, and a rule can only ever restrict.
 ## Status
 
 Sits under the read-only precedence of `internal/config/resolve.go`:
-read-only is checked first and wins, so a10r never names a guardrail
+read-only is checked first and wins, so a10r never names a user rule
 on a backend that was already read-only. A denied verb follows the
 Dangerous hiding rule of ADR 0043.
+
+In the TUI that precedence is implemented rather than duplicated: the
+boot stage compiles each per-backend `read_only: true` into a deny
+rule and prepends it to the configured list, because a list page
+unions rows from several tenants and a page-wide switch cannot say
+"prod is frozen, staging is not". Prepending is what makes the
+refusal quote `backend is read_only` rather than a user rule. The
+headless path in `cmd/` keeps its own check.
 
 ## Consequences
 
@@ -25,7 +33,9 @@ Dangerous hiding rule of ADR 0043.
   laptop-local file drop a restriction the fleet config declared.
 - **The only wildcard is `*`.** a10r rejects `?`, `[`, and `\` at
   load, so a pattern can never fail to compile and a `deny` can never
-  fail open because its glob was malformed.
+  fail open because its glob was malformed. The rules the TUI
+  compiles from `read_only` are exempt: a backend name is free-form,
+  so it is escaped into a literal glob instead of rejected.
 - **An unmatched tenant glob is a warning, not an error.** One
   `config.d` fragment is shared across machines that do not all have
   every tenant. `a10r info` lists the warnings.

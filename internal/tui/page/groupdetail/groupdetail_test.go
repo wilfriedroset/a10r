@@ -490,3 +490,24 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 	require.Equal(t, rules, opts.Guardrails)
 	require.Equal(t, []string{"sil-1"}, opts.RestrictIDs)
 }
+
+// A drill-down is exactly the page a reload catches mid-read, so it
+// has to take the new read_only rather than the one it was pushed
+// with.
+func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+	})
+	require.True(t, hasBinding(p.Bindings(), "s"), "a writable page starts with the silence verb")
+
+	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
+	require.False(t, hasBinding(updated.Bindings(), "s"), "read-only must hide the verb without a restart")
+
+	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
+	require.True(t, hasBinding(updated.Bindings(), "s"), "loosening read_only must bring the verb back")
+}

@@ -62,6 +62,9 @@ type Base struct {
 	// the alerts list and group detail; nil falls through — see
 	// ADR-0018.
 	SetStateFormat func(stateformat.Format)
+	// SetReadOnly applies a ReadOnlyChangedMsg. Nil on pages with no
+	// Dangerous verb (receivers); nil falls through — see ADR-0018.
+	SetReadOnly func(bool)
 	// ClearMarks runs the page's mark-clearing routine and returns
 	// any follow-up flash command. Nil on pages without marks; nil
 	// falls through — see ADR-0018.

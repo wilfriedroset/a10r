@@ -56,8 +56,9 @@ backoff window. Wait one cycle, or `r` to retry.
 
 The `?` help overlay also hides Dangerous entries under
 read-only mode — check that you didn't pass `--read-only` (or
-that `defaults.read_only` isn't set in the config). `a10r info`
-shows whether read-only is active.
+that `defaults.read_only` isn't set in the config). A binding that
+vanishes only on some rows is a per-backend `read_only: true` instead: `?` keeps it
+with a `[guarded]` suffix and the press names the frozen backend.
 
 ## `$EDITOR` opens but my edits don't persist
 

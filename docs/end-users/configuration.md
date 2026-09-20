@@ -493,16 +493,28 @@ Three sources, any-true wins (one-way):
 2. Top-level `defaults.read_only: true`.
 3. CLI flag `--read-only`.
 
-Read-only hides every Dangerous binding (silence create / edit /
-expire) so you can't accidentally write while triaging. For a
-narrower restriction — one verb, one set of tenants — see
+Sources 2 and 3 cover the whole session: a10r hides every Dangerous
+binding (silence create / edit / expire) so you can't accidentally
+write while triaging.
+
+Source 1 covers one backend. A list page mixes rows from every tenant
+in scope, so the bindings stay up and a10r refuses per row, naming
+the backend: `silence.create denied on prod: backend is read_only`.
+The hint strip drops the key while the cursor or a mark sits on a
+frozen backend, and `?` keeps the row with a `[guarded]` suffix. A run
+spanning several tenants is refused whole rather than partly applied
+— narrow the marks to the writable set. When every configured backend
+is read-only there is nothing writable left, so a10r hides the
+bindings exactly as sources 2 and 3 do.
+
+For a narrower restriction — one verb, one set of tenants — see
 [Guardrails](#guardrails).
 
 ## Guardrails
 
-Read-only is all-or-nothing. Guardrails are the finer tool: they
-restrict a single write verb on a single set of tenants, and leave
-the rest of your setup alone.
+Read-only freezes every write verb on the backends it covers.
+Guardrails are the finer tool: they restrict a single write verb on a
+single set of tenants, and leave the rest of your setup alone.
 
 ```yaml
 guardrails:
@@ -549,7 +561,9 @@ can never lower one, and a `config.d` fragment adds rules to the base
 file rather than replacing them.
 
 Read-only is checked first and wins. On a read-only backend a10r
-names read-only, never a guardrail.
+names read-only, never a guardrail: a per-backend `read_only: true`
+is evaluated as a deny no rule can be edited around, and its reason
+is the one a refusal quotes.
 
 a10r refuses to start on a rule it cannot understand: an unknown verb
 or confirmation level, a negative `max_bulk`, or a rule that sets none
@@ -572,9 +586,9 @@ These apply without a restart:
 | `theme.name` | Repaints at once. The `auto` value is left as it is, because the terminal answered that question at startup. |
 | `tui.tips`, `tui.tips_interval` | Rebuilds the hint bar. |
 | `defaults.poll_interval`, per-backend `poll_interval`, `pages.<page>.poll_interval` | Restarts the pollers whose interval moved. |
-| `defaults.read_only` | Applies at once to the title bar and the help overlay. Pages already open keep the value they were built with. |
+| `defaults.read_only` | Applies at once, including to the pages already on your stack: their dangerous bindings appear or disappear in place. |
 | `defaults.bulk_concurrency` | Applies to pages you open after the reload. |
-| `guardrails` | Applies to pages you open after the reload. |
+| `guardrails`, per-backend `read_only` | Applies to pages you open after the reload. A per-backend flag is enforced as a guardrail, so a page already open keeps the policy it was built with. |
 | `tui.poll_delta`, `pages.<page>.columns` | Applies to pages you open after the reload. |
 | Aliases, keys | Swapped as a whole file, so an entry you deleted stops working. |
 

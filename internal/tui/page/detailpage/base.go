@@ -35,6 +35,10 @@ type Base struct {
 	// Nil on pages that render no relative times. See ADR-0022.
 	SetTimeFormat func(timerender.Format)
 
+	// SetReadOnly applies a ReadOnlyChangedMsg. Nil on pages with no
+	// Dangerous verb (silence, tenantconfig). See ADR-0022.
+	SetReadOnly func(bool)
+
 	// InitCmd is the optional periodic-refresh / lazy-fetch Cmd a detail
 	// page returns from Init (tenantconfig's /api/v2/status fetch).
 	// See ADR-0022.

@@ -46,7 +46,11 @@ type pageEnv struct {
 	Clients        map[string]backend.Client
 	TimeFormat     func() timerender.Format
 	StateFormat    func() stateformat.Format
-	ReadOnly       bool
+	// ReadOnly is the session-wide switch, not the raw
+	// defaults.read_only: a fleet where every backend is read_only
+	// has nothing writable either. Per-backend policy rides
+	// Guardrails instead, because a list page mixes tenants.
+	ReadOnly bool
 	// Guardrails is the per-tenant write policy every write page
 	// consults before it offers or runs a verb.
 	Guardrails         guardrail.Set
