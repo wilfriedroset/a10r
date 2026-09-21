@@ -154,6 +154,19 @@ to [Semantic Versioning][semver].
   `auth:` line reads `url userinfo`, so the report still says that
   the backend authenticates.
 
+- **Most text a backend sends can no longer repaint your terminal.**
+  a10r
+  replaces every control character with a space at the point where a
+  wire response becomes a domain value. This covers labels,
+  annotations, generator URLs, silence authors, silence comments,
+  matchers, receiver names, cluster peers and the version block. An
+  alert whose label carries an ANSI escape sequence therefore renders
+  as text in every list, every detail page and every notification.
+  Two kinds of value stay as sent. The backend configuration the
+  `:status` page shows is a document rather than a cell. Alert
+  fingerprints and silence IDs address the API, so a substitution
+  there would break the lookups that use them.
+
 ## [v0.1.0] — 2026-06-03
 
 First public release. a10r is a terminal UI for Prometheus
