@@ -55,10 +55,13 @@ is `a10r alerts list` → copy a fingerprint → `a10r alerts get <fp>`
 
 ```
 a10r silences create   (--matcher <m>... | --alert <fingerprint>...) \
-                        --comment <text> [--starts <when>] [--ends <when>] [--created-by <who>]
-a10r silences update    <id> [--matcher <m>...] [--starts <when>] [--ends <when>] [--comment <text>] [--created-by <who>]
-a10r silences expire     <id> [<id>...]
-a10r silences recreate  <id> --ends <when> [--comment <text>] [--created-by <who>]
+                        --comment <text> [--starts <when>] [--ends <when>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
+a10r silences update    <id> [--matcher <m>...] [--starts <when>] [--ends <when>] [--comment <text>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
+a10r silences expire     <id> [<id>...] [--confirm-tenant <name>]... [--dry-run]
+a10r silences recreate  <id> --ends <when> [--comment <text>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
 ```
 
 - **create** — `--matcher` (repeatable, Prometheus syntax) authors a
