@@ -34,7 +34,7 @@ func buildClients(cfg *config.Config, ua string, debugLog *slog.Logger, build cl
 	for _, be := range cfg.Backends {
 		c, err := build(be, ua, opts...)
 		if err != nil {
-			fmt.Fprintf(errOut, "backend %q: build failed: %v\n", be.Name, err)
+			fmt.Fprintf(errOut, "warning: no client for %q: %v\n", be.Name, err)
 			continue
 		}
 		out[be.Name] = c

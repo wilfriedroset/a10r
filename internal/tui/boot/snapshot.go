@@ -105,6 +105,11 @@ func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, er
 	// WithWindowSize still matters — it gives that stray message the
 	// same numbers, so a late delivery cannot resize the frame.
 	prog.Send(tea.WindowSizeMsg{Width: width, Height: height})
+	for _, name := range r.clientlessBackends() {
+		prog.Send(poll.BackendStatusMsg{
+			Tenant: name, State: header.ConnUnreachable, Detail: "client build failed",
+		})
+	}
 	prog.Send(push())
 
 	gate := newPollGate(r.cfg, r.clients)
@@ -181,6 +186,20 @@ func (r *Result) resolveSnapshotPage(name string) (tea.Cmd, error) {
 		return nil, fmt.Errorf("resolve page %q: %w", name, err)
 	}
 	return cmd, nil
+}
+
+// clientlessBackends names the configured backends that got no
+// client. The names come from the two maps rather than from a field
+// Build fills, because a derived answer cannot drift from the map
+// the pollers actually run over.
+func (r *Result) clientlessBackends() []string {
+	var out []string
+	for _, be := range r.cfg.Backends {
+		if _, ok := r.clients[be.Name]; !ok {
+			out = append(out, be.Name)
+		}
+	}
+	return out
 }
 
 func sizeOr(got, fallback int) int {

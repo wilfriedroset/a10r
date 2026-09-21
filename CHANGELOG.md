@@ -161,6 +161,13 @@ to [Semantic Versioning][semver].
   flash could land in the frame it wrote to stdout. The headless path
   now builds no notifier at all.
 
+- **A snapshot of a list page now names a backend it could not build
+  a client for.** Such a backend has no poller, so it reported
+  nothing and the frame looked healthy while the tenant was missing
+  from it. The alerts, silences and receivers frames now carry the
+  same degraded band a user sees, and the stderr warning names the
+  backend in the same words.
+
 - **Most text a backend sends can no longer repaint your terminal.**
   a10r
   replaces every control character with a space at the point where a

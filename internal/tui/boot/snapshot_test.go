@@ -5,6 +5,7 @@ package boot
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -398,4 +399,41 @@ func TestBuild_InteractiveKeepsTheNotifier(t *testing.T) {
 	require.False(t, notifyFlashed(a, firingPoll("HighCPU")), "the first poll only warms up")
 	require.True(t, notifyFlashed(a, firingPoll("DiskFull")),
 		"the interactive path must still announce a new firing alert")
+}
+
+// TestSnapshot_NamesABackendWithNoClient pins the frame a
+// misconfigured backend produces. Such a backend has no poller, so
+// nothing else can put it in the band.
+func TestSnapshot_NamesABackendWithNoClient(t *testing.T) {
+	t.Parallel()
+	var stderr bytes.Buffer
+	deps := testDeps(t)
+	deps.Stderr = &stderr
+	deps.Now = func() time.Time { return frameClock }
+	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
+		return &config.Config{Backends: []config.Backend{
+			{Name: "prod", URL: "https://am-prod.internal"},
+			{Name: "broken", URL: "https://am-broken.internal"},
+		}}, nil
+	}
+	deps.BuildClient = func(cfg config.Backend, _ string, _ ...factory.Option) (backend.Client, error) {
+		if cfg.Name == "broken" {
+			return nil, errors.New("bad tls bundle")
+		}
+		return snapshotBackend{fakeStatusBackend: &fakeStatusBackend{version: "0.28.0"}}, nil
+	}
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	frame, err := res.Snapshot(t.Context(), SnapshotOptions{
+		Page: resourceAlerts, Width: 120, Height: 40, Wait: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	require.Contains(t, frame, "broken: client build failed",
+		"the frame must name the tenant it could not reach")
+
+	require.Contains(t, stderr.String(), `no client for "broken"`,
+		"a pipeline reading stderr and a human reading the frame must agree")
+	require.Contains(t, stderr.String(), "bad tls bundle")
 }

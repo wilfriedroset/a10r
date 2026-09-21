@@ -221,7 +221,7 @@ func TestBuild_BuildClientFailuresAreNonFatal(t *testing.T) {
 	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
 	require.NoError(t, err, "one bad backend must not abort the whole boot")
 	require.NotNil(t, res.App())
-	require.Contains(t, stderr.String(), `backend "bad": build failed`,
+	require.Contains(t, stderr.String(), `warning: no client for "bad"`,
 		"the misconfigured entry must surface the warning to stderr "+
 			"so the operator sees it without scanning the audit log")
 }
