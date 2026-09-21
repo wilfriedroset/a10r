@@ -2,6 +2,7 @@ defaults:
   poll_interval: 30s
   read_only: false
   log_format: json
+  bulk_concurrency: 4
 
 theme:
   name: gruvbox-dark
@@ -83,3 +84,9 @@ pages:
     columns:
       - label: pod
         sort_key: P
+  silences:
+    poll_interval: 20s
+  receivers:
+    poll_interval: 60s
+  status:
+    poll_interval: 45s

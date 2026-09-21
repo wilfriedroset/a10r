@@ -92,6 +92,11 @@ func TestConfig_LoadValidFull(t *testing.T) {
 		},
 		got.Pages.Alerts.Columns)
 	require.Equal(t, []Column{{Label: "pod", SortKey: "P"}}, got.Pages.GroupDetail.Columns)
+	require.Equal(t, 20*time.Second, got.Pages.Silences.PollInterval)
+	require.Equal(t, 60*time.Second, got.Pages.Receivers.PollInterval)
+	require.Equal(t, 45*time.Second, got.Pages.Status.PollInterval)
+
+	require.Equal(t, 4, got.Defaults.BulkConcurrency)
 
 	require.Equal(t, guardrail.Set{
 		{
