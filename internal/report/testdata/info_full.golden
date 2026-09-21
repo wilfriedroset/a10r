@@ -6,7 +6,7 @@ log path:   /home/test/.local/state/a10r/a10r.log
 aliases:    0
 theme:      catppuccin-latte
 
-backends (2):
+backends (3):
   prod-vanilla
     url:    https://am-prod.internal
     auth:   bearer
@@ -16,3 +16,6 @@ backends (2):
     tenant: tenant-a (X-Scope-OrgID)
     auth:   basic
     caps:   config_api, tenant_admin
+  legacy-inline
+    url:    https://am-legacy.internal
+    auth:   url userinfo

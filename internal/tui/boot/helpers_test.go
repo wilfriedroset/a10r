@@ -196,6 +196,22 @@ func TestBuildTenantRows_PicksUpVersionsByName(t *testing.T) {
 	}
 }
 
+// TestBuildTenantRows_RedactsURLCredentials pins the tenant page's
+// URL column as a redacted surface: the column is on screen for the
+// whole session and a shoulder-surfer must not read a password off
+// it.
+func TestBuildTenantRows_RedactsURLCredentials(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{Name: "legacy", URL: "https://__PK_BASICAUTH_1a15d1cf67f9__@am-legacy.internal/alertmanager"},
+		},
+	}
+	rows := buildTenantRows(cfg, map[string]string{})
+	require.Len(t, rows, 1)
+	require.Equal(t, "https://am-legacy.internal/alertmanager", rows[0].URL)
+}
+
 // TestBuildTenantRows_EmptyConfig covers the cold-start
 // no-backend case — the wizard's pre-config state — to verify
 // the helper doesn't panic on a zero Config.

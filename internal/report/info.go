@@ -201,7 +201,7 @@ func (w *writer) printf(format string, args ...any) {
 
 func renderBackend(w *writer, b config.Backend) {
 	w.printf("  %s\n", b.Name)
-	w.printf("    url:    %s\n", b.URL)
+	w.printf("    url:    %s\n", config.RedactURL(b.URL))
 	if b.Prefix != "" {
 		w.printf("    prefix: %s\n", b.Prefix)
 	}
@@ -225,6 +225,10 @@ func renderBackend(w *writer, b config.Backend) {
 // the caller skips the line entirely. The schema's "at most one of
 // basic_auth, authorization, bearer_token" rule (config.Backend.
 // Validate) means at most one branch fires per backend.
+//
+// The url branch is last on purpose. The url line above is redacted,
+// so without it a backend that authenticates through userinfo would
+// read as one that does not authenticate at all.
 func authLabel(b config.Backend) string {
 	switch {
 	case b.BasicAuth != nil:
@@ -236,6 +240,8 @@ func authLabel(b config.Backend) string {
 		return "authorization (" + b.Authorization.Type + ")"
 	case b.BearerToken != "":
 		return "bearer"
+	case config.RedactURL(b.URL) != b.URL:
+		return "url userinfo"
 	default:
 		return ""
 	}

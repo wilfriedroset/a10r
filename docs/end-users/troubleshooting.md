@@ -161,3 +161,18 @@ multiplexer passes a bell through to the terminal. The flash strip is
 drawn by a10r itself. Both reach you wherever a10r runs. Keep
 `bell: true` for an audible signal when no desktop notification is
 possible.
+
+## I pasted a password into a backend `url`
+
+a10r removes the `user:password@` part before it prints a backend
+URL. `a10r info`, the `:info` page, the `:tenant` table and the
+tenant config inspector all show the scheme, the host, the port and
+the path only. When the backend sets no `basic_auth`, no
+`authorization` and no `bearer_token`, the `auth:` line then reads
+`url userinfo`, so the report still tells you that the backend
+authenticates.
+
+The config file itself is not touched. Your password is still in it
+in clear text. Give the file the same care as any other secret:
+`chmod 600`, keep it out of version control, and prefer
+`basic_auth:` with an interpolated environment variable.

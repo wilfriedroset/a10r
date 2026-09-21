@@ -145,6 +145,15 @@ to [Semantic Versioning][semver].
   `?` keeps it with a `[guarded]` suffix, and a press refuses and
   names the backend.
 
+### Fixed
+
+- **A password inside a backend `url` no longer reaches the screen.**
+  `a10r info`, the `:info` page, the `:tenant` table and the tenant
+  config inspector strip the `user:password@` part of a backend URL
+  before printing it. When the backend sets no other auth field, the
+  `auth:` line reads `url userinfo`, so the report still says that
+  the backend authenticates.
+
 ## [v0.1.0] — 2026-06-03
 
 First public release. a10r is a terminal UI for Prometheus

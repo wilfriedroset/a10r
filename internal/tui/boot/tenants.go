@@ -30,13 +30,15 @@ func backendNames(cfg *config.Config) []string {
 // configured backends + the startup-fetched version map.
 // Backends whose factory build failed are still surfaced (the
 // user wants to see the misconfigured entry in the tenant table)
-// but with an empty version that renders as "—".
+// but with an empty version that renders as "—". The URL is
+// redacted because the column stays on screen for the whole
+// session.
 func buildTenantRows(cfg *config.Config, versions map[string]string) []tenant.Row {
 	rows := make([]tenant.Row, 0, len(cfg.Backends))
 	for _, be := range cfg.Backends {
 		rows = append(rows, tenant.Row{
 			Name:    be.Name,
-			URL:     be.URL,
+			URL:     config.RedactURL(be.URL),
 			Version: versions[be.Name],
 		})
 	}

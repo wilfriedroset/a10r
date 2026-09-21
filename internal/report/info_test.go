@@ -51,6 +51,13 @@ func TestInfo_FullConfig(t *testing.T) {
 				Capabilities: config.Capabilities{ConfigAPI: true, TenantAdmin: true},
 				BasicAuth:    &config.BasicAuth{Username: "u", Password: "p"},
 			},
+			{
+				// Inline userinfo is the shape the redaction guards
+				// against, so the golden proves the strip rather than
+				// merely surviving it.
+				Name: "legacy-inline",
+				URL:  "https://user:pass@am-legacy.internal",
+			},
 		},
 	}
 
@@ -190,6 +197,23 @@ func TestAuthLabel(t *testing.T) {
 				Authorization: &config.Authorization{Type: "Token", Credentials: "tok"},
 			},
 			want: "authorization (Token)",
+		},
+		{
+			name: "credentials in the url",
+			in:   config.Backend{URL: "https://__PK_BASICAUTH_1a15d1cf67f9__@am.internal"},
+			want: "url userinfo",
+		},
+		{
+			name: "a configured auth field beats the url",
+			in: config.Backend{
+				URL:         "https://__PK_BASICAUTH_1a15d1cf67f9__@am.internal",
+				BearerToken: "tok",
+			},
+			want: "bearer",
+		},
+		{
+			name: "a url without userinfo yields empty",
+			in:   config.Backend{URL: "https://am.internal"},
 		},
 	}
 

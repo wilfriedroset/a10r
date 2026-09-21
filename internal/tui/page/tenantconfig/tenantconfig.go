@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -283,8 +282,8 @@ const redactionMarker = "***"
 // other field is left unchanged.
 func redactedBackendYAML(cfg config.Backend) (string, error) {
 	out := cfg
-	out.URL = stripURLUserinfo(cfg.URL)
-	out.ProxyURL = stripURLUserinfo(cfg.ProxyURL)
+	out.URL = config.RedactURL(cfg.URL)
+	out.ProxyURL = config.RedactURL(cfg.ProxyURL)
 	out.BasicAuth = redactBasic(cfg.BasicAuth)
 	out.Authorization = redactAuthorization(cfg.Authorization)
 	if cfg.BearerToken != "" {
@@ -300,24 +299,6 @@ func redactedBackendYAML(cfg config.Backend) (string, error) {
 		return "", fmt.Errorf("marshal backend: %w", err)
 	}
 	return string(body), nil
-}
-
-// stripURLUserinfo removes embedded credentials from a URL so the
-// inspector never leaks them. A common shortcut for proxy or basic
-// auth is to paste "https://user:pass@host" into the URL field;
-// without stripping, both the username and password render in the
-// redacted YAML at a glance. Unparseable inputs round-trip unchanged
-// — the redactor must not make malformed config look more malformed.
-func stripURLUserinfo(raw string) string {
-	if raw == "" {
-		return raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
-	}
-	u.User = nil
-	return u.String()
 }
 
 func redactBasic(in *config.BasicAuth) *config.BasicAuth {
