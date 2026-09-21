@@ -290,3 +290,120 @@ func TestInfo_Guardrails(t *testing.T) {
 	}))
 	assertGolden(t, "info_guardrails.golden", buf.String())
 }
+
+func TestInfo_Notify(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Backends: []config.Backend{{Name: "prod-eu", URL: "https://am-prod-eu.internal"}},
+		// A guardrail rule rides along so the golden pins the block
+		// order: notify comes after guardrails.
+		Guardrails: guardrail.Set{{Tenants: []string{"prod-*"}, Deny: true}},
+		TUI: config.TUI{Notify: config.Notify{
+			Enabled:     true,
+			Bell:        new(false),
+			Desktop:     config.NotifyDesktopBoth,
+			MinSeverity: "critical",
+			Command:     []string{"notify-send", "a10r", config.NotifyMessagePlaceholder},
+		}},
+	}
+
+	var buf bytes.Buffer
+	require.NoError(t, Info(&buf, InfoInput{
+		Version:   "dev",
+		Commit:    "test",
+		Date:      "test",
+		ConfigDir: "/home/test/.config/a10r",
+		LogPath:   "/home/test/.local/state/a10r/a10r.log",
+		StateDir:  "/home/test/.local/state/a10r",
+		Config:    cfg,
+		Theme:     config.DefaultThemeName,
+	}))
+	assertGolden(t, "info_notify.golden", buf.String())
+}
+
+func TestInfo_NotifyDisabled(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		notify config.Notify
+	}{
+		{name: "unset"},
+		{
+			name:   "configured but off",
+			notify: config.Notify{Desktop: config.NotifyDesktopBoth, Command: []string{"notify-send", "a10r"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			require.NoError(t, Info(&buf, InfoInput{
+				Version:   "dev",
+				Commit:    "test",
+				Date:      "test",
+				ConfigDir: "/home/test/.config/a10r",
+				LogPath:   "/home/test/.local/state/a10r/a10r.log",
+				Config:    &config.Config{TUI: config.TUI{Notify: tc.notify}},
+				Theme:     config.DefaultThemeName,
+			}))
+			require.NotContains(t, buf.String(), "notify:")
+		})
+	}
+}
+
+func TestInfo_NotifyDefaults(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	require.NoError(t, Info(&buf, InfoInput{
+		Version:   "dev",
+		Commit:    "test",
+		Date:      "test",
+		ConfigDir: "/home/test/.config/a10r",
+		LogPath:   "/home/test/.local/state/a10r/a10r.log",
+		Config:    &config.Config{TUI: config.TUI{Notify: config.Notify{Enabled: true}}},
+		Theme:     config.DefaultThemeName,
+	}))
+	require.Contains(t, buf.String(), "\nnotify:\n  desktop:      osc777\n  min_severity: warning\n  bell:         on\n")
+	require.NotContains(t, buf.String(), "command:")
+}
+
+func TestInfo_NotifyCommandArgCount(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{name: "program alone", argv: []string{"notify-send"}, want: "  command:      notify-send\n"},
+		{name: "one argument", argv: []string{"ntfy", "publish"}, want: "  command:      ntfy (+1 arg)\n"},
+		{name: "several arguments", argv: []string{"ntfy", "publish", "--token", "secret"}, want: "  command:      ntfy (+3 args)\n"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			require.NoError(t, Info(&buf, InfoInput{
+				Version:   "dev",
+				Commit:    "test",
+				Date:      "test",
+				ConfigDir: "/home/test/.config/a10r",
+				LogPath:   "/home/test/.local/state/a10r/a10r.log",
+				Config: &config.Config{TUI: config.TUI{Notify: config.Notify{
+					Enabled: true,
+					Command: tc.argv,
+				}}},
+				Theme: config.DefaultThemeName,
+			}))
+			require.Contains(t, buf.String(), tc.want)
+			require.NotContains(t, buf.String(), "secret")
+		})
+	}
+}

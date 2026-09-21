@@ -642,4 +642,8 @@ a10r info
 Prints the resolved config dir, state dir, log path, alias count,
 active theme, remembered tenant scope, the backend list with
 capability flags, and the guardrail rules with any tenant glob that
-matches no configured backend.
+matches no configured backend. When `tui.notify.enabled` is true it
+also prints the resolved notify settings: the desktop transport, the
+severity floor, the bell, and the notify program. The report names the
+program and counts its arguments, but never prints the arguments,
+because they can carry a webhook URL or a token.

@@ -71,6 +71,7 @@ func Info(out io.Writer, in InfoInput) error {
 		renderBackend(w, b)
 	}
 	renderGuardrails(w, in.Config)
+	renderNotify(w, in.Config.TUI.Notify)
 	return w.err
 }
 
@@ -95,6 +96,44 @@ func renderGuardrails(w *writer, cfg *config.Config) {
 	for _, g := range cfg.Guardrails.UnmatchedTenants(names) {
 		w.printf("  warning: tenant glob %q matches no configured backend\n", g)
 	}
+}
+
+// renderNotify reports the resolved notify settings, because notify is
+// the one setting that makes a10r ring a terminal bell and run a
+// subprocess, and an operator who hears a bell has one place to look.
+func renderNotify(w *writer, n config.Notify) {
+	if !n.Enabled {
+		return
+	}
+	w.printf("\nnotify:\n")
+	w.printf("  desktop:      %s\n", n.DesktopOrDefault())
+	w.printf("  min_severity: %s\n", n.MinSeverityOrDefault())
+	w.printf("  bell:         %s\n", onOff(n.BellOrDefault()))
+	if len(n.Command) > 0 {
+		w.printf("  command:      %s\n", commandLabel(n.Command))
+	}
+}
+
+// commandLabel names the notify program and counts the arguments it
+// withholds. The arguments can carry a webhook URL or an API token,
+// and this is a report an operator pastes into an issue, so they are
+// withheld the way authLabel withholds a backend credential.
+func commandLabel(argv []string) string {
+	switch len(argv) {
+	case 1:
+		return argv[0]
+	case 2:
+		return argv[0] + " (+1 arg)"
+	default:
+		return fmt.Sprintf("%s (+%d args)", argv[0], len(argv)-1)
+	}
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 // guardrailLine renders one rule as a single line.
