@@ -8,6 +8,19 @@ to [Semantic Versioning][semver].
 
 ### Added
 
+- **In-app info, config, skin, and reload** — four `:` commands answer
+  a config question without leaving the TUI. `:info` prints the same
+  report `a10r info` prints. `:config` lists the files the load
+  actually read and what startup warned about, with `p` and `w` as
+  section anchors. `:skin` picks a skin for the session without a
+  restart, and it never writes `theme.name`. `:reload` re-reads the
+  config file, the aliases file and the keys file while your page
+  stack, cursors, marks, filters and tenant scope stay as they are. A
+  reload refuses the whole file when it changes a backend or the log.
+  It reports success without applying `tui.notify`,
+  `tui.terminal_title` and `tui.remember`, which the session wires in
+  at startup. See `docs/end-users/keybindings.md`.
+
 - **Alert notifications** — with `tui.notify.enabled: true`, a poll
   that brings a firing alert the poll before it did not have rings the
   terminal bell, writes a desktop notification, and flashes one line.
@@ -76,6 +89,30 @@ to [Semantic Versioning][semver].
   `a10r: prod+2 alerts`, and updates it when you change page or tenant
   scope. Read-only runs add a `[read-only]` badge. The title is off by
   default, and a10r clears the title again when it exits.
+- **Range marking** — `Shift+V` anchors on the cursor row and previews
+  every row between the anchor and the cursor as marked. `Space` or a
+  second `Shift+V` commits the preview, `Esc` cancels it, and `Ctrl+\`
+  cancels it and clears every mark. A commit only adds, so marks you
+  picked one by one survive it. The anchor is a row key rather than an
+  index, so a re-sort carries the preview with its row. Available on
+  the alerts list, the group detail page and the silences list.
+- **Copy any field** — `Y` on the alert detail and the silence detail
+  pages opens a field picker and copies the chosen field at full
+  length over OSC52, so a truncated cell is no longer the only thing
+  you can take out of the TUI.
+- **Filter expressions** — the `/` prompt on the alerts list and the
+  group detail page now reads `&&`, `||`, `!` and parentheses over the
+  existing modes, plus the typed keys `count`, `age` and `state` with
+  the six comparison operators. A buffer becomes an expression only
+  when it carries a `||`, a `!`, a typed comparison, or a `(` next to
+  an explicit `&&` or `,`. Every other buffer keeps the meaning it
+  always had, so `a=1,b=2` stays the label-matcher AND chain and
+  `(web|api)` stays a regex alternation. An expression paints no match
+  highlight, because its matching characters spread across terms the
+  highlighter cannot attribute. A dangling operator shows
+  `[expr: <reason>]` in the title tag and leaves the rows on the last
+  good filter. See
+  `docs/end-users/keybindings.md#boolean-expressions`.
 - **Filter match highlighting** — the characters that made a row
   survive the `/` filter are painted in the skin filter colour on the
   alerts, silences and receivers lists. Substring, literal, fuzzy and
@@ -101,6 +138,12 @@ to [Semantic Versioning][semver].
   unaffected. To keep the old behaviour on a light terminal, set
   `theme.name: catppuccin-mocha`. The name `auto` is now reserved:
   a user skin cannot use it.
+- **Per-backend `read_only` is now enforced per row.** A per-backend
+  `read_only: true` short of a fully read-only session no longer hides
+  the write keys everywhere. The keys stay up while any configured
+  backend is writable, the hint strip drops the key on a frozen row,
+  `?` keeps it with a `[guarded]` suffix, and a press refuses and
+  names the backend.
 
 ## [v0.1.0] — 2026-06-03
 
