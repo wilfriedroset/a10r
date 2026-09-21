@@ -46,11 +46,23 @@ func DefaultStateDir() (string, error) {
 
 // AtomicWrite replaces path with data, creating the parent dir
 // lazily. Atomic-by-rename so a SIGKILL mid-write can't corrupt the
-// destination; any failure after the temp file exists removes it, so
-// a caller retrying sees neither a stale temp nor a half-written
+// destination; any failure before the rename removes the temp file,
+// so a caller retrying sees neither a stale temp nor a half-written
 // path.
+//
+// The two flushes carry the write past a crash of the host rather
+// than a crash of a10r alone. They are the last two steps, so an
+// error from the directory flush means the new content is already
+// at path and only its durability is in doubt.
 func AtomicWrite(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), DirMode); err != nil {
+	return atomicWriteWith(path, data, (*os.File).Sync)
+}
+
+// atomicWriteWith takes the flush as an argument so a test can
+// refuse it.
+func atomicWriteWith(path string, data []byte, fsync func(*os.File) error) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, DirMode); err != nil {
 		return fmt.Errorf("state mkdir: %w", err)
 	}
 	// Pid-tagged temp name so two a10r instances writing the same
@@ -68,6 +80,11 @@ func AtomicWrite(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("state write: %w", err)
 	}
+	if err := fsync(tmp); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("state sync tmp: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("state close tmp: %w", err)
@@ -76,5 +93,5 @@ func AtomicWrite(path string, data []byte) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("state rename: %w", err)
 	}
-	return nil
+	return syncDir(dir, fsync)
 }

@@ -161,6 +161,13 @@ to [Semantic Versioning][semver].
   flash could land in the frame it wrote to stdout. The headless path
   now builds no notifier at all.
 
+- **A state file now survives a power cut.** a10r writes
+  `ui-state.yaml` and the history files to a temp file and renames it
+  into place. The rename alone protects the file against a crash of
+  a10r, but not against a crash of the host: the new name could reach
+  the disk before the bytes it points at. a10r now flushes the temp
+  file and the directory entry before it reports the write as done.
+
 - **A snapshot of a list page now names a backend it could not build
   a client for.** Such a backend has no poller, so it reported
   nothing and the frame looked healthy while the tenant was missing
