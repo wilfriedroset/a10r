@@ -97,6 +97,8 @@ are defined in CONTEXT.md and used here without redefinition.
   itself: the `a10r info` text, which the TUI's `:info` page shares so
   the two cannot drift apart, and the sources-and-warnings text behind
   `:config`.
+- `internal/skill` -- the embedded `SKILL.md` an agent reads to drive
+  the headless commands, plus the installer that writes it out.
 - `internal/clock` -- the time-injection seam keeping tests off the
   wall clock (ADR 0031).
 - `internal/log` -- builds the project `*slog.Logger` (json / logfmt,
@@ -110,6 +112,13 @@ are defined in CONTEXT.md and used here without redefinition.
   `tui.remember`: the last tenant scope and each page's sort column,
   written off the update loop and forgotten when they match the
   built-in defaults.
+- `internal/guardrail` -- the per-tenant write policy declared under
+  `guardrails:`. It is the single evaluator the TUI and the headless
+  CLI both import, so a rule cannot mean one thing on a key press and
+  another on a command line. Pure: it answers what policy says about
+  one tenant and one verb, and never performs, blocks, or counts a
+  write itself. See
+  [ADR 0049](docs/adr/0049-guardrails-only-tighten.md).
 
 ### TUI (`internal/tui`)
 
@@ -178,7 +187,15 @@ Pages and shared page bases (`internal/tui/page`):
   and the per-tenant config inspector.
 - `page/format` -- width-aware text helpers (cell padding,
   cell-counting truncation) shared across pages and chrome.
+- `page/labelcol` -- resolves the configured label columns into their
+  rendered form, rolls a label up over an aggregate's instances, and
+  owns the cell comparator.
 - `page/pagetest` -- the shared page-test harness (ADR 0026).
+- `internal/tui/testutil` -- the shared test fakes: styles, clipboard,
+  backend client, and the fuzz codec.
+- `internal/tui/form/silence/silencetest` -- drives a pushed silence
+  form from a page test. It lives outside the form package because the
+  form's own tests are in-package.
 
 Chrome, overlays, and rendering helpers:
 
@@ -212,9 +229,11 @@ Chrome, overlays, and rendering helpers:
   machine for table pages. A page's column set is built at
   construction, not at package level, because user-declared label
   columns come from the configuration and add their own sort axes.
-- `internal/tui/page/labelcol` -- resolves the configured label
-  columns into their rendered form, rolls a label up over an
-  aggregate's instances, and owns the cell comparator.
+- `internal/tui/filterexpr` -- parses and evaluates the `/` prompt's
+  boolean grammar (`&&`, `||`, `!`, parentheses, and the typed keys
+  `count`, `age`, `state`). Evaluation is three-valued: a term over a
+  value the row does not carry is unknown, so neither the term nor its
+  negation matches.
 - `internal/tui/stateformat` -- the app-global full/compact
   state-breakdown toggle.
 - `internal/tui/timerender` -- the four CONTEXT.md time vocabularies
@@ -222,7 +241,8 @@ Chrome, overlays, and rendering helpers:
   primitive (ADR 0015).
 - `internal/tui/theme` -- parses k9s-format skins into a `Styles`
   struct consumed by role name (ADR 0030), and lists the resolvable
-  names behind the `:skin` picker.
+  names behind the `:skin` picker. `:skin` swaps the shared `Styles`
+  value in place, so every open page repaints without a rebuild.
 - `internal/tui/yamlstyle` -- applies skin YAML roles to a YAML body.
 
 ## Birth of a TUI page
