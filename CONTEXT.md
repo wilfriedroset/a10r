@@ -129,6 +129,34 @@ any active list filter is not applied. Empty for **silence-one**.
 _Avoid_: flash (the note is persistent in the form, not a transient
 footer flash).
 
+### Write policy
+
+**Guardrail**:
+A rule under `guardrails:` that restricts a write verb on the
+tenants its glob names. A rule can **deny** the verb, cap the
+targets one press sends to one backend with **max_bulk**, or raise
+the **confirmation** the verb asks for. Rules only tighten: read-only
+is checked first and always wins, and a verb no rule names keeps the
+prompt it already had. Evaluation is per tenant, so a run over three
+backends asks three times and enforces each answer separately.
+_Avoid_: permission, policy engine (nothing is granted here, only
+taken away), RBAC (there are no identities).
+
+**Denied verb**:
+A write verb a guardrail rule refuses on the tenant under the
+cursor. The hint strip drops the key, the way read-only drops a
+Dangerous binding, and a press flashes the rule's `reason`. The help
+overlay keeps the row with a `[guarded]` suffix, because the rule
+names tenants rather than the whole session.
+_Avoid_: disabled, greyed out (nothing renders in a disabled style).
+
+**Typed confirmation**:
+The `type-tenant-name` confirmation level, in which the operator
+retypes the backend name before the write goes out, once per
+restricted backend the run touches. Stronger than the plain yes/no
+modal, and a rule can only raise a verb towards it, never lower it.
+_Avoid_: password prompt, two-factor (nothing is authenticated).
+
 ### Time rendering
 
 **Relative time**:
@@ -378,6 +406,30 @@ the footer entirely.
 _Avoid_: refresh footer (surface name, not content), poll status
 (too generic), watch indicator (one branch only).
 
+### Filtering
+
+**Filter expression**:
+A `/` buffer the alerts list and group detail read as a boolean
+expression rather than as one of the five plain modes. It combines
+those modes with `&&`, `||`, `!` and parentheses, and adds the typed
+keys `count`, `age` and `state`. A buffer becomes an expression only
+when it carries a `||`, a `!`, a typed comparison, or a `(` next to
+an explicit `&&` or `,`. Everything else keeps the meaning it always
+had. A term over a value the row does not carry matches neither way,
+so `!count>3` drops a row with no count instead of keeping it.
+_Avoid_: query, search syntax (both suggest a server-side selector,
+which this is not), PromQL.
+
+**Match highlight**:
+The characters that made a row survive the `/` filter, painted in
+the skin filter colour. The cursor row, a marked row and a dimmed
+row underline them instead, so the row keeps its own colour. A label
+matcher paints nothing, because it matches on label structure rather
+than on rendered text, and a **filter expression** paints nothing,
+because its matching characters spread across terms the highlighter
+cannot attribute.
+_Avoid_: selection, hit marker.
+
 ### Row marking
 
 **Visual mode**:
@@ -451,6 +503,10 @@ and `/` rings, which persist separately and are not gated by
   `count` or `age` term inside a `/` expression reads those same
   post-filter values, computed before the expression's own terms
   run.
+- A **filter expression** and a **match highlight** never appear on
+  the same buffer. A buffer the page reads as an expression paints no
+  highlight, because the characters that made the row survive spread
+  across terms the highlighter cannot attribute to one span.
 - Drill-down ladder: L1 alerts list → (Enter) → L2 **group detail**
   → (Enter) → L3 **instance detail**; Esc pops one level. Enter on a
   COUNT==1 alert at L1 skips L2 and lands on L3 directly — such rows
