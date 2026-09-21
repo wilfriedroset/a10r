@@ -45,10 +45,16 @@ prelude chip (ADR 0038).
 is reserved and must not be rebound by future plugins (deferred
 past v0.1, k9s pattern): `:` `/` `?` `Esc` `Ctrl+C` `Ctrl+T`
 `Ctrl+E` `Ctrl+N` `Ctrl+\`, the digits `0`–`9`, the vim motions,
-`Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`/`Shift+Tab`. Some
-are reserved before they are bound (`Ctrl+N` is held for a
-future compose-as-YAML companion to `Ctrl+E`) so the namespace
-stays stable.
+`Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`/`Shift+Tab`,
+`Shift+V` on the pages that have marks, and `Shift+W` on the
+pages that declare a `wide` label column. Some are reserved
+before they are bound (`Ctrl+N` is held for a future
+compose-as-YAML companion to `Ctrl+E`) so the namespace stays
+stable. The set is a design contract for the plugin
+surface this ADR defers, not a rule anything checks today: the
+reject list in `internal/config/keys.go` holds the digits and
+nothing else, because the digits are the only part a user
+overlay can already break.
 
 **Namespace discipline.** On a page whose body is a table, sort
 claims the column-letter namespace first: if a column starts with
@@ -66,7 +72,13 @@ reserved on the pages that have marks (alerts, group detail,
 silences) — but only there, because the sort namespace still wins
 elsewhere: the tenant table has a VERSION column, so `Shift+V`
 sorts by it and the range verb has nothing to attach to on a page
-with no marks.
+with no marks. `Shift+W` is a view verb in that same namespace: it
+shows or hides the `wide` label-column tier, so it is reserved on
+the pages that declare such a column and the sort letter wins
+elsewhere. `Left` and `Right` are the one departure from the vim
+motion reading: on the alerts list and group detail they scroll the
+columns that do not fit the terminal, while `h` and `l` keep the
+sort walk.
 
 **Dangerous-action tagging for read-only mode.** Every binding
 that mutates remote state (silence, expire, edit) is tagged
