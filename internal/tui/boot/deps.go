@@ -98,6 +98,10 @@ type Deps struct {
 	Commit  string
 	Date    string
 
+	// Headless marks a one-frame render (cmd/snapshot.go) rather than
+	// an interactive session, so the App it builds gets no notifier.
+	Headless bool
+
 	// Stderr is the destination for non-fatal startup warnings
 	// (logger-close failures, factory.Build failures, "no config
 	// found"). Production wires cmd.ErrOrStderr(). Nil falls back to

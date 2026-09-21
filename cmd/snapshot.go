@@ -57,9 +57,10 @@ Pages: ` + strings.Join(boot.SnapshotPages(), ", "),
 // the frame; boot's startup warnings go to stderr.
 func runSnapshot(cmd *cobra.Command, flags *GlobalFlags, opts boot.SnapshotOptions) error {
 	res, err := boot.Build(cmd.Context(), flags, boot.Deps{
-		Version: version,
-		Commit:  commit,
-		Stderr:  cmd.ErrOrStderr(),
+		Version:  version,
+		Commit:   commit,
+		Stderr:   cmd.ErrOrStderr(),
+		Headless: true,
 	})
 	if err != nil {
 		return fmt.Errorf("build TUI: %w", err)

@@ -79,6 +79,10 @@ agent skill.
 a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
 ```
 
+`a10r snapshot` never notifies. The render path builds no notifier at
+all, so a screenshot run on a machine with `tui.notify` on rings no
+bell and starts no subprocess.
+
 Coverage runs via `make cover` (Go's `go test -coverprofile=...`).
 There is no minimum-coverage gate; the standard is "every public
 behaviour is locked by a test."

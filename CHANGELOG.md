@@ -154,6 +154,13 @@ to [Semantic Versioning][semver].
   `auth:` line reads `url userinfo`, so the report still says that
   the backend authenticates.
 
+- **The hidden `a10r snapshot` command no longer notifies.** A
+  one-frame render built the same notifier the TUI builds. A render
+  that saw two polls of a tenant with a new firing alert therefore
+  started the `tui.notify.command` program, and the notification
+  flash could land in the frame it wrote to stdout. The headless path
+  now builds no notifier at all.
+
 - **Most text a backend sends can no longer repaint your terminal.**
   a10r
   replaces every control character with a space at the point where a

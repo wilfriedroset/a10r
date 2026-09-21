@@ -416,12 +416,21 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		Reload:   reload,
 
 		TerminalTitle: effCfg.TUI.TerminalTitle,
-		Notify:        notify.New(effCfg.TUI.Notify),
+		Notify:        notifierFor(d.Headless, effCfg.TUI.Notify),
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,
 		}),
 	})
+}
+
+// notifierFor answers nil on the headless path whatever the config
+// says. The rule is the boot path, not the config: spec 15 item 12.
+func notifierFor(headless bool, cfg config.Notify) *notify.Notifier {
+	if headless {
+		return nil
+	}
+	return notify.New(cfg)
 }
 
 // registerGlobalChords wires the dispatcher entries that must

@@ -16,6 +16,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
@@ -307,4 +309,93 @@ func requireClosed(t *testing.T, g *pollGate) {
 	default:
 		t.Fatal("the gate is still waiting after every poller reported")
 	}
+}
+
+const (
+	headlessBoot    = true
+	interactiveBoot = false
+)
+
+// notifyingResult boots the graph with tui.notify on, so the only
+// difference between the two cases is the headless flag.
+func notifyingResult(t *testing.T, headless bool) *Result {
+	t.Helper()
+	deps := testDeps(t)
+	deps.Headless = headless
+	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "prod", URL: "https://am-prod.internal"}},
+			TUI:      config.TUI{Notify: config.Notify{Enabled: true}},
+		}, nil
+	}
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+	return res
+}
+
+func firingPoll(alertname string) poll.DataMsg {
+	return poll.DataMsg{
+		Tenant:        "prod",
+		ResourceLabel: resourceAlerts,
+		Resource: []backend.Alert{{
+			Labels: map[string]string{"alertname": alertname, "severity": "critical"},
+			State:  backend.AlertStateActive,
+		}},
+	}
+}
+
+// notifyFlashed reports whether the App raised the notifier's flash
+// while handling msg. The flash is the one notifier effect a test can
+// read without a terminal; the bell and the subprocess ride the same
+// tea.Cmd batch.
+func notifyFlashed(a *app.App, msg tea.Msg) bool {
+	_, cmd := a.Update(msg)
+	for _, m := range drain(cmd) {
+		if _, ok := m.(footer.FlashShowMsg); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func drain(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		return []tea.Msg{msg}
+	}
+	var out []tea.Msg
+	for _, c := range batch {
+		out = append(out, drain(c)...)
+	}
+	return out
+}
+
+// TestBuild_HeadlessSkipsTheNotifier pins spec 15 item 12: a
+// headless command never notifies, whatever the config says. A
+// screenshot run on a machine with tui.notify on must not ring the
+// bell or spawn the configured program.
+func TestBuild_HeadlessSkipsTheNotifier(t *testing.T) {
+	t.Parallel()
+	a := notifyingResult(t, headlessBoot).App()
+
+	require.False(t, notifyFlashed(a, firingPoll("HighCPU")), "the first poll only warms up")
+	require.False(t, notifyFlashed(a, firingPoll("DiskFull")),
+		"a headless render must stay silent on a new firing alert")
+}
+
+// TestBuild_InteractiveKeepsTheNotifier is the companion: the same
+// config on the TUI path still notifies, so the rule is the boot
+// path rather than the config.
+func TestBuild_InteractiveKeepsTheNotifier(t *testing.T) {
+	t.Parallel()
+	a := notifyingResult(t, interactiveBoot).App()
+
+	require.False(t, notifyFlashed(a, firingPoll("HighCPU")), "the first poll only warms up")
+	require.True(t, notifyFlashed(a, firingPoll("DiskFull")),
+		"the interactive path must still announce a new firing alert")
 }
