@@ -59,10 +59,12 @@ const (
 	sortKeyAge      = "age"
 )
 
-// viewName is the page's stable view identifier — the Crumb, the
-// action-registry View tag, and the loading-affordance fallback noun
-// all read from it so they never drift apart.
-const viewName = "instances"
+// ViewName is the page's stable view identifier — the Crumb, the
+// action-registry View tag, the loading-affordance fallback noun and
+// the remembered-sort key all read from it so they never drift
+// apart. Exported for the last of those: internal/tui/boot needs it
+// in the keep-list it prunes the remembered sort keys against.
+const ViewName = "instances"
 
 // instanceSortColumns returns the page's sortable column set.
 // Severity defaults DESC (critical first); the rest read naturally
@@ -401,7 +403,7 @@ func New(opts Options) *Page {
 		editorCtx:       opts.EditorCtx,
 		sorter:          tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
 	}
-	p.sorter.Bind(opts.SortMemory, viewName)
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.sorter.SetHidden(p.isHiddenSortKey)
 	p.Recompute = p.recompute
 	p.FilterValidate = listpage.LabelFilterValidate
@@ -431,7 +433,7 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return viewName }
+func (*Page) Crumb() string { return ViewName }
 
 // Title is "<AlertName>(<tenant>)[N]" with N the instance count;
 // "[N/M]" when a filter is active. During a loading window the
@@ -453,7 +455,7 @@ func (p *Page) titleNoun() string {
 	if p.alertName != "" {
 		return p.alertName
 	}
-	return viewName
+	return ViewName
 }
 
 func (p *Page) HeaderContent() string {
@@ -493,30 +495,30 @@ func (*Page) PollResources() []string { return []string{"alerts"} }
 // Dangerous entries (`s`) are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
 	_, guarded := p.silenceDeny()
-	sortBindings := p.sorter.Bindings(viewName)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: viewName},
-		action.Action{Key: "Space", Description: "mark", View: viewName, Shared: true},
-		action.Action{Key: "Shift+V", Description: "mark range", View: viewName, Shared: true},
-		action.Action{Key: "s", Description: "silence", View: viewName, Dangerous: true, Guarded: guarded},
-		action.Action{Key: "S", Description: "open silences", View: viewName},
-		action.Action{Key: "/", Description: "filter", View: viewName},
-		action.Action{Key: "Shift+F", Description: "state filter", View: viewName},
-		action.Action{Key: "Shift+C", Description: "common labels", View: viewName},
+		action.Action{Key: "Enter", Description: "detail", View: ViewName},
+		action.Action{Key: "Space", Description: "mark", View: ViewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: ViewName, Shared: true},
+		action.Action{Key: "s", Description: "silence", View: ViewName, Dangerous: true, Guarded: guarded},
+		action.Action{Key: "S", Description: "open silences", View: ViewName},
+		action.Action{Key: "/", Description: "filter", View: ViewName},
+		action.Action{Key: "Shift+F", Description: "state filter", View: ViewName},
+		action.Action{Key: "Shift+C", Description: "common labels", View: ViewName},
 	)
 	if labelcol.HasWide(p.labelCols) {
-		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: viewName})
+		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: ViewName})
 	}
 	out = append(out, sortBindings...)
 	out = append(out,
-		action.Action{Key: "Shift+T", Description: "state format", View: viewName},
-		action.Action{Key: "r", Description: "refresh", View: viewName},
-		action.Action{Key: "w", Description: "toggle watch", View: viewName},
+		action.Action{Key: "Shift+T", Description: "state format", View: ViewName},
+		action.Action{Key: "r", Description: "refresh", View: ViewName},
+		action.Action{Key: "w", Description: "toggle watch", View: ViewName},
 		// Last on purpose: the keys do nothing on a terminal wide
 		// enough for every column, and the fixed-size hint strip drops
 		// the tail first.
-		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: viewName},
+		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: ViewName},
 	)
 	if p.readOnly {
 		return action.FilterDangerous(out)

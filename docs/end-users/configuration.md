@@ -39,6 +39,12 @@ a10r writes them again as you work. A `ui-state.yaml` that does not
 parse turns the memory off for that run, and a10r leaves the file
 alone so you can fix it.
 
+a10r prunes `ui-state.yaml` as it starts. A tenant you removed from
+the configuration drops out of the remembered scope, and a10r writes
+that straight away. A sort entry for a page a10r no longer has is
+forgotten in memory, and leaves the file at the next change you
+make.
+
 ## Schema
 
 A backend is an Alertmanager v2 endpoint — vanilla Alertmanager or

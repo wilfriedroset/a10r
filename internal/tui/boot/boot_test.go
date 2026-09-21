@@ -444,3 +444,62 @@ func TestBuild_RememberedSortReachesThePages(t *testing.T) {
 		})
 	}
 }
+
+// TestBuild_WritesThePrunedScopeBack pins that the prune reaches
+// the file. Without the write-back every later run repeats the same
+// warning about the same dead name.
+func TestBuild_WritesThePrunedScopeBack(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "scope: gone,prod\n")
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	body, err := os.ReadFile(filepath.Join(dir, uistate.FileName))
+	require.NoError(t, err)
+	require.Equal(t, "scope: prod\n", string(body))
+}
+
+// TestBuild_PrunesTheRememberedSortKeys pins the wiring between the
+// page list and the store. A key no page binds any more is dropped
+// at load, so the file cannot grow entries nothing reads.
+func TestBuild_PrunesTheRememberedSortKeys(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "sort:\n  alerts: severity:desc\n  retired: name:asc\n")
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Equal(t, "severity:desc", res.store.Sort(resourceAlerts))
+	require.Empty(t, res.store.Sort("retired"))
+}
+
+// TestBuild_ForgetsAScopeThatLostEveryName pins the order of the
+// write-back against the fallback. A scope with nothing left must
+// forget the key, not persist the one backend the session falls
+// back to: the next run would then read a choice the user never
+// made.
+func TestBuild_ForgetsAScopeThatLostEveryName(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "scope: gone\n")
+	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "prod", URL: "http://am-prod"}},
+			TUI:      config.TUI{Remember: true},
+		}, nil
+	}
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.Equal(t, "prod", res.env.Scope, "the session still boots on the only backend left")
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(dir, uistate.FileName),
+		"a state file with nothing left to remember is removed")
+}

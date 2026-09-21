@@ -161,6 +161,13 @@ to [Semantic Versioning][semver].
   flash could land in the frame it wrote to stdout. The headless path
   now builds no notifier at all.
 
+- **a10r forgets a tenant you removed from the configuration.** The
+  remembered tenant scope kept the dead name in `ui-state.yaml`, so
+  every later start logged the same warning about it. The pruned
+  scope is now written back. A remembered sort column for a page a10r
+  no longer has is forgotten at the same point, and leaves the file
+  at the next change you make.
+
 - **A state file now survives a power cut.** a10r writes
   `ui-state.yaml` and the history files to a temp file and renames it
   into place. The rename alone protects the file against a crash of

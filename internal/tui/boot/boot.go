@@ -41,6 +41,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
+	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
@@ -167,6 +168,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	}
 
 	store := openStateStore(d, &effCfg)
+	store.PruneSort(sortResources)
 	scope := bootScope(store, &effCfg)
 
 	dispatcher := buildDispatcher()
@@ -246,12 +248,25 @@ func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
 	return uistate.Open(stateDir)
 }
 
+// sortResources lists the keys the pages remember a sort column
+// under. It is not the `:` alias set: the instances page binds the
+// view name it shows in the crumb, and the status page has no
+// sortable table at all.
+var sortResources = []string{resourceAlerts, resourceSilences, resourceReceivers, pageTenant, groupdetail.ViewName}
+
 // bootScope resolves the one tenant scope both the page env and the
 // App boot on. A remembered scope beats the built-in default, but
 // only once pruned against the backends the config still declares —
 // "all" out of PruneScope means nothing usable was remembered.
 func bootScope(store *uistate.Store, effCfg *config.Config) string {
 	pruned, dropped := uistate.PruneScope(store.Scope(), backendNames(effCfg))
+	if len(dropped) > 0 {
+		// Write back before the fallback below, or a scope that lost
+		// every name would persist the fallback backend instead of
+		// forgetting the key. Without the write-back every later run
+		// reads the same dead name and logs the same warning again.
+		store.SetScope(pruned)
+	}
 	if pruned == scopeAll {
 		pruned = scopeFor(effCfg)
 	}

@@ -223,6 +223,9 @@ A new page:
 - the package layout in `ARCHITECTURE.md`
 - the alias collision list in `docs/end-users/configuration.md` when the
   page adds a built-in alias
+- `sortResources` in `internal/tui/boot/boot.go` when the page
+  remembers a sort column -- the key there must match the one the
+  page passes to `Sorter.Bind`
 
 A new `/` filter mode or sigil:
 

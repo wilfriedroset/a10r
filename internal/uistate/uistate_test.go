@@ -192,3 +192,27 @@ func TestStore_UnwritableDirFailsSoft(t *testing.T) {
 	require.NoError(t, s.Close())
 	require.NoFileExists(t, filepath.Join(dir, "sub", statePath))
 }
+
+// TestStore_PruneDropsUnknownSortKeys covers a state file that
+// outlived the page it names. The prune itself writes nothing, so
+// the file keeps the stale key until a real change flushes.
+func TestStore_PruneDropsUnknownSortKeys(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	s := uistate.Open(dir)
+	s.SetSort("alerts", "severity:desc")
+	s.SetSort("retired", "name:asc")
+	require.NoError(t, s.Close())
+
+	reopened := uistate.Open(dir)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	reopened.PruneSort([]string{"alerts", "silences"})
+
+	require.Equal(t, "severity:desc", reopened.Sort("alerts"))
+	require.Empty(t, reopened.Sort("retired"), "a page a10r no longer has must not keep an entry")
+
+	onDisk, err := os.ReadFile(filepath.Join(dir, statePath))
+	require.NoError(t, err)
+	require.Contains(t, string(onDisk), "retired", "the prune itself must not write")
+}

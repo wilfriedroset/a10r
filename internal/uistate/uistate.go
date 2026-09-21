@@ -173,6 +173,22 @@ func (s *Store) SetSort(resource, value string) {
 	})
 }
 
+// PruneSort forgets the sort entries whose key is not in known.
+// Callers run it right after Open, where the process knows both the
+// file and the current page set; a save knows only the value it
+// writes. Nothing is written here on purpose: the next real change
+// flushes the pruned map, and an entry nobody edits is not worth a
+// write on every start.
+func (s *Store) PruneSort(known []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for resource := range s.state.Sort {
+		if !slices.Contains(known, resource) {
+			delete(s.state.Sort, resource)
+		}
+	}
+}
+
 // Close flushes the pending write and stops the writer. Safe to
 // call more than once; only the first call waits for the flush.
 // Setters after Close leave the in-memory state alone rather than
