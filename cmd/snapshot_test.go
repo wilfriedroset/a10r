@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/boot"
@@ -127,4 +128,19 @@ func TestSnapshotCmd_AbsentFromHelp(t *testing.T) {
 	require.NoError(t, root.Execute())
 	require.NotContains(t, buf.String(), "  "+snapshotUse+" ",
 		"a hidden command must not appear as a help entry")
+}
+
+// TestSnapshotCmd_UsesTheDefaultWaitWhenUnset pins the one snapshot
+// knob with no flag behind it. A wait the command cannot set is the
+// renderer's default on every run, so the default is the whole
+// contract.
+func TestSnapshotCmd_UsesTheDefaultWaitWhenUnset(t *testing.T) {
+	t.Parallel()
+	var flags GlobalFlags
+	cmd := newSnapshotCmd(&flags)
+
+	var names []string
+	cmd.Flags().VisitAll(func(f *pflag.Flag) { names = append(names, f.Name) })
+	require.ElementsMatch(t, []string{"width", "height", "color"}, names,
+		"a knob of any name over the wait would make boot.DefaultSnapshotWait stop applying")
 }

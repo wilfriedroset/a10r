@@ -22,16 +22,17 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
-// Snapshot defaults, exported so the cmd layer binds its flags to
-// the same numbers the renderer falls back to.
+// Snapshot defaults. The first two are exported so the cmd layer
+// binds its flags to the same numbers the renderer falls back to.
 const (
 	DefaultSnapshotWidth  = 120
 	DefaultSnapshotHeight = 40
 
-	// defaultSnapshotWait caps how long a snapshot waits for the
+	// DefaultSnapshotWait caps how long a snapshot waits for the
 	// first poll. Long enough for a healthy backend on a slow link,
-	// short enough that CI does not stall on a dead one.
-	defaultSnapshotWait = 3 * time.Second
+	// short enough that CI does not stall on a dead one. No flag
+	// sets it, so every run pays it.
+	DefaultSnapshotWait = 3 * time.Second
 )
 
 // ErrUnknownPage is returned when SnapshotOptions.Page is not one
@@ -56,7 +57,7 @@ type SnapshotOptions struct {
 	// golden or a piped diff wants.
 	Color bool
 	// Wait caps how long the render waits for every backend's first
-	// poll. Zero picks the built-in cap of 3 s.
+	// poll. Zero picks DefaultSnapshotWait.
 	Wait time.Duration
 }
 
@@ -211,7 +212,7 @@ func sizeOr(got, fallback int) int {
 
 func waitOr(got time.Duration) time.Duration {
 	if got <= 0 {
-		return defaultSnapshotWait
+		return DefaultSnapshotWait
 	}
 	return got
 }

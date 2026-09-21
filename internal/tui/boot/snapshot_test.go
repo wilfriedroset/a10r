@@ -437,3 +437,13 @@ func TestSnapshot_NamesABackendWithNoClient(t *testing.T) {
 		"a pipeline reading stderr and a human reading the frame must agree")
 	require.Contains(t, stderr.String(), "bad tls bundle")
 }
+
+// TestWaitOr covers the fallback the cmd layer depends on: the
+// snapshot command has no wait flag, so every run arrives here with
+// a zero.
+func TestWaitOr(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, DefaultSnapshotWait, waitOr(0))
+	require.Equal(t, DefaultSnapshotWait, waitOr(-time.Second))
+	require.Equal(t, 50*time.Millisecond, waitOr(50*time.Millisecond))
+}
