@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
-package footer
+// Package filter holds the `/` filter language: the mode classifier
+// and the compiled predicate for one buffer. It carries no chrome and
+// imports nothing from internal/tui, so the language layer sits below
+// the widgets that render it.
+//
+// The edge to internal/tui/filterexpr is one-directional: filterexpr
+// calls NewMatcher for a free-text term, and this package must never
+// import filterexpr in return.
+package filter
 
 import "strings"
 

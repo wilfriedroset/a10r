@@ -8,8 +8,8 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
 // recompute rebuilds common, the entry slice, and the sorted/filtered
@@ -159,7 +159,7 @@ func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
 // filterEntries returns only the entries matching both the search and
 // state filters. When the search buffer is a Prometheus label matcher
 // (`cluster_id=99`, `cluster_id=~9.*`, …) it filters by that label
-// predicate; otherwise it runs through footer.NewMatcher (substring /
+// predicate; otherwise it runs through filter.NewMatcher (substring /
 // fuzzy / literal / regex over the values). Shares the input backing
 // when nothing filters (recompute owns the slice) to avoid an O(N)
 // copy every poll tick.
@@ -167,7 +167,7 @@ func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
 	if pred, err := matcher.LabelPredicate(search); err == nil {
 		return filterByLabel(in, pred, state)
 	}
-	m, _ := footer.NewMatcher(search)
+	m, _ := filter.NewMatcher(search)
 	if m.MatchAll() && state == "" {
 		return in
 	}

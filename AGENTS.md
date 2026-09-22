@@ -229,8 +229,8 @@ A new page:
 
 A new `/` filter mode or sigil:
 
-- `internal/tui/footer/searchmode.go` and
-  `internal/tui/footer/matcher.go` for a plain mode
+- `internal/tui/filter/searchmode.go` and
+  `internal/tui/filter/matcher.go` for a plain mode
 - `internal/tui/filterexpr` when the mode joins the boolean grammar,
   plus `internal/tui/page/listpage/filter_validate.go` for the title
   tag and `internal/tui/page/listpage/filter_spans.go` for the match

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 )
 
 // totalSilences is the unfiltered silence count within the active
@@ -88,12 +88,12 @@ func (p *Page) scopedEntries() []silenceEntry {
 // filterSilences returns a fresh slice with the entries whose
 // lower-cased composite (built at recompute) matches the query —
 // matching mode (substring / fuzzy / literal / regex) is auto-
-// detected by footer.NewMatcher per the keybindings.md contract.
+// detected by filter.NewMatcher per the keybindings.md contract.
 // Empty query short-circuits to the input. The case-fold work
 // runs once per ingest (composite cache) and once per recompute
 // (matcher needle), not once per keystroke per entry.
 func filterSilences(in []silenceEntry, query string) []silenceEntry {
-	matcher, _ := footer.NewMatcher(query)
+	matcher, _ := filter.NewMatcher(query)
 	if matcher.MatchAll() {
 		// Clone to keep the filter output independent of the caller's
 		// input slice — downstream mutations on the view (cursor

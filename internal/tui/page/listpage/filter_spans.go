@@ -4,8 +4,8 @@ package listpage
 
 import (
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
 // FilterSpans returns the reporter the row renderer hands to
@@ -37,11 +37,11 @@ func (b *Base) FilterSpans() func(string) [][2]int {
 			return nil
 		}
 	}
-	if _, body := footer.TrimSearchPrefix(b.Filter); body == "" {
+	if _, body := filter.TrimSearchPrefix(b.Filter); body == "" {
 		// A bare sigil keeps every row and reports no span, so the page
 		// would scan every visible cell for nothing.
 		return nil
 	}
-	m, _ := footer.NewMatcher(b.Filter)
+	m, _ := filter.NewMatcher(b.Filter)
 	return m.MatchSpans
 }

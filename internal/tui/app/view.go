@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
@@ -230,7 +231,7 @@ func (a *App) filterTag(p Page, value string) string {
 			}
 		}
 	}
-	if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {
+	if mode := filter.DetectSearchMode(value); mode != filter.SearchSubstring {
 		return " [" + mode.String() + "]"
 	}
 	return ""

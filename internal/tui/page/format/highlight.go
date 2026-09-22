@@ -12,7 +12,7 @@ import (
 
 // Highlighter paints the characters that made a row survive the
 // active `/` filter. Spans reports the byte ranges of a cell that
-// matched — footer.Matcher.MatchSpans is the reporter every page
+// matched — filter.Matcher.MatchSpans is the reporter every page
 // wires in, passed as a function so this package keeps no dependency
 // on the filter grammar. Match wraps one matched run in the page's
 // highlight treatment. The zero value paints nothing, which is what

@@ -7,8 +7,8 @@ import (
 	"fmt"
 
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
 
 // textFilterValidate reports why s cannot be used as a `/` buffer on a
@@ -16,8 +16,8 @@ import (
 // the title tag, the Enter flash and the `:alerts --filter` rejection
 // all read the same.
 func textFilterValidate(s string) error {
-	if _, err := footer.NewMatcher(s); err != nil {
-		return fmt.Errorf("regex: %s", footer.RegexErrText(err))
+	if _, err := filter.NewMatcher(s); err != nil {
+		return fmt.Errorf("regex: %s", filter.RegexErrText(err))
 	}
 	return nil
 }
@@ -32,7 +32,7 @@ func textFilterValidate(s string) error {
 func LabelFilterValidate(s string) error {
 	expr, err := filterexpr.Compile(s)
 	if err != nil {
-		return fmt.Errorf("expr: %s", footer.RegexErrText(err))
+		return fmt.Errorf("expr: %s", filter.RegexErrText(err))
 	}
 	if expr != nil {
 		return nil
@@ -44,6 +44,6 @@ func LabelFilterValidate(s string) error {
 	case errors.Is(err, matcher.ErrNotMatcher):
 		return textFilterValidate(s)
 	default:
-		return fmt.Errorf("matcher: %s", footer.RegexErrText(err))
+		return fmt.Errorf("matcher: %s", filter.RegexErrText(err))
 	}
 }

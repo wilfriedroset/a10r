@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/matcher"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -149,10 +149,10 @@ func labelTerm(t string) (node, error) {
 }
 
 // textTerm compiles a free-text term. A `/.../` wrapper forces
-// regex mode for a pattern the footer's meta-count auto-detection
-// would leave as a substring, and the lexer treats every byte
-// between the slashes as ordinary, so the pattern can carry a
-// delimiter. A label value needs quoting for the same effect.
+// regex mode for a pattern the filter package's meta-count
+// auto-detection would leave as a substring, and the lexer treats
+// every byte between the slashes as ordinary, so the pattern can
+// carry a delimiter. A label value needs quoting for the same effect.
 func textTerm(t string) (node, error) {
 	if len(t) >= 2 && t[0] == '/' && t[len(t)-1] == '/' {
 		re, err := regexp.Compile("(?i)" + t[1:len(t)-1])
@@ -162,9 +162,9 @@ func textTerm(t string) (node, error) {
 		}
 		return gated(instanceAvail, func(r Row) bool { return re.MatchString(r.Text) }), nil
 	}
-	m, err := footer.NewMatcher(t)
+	m, err := filter.NewMatcher(t)
 	if err != nil {
-		//nolint:wrapcheck // footer owns the message the prompt renders
+		//nolint:wrapcheck // filter owns the message the prompt renders
 		return nil, err
 	}
 	return gated(instanceAvail, func(r Row) bool { return m.Match(r.Text) }), nil

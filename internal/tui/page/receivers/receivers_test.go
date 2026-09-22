@@ -120,11 +120,12 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 }
 
 // TestPage_FilterNarrowsView is the per-page wiring smoke proving
-// the receivers page plumbs filter buffers through footer.NewMatcher
-// into p.view. The mode-autodetect / live-narrow / Esc-restore /
-// submit-empty-clears contract lives in
-// internal/tui/footer/{searchmode,matcher}_test.go and footer_test.go
-// (TestPrompt_* family); this test only proves the wiring exists.
+// the receivers page plumbs filter buffers through filter.NewMatcher
+// into p.view. The mode-autodetect contract lives in
+// internal/tui/filter/{searchmode,matcher}_test.go, and the
+// live-narrow / Esc-restore / submit-empty-clears contract in
+// internal/tui/footer/footer_test.go (TestPrompt_* family); this
+// test only proves the wiring exists.
 func TestPage_FilterNarrowsView(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})

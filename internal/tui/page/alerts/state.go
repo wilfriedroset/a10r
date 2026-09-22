@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
@@ -355,7 +356,7 @@ func groupKey(e alertEntry) string {
 // Alert matches both the search and state filters. When the search
 // buffer is a Prometheus label matcher (`cluster_id=99`,
 // `cluster_id=~9.*`, …) it filters by that label predicate; otherwise
-// the buffer runs through footer.NewMatcher so a leading `~` flips to
+// the buffer runs through filter.NewMatcher so a leading `~` flips to
 // fuzzy, a leading `\` to literal substring, and a body with two
 // distinct regex metas to compiled regex — matching the keybindings.md
 // /-prompt contract.
@@ -366,7 +367,7 @@ func filterEntries(in []alertEntry, search, state string) []alertEntry {
 	// Recompute is the hot path: an uncompilable buffer keeps the
 	// substring fallback so the rows stay live. The chrome reports the
 	// error separately, via listpage.Base.FilterErr.
-	m, _ := footer.NewMatcher(search)
+	m, _ := filter.NewMatcher(search)
 	if m.MatchAll() && state == "" {
 		// `in` is recompute's local `flat` slice, consumed only by
 		// aggregate() which reads it without retaining it. Returning it

@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
@@ -300,10 +301,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // p.Filter and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
 // the user's toggle. The /-prompt filter is auto-classified
-// (substring / fuzzy / literal / regex) by footer.NewMatcher.
+// (substring / fuzzy / literal / regex) by filter.NewMatcher.
 func (p *Page) recompute() {
 	flat := p.flatten()
-	matcher, _ := footer.NewMatcher(p.Filter)
+	matcher, _ := filter.NewMatcher(p.Filter)
 	if matcher.MatchAll() {
 		p.view = flat
 	} else {

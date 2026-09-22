@@ -13,8 +13,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// spansOf is a stand-in for footer.Matcher.MatchSpans: it reports
-// every occurrence of needle. format must not import footer, so the
+// spansOf is a stand-in for filter.Matcher.MatchSpans: it reports
+// every occurrence of needle. format must not import filter, so the
 // helper takes the reporter as a function.
 func spansOf(needle string) func(string) [][2]int {
 	return func(s string) [][2]int {

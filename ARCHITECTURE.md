@@ -90,7 +90,9 @@ are defined in CONTEXT.md and used here without redefinition.
   exists).
 - `internal/matcher` -- parses Prometheus-style label matchers
   (`name<op>value`, the four operators `=` `!=` `=~` `!~`) used by
-  `--matcher` flags, silence forms, and label selectors.
+  `--matcher` flags, silence forms, and label selectors. It is one of
+  the three packages behind the `/` filter language, together with
+  `internal/tui/filter` and `internal/tui/filterexpr`.
 - `internal/output` -- generic table / json / yaml encoders for the
   read-only command results.
 - `internal/report` -- renders the diagnostic reports about a10r
@@ -229,6 +231,9 @@ Chrome, overlays, and rendering helpers:
   machine for table pages. A page's column set is built at
   construction, not at package level, because user-declared label
   columns come from the configuration and add their own sort axes.
+- `internal/tui/filter` -- the `/` filter language below the chrome:
+  the mode classifier and the compiled per-buffer predicate the
+  pages apply per row. It imports the standard library only.
 - `internal/tui/filterexpr` -- parses and evaluates the `/` prompt's
   boolean grammar (`&&`, `||`, `!`, parentheses, and the typed keys
   `count`, `age`, `state`). Evaluation is three-valued: a term over a
