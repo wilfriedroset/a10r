@@ -502,7 +502,8 @@ and `/` rings, which persist separately and are not gated by
   COUNT / STATE / AGE always describe the post-filter reality. A
   `count` or `age` term inside a `/` expression reads those same
   post-filter values, computed before the expression's own terms
-  run.
+  run, so the other terms can leave a COUNT smaller than the number
+  `count` compared.
 - A **filter expression** and a **match highlight** never appear on
   the same buffer. A buffer the page reads as an expression paints no
   highlight, because the characters that made the row survive spread
