@@ -15,13 +15,14 @@ import (
 )
 
 // validatingFakePage stands in for a list page whose Base reports a
-// filter error: it satisfies the two optional seams the app reads —
-// the Enter-time validator and the chrome tag.
+// filter error: it satisfies the optional seam the app reads, the
+// Enter-time validator plus the two chrome reads behind the title
+// tag.
 type validatingFakePage struct {
 	*fakePage
-	tag       error
-	err       error
-	readsExpr bool
+	tag  error
+	err  error
+	mode string
 }
 
 func (p *validatingFakePage) Update(msg tea.Msg) (Page, tea.Cmd) {
@@ -33,20 +34,19 @@ func (p *validatingFakePage) FilterError() error { return p.tag }
 
 func (p *validatingFakePage) ValidateFilter(string) error { return p.err }
 
-func (p *validatingFakePage) FilterReadsExpr() bool { return p.readsExpr }
+func (p *validatingFakePage) FilterMode() string { return p.mode }
 
-// TestApp_ExprBufferTagsExprInTitle pins the tag precedence: an
-// expression page labels an expression buffer `[expr]`, a page that
-// does not evaluate expressions keeps its five-mode label for the
-// same buffer, an expression page still falls through to the
-// five-mode label for a non-expression buffer, and an error outranks
-// all three.
-func TestApp_ExprBufferTagsExprInTitle(t *testing.T) {
+// TestApp_FilterTagReadsThePageMode pins that the chrome reports the
+// classification the page already made instead of redoing it. A page
+// that implements filterAware owns the label, so the tag follows the
+// page even when the raw buffer would auto-detect a mode of its own,
+// and a parse reason outranks the label.
+func TestApp_FilterTagReadsThePageMode(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	a = updated.(*App)
-	page := &validatingFakePage{fakePage: newFakePage("alerts"), readsExpr: true}
+	page := &validatingFakePage{fakePage: newFakePage("alerts"), mode: "expr"}
 	drive(t, a, PushPage(func() Page { return page }))
 
 	a.prompt = a.prompt.Open(footer.PromptFilter)
@@ -59,26 +59,13 @@ func TestApp_ExprBufferTagsExprInTitle(t *testing.T) {
 	require.NotContains(t, out, "[fuzzy]",
 		"the expression tag replaces the five-mode label rather than stacking with it")
 
-	page.readsExpr = false
+	page.mode = ""
 	out = testutil.StripStyle(a.View().Content)
-	require.Contains(t, out, "[fuzzy]",
-		"a page that does not evaluate expressions keeps the five-mode label")
-	require.NotContains(t, out, "[expr]")
+	require.NotContains(t, out, "[fuzzy]",
+		"a page that classified its buffer as substring keeps the title quiet, "+
+			"even though the leading sigil would auto-detect fuzzy")
 
-	page.readsExpr = true
-	a.prompt = a.prompt.Open(footer.PromptFilter)
-	for _, r := range "^web.*" {
-		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
-	out = testutil.StripStyle(a.View().Content)
-	require.Contains(t, out, "[regex]",
-		"an expression-capable page still falls through to the five-mode label")
-	require.NotContains(t, out, "[expr]")
-
-	a.prompt = a.prompt.Open(footer.PromptFilter)
-	for _, r := range "~web || api" {
-		a.prompt, _ = a.prompt.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-	}
+	page.mode = "expr"
 	page.tag = errors.New("expr: missing term after ||")
 	out = testutil.StripStyle(a.View().Content)
 	require.Contains(t, out, "[expr: missing term after ||]")
@@ -92,7 +79,11 @@ func TestApp_FilterErrorReplacesModeTagInTitle(t *testing.T) {
 	a = updated.(*App)
 	// A realistic `resource(scope)[count]` title: panel.styleTitle
 	// segments on that shape, and the warn fragment has to survive it.
-	page := &validatingFakePage{fakePage: newFakePage("alerts(prod)[3]"), tag: errors.New("regex: missing closing )")}
+	page := &validatingFakePage{
+		fakePage: newFakePage("alerts(prod)[3]"),
+		tag:      errors.New("regex: missing closing )"),
+		mode:     "regex",
+	}
 	drive(t, a, PushPage(func() Page { return page }))
 
 	a.prompt = a.prompt.Open(footer.PromptFilter)
@@ -114,7 +105,8 @@ func TestApp_FilterErrorReplacesModeTagInTitle(t *testing.T) {
 	page.tag = nil
 	out = testutil.StripStyle(a.View().Content)
 	require.Contains(t, out, "[regex]",
-		"a buffer that compiles again falls back to the plain mode tag")
+		"a page keeps its last good classification, so clearing the reason "+
+			"falls back to the plain mode tag")
 }
 
 func TestApp_FilterPromptAttachesPageValidator(t *testing.T) {

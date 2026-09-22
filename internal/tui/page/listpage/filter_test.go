@@ -169,11 +169,16 @@ func TestBase_ValidateFilterIsNilInterface(t *testing.T) {
 func TestBase_GrammarTellsTheHalvesApart(t *testing.T) {
 	t.Parallel()
 
-	selectors := seeded(t, filterexpr.Grammar{Selectors: true}, "team=platform")
-	require.False(t, selectors.FilterReadsExpr())
-	require.Nil(t, selectors.FilterSpans(), "a selector paints nothing on a page that reads selectors")
+	const disjunction = "team=platform || team=infra"
 
-	expressions := &listpage.Base{Grammar: filterexpr.Grammar{Expressions: true}}
-	require.True(t, expressions.FilterReadsExpr())
+	selectors := seeded(t, filterexpr.Grammar{Selectors: true}, "team=platform")
+	require.Nil(t, selectors.FilterSpans(), "a selector paints nothing on a page that reads selectors")
+	require.False(t, seeded(t, filterexpr.Grammar{Selectors: true}, disjunction).FilterIsExpr(),
+		"a page that reads selectors and not expressions never reaches the expression parser")
+
+	expressions := seeded(t, filterexpr.Grammar{Expressions: true}, disjunction)
+	require.True(t, expressions.FilterIsExpr())
+	require.NotNil(t, seeded(t, filterexpr.Grammar{Expressions: true}, "team=platform").FilterSpans(),
+		"a page that reads expressions and not selectors leaves a selector to the text path, which paints")
 	require.EqualError(t, expressions.ValidateFilter("team=platform ||"), "expr: missing term after ||")
 }

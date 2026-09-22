@@ -35,8 +35,8 @@ func (b *Base) FilterMode() string { return b.filter.ModeLabel() }
 func (b *Base) FilterMatch(r filterexpr.Row) bool { return b.filter.Match(r) }
 
 // FilterIsExpr reports whether the boolean expression grammar owns
-// the current buffer, unlike FilterReadsExpr, which reports whether
-// the page's grammar accepts one at all.
+// the current buffer, which is narrower than Grammar.Expressions:
+// the page accepts expressions, this buffer is one.
 func (b *Base) FilterIsExpr() bool { return b.filter.IsExpr() }
 
 // FilterMatchAll reports whether every row survives, which lets a

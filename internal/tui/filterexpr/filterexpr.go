@@ -53,14 +53,17 @@ type Expr struct{ root node }
 // Match reports whether r satisfies the expression.
 func (e *Expr) Match(r Row) bool { return e.root(r) == triTrue }
 
-// CompileExpr returns the expression to run for s, or a nil Expr and a
-// nil error when the five-mode path owns the buffer. An `&&` or `,`
+// compileExpr returns the expression to run for s, or a nil Expr and
+// a nil error when the five-mode path owns the buffer. An `&&` or `,`
 // chain alone stays on the old path so today's buffers keep their
 // meaning, and a leading `\` forces literal mode over the whole
 // buffer.
 //
+// Only Compile calls it. A caller outside the package reads Compiled
+// instead, so the ladder runs in one place.
+//
 //nolint:nilnil // the nil pair is the documented answer above
-func CompileExpr(s string) (*Expr, error) {
+func compileExpr(s string) (*Expr, error) {
 	if !isExpr(s) {
 		return nil, nil
 	}

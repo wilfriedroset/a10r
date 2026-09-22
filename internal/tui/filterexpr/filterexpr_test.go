@@ -551,12 +551,8 @@ func TestCompile_ExpressionGate(t *testing.T) {
 			case tc.wantNil:
 				require.NoError(t, err)
 				require.NotEqual(t, "expr", e.ModeLabel(), "the five-mode path owns this buffer")
-				// The parser reports a buffer it does not own as a nil
-				// expression and a nil error, which is the pair every
-				// caller branches on.
-				parsed, perr := filterexpr.CompileExpr(tc.in)
-				require.NoError(t, perr)
-				require.Nil(t, parsed)
+				require.False(t, e.IsExpr(),
+					"a buffer the parser does not own leaves the expression half of the value empty")
 			default:
 				require.NoError(t, err)
 				require.Equal(t, "expr", e.ModeLabel())

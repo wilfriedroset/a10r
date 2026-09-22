@@ -106,10 +106,6 @@ func (b *Base) ValidateFilter(s string) error {
 	return err
 }
 
-// FilterReadsExpr reports whether this page evaluates the boolean
-// expression grammar.
-func (b *Base) FilterReadsExpr() bool { return b.Grammar.Expressions }
-
 // FilterError exposes the unusable-buffer reason to the app chrome,
 // which cannot read the field directly: listpage imports app, not the
 // reverse, so the seam has to be a method.

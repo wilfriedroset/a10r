@@ -232,8 +232,8 @@ Chrome, overlays, and rendering helpers:
   construction, not at package level, because user-declared label
   columns come from the configuration and add their own sort axes.
 - `internal/tui/filter` -- the `/` filter language below the chrome:
-  the mode classifier and the compiled per-buffer predicate the
-  pages apply per row. It imports the standard library only.
+  the mode classifier and the per-buffer text matcher that
+  `filterexpr.Compiled` wraps. It imports the standard library only.
 - `internal/tui/filterexpr` -- parses and evaluates the `/` prompt's
   boolean grammar (`&&`, `||`, `!`, parentheses, and the typed keys
   `count`, `age`, `state`). Evaluation is three-valued: a term over a
@@ -243,7 +243,9 @@ Chrome, overlays, and rendering helpers:
   first, then label selector, then the five-mode text path -- and the
   value it returns answers with the predicate, the spans and the mode
   label, so a page that compiles its buffer once cannot let the three
-  disagree.
+  disagree. `Compile` is the only place the ladder runs: on a page
+  that compiles its buffer, the recompute predicate, the row painter
+  and the title tag are all reads of the value it returned.
 - `internal/tui/stateformat` -- the app-global full/compact
   state-breakdown toggle.
 - `internal/tui/timerender` -- the four CONTEXT.md time vocabularies

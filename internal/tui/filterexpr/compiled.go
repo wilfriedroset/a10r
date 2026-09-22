@@ -65,7 +65,7 @@ func Compile(buffer string, g Grammar) (Compiled, error) {
 		paints: body != "",
 	}
 	if g.Expressions {
-		expr, err := CompileExpr(buffer)
+		expr, err := compileExpr(buffer)
 		if err != nil {
 			return c, fmt.Errorf("expr: %s", filter.RegexErrText(err))
 		}

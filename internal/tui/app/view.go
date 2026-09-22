@@ -11,7 +11,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/filter"
-	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
 )
@@ -147,13 +146,6 @@ func (a *App) renderBody(height int) string {
 		// see the active filter without leaving the body in their
 		// peripheral vision. Mirrors the k9s "/-prompt visible"
 		// affordance. Closed prompt OR command mode → no append.
-		//
-		// A trailing `[fuzzy]` / `[literal]` / `[regex]` tag is
-		// appended when the buffer auto-detects a non-default mode,
-		// so the user gets feedback that a leading sigil (or a
-		// regex-y body) changed the matcher. Substring — the
-		// default — stays untagged to keep the common case quiet.
-		// A buffer that will not parse swaps that tag for the reason.
 		if a.prompt.IsOpen() && a.prompt.Mode() == footer.PromptFilter {
 			value := a.prompt.Value()
 			title += " </" + value + ">"
@@ -209,27 +201,26 @@ func linesIn(s string) int {
 	return strings.Count(s, "\n") + 1
 }
 
-// filterTag renders the title's trailing `[…]` segment for an open
+// filterTag renders the title's trailing `[...]` segment for an open
 // filter prompt: the parse reason when the page rejects the buffer,
-// `[expr]` when the page evaluates the buffer as a boolean
-// expression, the auto-detected mode otherwise, and nothing for
-// plain substring.
+// and the mode the page classified the buffer as otherwise. Substring
+// carries no label, so the common case stays untagged.
 // The error variant is warn-tinted so it reads as a problem, not a
 // mode label.
+//
+// A page that classified its own buffer owns the answer, because the
+// tag has to name the grammar that actually ran. A page without that
+// seam carries no Base and never classified anything, so the mode is
+// detected from the raw value for it alone.
 func (a *App) filterTag(p Page, value string) string {
 	if t, ok := p.(filterAware); ok {
 		if err := t.FilterError(); err != nil {
 			return " " + a.styles.Flash.Warn.Render("["+err.Error()+"]")
 		}
-		if t.FilterReadsExpr() {
-			// The tag has to name the grammar the page actually ran,
-			// and a nil Expr means the five-mode path owns the
-			// buffer. A parse failure is rendered by the branch
-			// above, not tagged here.
-			if expr, _ := filterexpr.CompileExpr(value); expr != nil {
-				return " [" + filter.SearchExpression.String() + "]"
-			}
+		if mode := t.FilterMode(); mode != "" {
+			return " [" + mode + "]"
 		}
+		return ""
 	}
 	if mode := filter.DetectSearchMode(value); mode != filter.SearchSubstring {
 		return " [" + mode.String() + "]"

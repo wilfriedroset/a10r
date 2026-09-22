@@ -281,7 +281,7 @@ func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
 type filterAware interface {
 	ValidateFilter(buffer string) error
 	FilterError() error
-	FilterReadsExpr() bool
+	FilterMode() string
 }
 
 // handleInput covers the input pipeline: prompt results, paste,
