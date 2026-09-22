@@ -30,7 +30,7 @@ func textFilterValidate(s string) error {
 // reported under the `matcher` tag, so the user can tell which
 // grammar rejected them.
 func LabelFilterValidate(s string) error {
-	expr, err := filterexpr.Compile(s)
+	expr, err := filterexpr.CompileExpr(s)
 	if err != nil {
 		return fmt.Errorf("expr: %s", filter.RegexErrText(err))
 	}

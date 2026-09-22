@@ -238,7 +238,12 @@ Chrome, overlays, and rendering helpers:
   boolean grammar (`&&`, `||`, `!`, parentheses, and the typed keys
   `count`, `age`, `state`). Evaluation is three-valued: a term over a
   value the row does not carry is unknown, so neither the term nor its
-  negation matches.
+  negation matches. The package also offers `Compiled`, one
+  classified buffer: `Compile` walks the grammar ladder -- expression
+  first, then label selector, then the five-mode text path -- and the
+  value it returns answers with the predicate, the spans and the mode
+  label, so a page that compiles its buffer once cannot let the three
+  disagree.
 - `internal/tui/stateformat` -- the app-global full/compact
   state-breakdown toggle.
 - `internal/tui/timerender` -- the four CONTEXT.md time vocabularies

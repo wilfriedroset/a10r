@@ -496,7 +496,12 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
-func TestCompile(t *testing.T) {
+// TestCompile_ExpressionGate walks the scan that decides whether the
+// expression parser owns a buffer at all. The grammar reads
+// expressions and nothing else, so a buffer the parser declines can
+// only land on the five-mode text path, which the compiled value
+// reports as any label but "expr".
+func TestCompile_ExpressionGate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -539,17 +544,22 @@ func TestCompile(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e, err := filterexpr.Compile(tc.in)
+			e, err := filterexpr.Compile(tc.in, filterexpr.Grammar{Expressions: true})
 			switch {
 			case tc.err != "":
-				require.Nil(t, e)
-				require.EqualError(t, err, tc.err)
+				require.EqualError(t, err, "expr: "+tc.err)
 			case tc.wantNil:
 				require.NoError(t, err)
-				require.Nil(t, e, "the five-mode path owns this buffer")
+				require.NotEqual(t, "expr", e.ModeLabel(), "the five-mode path owns this buffer")
+				// The parser reports a buffer it does not own as a nil
+				// expression and a nil error, which is the pair every
+				// caller branches on.
+				parsed, perr := filterexpr.CompileExpr(tc.in)
+				require.NoError(t, perr)
+				require.Nil(t, parsed)
 			default:
 				require.NoError(t, err)
-				require.NotNil(t, e)
+				require.Equal(t, "expr", e.ModeLabel())
 			}
 		})
 	}

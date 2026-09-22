@@ -128,7 +128,7 @@ func (p *Page) cycleStateFilter() {
 // rejects falls back to the five-mode path; the prompt reports the
 // error separately.
 func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
-	expr, _ := filterexpr.Compile(p.Filter)
+	expr, _ := filterexpr.CompileExpr(p.Filter)
 	if expr == nil {
 		return filterEntries(in, p.Filter, p.stateFilter)
 	}

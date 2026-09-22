@@ -226,7 +226,7 @@ func (a *App) filterTag(p Page, value string) string {
 			// and a nil Expr means the five-mode path owns the
 			// buffer. A parse failure is rendered by the branch
 			// above, not tagged here.
-			if expr, _ := filterexpr.Compile(value); expr != nil {
+			if expr, _ := filterexpr.CompileExpr(value); expr != nil {
 				return " [" + filter.SearchExpression.String() + "]"
 			}
 		}

@@ -49,8 +49,8 @@ const (
 	// SearchExpression is the boolean-expression grammar. It is the
 	// one mode DetectSearchMode never returns: the grammar is page-
 	// conditional (listpage.Base.FilterReadsExpr), so the caller that
-	// knows the page decides, via filterexpr.Compile, and reads the
-	// label from here.
+	// knows the page decides, via filterexpr.CompileExpr, and reads
+	// the label from here.
 	SearchExpression
 )
 

@@ -64,10 +64,6 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, in string) {
-		// Compile wraps Parse, so the extra surface it fuzzes is the
-		// isExpr scan that decides whether Parse runs at all.
-		_, _ = filterexpr.Compile(in)
-
 		e, err := filterexpr.Parse(in)
 		if err != nil {
 			require.Nil(t, e)

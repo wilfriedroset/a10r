@@ -30,7 +30,7 @@ func (b *Base) FilterSpans() func(string) [][2]int {
 		return nil
 	}
 	if b.FilterValidate != nil {
-		if expr, _ := filterexpr.Compile(b.Filter); expr != nil {
+		if expr, _ := filterexpr.CompileExpr(b.Filter); expr != nil {
 			return nil
 		}
 		if _, err := matcher.LabelPredicate(b.Filter); err == nil {

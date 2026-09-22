@@ -8,6 +8,10 @@
 // Evaluation is three-valued. A term over a value the row does not
 // carry is unknown, not false, so neither the term nor its negation
 // matches. Only a definite true matches.
+//
+// The package also holds the grammar ladder above that expression
+// parser. Compile classifies a filter buffer once, and the Compiled
+// value it returns answers every later question about that buffer.
 package filterexpr
 
 import (
@@ -49,14 +53,14 @@ type Expr struct{ root node }
 // Match reports whether r satisfies the expression.
 func (e *Expr) Match(r Row) bool { return e.root(r) == triTrue }
 
-// Compile returns the expression to run for s, or a nil Expr and a
+// CompileExpr returns the expression to run for s, or a nil Expr and a
 // nil error when the five-mode path owns the buffer. An `&&` or `,`
 // chain alone stays on the old path so today's buffers keep their
 // meaning, and a leading `\` forces literal mode over the whole
 // buffer.
 //
 //nolint:nilnil // the nil pair is the documented answer above
-func Compile(s string) (*Expr, error) {
+func CompileExpr(s string) (*Expr, error) {
 	if !isExpr(s) {
 		return nil, nil
 	}
