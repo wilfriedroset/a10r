@@ -10,8 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
-	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
 // alertsArgs is the parsed shape of `:alerts` cmdbar arguments. The
@@ -71,7 +71,7 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 			}
 			out.state = lower
 		case "filter":
-			if err := listpage.LabelFilterValidate(val); err != nil {
+			if _, err := filterexpr.Compile(val, filterexpr.AlertGrammar); err != nil {
 				return alertsArgs{}, fmt.Errorf("--filter %q: %w", val, err)
 			}
 			out.filter = val

@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
@@ -203,19 +204,62 @@ func TestBase_HandleFilterPrompt_OpenAndCancelClearFilterErr(t *testing.T) {
 	}
 }
 
-// TestBase_HandleFilterPrompt_LabelValidatorRejectsMatcherRegex covers
+// TestBase_HandleFilterPrompt_LabelGrammarRejectsMatcherRegex covers
 // the alerts / group-detail wiring: a label selector whose regex will
 // not compile is a matcher-kind error, not a text search.
-func TestBase_HandleFilterPrompt_LabelValidatorRejectsMatcherRegex(t *testing.T) {
+func TestBase_HandleFilterPrompt_LabelGrammarRejectsMatcherRegex(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
 	b := &listpage.Base{
-		Recompute:      func() { calls++ },
-		FilterValidate: listpage.LabelFilterValidate,
+		Recompute: func() { calls++ },
+		Grammar:   filterexpr.AlertGrammar,
 	}
 	b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: `a=~"("`})
 	require.Zero(t, calls)
 	require.Empty(t, b.Filter)
 	require.EqualError(t, b.FilterErr, `matcher: compile regex "(": missing closing )`)
+}
+
+// TestBase_ValidateFilterIsNilInterface guards the typed-nil trap: the
+// app consumes ValidateFilter through an `error`-returning seam, so a
+// valid buffer must yield an untyped nil. A concrete pointer return
+// would box into a non-nil error and reject every buffer.
+func TestBase_ValidateFilterIsNilInterface(t *testing.T) {
+	t.Parallel()
+
+	b := &listpage.Base{}
+	require.NoError(t, b.ValidateFilter("web"))
+	require.Error(t, b.ValidateFilter("^web("))
+
+	b.Grammar = filterexpr.AlertGrammar
+	require.NoError(t, b.ValidateFilter("cluster_id=99"))
+	require.Error(t, b.ValidateFilter(`a=~"("`))
+}
+
+// TestBase_FilterError pins the reason the app title renders.
+func TestBase_FilterError(t *testing.T) {
+	t.Parallel()
+
+	b := &listpage.Base{Recompute: func() {}}
+	require.NoError(t, b.FilterError(), "a page with a usable buffer reports no reason")
+
+	b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "^web("})
+	require.EqualError(t, b.FilterError(), "regex: missing closing )")
+}
+
+// TestBase_GrammarTellsTheHalvesApart proves the two booleans are
+// independent, which the single injected validator could not express:
+// a page can read label selectors without also reading expressions.
+func TestBase_GrammarTellsTheHalvesApart(t *testing.T) {
+	t.Parallel()
+
+	selectors := &listpage.Base{Grammar: filterexpr.Grammar{Selectors: true}, Filter: "team=platform"}
+	require.NoError(t, selectors.ValidateFilter("team=platform"))
+	require.False(t, selectors.FilterReadsExpr())
+	require.Nil(t, selectors.FilterSpans(), "a selector paints nothing on a page that reads selectors")
+
+	expressions := &listpage.Base{Grammar: filterexpr.Grammar{Expressions: true}}
+	require.True(t, expressions.FilterReadsExpr())
+	require.EqualError(t, expressions.ValidateFilter("team=platform ||"), "expr: missing term after ||")
 }

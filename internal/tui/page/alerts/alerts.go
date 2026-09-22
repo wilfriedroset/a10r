@@ -47,6 +47,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
@@ -581,7 +582,7 @@ func New(opts Options) *Page {
 	p.sorter.Bind(opts.SortMemory, resourceAlerts)
 	p.sorter.SetHidden(p.isHiddenSortKey)
 	p.Recompute = p.recompute
-	p.FilterValidate = listpage.LabelFilterValidate
+	p.Grammar = filterexpr.AlertGrammar
 	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }

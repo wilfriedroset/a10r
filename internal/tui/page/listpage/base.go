@@ -9,6 +9,7 @@
 package listpage
 
 import (
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -30,11 +31,12 @@ type Base struct {
 	// applied. The rows stay on the last good filter and the chrome
 	// renders the reason in place of the mode tag.
 	FilterErr error
-	// FilterValidate judges a prompt buffer for this page. Nil means
-	// text-only grammar; the alerts list and group detail inject
-	// LabelFilterValidate because they also accept label selectors.
-	FilterValidate func(string) error
-	Scope          string
+	// Grammar declares which term languages this page's `/` buffer
+	// reads. The zero value is text only; the alerts list and group
+	// detail declare AlertGrammar because they also accept label
+	// selectors and boolean expressions.
+	Grammar filterexpr.Grammar
+	Scope   string
 	// Paused suppresses the recompute branch on poll.DataMsg so the
 	// table stops updating under the cursor mid-read. Toggled by `w`.
 	Paused bool
@@ -95,17 +97,14 @@ func (b *Base) ConsumeEscape() bool {
 // ValidateFilter reports why s cannot be applied as this page's
 // filter, or nil when it can. Doubles as the prompt's Enter-time gate.
 func (b *Base) ValidateFilter(s string) error {
-	if b.FilterValidate != nil {
-		return b.FilterValidate(s)
-	}
-	return textFilterValidate(s)
+	_, err := filterexpr.Compile(s, b.Grammar)
+	//nolint:wrapcheck // Compile names the grammar that refused the buffer, which is what the prompt renders
+	return err
 }
 
 // FilterReadsExpr reports whether this page evaluates the boolean
-// expression grammar. FilterValidate is the signal: it carries the
-// injected grammar, and only the pages that read label selectors
-// read expressions.
-func (b *Base) FilterReadsExpr() bool { return b.FilterValidate != nil }
+// expression grammar.
+func (b *Base) FilterReadsExpr() bool { return b.Grammar.Expressions }
 
 // FilterError exposes the unusable-buffer reason to the app chrome,
 // which cannot read the field directly: listpage imports app, not the

@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 )
 
@@ -53,7 +54,7 @@ func TestFilterSpans_TextGrammar(t *testing.T) {
 func TestFilterSpans_LabelGrammar(t *testing.T) {
 	t.Parallel()
 
-	b := listpage.Base{Filter: "team=platform", FilterValidate: listpage.LabelFilterValidate}
+	b := listpage.Base{Filter: "team=platform", Grammar: filterexpr.AlertGrammar}
 	require.Nil(t, b.FilterSpans())
 
 	b.Filter = "cpu"
@@ -68,10 +69,13 @@ func TestFilterSpans_LabelGrammar(t *testing.T) {
 func TestFilterSpans_Expression(t *testing.T) {
 	t.Parallel()
 
-	b := listpage.Base{Filter: "cpu || mem", FilterValidate: listpage.LabelFilterValidate}
+	b := listpage.Base{Filter: "cpu || mem", Grammar: filterexpr.AlertGrammar}
 	require.Nil(t, b.FilterSpans())
 
-	b.FilterValidate = nil
+	exprOnly := listpage.Base{Filter: "cpu || mem", Grammar: filterexpr.Grammar{Expressions: true}}
+	require.Nil(t, exprOnly.FilterSpans(), "the expression rung stands the reporter down on its own")
+
+	b.Grammar = filterexpr.Grammar{}
 	spans := b.FilterSpans()
 	require.NotNil(t, spans, "a page that does not read expressions still paints the buffer as text")
 	require.Equal(t, [][2]int{{0, 10}}, spans("cpu || mem"))

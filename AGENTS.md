@@ -232,8 +232,9 @@ A new `/` filter mode or sigil:
 - `internal/tui/filter/searchmode.go` and
   `internal/tui/filter/matcher.go` for a plain mode
 - `internal/tui/filterexpr` when the mode joins the boolean grammar,
-  plus `internal/tui/page/listpage/filter_validate.go` for the title
-  tag and `internal/tui/page/listpage/filter_spans.go` for the match
+  plus `Compile` in `internal/tui/filterexpr/compiled.go`, which
+  decides whether a buffer is accepted and which language refused
+  it, and `internal/tui/page/listpage/filter_spans.go` for the match
   highlight
 - the mode table in `docs/end-users/keybindings.md`, which cites the
   mode labels as contract
