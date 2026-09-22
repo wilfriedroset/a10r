@@ -49,6 +49,7 @@ func TestCompile_GrammarWins(t *testing.T) {
 		{"text term", "highcpu", filterexpr.AlertGrammar, true},
 		{"text term on a text grammar", "highcpu", filterexpr.Grammar{}, true},
 		{"typed term hands the buffer to the parser", "state=active", filterexpr.AlertGrammar, true},
+		{"typed term with a quoted value hands the buffer to the parser", `state="active"`, filterexpr.AlertGrammar, true},
 		{"a selector grammar reads a typed term as a label the row lacks", "state=active", selectorGrammar, false},
 		{"negation is an expression signal", "!severity=info", filterexpr.AlertGrammar, true},
 		{"an and chain stays a selector", "severity=critical,nope!=1", filterexpr.AlertGrammar, true},

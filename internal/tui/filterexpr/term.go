@@ -59,7 +59,10 @@ func compileTerm(raw string) (node, error) {
 // splitTerm finds the leftmost comparison operator outside quotes at
 // an index past zero. A leading operator reads as no operator at
 // all, matching matcher.ParseOne, so such a term falls through to
-// text search instead of yielding an empty key.
+// text search instead of yielding an empty key. The value loses its
+// outer pair of double quotes here so every typed key reads a quoted
+// value the same way. labelTerm re-parses the raw term and so never
+// sees this value.
 func splitTerm(t string) (parts, bool) {
 	best := -1
 	var bestOp string
@@ -78,7 +81,7 @@ func splitTerm(t string) (parts, bool) {
 		key:    strings.ToLower(rawKey),
 		rawKey: rawKey,
 		op:     bestOp,
-		val:    strings.TrimSpace(t[best+len(bestOp):]),
+		val:    stripQuotes(strings.TrimSpace(t[best+len(bestOp):])),
 	}, true
 }
 
@@ -127,7 +130,7 @@ func stateTerm(p parts) (node, error) {
 	if err := checkTypedOp(p); err != nil {
 		return nil, err
 	}
-	want := strings.ToLower(stripQuotes(p.val))
+	want := strings.ToLower(p.val)
 	return gated(instanceAvail, func(r Row) bool {
 		return orderedMatch(p.op, r.State, want)
 	}), nil

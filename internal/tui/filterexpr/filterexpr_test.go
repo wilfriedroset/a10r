@@ -305,6 +305,42 @@ func TestQuotedStateValue(t *testing.T) {
 	require.False(t, e.Match(baseRow()))
 }
 
+// TestQuotedTypedValues pins one quoting rule for the typed keys:
+// the outer pair of double quotes around the value is stripped
+// before the value is read, and an unbalanced quote stays part of
+// the value so the error names what the user typed.
+func TestQuotedTypedValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in      string
+		want    bool
+		wantErr string
+	}{
+		{in: `count="3"`, want: true},
+		{in: `count="5"`, want: false},
+		{in: `age="1h"`, want: true},
+		{in: `age="2h"`, want: false},
+		{in: `state="active"`, want: true},
+		{in: `count=""`, wantErr: `bad count ""`},
+		{in: `count="5`, wantErr: `bad count "\"5"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+
+			e, err := filterexpr.Parse(tc.in)
+			if tc.wantErr != "" {
+				require.Nil(t, e)
+				require.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, e.Match(baseRow()))
+		})
+	}
+}
+
 // TestMissingIsNeitherTrueNorFalse pins the Kleene rule: a term over
 // a value the row does not carry fails, and so does its negation.
 func TestMissingIsNeitherTrueNorFalse(t *testing.T) {
