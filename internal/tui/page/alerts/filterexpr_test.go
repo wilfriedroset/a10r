@@ -84,6 +84,21 @@ func TestExpr_FiltersTheView(t *testing.T) {
 			},
 		},
 		{
+			name:   "state cycle ands with a substring",
+			filter: "highcpu",
+			state:  string(backend.AlertStateActive),
+			want:   map[string][]string{"HighCPU": {"fp-c1", "fp-c2", "fp-c4", "fp-c5"}},
+		},
+		{
+			name:   "state cycle ands with a selector",
+			filter: "severity=warning",
+			state:  string(backend.AlertStateActive),
+			want: map[string][]string{
+				"HighCPU":  {"fp-c2"},
+				"DiskFull": {"fp-d1"},
+			},
+		},
+		{
 			name:   "count sees the post-state-filter group size",
 			filter: "count>=5",
 			state:  string(backend.AlertStateActive),

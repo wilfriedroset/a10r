@@ -11,8 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/matcher"
-	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
@@ -275,23 +273,13 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// applyFilter narrows the flattened instances, either with the boolean
-// expression grammar or with the five-mode path. SetFilter refuses a
-// buffer the expression parser cannot read, so the one here parses.
 func (p *Page) applyFilter(in []alertEntry) []alertEntry {
-	expr, _ := filterexpr.CompileExpr(p.FilterBuffer())
-	if expr == nil {
-		return filterEntries(in, p.FilterBuffer(), p.stateFilter)
+	if p.FilterMatchAll() && p.stateFilter == "" {
+		// `in` is recompute's local `flat` slice, consumed only by
+		// aggregate() which reads it without retaining it. Returning it
+		// unchanged avoids an O(N) copy that would fire every poll tick.
+		return in
 	}
-	return p.filterByExpr(in, expr)
-}
-
-// filterByExpr evaluates expr once per instance, over the survivors
-// of the state cycle. COUNT and AGE are properties of the group, so
-// they are pre-aggregated over those survivors: reading them in the
-// same pass as the instance terms is what lets `count` sit under
-// `||` and `!`.
-func (p *Page) filterByExpr(in []alertEntry, expr *filterexpr.Expr) []alertEntry {
 	kept := in
 	if p.stateFilter != "" {
 		kept = make([]alertEntry, 0, len(in))
@@ -301,22 +289,34 @@ func (p *Page) filterByExpr(in []alertEntry, expr *filterexpr.Expr) []alertEntry
 			}
 		}
 	}
-	stats := groupStats(kept)
+	if p.FilterMatchAll() {
+		// kept was allocated just above, so the caller holds no
+		// reference to it and a second copy would buy nothing.
+		return kept
+	}
+	// Only an expression can name COUNT or AGE, and the pre-pass costs
+	// a key and a map slot per instance, so a text or selector buffer
+	// skips it.
+	var stats map[string]groupStat
+	if p.FilterIsExpr() {
+		stats = groupStats(kept)
+	}
 	now := p.now()
 	out := make([]alertEntry, 0, len(kept))
 	for _, e := range kept {
-		g := stats[groupKey(e)]
-		if expr.Match(filterexpr.Row{
-			Now:        now,
-			Labels:     e.a.Labels,
-			Text:       e.lowerComposite,
-			State:      string(e.a.State),
-			Instance:   filterexpr.Present,
-			Count:      g.count,
-			CountAvail: filterexpr.Present,
-			Start:      g.oldestStart,
-			AgeAvail:   filterexpr.Present,
-		}) {
+		row := filterexpr.Row{
+			Now:      now,
+			Labels:   e.a.Labels,
+			Text:     e.lowerComposite,
+			State:    string(e.a.State),
+			Instance: filterexpr.Present,
+		}
+		if stats != nil {
+			g := stats[groupKey(e)]
+			row.Count, row.CountAvail = g.count, filterexpr.Present
+			row.Start, row.AgeAvail = g.oldestStart, filterexpr.Present
+		}
+		if p.FilterMatch(row) {
 			out = append(out, e)
 		}
 	}
@@ -349,58 +349,6 @@ func groupStats(in []alertEntry) map[string]groupStat {
 
 func groupKey(e alertEntry) string {
 	return groupKeyOf(e.tenant, e.a.Labels[labelAlertname])
-}
-
-// filterEntries returns a new slice containing only entries whose
-// Alert matches both the search and state filters. When the search
-// buffer is a Prometheus label matcher (`cluster_id=99`,
-// `cluster_id=~9.*`, …) it filters by that label predicate; otherwise
-// the buffer runs through filter.NewMatcher so a leading `~` flips to
-// fuzzy, a leading `\` to literal substring, and a body with two
-// distinct regex metas to compiled regex — matching the keybindings.md
-// /-prompt contract.
-func filterEntries(in []alertEntry, search, state string) []alertEntry {
-	if pred, err := matcher.LabelPredicate(search); err == nil {
-		return filterByLabel(in, pred, state)
-	}
-	// Recompute is the hot path: an uncompilable buffer keeps the
-	// substring fallback so the rows stay live. The chrome reports the
-	// error separately, via listpage.Base.FilterErr.
-	m, _ := filter.NewMatcher(search)
-	if m.MatchAll() && state == "" {
-		// `in` is recompute's local `flat` slice, consumed only by
-		// aggregate() which reads it without retaining it. Returning it
-		// unchanged avoids an O(N) copy that would fire every poll tick.
-		return in
-	}
-	out := make([]alertEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
-		}
-		if !m.MatchAll() && !m.Match(e.lowerComposite) {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
-}
-
-// filterByLabel keeps entries whose alert labels satisfy the label
-// predicate (and the state filter). Separate from filterEntries' text
-// path so each stays a flat loop rather than a branch-in-loop.
-func filterByLabel(in []alertEntry, pred func(map[string]string) bool, state string) []alertEntry {
-	out := make([]alertEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
-		}
-		if !pred(e.a.Labels) {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
 }
 
 // alertLowerComposite concatenates the lower-cased label values

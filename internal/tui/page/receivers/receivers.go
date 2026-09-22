@@ -19,7 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/filter"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
@@ -300,17 +300,16 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // recompute rebuilds the filtered view from byTenant + p.Scope +
 // the filter buffer and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
-// the user's toggle. The /-prompt filter is auto-classified
-// (substring / fuzzy / literal / regex) by filter.NewMatcher.
+// the user's toggle. The /-prompt filter was auto-classified
+// (substring / fuzzy / literal / regex) when the buffer was set.
 func (p *Page) recompute() {
 	flat := p.flatten()
-	matcher, _ := filter.NewMatcher(p.FilterBuffer())
-	if matcher.MatchAll() {
+	if p.FilterMatchAll() {
 		p.view = flat
 	} else {
 		p.view = make([]receiverEntry, 0, len(flat))
 		for _, e := range flat {
-			if matcher.Match(strings.ToLower(e.name)) {
+			if p.FilterMatch(filterexpr.Row{Text: strings.ToLower(e.name), Instance: filterexpr.Present}) {
 				p.view = append(p.view, e)
 			}
 		}

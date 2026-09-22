@@ -348,6 +348,11 @@ func TestCompiled_ReadsAgree(t *testing.T) {
 				require.Nil(t, c.Spans(),
 					"an expression spreads its characters across terms the reporter cannot attribute: %q", buffer)
 			}
+			if c.IsExpr() {
+				require.Equal(t, "expr", c.ModeLabel(),
+					"the grammar that owns the buffer is the one the title names: %q", buffer)
+				require.Nil(t, c.Spans(), "an expression paints nothing: %q", buffer)
+			}
 			if c.MatchAll() {
 				require.Nil(t, c.Spans(), "a buffer that keeps every row paints nothing: %q", buffer)
 			}

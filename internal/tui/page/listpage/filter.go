@@ -34,6 +34,11 @@ func (b *Base) FilterMode() string { return b.filter.ModeLabel() }
 // FilterMatch reports whether r survives the active filter.
 func (b *Base) FilterMatch(r filterexpr.Row) bool { return b.filter.Match(r) }
 
+// FilterIsExpr reports whether the boolean expression grammar owns
+// the current buffer, unlike FilterReadsExpr, which reports whether
+// the page's grammar accepts one at all.
+func (b *Base) FilterIsExpr() bool { return b.filter.IsExpr() }
+
 // FilterMatchAll reports whether every row survives, which lets a
 // page hand its input slice straight to the view.
 func (b *Base) FilterMatchAll() bool { return b.filter.MatchAll() }

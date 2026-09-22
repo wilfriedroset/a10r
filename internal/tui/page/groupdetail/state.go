@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/matcher"
-	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 )
 
@@ -123,13 +121,11 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// applyFilter narrows the entries, either with the boolean expression
-// grammar or with the five-mode path. SetFilter refuses a buffer the
-// expression parser cannot read, so the one here parses.
 func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
-	expr, _ := filterexpr.CompileExpr(p.FilterBuffer())
-	if expr == nil {
-		return filterEntries(in, p.FilterBuffer(), p.stateFilter)
+	if p.FilterMatchAll() && p.stateFilter == "" {
+		// recompute owns the input slice, so sharing the backing
+		// avoids an O(N) copy every poll tick.
+		return in
 	}
 	now := p.now()
 	out := make([]instanceEntry, 0, len(in))
@@ -139,7 +135,7 @@ func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
 		}
 		// CountAvail is Missing because a single group has no COUNT to
 		// compare: `count>=1` and `!count>=1` both match nothing here.
-		if expr.Match(filterexpr.Row{
+		if p.FilterMatch(filterexpr.Row{
 			Now:        now,
 			Labels:     e.a.Labels,
 			Text:       e.lowerComposite,
@@ -151,51 +147,6 @@ func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
 		}) {
 			out = append(out, e)
 		}
-	}
-	return out
-}
-
-// filterEntries returns only the entries matching both the search and
-// state filters. When the search buffer is a Prometheus label matcher
-// (`cluster_id=99`, `cluster_id=~9.*`, …) it filters by that label
-// predicate; otherwise it runs through filter.NewMatcher (substring /
-// fuzzy / literal / regex over the values). Shares the input backing
-// when nothing filters (recompute owns the slice) to avoid an O(N)
-// copy every poll tick.
-func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
-	if pred, err := matcher.LabelPredicate(search); err == nil {
-		return filterByLabel(in, pred, state)
-	}
-	m, _ := filter.NewMatcher(search)
-	if m.MatchAll() && state == "" {
-		return in
-	}
-	out := make([]instanceEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
-		}
-		if !m.MatchAll() && !m.Match(e.lowerComposite) {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
-}
-
-// filterByLabel keeps entries whose instance labels satisfy the label
-// predicate (and the state filter). Separate from filterEntries' text
-// path so each stays a flat loop rather than a branch-in-loop.
-func filterByLabel(in []instanceEntry, pred func(map[string]string) bool, state string) []instanceEntry {
-	out := make([]instanceEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
-		}
-		if !pred(e.a.Labels) {
-			continue
-		}
-		out = append(out, e)
 	}
 	return out
 }

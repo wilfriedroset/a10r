@@ -120,11 +120,11 @@ func TestPage_HeaderRendersActiveSortArrow(t *testing.T) {
 }
 
 // TestPage_FilterNarrowsView is the per-page wiring smoke proving
-// the receivers page plumbs filter buffers through filter.NewMatcher
-// into p.view. The mode-autodetect contract lives in
+// the receivers page reads its compiled filter into p.view, mode and
+// all. The mode-autodetect contract lives in
 // internal/tui/filter/{searchmode,matcher}_test.go, and the
 // live-narrow / Esc-restore / submit-empty-clears contract in
-// internal/tui/footer/footer_test.go (TestPrompt_* family); this
+// internal/tui/footer/footer_test.go (TestPrompt_* family). This
 // test only proves the wiring exists.
 func TestPage_FilterNarrowsView(t *testing.T) {
 	t.Parallel()
@@ -138,6 +138,10 @@ func TestPage_FilterNarrowsView(t *testing.T) {
 	require.Equal(t, []string{"default"}, viewNames(p),
 		"submitted filter must trim the view to the matching row")
 	require.Equal(t, "receivers(all)[1/3]", p.Title())
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "~dfl"})
+	require.Equal(t, []string{"default"}, viewNames(p),
+		"the sigil the buffer was classified with must reach the row loop")
 }
 
 // TestPage_WatchModeFooterRendersWatchOff is the page-specific wiring

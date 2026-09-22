@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/tui/filter"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 )
 
 // totalSilences is the unfiltered silence count within the active
@@ -36,7 +36,7 @@ func (p *Page) totalSilences() int {
 // sorting. Cursor is preserved across rebuilds by silence ID when
 // possible — see snapshotFocus.
 func (p *Page) recompute() {
-	p.view = filterSilences(p.scopedEntries(), p.FilterBuffer())
+	p.view = p.filterSilences(p.scopedEntries())
 	p.sorter.Apply(p.view)
 	if p.focusID != "" {
 		for i, e := range p.view {
@@ -86,15 +86,14 @@ func (p *Page) scopedEntries() []silenceEntry {
 }
 
 // filterSilences returns a fresh slice with the entries whose
-// lower-cased composite (built at recompute) matches the query —
-// matching mode (substring / fuzzy / literal / regex) is auto-
-// detected by filter.NewMatcher per the keybindings.md contract.
-// Empty query short-circuits to the input. The case-fold work
-// runs once per ingest (composite cache) and once per recompute
-// (matcher needle), not once per keystroke per entry.
-func filterSilences(in []silenceEntry, query string) []silenceEntry {
-	matcher, _ := filter.NewMatcher(query)
-	if matcher.MatchAll() {
+// lower-cased composite (built at recompute) matches the page
+// filter. The matching mode (substring / fuzzy / literal / regex)
+// was detected once, when the buffer was set, per the
+// keybindings.md contract. An empty buffer short-circuits to the
+// clone below. The case-fold work runs once per ingest (composite
+// cache), not once per keystroke per entry.
+func (p *Page) filterSilences(in []silenceEntry) []silenceEntry {
+	if p.FilterMatchAll() {
 		// Clone to keep the filter output independent of the caller's
 		// input slice — downstream mutations on the view (cursor
 		// re-anchoring, mark management) must not bleed into the
@@ -105,7 +104,7 @@ func filterSilences(in []silenceEntry, query string) []silenceEntry {
 	}
 	out := make([]silenceEntry, 0, len(in))
 	for _, e := range in {
-		if matcher.Match(e.lowerComposite) {
+		if p.FilterMatch(filterexpr.Row{Text: e.lowerComposite, Instance: filterexpr.Present}) {
 			out = append(out, e)
 		}
 	}

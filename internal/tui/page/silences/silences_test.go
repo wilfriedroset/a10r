@@ -2112,7 +2112,7 @@ func TestFilterSilences_EmptyQueryReturnsIndependentSlice(t *testing.T) {
 		{s: backend.Silence{ID: "a"}, tenant: "prod"},
 		{s: backend.Silence{ID: "b"}, tenant: "prod"},
 	}
-	out := filterSilences(in, "")
+	out := newPage(t).filterSilences(in)
 	require.Len(t, out, 2)
 	out[0].s.ID = "mutated"
 	require.Equal(t, "a", in[0].s.ID,

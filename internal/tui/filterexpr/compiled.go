@@ -101,6 +101,11 @@ func (c Compiled) Buffer() string { return c.buffer }
 // recompute has to run row by row, a bare sigil included.
 func (c Compiled) MatchAll() bool { return c.buffer == "" }
 
+// IsExpr reports whether the boolean expression grammar owns the
+// buffer. A page reads it to skip work only an expression can ask
+// for, such as the alerts page's group-level pre-aggregation.
+func (c Compiled) IsExpr() bool { return c.expr != nil }
+
 // Match reports whether r survives the filter, whichever grammar
 // won.
 func (c Compiled) Match(r Row) bool {
