@@ -11,6 +11,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // exprAlerts is a five-instance HighCPU group (one of them
@@ -241,4 +242,20 @@ func TestExpr_UnparsableBufferNeverBecomesTheFilter(t *testing.T) {
 	p.recompute()
 	require.Equal(t, kept, viewFingerprints(p), "a refused buffer leaves the rows alone")
 	require.EqualError(t, p.FilterErr, "expr: missing term after ||")
+}
+
+// TestExpr_CountTermAndTheCountColumnCanDisagree pins the two
+// different sets the two readings measure: a `count` term compares the
+// group size as it stood before the expression ran, while the COUNT
+// column tallies only the survivors.
+func TestExpr_CountTermAndTheCountColumnCanDisagree(t *testing.T) {
+	t.Parallel()
+
+	p := exprSeed(t)
+	require.True(t, p.SetFilter("count>=5 && severity=critical"))
+	p.recompute()
+
+	row := rowContaining(t, testutil.StripStyle(p.View(80, 24)), "HighCPU")
+	require.Regexp(t, `HighCPU\s+1`+countArrowMarker+`\s`, row,
+		"the COUNT column counts the survivors, not the five the count term read")
 }
