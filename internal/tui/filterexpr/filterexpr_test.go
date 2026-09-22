@@ -265,15 +265,20 @@ func TestQuotedValues(t *testing.T) {
 // TestQuotedOperatorIsNotAComparison pins the quote tracking in the
 // operator scan. A `>` between quotes is a searched byte, so the
 // term stays a text search instead of failing as an order
-// comparison against an unknown key.
+// comparison against an unknown key. The quotes pick the mode and
+// are not themselves searched, so the phrase alone is the needle.
 func TestQuotedOperatorIsNotAComparison(t *testing.T) {
 	t.Parallel()
 
 	row := baseRow()
-	row.Text = `x "a>b" y`
+	row.Text = `x a>b y`
 
 	require.True(t, mustParse(t, `"a>b"`).Match(row))
 	require.True(t, mustParse(t, `"a>b" || nosuch`).Match(row))
+
+	miss := baseRow()
+	miss.Text = `x a b y`
+	require.False(t, mustParse(t, `"a>b"`).Match(miss))
 }
 
 // TestEscapedQuoteStaysInsideTheValue pins that `\"` does not close
@@ -282,6 +287,8 @@ func TestQuotedOperatorIsNotAComparison(t *testing.T) {
 // The backslash survives into the compared value: matcher.ParseOne
 // strips the outer quotes and never unescapes, so the term matches
 // a label spelled with the backslash, not one spelled without it.
+// A quoted text term reads the same way -- the outer quotes go and
+// nothing else does.
 func TestEscapedQuoteStaysInsideTheValue(t *testing.T) {
 	t.Parallel()
 
@@ -291,8 +298,12 @@ func TestEscapedQuoteStaysInsideTheValue(t *testing.T) {
 	require.False(t, mustParse(t, `alertname="a\" (b"`).Match(baseRow()))
 
 	row := baseRow()
-	row.Text = `x "a\">b" y`
+	row.Text = `x a\">b y`
 	require.True(t, mustParse(t, `"a\">b"`).Match(row))
+
+	unescaped := baseRow()
+	unescaped.Text = `x a">b y`
+	require.False(t, mustParse(t, `"a\">b"`).Match(unescaped))
 }
 
 func TestQuotedStateValue(t *testing.T) {
@@ -626,4 +637,56 @@ func TestCompile_ExpressionGate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestQuotedTextIsALiteralPhrase pins the quoted text operand: the
+// outer quotes pick the mode rather than joining the needle, so the
+// phrase inside is searched whole, spaces included, with no sigil
+// and no regex auto-detect reading it.
+func TestQuotedTextIsALiteralPhrase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		expr string
+		text string
+		want bool
+	}{
+		{"a phrase carrying a space", `"disk full"`, "a disk full b", true},
+		{"the same phrase inside an expression", `(severity=critical && "disk full")`, "a disk full b", true},
+		{"a phrase that is not there", `"disk full"`, "diskfull", false},
+		{"metacharacters are searched as text", `"web.*api"`, "a web.*api b", true},
+		{"metacharacters no longer compile as a regex", `"web.*api"`, `"webxapi"`, false},
+		{"a leading tilde is not a fuzzy sigil", `"~foo"`, "a ~foo b", true},
+		{"a leading tilde is not a fuzzy sigil (miss)", `"~foo"`, "f o o", false},
+		{"a leading backslash is not a literal sigil", `"\x"`, `a \x b`, true},
+		{"an operator inside quotes stays text", `"a=1 b"`, "x a=1 b y", true},
+		{"a lone quote is still searched as text", `"`, `a " b`, true},
+		{"an empty phrase constrains nothing", `""`, "anything", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			row := baseRow()
+			row.Text = tc.text
+			require.Equal(t, tc.want, mustParse(t, tc.expr).Match(row))
+		})
+	}
+}
+
+// TestQuotedPhraseSurvivesCompile walks the buffer keybindings.md
+// publishes through the entry point the chrome calls, because a
+// quoted phrase only reads as one when the expression path owns the
+// buffer. A bare `&&` chain does not reach it.
+func TestQuotedPhraseSurvivesCompile(t *testing.T) {
+	t.Parallel()
+
+	row := baseRow()
+	row.Text = "a disk full b"
+
+	c, err := filterexpr.Compile(`(severity=critical && "disk full")`, filterexpr.AlertGrammar)
+	require.NoError(t, err)
+	require.True(t, c.IsExpr())
+	require.True(t, c.Match(row))
 }

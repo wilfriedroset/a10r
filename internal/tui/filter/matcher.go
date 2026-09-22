@@ -81,6 +81,19 @@ func NewMatcher(input string) (Matcher, error) {
 	return Matcher{mode: SearchSubstring, needle: strings.ToLower(raw)}, nil
 }
 
+// NewLiteralMatcher matches s as a plain case-insensitive substring
+// with no prefix sigil and no regex auto-detect, for a caller that
+// has already decided the mode. filterexpr hands a quoted term here
+// so the quotes pick the mode and the phrase between them is the
+// needle whole. An empty phrase yields the match-everything matcher,
+// as NewMatcher does for an empty buffer.
+func NewLiteralMatcher(s string) Matcher {
+	if s == "" {
+		return Matcher{matchAll: true}
+	}
+	return Matcher{mode: SearchLiteral, needle: strings.ToLower(s)}
+}
+
 // RegexErrText renders err for a title tag that has one line of
 // room: the syntax error's own decoration — Go's `error parsing
 // regexp: ` prefix and the trailing echo of the pattern — is traded

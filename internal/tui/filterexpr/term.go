@@ -156,6 +156,12 @@ func labelTerm(t string) (node, error) {
 // auto-detection would leave as a substring, and the lexer treats
 // every byte between the slashes as ordinary, so the pattern can
 // carry a delimiter. A label value needs quoting for the same effect.
+//
+// A first and last byte that are both `"` force a literal phrase
+// instead, so a space inside is searched rather than read as the
+// implicit AND.
+// The quotes pick the mode, so no sigil and no meta count reads the
+// phrase; an empty one constrains nothing.
 func textTerm(t string) (node, error) {
 	if len(t) >= 2 && t[0] == '/' && t[len(t)-1] == '/' {
 		re, err := regexp.Compile("(?i)" + t[1:len(t)-1])
@@ -164,6 +170,10 @@ func textTerm(t string) (node, error) {
 			return nil, err
 		}
 		return gated(instanceAvail, func(r Row) bool { return re.MatchString(r.Text) }), nil
+	}
+	if phrase := stripQuotes(t); phrase != t {
+		m := filter.NewLiteralMatcher(phrase)
+		return gated(instanceAvail, func(r Row) bool { return m.Match(r.Text) }), nil
 	}
 	m, err := filter.NewMatcher(t)
 	if err != nil {

@@ -51,7 +51,7 @@ When the buffer will not compile — a half-typed `^web(`, a label matcher whose
 | NOT | `!` | `!severity=info` |
 | grouping | `(` `)` | `(severity=info \|\| team=ops) && age>1h` |
 
-`!` binds tighter than AND, and AND binds tighter than OR, so `count>=5 && !severity=info \|\| age<2h` reads as `(count>=5 && !severity=info) \|\| (age<2h)`. Each operand is one of the modes above — label matcher, fuzzy, literal, regex or substring.
+`!` binds tighter than AND, and AND binds tighter than OR, so `count>=5 && !severity=info \|\| age<2h` reads as `(count>=5 && !severity=info) \|\| (age<2h)`. Each operand is one of the modes above — label matcher, fuzzy, literal, regex or substring. Inside a buffer the expression path already owns, quote a text operand to search for a phrase that carries a space: `(a=1 && "disk full")`. The quoted text is matched literally, so no sigil and no regex auto-detect applies inside it.
 
 Three typed keys compare against a value the table shows rather than against the search text:
 

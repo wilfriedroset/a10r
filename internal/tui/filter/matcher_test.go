@@ -323,3 +323,44 @@ func TestMatcher_ExpressionBufferNeverReportsExpression(t *testing.T) {
 		})
 	}
 }
+
+// TestNewLiteralMatcher pins the constructor filterexpr reaches for
+// when a term arrives already quoted: the phrase between the quotes
+// is the needle whole, so no prefix sigil and no meta count reads it.
+// The spans come from the same branch the substring mode uses.
+func TestNewLiteralMatcher(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		input     string
+		haystack  string
+		wantMatch bool
+		wantSpans [][2]int
+	}{
+		{"phrase with a space", "disk full", "a disk full b", true, [][2]int{{2, 11}}},
+		{"metacharacters are text", "web.*api", "a web.*api b", true, [][2]int{{2, 10}}},
+		{"metacharacters never compile", "web.*api", "webxapi", false, nil},
+		{"leading tilde is not fuzzy", "~foo", "a ~foo b", true, [][2]int{{2, 6}}},
+		{"leading tilde is not fuzzy (miss)", "~foo", "f o o", false, nil},
+		{"leading backslash stays in the needle", `\x`, `a \x b`, true, [][2]int{{2, 4}}},
+		{"needle is lower-cased like NewMatcher", "DISK", "a disk", true, [][2]int{{2, 6}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := NewLiteralMatcher(tc.input)
+			require.Equal(t, SearchLiteral, m.Mode())
+			require.Equal(t, tc.wantMatch, m.Match(tc.haystack))
+			require.Equal(t, tc.wantSpans, m.MatchSpans(tc.haystack))
+		})
+	}
+
+	t.Run("an empty phrase is the match-everything matcher", func(t *testing.T) {
+		t.Parallel()
+		m := NewLiteralMatcher("")
+		require.True(t, m.MatchAll())
+		require.True(t, m.Match("anything"))
+		require.Nil(t, m.MatchSpans("anything"))
+	})
+}
