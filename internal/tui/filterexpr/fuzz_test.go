@@ -11,9 +11,14 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 )
 
-// FuzzParse is the grammar fuzz target. Oracle is panic-only on
-// both halves of the contract: Parse either compiles or errors,
-// and a compiled expression evaluates against a populated row.
+// FuzzParse is the grammar fuzz target. Parse either compiles or
+// errors, and a compiled expression evaluates against a populated
+// row. Two oracles run over Compile beside that panic check: a
+// refused buffer carries no expression, and the refusal reads on
+// one line, because the `[expr: <reason>]` title tag has one. The
+// one-line rule is Compile's, not Parse's: only Compile runs the
+// error through filter.RegexErrText, which drops the pattern text a
+// regexp syntax error quotes back.
 func FuzzParse(f *testing.F) {
 	seeds := []string{
 		"",
@@ -35,6 +40,14 @@ func FuzzParse(f *testing.F) {
 		"age<2x",
 		"count>x",
 		"count=~5",
+		"age=~2h",
+		"state!~active",
+		`count="5"`,
+		`age="2h"`,
+		`state=""`,
+		"!=info",
+		"foo !bar",
+		"a<b=c || x",
 		`alertname="a || b"`,
 		`alertname="a, b"`,
 		`state="a b"`,
@@ -64,6 +77,12 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, in string) {
+		c, cerr := filterexpr.Compile(in, filterexpr.AlertGrammar)
+		if cerr != nil {
+			require.False(t, c.IsExpr())
+			require.NotContains(t, cerr.Error(), "\n")
+		}
+
 		e, err := filterexpr.Parse(in)
 		if err != nil {
 			require.Nil(t, e)

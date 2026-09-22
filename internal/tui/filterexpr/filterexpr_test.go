@@ -532,6 +532,37 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+// TestTypedKeysAreReservedUnderEveryOperator pins that `count`,
+// `age` and `state` are typed keys under every operator, so a regex
+// operator on one of them reports the same error whether or not an
+// unrelated term sits beside it in the buffer. The buffer never
+// falls back to a label matcher on a label of that name.
+func TestTypedKeysAreReservedUnderEveryOperator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		term string
+		err  string
+	}{
+		{term: "age=~2h", err: `bad operator "=~" for key "age"`},
+		{term: "count=~5", err: `bad operator "=~" for key "count"`},
+		{term: "state!~active", err: `bad operator "!~" for key "state"`},
+		{term: "state=~act.*", err: `bad operator "=~" for key "state"`},
+		{term: "AGE=~2h", err: `bad operator "=~" for key "age"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.term, func(t *testing.T) {
+			t.Parallel()
+
+			for _, buffer := range []string{tc.term, "a=1 || " + tc.term, "a=1," + tc.term} {
+				c, err := filterexpr.Compile(buffer, filterexpr.AlertGrammar)
+				require.EqualError(t, err, "expr: "+tc.err, "buffer %q", buffer)
+				require.False(t, c.IsExpr(), "a refused buffer carries no expression: %q", buffer)
+			}
+		})
+	}
+}
+
 // TestCompile_ExpressionGate walks the scan that decides whether the
 // expression parser owns a buffer at all. The grammar reads
 // expressions and nothing else, so a buffer the parser declines can
@@ -553,7 +584,7 @@ func TestCompile_ExpressionGate(t *testing.T) {
 		{name: "and chain", in: "a=1,b=2", wantNil: true},
 		{name: "and chain with &&", in: "a=1&&b=2", wantNil: true},
 		{name: "quoted or inside a value", in: `alertname="a || b"`, wantNil: true},
-		{name: "regex op on a typed key", in: "count=~3", wantNil: true},
+		{name: "regex op on a typed key reports", in: "count=~3", err: `bad operator "=~" for key "count"`},
 		{name: "regex metas", in: "web.*api", wantNil: true},
 		{name: "literal sigil escapes", in: `\(a || b)`, wantNil: true},
 		{name: "or", in: "a=1 || b=2"},

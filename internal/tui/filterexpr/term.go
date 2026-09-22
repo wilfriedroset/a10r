@@ -175,9 +175,12 @@ func textTerm(t string) (node, error) {
 
 // isTypedTerm reports whether raw is a typed comparison, the one
 // term shape that alone hands a buffer to the expression parser.
+// A typed key is reserved under every operator, so `age=~2h` reaches
+// checkTypedOp and is reported rather than read as a label matcher
+// on a label named `age`.
 func isTypedTerm(raw string) bool {
 	p, ok := splitTerm(strings.TrimSpace(raw))
-	return ok && isTypedKey(p.key) && !isRegexOp(p.op)
+	return ok && isTypedKey(p.key)
 }
 
 func isTypedKey(k string) bool {
