@@ -24,7 +24,7 @@ func TestHighlight_PaintsRows(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops-page"}, {Name: "ops-mail"}}})
 	plain := testutil.StripStyle(p.View(60, 10))
 
-	p.Filter = "ops"
+	require.True(t, p.SetFilter("ops"))
 	p.recompute()
 	out := p.View(60, 10)
 	require.Equal(t, plain, testutil.StripStyle(out), "the match must not move the text")

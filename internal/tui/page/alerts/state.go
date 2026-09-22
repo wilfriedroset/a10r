@@ -276,13 +276,12 @@ func (p *Page) cycleStateFilter() {
 }
 
 // applyFilter narrows the flattened instances, either with the boolean
-// expression grammar or with the five-mode path. A buffer the
-// expression parser rejects falls back to the five-mode path; the
-// prompt reports the error separately.
+// expression grammar or with the five-mode path. SetFilter refuses a
+// buffer the expression parser cannot read, so the one here parses.
 func (p *Page) applyFilter(in []alertEntry) []alertEntry {
-	expr, _ := filterexpr.CompileExpr(p.Filter)
+	expr, _ := filterexpr.CompileExpr(p.FilterBuffer())
 	if expr == nil {
-		return filterEntries(in, p.Filter, p.stateFilter)
+		return filterEntries(in, p.FilterBuffer(), p.stateFilter)
 	}
 	return p.filterByExpr(in, expr)
 }

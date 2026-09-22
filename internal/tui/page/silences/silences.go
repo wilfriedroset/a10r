@@ -381,7 +381,7 @@ func (p *Page) Title() string {
 		}
 	}
 	total := p.totalSilences()
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return fmt.Sprintf("silences(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("silences(%s)[%d]", scope, total)
@@ -389,8 +389,8 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter:"+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter:"+p.FilterBuffer())
 	}
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))

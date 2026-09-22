@@ -41,7 +41,7 @@ func (p *Page) emptyState() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
 		return ""
 	}
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return "no silences match the active filter — Esc clears the prompt"
 	}
 	if p.totalSilences() == 0 {

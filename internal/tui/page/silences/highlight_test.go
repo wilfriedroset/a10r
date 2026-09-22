@@ -39,7 +39,7 @@ func TestHighlight_KeepsColumnsPut(t *testing.T) {
 	plain := testutil.StripStyle(p.View(120, 24))
 
 	for _, filter := range []string{"bob", "~bb", `\bob`, ".*bob"} {
-		p.Filter = filter
+		require.True(t, p.SetFilter(filter))
 		p.recompute()
 		require.Equal(t, plain, testutil.StripStyle(p.View(120, 24)), "filter %q moved the text", filter)
 	}
@@ -52,7 +52,7 @@ func TestHighlight_PaintsRows(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "bob"
+	require.True(t, p.SetFilter("bob"))
 	p.recompute()
 	p.SetIndex(0, 2)
 

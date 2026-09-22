@@ -444,7 +444,7 @@ func (p *Page) Title() string {
 		return p.LoadingTitle(p.titleNoun(), p.styles.Header.Accent)
 	}
 	total := len(p.instances)
-	if p.Filter != "" || p.stateFilter != "" {
+	if p.FilterBuffer() != "" || p.stateFilter != "" {
 		return fmt.Sprintf("%s(%s)[%d/%d]", p.alertName, p.tenant, len(p.view), total)
 	}
 	return fmt.Sprintf("%s(%s)[%d]", p.alertName, p.tenant, total)
@@ -461,8 +461,8 @@ func (p *Page) titleNoun() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter:"+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter:"+p.FilterBuffer())
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state:"+p.stateFilter)

@@ -173,7 +173,7 @@ func (p *Page) Title() string {
 		scope = listpage.ScopeAll
 	}
 	total := p.totalReceivers()
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return fmt.Sprintf("receivers(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
@@ -217,8 +217,8 @@ func (p *Page) flatten() []receiverEntry {
 // (when any) so the user can see what's been applied without
 // re-opening the prompt. Empty otherwise — count lives in Title.
 func (p *Page) HeaderContent() string {
-	if p.Filter != "" {
-		return "filter:" + p.Filter
+	if p.FilterBuffer() != "" {
+		return "filter:" + p.FilterBuffer()
 	}
 	return ""
 }
@@ -298,13 +298,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 }
 
 // recompute rebuilds the filtered view from byTenant + p.Scope +
-// p.Filter and clamps the cursor to the new range. The active
+// the filter buffer and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
 // the user's toggle. The /-prompt filter is auto-classified
 // (substring / fuzzy / literal / regex) by filter.NewMatcher.
 func (p *Page) recompute() {
 	flat := p.flatten()
-	matcher, _ := filter.NewMatcher(p.Filter)
+	matcher, _ := filter.NewMatcher(p.FilterBuffer())
 	if matcher.MatchAll() {
 		p.view = flat
 	} else {
@@ -412,7 +412,7 @@ func (p *Page) View(width, height int) string {
 	p.SetViewport(height-1-bandLines, len(p.view))
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
-		if p.totalReceivers() > 0 && p.Filter != "" {
+		if p.totalReceivers() > 0 && p.FilterBuffer() != "" {
 			msg = "no receivers match the active filter — Esc clears the prompt"
 		}
 		// Render bg-less so the empty pane keeps the terminal

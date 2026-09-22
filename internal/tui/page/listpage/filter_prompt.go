@@ -26,23 +26,21 @@ func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 			return
 		}
 		b.FilterErr = nil
-		snap := b.Filter
+		snap := b.FilterBuffer()
 		b.PreFilter = &snap
-		if b.Filter != "" {
-			b.Filter = ""
+		if snap != "" {
+			b.SetFilter("")
 			b.Recompute()
 		}
 	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter || b.rejectFilter(m.Value) {
+		if m.Mode != footer.PromptFilter || !b.SetFilter(m.Value) {
 			return
 		}
-		b.Filter = m.Value
 		b.Recompute()
 	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter || b.rejectFilter(m.Value) {
+		if m.Mode != footer.PromptFilter || !b.SetFilter(m.Value) {
 			return
 		}
-		b.Filter = m.Value
 		b.PreFilter = nil
 		b.Recompute()
 	case footer.PromptCancelledMsg:
@@ -53,16 +51,8 @@ func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 		if b.PreFilter == nil {
 			return
 		}
-		b.Filter = *b.PreFilter
+		b.SetFilter(*b.PreFilter)
 		b.PreFilter = nil
 		b.Recompute()
 	}
-}
-
-// rejectFilter records why s cannot be applied and reports whether the
-// caller must leave the rows alone. Clears a previous error on success
-// so the keystroke that fixes the buffer also un-warns the chrome.
-func (b *Base) rejectFilter(s string) bool {
-	b.FilterErr = b.ValidateFilter(s)
-	return b.FilterErr != nil
 }

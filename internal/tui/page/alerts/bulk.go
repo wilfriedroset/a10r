@@ -62,8 +62,8 @@ func (p *Page) silenceAllScopeNote(g alertGroup) string {
 // comma so the note names every narrowing in play.
 func (p *Page) activeFilterDesc() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter "+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter "+p.FilterBuffer())
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state "+p.stateFilter)

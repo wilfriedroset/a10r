@@ -94,7 +94,7 @@ func TestExpr_FiltersTheView(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := exprSeed(t)
-			p.Filter = tc.filter
+			require.True(t, p.SetFilter(tc.filter))
 			p.stateFilter = tc.state
 			p.recompute()
 			require.Equal(t, tc.want, viewFingerprints(p))
@@ -111,7 +111,7 @@ func TestExpr_AgeReEvaluatesAgainstTheClock(t *testing.T) {
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp-c1", 30*time.Minute, nil),
 	}})
 
-	p.Filter = "age>1h"
+	require.True(t, p.SetFilter("age>1h"))
 	p.recompute()
 	require.Empty(t, p.groups, "a 30 min old group is younger than the threshold")
 
@@ -132,7 +132,7 @@ func TestExpr_CountIsThePreExpressionGroupSize(t *testing.T) {
 		mkAlert("Quiet", "critical", backend.AlertStateActive, "fp-q1", time.Minute, nil),
 	}})
 
-	p.Filter = "count>=3 && severity=critical"
+	require.True(t, p.SetFilter("count>=3 && severity=critical"))
 	p.recompute()
 
 	require.Len(t, p.groups, 1, "only the four-instance group clears the threshold")
@@ -175,7 +175,7 @@ func TestExpr_BuffersWithoutNewTokensKeepTheOldPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := exprSeed(t)
-			p.Filter = tc.filter
+			require.True(t, p.SetFilter(tc.filter))
 			p.recompute()
 			require.Equal(t, tc.want, viewFingerprints(p))
 		})
@@ -200,7 +200,7 @@ func TestExpr_GroupAndInstanceTermsComposeInOnePass(t *testing.T) {
 		mkAlert("DiskFull", "warning", backend.AlertStateActive, "fp-d2", 30*time.Minute, nil),
 	}})
 
-	p.Filter = "count>=5 && !severity=info || age<2h"
+	require.True(t, p.SetFilter("count>=5 && !severity=info || age<2h"))
 	p.recompute()
 
 	require.Equal(t, map[string][]string{
@@ -210,15 +210,20 @@ func TestExpr_GroupAndInstanceTermsComposeInOnePass(t *testing.T) {
 		"the old group passes on its size minus its info rows, the young one passes whole")
 }
 
-// TestExpr_UnparsableBufferFallsBackToTheFiveModePath pins what the
-// page does with a buffer the prompt validator will later refuse: it
-// searches for the text rather than matching everything.
-func TestExpr_UnparsableBufferFallsBackToTheFiveModePath(t *testing.T) {
+// TestExpr_UnparsableBufferNeverBecomesTheFilter pins the refusal at
+// the page: an expression the parser owns but cannot read leaves the
+// rows on the last good buffer and reports why.
+func TestExpr_UnparsableBufferNeverBecomesTheFilter(t *testing.T) {
 	t.Parallel()
 
 	p := exprSeed(t)
-	p.Filter = "count>=5 ||"
+	require.True(t, p.SetFilter("severity=critical"))
 	p.recompute()
+	kept := viewFingerprints(p)
+	require.NotEmpty(t, kept)
 
-	require.Empty(t, p.groups)
+	require.False(t, p.SetFilter("count>=5 ||"))
+	p.recompute()
+	require.Equal(t, kept, viewFingerprints(p), "a refused buffer leaves the rows alone")
+	require.EqualError(t, p.FilterErr, "expr: missing term after ||")
 }

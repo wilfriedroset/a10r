@@ -22,7 +22,9 @@ import (
 // constructor.
 type Base struct {
 	cursor.Window
-	Filter string
+	// filter is the active buffer and its classification, held
+	// together and written only by SetFilter.
+	filter filterexpr.Compiled
 	// PreFilter is the pre-prompt snapshot restored on filter
 	// cancel. Nil iff no filter prompt is open — relies on the App
 	// auto-forwarding PromptOpenedMsg to the top page.
@@ -34,7 +36,9 @@ type Base struct {
 	// Grammar declares which term languages this page's `/` buffer
 	// reads. The zero value is text only; the alerts list and group
 	// detail declare AlertGrammar because they also accept label
-	// selectors and boolean expressions.
+	// selectors and boolean expressions. Set it once at
+	// construction, before the first SetFilter: a later change
+	// leaves the stored classification behind.
 	Grammar filterexpr.Grammar
 	Scope   string
 	// Paused suppresses the recompute branch on poll.DataMsg so the

@@ -68,7 +68,7 @@ func (p *Page) emptyState() string {
 	if len(p.instances) == 0 {
 		return "no instances — alert resolved (Esc to go back)"
 	}
-	if p.Filter != "" || p.stateFilter != "" {
+	if p.FilterBuffer() != "" || p.stateFilter != "" {
 		return "no instances match the active filter — Esc clears the prompt, Shift+F cycles state filters"
 	}
 	return "no instances in view"

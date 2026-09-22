@@ -234,7 +234,7 @@ A new `/` filter mode or sigil:
 - `internal/tui/filterexpr` when the mode joins the boolean grammar,
   plus `Compile` in `internal/tui/filterexpr/compiled.go`, which
   decides whether a buffer is accepted and which language refused
-  it, and `internal/tui/page/listpage/filter_spans.go` for the match
+  it, and `internal/tui/page/listpage/filter.go` for the match
   highlight
 - the mode table in `docs/end-users/keybindings.md`, which cites the
   mode labels as contract

@@ -549,7 +549,6 @@ func New(opts Options) *Page {
 	labelCols := labelcol.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Scope,
-		Filter:          opts.InitialFilter,
 		BackendHealth:   map[string]listpage.BackendHealth{},
 		Tenants:         opts.Tenants,
 		PolledTenants:   map[string]struct{}{},
@@ -583,6 +582,7 @@ func New(opts Options) *Page {
 	p.sorter.SetHidden(p.isHiddenSortKey)
 	p.Recompute = p.recompute
 	p.Grammar = filterexpr.AlertGrammar
+	p.SetFilter(opts.InitialFilter)
 	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
@@ -622,7 +622,7 @@ func (p *Page) Title() string {
 	if scope == "" {
 		scope = listpage.ScopeAll
 	}
-	if p.Filter != "" || p.stateFilter != "" {
+	if p.FilterBuffer() != "" || p.stateFilter != "" {
 		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.groups), p.totalGroups())
 	}
 	return fmt.Sprintf("alerts(%s)[%d]", scope, len(p.groups))
@@ -630,8 +630,8 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter:"+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter:"+p.FilterBuffer())
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state:"+p.stateFilter)

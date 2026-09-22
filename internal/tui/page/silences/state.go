@@ -36,7 +36,7 @@ func (p *Page) totalSilences() int {
 // sorting. Cursor is preserved across rebuilds by silence ID when
 // possible — see snapshotFocus.
 func (p *Page) recompute() {
-	p.view = filterSilences(p.scopedEntries(), p.Filter)
+	p.view = filterSilences(p.scopedEntries(), p.FilterBuffer())
 	p.sorter.Apply(p.view)
 	if p.focusID != "" {
 		for i, e := range p.view {

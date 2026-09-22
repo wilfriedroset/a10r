@@ -55,11 +55,11 @@ func TestHighlight_KeepsColumnsPut(t *testing.T) {
 	// 46 cells is narrow enough that ALERTNAME ellipsizes, so the run
 	// also covers a match the cut falls inside.
 	for _, width := range []int{100, 46} {
-		p.Filter = ""
+		require.True(t, p.SetFilter(""))
 		p.recompute()
 		plain := testutil.StripStyle(p.View(width, 24))
 		for _, filter := range []string{"cpu", "~hcp", `\cpu`, "high.*u", "high"} {
-			p.Filter = filter
+			require.True(t, p.SetFilter(filter))
 			p.recompute()
 			require.Equal(t, plain, testutil.StripStyle(p.View(width, 24)),
 				"filter %q moved the text at width %d", filter, width)
@@ -74,7 +74,7 @@ func TestHighlight_PaintsThePlainRow(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "high"
+	require.True(t, p.SetFilter("high"))
 	p.recompute()
 	p.SetIndex(0, 2) // the cursor sits on the other row
 
@@ -93,7 +93,7 @@ func TestHighlight_PaintsInsideTheCursorRow(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "cpufirst"
+	require.True(t, p.SetFilter("cpufirst"))
 	p.recompute()
 	p.SetIndex(0, 1)
 
@@ -114,7 +114,7 @@ func TestHighlight_PaintsInsideAMarkedRow(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "cpufirst"
+	require.True(t, p.SetFilter("cpufirst"))
 	p.recompute()
 	p.SetIndex(0, 1)
 	listpage.MarkOrCommit(&p.Base, p.groups, p.marks, markKey)
@@ -132,7 +132,7 @@ func TestHighlight_FuzzyPaintsEachRun(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "~hcpus"
+	require.True(t, p.SetFilter("~hcpus"))
 	p.recompute()
 	p.SetIndex(0, 2) // the cursor sits on the other row
 
@@ -149,7 +149,7 @@ func TestHighlight_LabelSelectorPaintsNothing(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
-	p.Filter = "severity=warning"
+	require.True(t, p.SetFilter("severity=warning"))
 	p.recompute()
 
 	out := p.View(100, 24)

@@ -39,7 +39,7 @@ func (p *Page) View(width, height int) string {
 // branches: "we polled and there's nothing" vs. "filter hides
 // everything" — the second is actionable, the first isn't.
 func (p *Page) emptyState() string {
-	if p.Filter != "" || p.stateFilter != "" {
+	if p.FilterBuffer() != "" || p.stateFilter != "" {
 		return "no alerts match the active filter — Esc clears the prompt, Shift+F cycles state filters"
 	}
 	if !p.hasInScopeAlerts() {

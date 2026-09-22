@@ -587,7 +587,7 @@ func TestSilenceAll_ScopeNoteWording(t *testing.T) {
 	t.Run("substring filter active", func(t *testing.T) {
 		t.Parallel()
 		p := newPage(t)
-		p.Filter = "host"
+		require.True(t, p.SetFilter("host"))
 		require.Equal(t,
 			"Silencing ALL instances of alertname=HighCPU — the active filter (filter host) is NOT applied",
 			p.silenceAllScopeNote(g))
@@ -596,7 +596,7 @@ func TestSilenceAll_ScopeNoteWording(t *testing.T) {
 	t.Run("both filters active", func(t *testing.T) {
 		t.Parallel()
 		p := newPage(t)
-		p.Filter = "host"
+		require.True(t, p.SetFilter("host"))
 		p.stateFilter = "active"
 		require.Equal(t,
 			"Silencing ALL instances of alertname=HighCPU — the active filter (filter host, state active) is NOT applied",

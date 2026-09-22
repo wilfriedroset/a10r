@@ -83,7 +83,7 @@ func BenchmarkAlertsFilterTyping(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		p.Filter = queries[i%len(queries)]
+		p.SetFilter(queries[i%len(queries)])
 		p.recompute()
 	}
 }
@@ -143,7 +143,7 @@ func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			p := New(Options{Styles: styles, Now: time.Now})
 			p.byTenant = benchAlerts(1000, 4)
-			p.Filter = tc.filter
+			p.SetFilter(tc.filter)
 			p.recompute()
 			p.SetViewport(40, len(p.groups))
 
@@ -173,7 +173,7 @@ func BenchmarkAlertsRecomputeExpr10k(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			p := New(Options{Styles: styles, Now: time.Now})
 			p.byTenant = benchAlerts(10000, 10)
-			p.Filter = tc.filter
+			p.SetFilter(tc.filter)
 
 			b.ReportAllocs()
 			b.ResetTimer()

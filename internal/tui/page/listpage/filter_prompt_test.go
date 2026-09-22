@@ -108,12 +108,12 @@ func TestBase_HandleFilterPrompt(t *testing.T) {
 			t.Parallel()
 			calls := 0
 			b := &listpage.Base{
-				Filter:    tc.seed.filter,
 				PreFilter: tc.seed.preFilter,
 				Recompute: func() { calls++ },
 			}
+			require.True(t, b.SetFilter(tc.seed.filter))
 			b.HandleFilterPrompt(tc.msg)
-			require.Equal(t, tc.want.filter, b.Filter, "filter mismatch")
+			require.Equal(t, tc.want.filter, b.FilterBuffer(), "filter mismatch")
 			require.Equal(t, tc.want.recomputes, calls, "recompute call count")
 			if tc.want.preFilterNil {
 				require.Nil(t, b.PreFilter, "preFilter should be nil")
@@ -167,19 +167,19 @@ func TestBase_HandleFilterPrompt_InvalidBufferFreezesRows(t *testing.T) {
 			calls := 0
 			snap := "seed"
 			b := &listpage.Base{
-				Filter:    "seed",
 				PreFilter: &snap,
 				Recompute: func() { calls++ },
 			}
+			require.True(t, b.SetFilter("seed"))
 
 			b.HandleFilterPrompt(tc.bad("^web("))
-			require.Equal(t, "seed", b.Filter, "an uncompilable buffer must not become the filter")
+			require.Equal(t, "seed", b.FilterBuffer(), "an uncompilable buffer must not become the filter")
 			require.Zero(t, calls, "an uncompilable buffer must not recompute")
 			require.EqualError(t, b.FilterErr, "regex: missing closing )")
 			require.NotNil(t, b.PreFilter, "the pre-prompt snapshot survives a rejected buffer")
 
 			b.HandleFilterPrompt(tc.good("^web.*"))
-			require.Equal(t, "^web.*", b.Filter)
+			require.Equal(t, "^web.*", b.FilterBuffer())
 			require.Equal(t, 1, calls)
 			require.NoError(t, b.FilterErr, "a buffer that compiles again clears the error")
 			require.Equal(t, tc.wantPre, b.PreFilter != nil)
@@ -217,24 +217,8 @@ func TestBase_HandleFilterPrompt_LabelGrammarRejectsMatcherRegex(t *testing.T) {
 	}
 	b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: `a=~"("`})
 	require.Zero(t, calls)
-	require.Empty(t, b.Filter)
+	require.Empty(t, b.FilterBuffer())
 	require.EqualError(t, b.FilterErr, `matcher: compile regex "(": missing closing )`)
-}
-
-// TestBase_ValidateFilterIsNilInterface guards the typed-nil trap: the
-// app consumes ValidateFilter through an `error`-returning seam, so a
-// valid buffer must yield an untyped nil. A concrete pointer return
-// would box into a non-nil error and reject every buffer.
-func TestBase_ValidateFilterIsNilInterface(t *testing.T) {
-	t.Parallel()
-
-	b := &listpage.Base{}
-	require.NoError(t, b.ValidateFilter("web"))
-	require.Error(t, b.ValidateFilter("^web("))
-
-	b.Grammar = filterexpr.AlertGrammar
-	require.NoError(t, b.ValidateFilter("cluster_id=99"))
-	require.Error(t, b.ValidateFilter(`a=~"("`))
 }
 
 // TestBase_FilterError pins the reason the app title renders.
@@ -246,20 +230,4 @@ func TestBase_FilterError(t *testing.T) {
 
 	b.HandleFilterPrompt(footer.PromptChangedMsg{Mode: footer.PromptFilter, Value: "^web("})
 	require.EqualError(t, b.FilterError(), "regex: missing closing )")
-}
-
-// TestBase_GrammarTellsTheHalvesApart proves the two booleans are
-// independent, which the single injected validator could not express:
-// a page can read label selectors without also reading expressions.
-func TestBase_GrammarTellsTheHalvesApart(t *testing.T) {
-	t.Parallel()
-
-	selectors := &listpage.Base{Grammar: filterexpr.Grammar{Selectors: true}, Filter: "team=platform"}
-	require.NoError(t, selectors.ValidateFilter("team=platform"))
-	require.False(t, selectors.FilterReadsExpr())
-	require.Nil(t, selectors.FilterSpans(), "a selector paints nothing on a page that reads selectors")
-
-	expressions := &listpage.Base{Grammar: filterexpr.Grammar{Expressions: true}}
-	require.True(t, expressions.FilterReadsExpr())
-	require.EqualError(t, expressions.ValidateFilter("team=platform ||"), "expr: missing term after ||")
 }

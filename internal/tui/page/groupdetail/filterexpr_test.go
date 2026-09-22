@@ -96,7 +96,7 @@ func TestExpr_FiltersTheView(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := exprPage(t)
-			p.Filter = tc.filter
+			require.True(t, p.SetFilter(tc.filter))
 			p.stateFilter = tc.state
 			p.recompute()
 			require.ElementsMatch(t, tc.want, viewFingerprints(p))
@@ -118,7 +118,7 @@ func TestExpr_AgeReEvaluatesAgainstTheClock(t *testing.T) {
 		},
 	})
 
-	p.Filter = "age<1h"
+	require.True(t, p.SetFilter("age<1h"))
 	p.recompute()
 	require.Equal(t, []string{"fp-1"}, viewFingerprints(p))
 
@@ -144,22 +144,27 @@ func TestExpr_BuffersWithoutNewTokensKeepTheOldPath(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := exprPage(t)
-			p.Filter = tc.filter
+			require.True(t, p.SetFilter(tc.filter))
 			p.recompute()
 			require.ElementsMatch(t, tc.want, viewFingerprints(p))
 		})
 	}
 }
 
-// TestExpr_UnparsableBufferFallsBackToTheFiveModePath pins what the
-// page does with a buffer the prompt validator will later refuse: it
-// searches for the text rather than matching everything.
-func TestExpr_UnparsableBufferFallsBackToTheFiveModePath(t *testing.T) {
+// TestExpr_UnparsableBufferNeverBecomesTheFilter pins the refusal at
+// the page: an expression the parser owns but cannot read leaves the
+// rows on the last good buffer and reports why.
+func TestExpr_UnparsableBufferNeverBecomesTheFilter(t *testing.T) {
 	t.Parallel()
 
 	p := exprPage(t)
-	p.Filter = "state=active ||"
+	require.True(t, p.SetFilter("severity=warning"))
 	p.recompute()
+	kept := viewFingerprints(p)
+	require.NotEmpty(t, kept)
 
-	require.Empty(t, p.view)
+	require.False(t, p.SetFilter("state=active ||"))
+	p.recompute()
+	require.Equal(t, kept, viewFingerprints(p), "a refused buffer leaves the rows alone")
+	require.EqualError(t, p.FilterErr, "expr: missing term after ||")
 }
