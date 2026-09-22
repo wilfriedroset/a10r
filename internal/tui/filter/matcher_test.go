@@ -294,3 +294,32 @@ func TestMatcher_MatchSpansZeroWidthRegex(t *testing.T) {
 	require.Equal(t, SearchRegex, m.Mode())
 	require.Nil(t, m.MatchSpans("abc"))
 }
+
+// TestMatcher_ExpressionBufferNeverReportsExpression pins the one
+// thing SearchExpression must not do: DetectSearchMode never returns
+// it, so a buffer the expression grammar would own still compiles to
+// a matcher that works under one of the other four modes. The page,
+// not the classifier, decides which grammar reads the buffer.
+func TestMatcher_ExpressionBufferNeverReportsExpression(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input    string
+		haystack string
+		wantMode SearchMode
+	}{
+		{"count>3 || severity=critical", "alert\x00count>3 || severity=critical\x00prod", SearchSubstring},
+		{"~web || api", "webserver\x00warning || apiary", SearchFuzzy},
+		{"count>3 && (a|b)", "srv\x00count>3 && a\x00prod", SearchRegex},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+			m, err := NewMatcher(tc.input)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantMode, m.Mode())
+			require.False(t, m.MatchAll())
+			require.True(t, m.Match(tc.haystack))
+		})
+	}
+}

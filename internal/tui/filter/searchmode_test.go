@@ -105,3 +105,31 @@ func TestTrimSearchPrefix(t *testing.T) {
 		})
 	}
 }
+
+// TestSearchModeLabels pins the five SearchMode labels the mode
+// table in keybindings.md cites as contract, and the zero value:
+// appending SearchExpression after SearchRegex has to leave
+// SearchSubstring at zero, because every Matcher built without a
+// classified mode falls back to it.
+func TestSearchModeLabels(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, SearchSubstring, SearchMode(0), "substring must stay the zero value")
+
+	cases := []struct {
+		mode SearchMode
+		want string
+	}{
+		{SearchSubstring, "substring"},
+		{SearchFuzzy, "fuzzy"},
+		{SearchLiteral, "literal"},
+		{SearchRegex, "regex"},
+		{SearchExpression, "expr"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, tc.mode.String())
+		})
+	}
+}

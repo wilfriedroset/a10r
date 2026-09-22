@@ -75,7 +75,7 @@ func NewMatcher(input string) (Matcher, error) {
 	case SearchFuzzy:
 		needle := strings.ToLower(raw)
 		return Matcher{mode: SearchFuzzy, needle: needle, needleRunes: []rune(needle)}, nil
-	case SearchLiteral, SearchSubstring:
+	case SearchLiteral, SearchSubstring, SearchExpression:
 		return Matcher{mode: mode, needle: strings.ToLower(raw)}, nil
 	}
 	return Matcher{mode: SearchSubstring, needle: strings.ToLower(raw)}, nil
@@ -130,7 +130,7 @@ func (m Matcher) Match(haystack string) bool {
 		return m.re.MatchString(haystack)
 	case SearchFuzzy:
 		return fuzzyMatch(m.needleRunes, haystack)
-	case SearchSubstring, SearchLiteral:
+	case SearchSubstring, SearchLiteral, SearchExpression:
 		return strings.Contains(haystack, m.needle)
 	}
 	return false
@@ -155,7 +155,7 @@ func (m Matcher) MatchSpans(haystack string) [][2]int {
 		return regexSpans(m.re, haystack)
 	case SearchFuzzy:
 		return fuzzySpans(m.needleRunes, haystack)
-	case SearchSubstring, SearchLiteral:
+	case SearchSubstring, SearchLiteral, SearchExpression:
 		if m.needle == "" {
 			return nil
 		}

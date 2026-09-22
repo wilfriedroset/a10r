@@ -227,7 +227,7 @@ func (a *App) filterTag(p Page, value string) string {
 			// buffer. A parse failure is rendered by the branch
 			// above, not tagged here.
 			if expr, _ := filterexpr.Compile(value); expr != nil {
-				return " [expr]"
+				return " [" + filter.SearchExpression.String() + "]"
 			}
 		}
 	}

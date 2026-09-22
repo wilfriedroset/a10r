@@ -12,13 +12,14 @@ package filter
 
 import "strings"
 
-// SearchMode is the matcher class auto-detected from a `/` filter
-// buffer. The detection is the lfk four-mode rule: explicit prefix
-// sigils win, otherwise we look at the body for regex
-// metacharacters and only flip to regex on a strong signal — a
-// single `.` keeps the substring default because `web.api`-style
-// dotted names are the most common false-positive in alert
-// filtering.
+// SearchMode is the matcher class for a `/` filter buffer. Four of
+// the five values are auto-detected from the buffer; SearchExpression
+// is the one only the page can decide. The detection is the lfk
+// four-mode rule: explicit prefix sigils win, otherwise we look at
+// the body for regex metacharacters and only flip to regex on a
+// strong signal — a single `.` keeps the substring default because
+// `web.api`-style dotted names are the most common false-positive
+// in alert filtering.
 //
 // The rule is deliberately separate from how a page applies the
 // filter: this layer only classifies the buffer, callers are
@@ -45,6 +46,12 @@ const (
 	// buffer as-is (no stripping); compilation failures are the
 	// caller's problem to surface.
 	SearchRegex
+	// SearchExpression is the boolean-expression grammar. It is the
+	// one mode DetectSearchMode never returns: the grammar is page-
+	// conditional (listpage.Base.FilterReadsExpr), so the caller that
+	// knows the page decides, via filterexpr.Compile, and reads the
+	// label from here.
+	SearchExpression
 )
 
 // String returns a stable lower-case label suitable for logs and
@@ -58,6 +65,8 @@ func (m SearchMode) String() string {
 		return "literal"
 	case SearchRegex:
 		return "regex"
+	case SearchExpression:
+		return "expr"
 	default:
 		return "substring"
 	}
@@ -151,7 +160,7 @@ func TrimSearchPrefix(input string) (mode SearchMode, matcher string) {
 		return mode, strings.TrimPrefix(input, "~")
 	case SearchLiteral:
 		return mode, strings.TrimPrefix(input, "\\")
-	case SearchSubstring, SearchRegex:
+	case SearchSubstring, SearchRegex, SearchExpression:
 		return mode, input
 	}
 	return mode, input

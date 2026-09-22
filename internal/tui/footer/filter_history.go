@@ -31,7 +31,7 @@ const (
 	HistoryCmd HistoryClass = "cmd-history"
 	// HistoryFilter backs the `/` filter on every page where the
 	// matcher is the four-mode lfk classifier (substring, fuzzy,
-	// regex, literal — see searchmode.go).
+	// regex, literal — see internal/tui/filter/searchmode.go).
 	HistoryFilter HistoryClass = "filter-history"
 	// HistorySilenceMatcher backs the silences page's `/` prompt,
 	// where the matcher operates over Prom-style fields (creator,
