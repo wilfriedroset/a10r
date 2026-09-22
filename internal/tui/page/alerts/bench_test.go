@@ -132,13 +132,16 @@ func BenchmarkAlertsDataMsgIngest(b *testing.B) {
 // per-frame cost on the visible window only, and the budget for it is
 // 1.5x the unfiltered frame. Every filter here keeps all 1000 groups
 // on purpose — a selective one would shrink the view, and the cheaper
-// columnWidths pass would pay for the paint.
+// columnWidths pass would pay for the paint. The expression case is
+// the floor: an expression paints nothing, so its frame allocates
+// like an unfiltered one.
 func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
 	styles := testutil.LoadStyles(b)
 	for _, tc := range []struct{ name, filter string }{
 		{"substring", "alert"},
 		{"fuzzy", "~alt"},
 		{"regex", "a.*t"},
+		{"expr", "count>=1 && severity=~.+"},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			p := New(Options{Styles: styles, Now: time.Now})

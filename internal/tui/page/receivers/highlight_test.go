@@ -43,3 +43,27 @@ func TestHighlight_PaintsRows(t *testing.T) {
 	require.Contains(t, cursor, format.Emphasis("ops"))
 	require.Contains(t, row, p.styles.Table.MatchFg.Render("ops"))
 }
+
+// TestHighlight_KeepsColumnsPut is the layout contract: painting the
+// match adds styling and nothing else, so the text and the column
+// positions must come out byte for byte the same as the unfiltered
+// render of the same rows. Every filter below keeps all three rows on
+// purpose, because a narrowed view would lay out different columns
+// and the comparison would prove nothing.
+func TestHighlight_KeepsColumnsPut(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+		{Name: "ops-page"}, {Name: "ops-mail"}, {Name: "ops-default"},
+	}})
+	plain := testutil.StripStyle(p.View(60, 10))
+
+	for _, filter := range []string{"ops", "~ops", `\ops`, "o.*s"} {
+		require.True(t, p.SetFilter(filter))
+		p.recompute()
+		require.Len(t, p.view, 3, "filter %q must keep every row", filter)
+		require.Equal(t, plain, testutil.StripStyle(p.View(60, 10)),
+			"filter %q moved the text", filter)
+	}
+}

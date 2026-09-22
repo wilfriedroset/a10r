@@ -142,18 +142,31 @@ func TestHighlight_FuzzyPaintsEachRun(t *testing.T) {
 	require.Contains(t, row, match.Render("CPUS"), "adjacent runes merge into one run")
 }
 
-// TestHighlight_LabelSelectorPaintsNothing holds the grammar line: a
-// selector matches on label names the table does not render, so the
-// rows narrow but no character is painted.
-func TestHighlight_LabelSelectorPaintsNothing(t *testing.T) {
+// TestHighlight_PaintsOnlyWhatTheFilterMatchedOn is the
+// one-classification contract: the rows the recompute kept and the
+// characters the renderer painted are two reads of one compiled
+// value, so the two halves cannot disagree about which grammar owns
+// the buffer. A selector matches on label names the table does not
+// render, so the rows narrow and the whole frame comes back unpainted.
+func TestHighlight_PaintsOnlyWhatTheFilterMatchedOn(t *testing.T) {
 	t.Parallel()
 
 	p := highlightPage(t)
+	matchSGR, _, _ := strings.Cut(p.styles.Table.MatchFg.Render("x"), "x")
+	require.NotEmpty(t, matchSGR, "the match colour must carry an escape to look for")
+
 	require.True(t, p.SetFilter("severity=warning"))
 	p.recompute()
-
 	out := p.View(100, 24)
 	require.Contains(t, testutil.StripStyle(out), "HighCPUSecond")
+	require.NotContains(t, testutil.StripStyle(out), "HighCPUFirst",
+		"the selector is the predicate the recompute ran")
 	require.NotContains(t, out, format.Emphasis("warning"))
-	require.NotContains(t, out, p.styles.Table.MatchFg.Render("warning"))
+	require.NotContains(t, out, matchSGR,
+		"no rendered cell can be attributed to a label selector")
+
+	require.True(t, p.SetFilter("cpu"))
+	p.recompute()
+	require.Contains(t, p.View(100, 24), matchSGR,
+		"a text term owns its characters, so the cells it matched are painted")
 }
