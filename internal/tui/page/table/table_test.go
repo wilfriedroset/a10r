@@ -290,3 +290,28 @@ func TestScroll_AnEmptyColumnSetIsInert(t *testing.T) {
 	_ = s.Layout(nil, 40)
 	require.Zero(t, s.Offset)
 }
+
+// The offset does not outlive the column set. A column count change
+// is a key the operator pressed to change what is on screen, and
+// answering with the right-hand edge of the previous set is not an
+// answer.
+func TestScroll_AColumnCountChangeResetsTheOffset(t *testing.T) {
+	t.Parallel()
+
+	four := append(threeCols(), table.Column{Key: "d", Title: "D", Min: 5, Content: 5})
+
+	var s table.Scroll
+	s.Step(1)
+	_ = s.Layout(four, 20)
+	require.Equal(t, 1, s.Offset)
+
+	_ = s.Layout(threeCols(), 20)
+	require.Zero(t, s.Offset, "a set that shrinks drops the offset")
+
+	s.Step(1)
+	_ = s.Layout(threeCols(), 20)
+	require.Equal(t, 1, s.Offset)
+
+	_ = s.Layout(four, 20)
+	require.Zero(t, s.Offset, "a set that grows drops it too")
+}

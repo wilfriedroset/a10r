@@ -9,7 +9,8 @@ import (
 )
 
 // Scroll is a table's horizontal position plus the key intent that
-// has not met a frame yet.
+// has not met a frame yet, both measured against the column set of
+// the last layout.
 type Scroll struct {
 	// Offset is how many columns the row is scrolled past the pinned
 	// first one.
@@ -18,15 +19,23 @@ type Scroll struct {
 	// No width reaches a page at key time, so a press cannot tell
 	// whether the move is legal and Layout decides instead.
 	pending int
+	lastCols int
 }
 
 // Step banks one column of intent: -1 for left, +1 for right.
 func (s *Scroll) Step(d int) { s.pending += d }
 
-// resolve applies the banked intent one column at a time, re-reading
-// the window at each step, so a step with nowhere to land is dropped
-// rather than banked and clamped later.
+// resolve drops an offset that was measured against a different
+// column set, then applies the banked intent one column at a time,
+// re-reading the window at each step, so a step with nowhere to land
+// is dropped rather than banked and clamped later.
 func (s *Scroll) resolve(sp []format.Column, budget int) {
+	// Answering a column set the operator changed with the far-right
+	// edge of the old one hides what the change was about.
+	if s.lastCols != len(sp) {
+		s.lastCols = len(sp)
+		s.Offset = 0
+	}
 	for ; s.pending > 0; s.pending-- {
 		win, _ := window(sp, budget, s.Offset)
 		if win.CanRight {

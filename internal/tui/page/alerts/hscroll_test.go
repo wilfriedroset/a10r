@@ -167,10 +167,10 @@ func TestHScroll_ArrowsAreAdvertised(t *testing.T) {
 	t.Fatal("no binding advertises the column scroll")
 }
 
-// A column set that shrinks under a scrolled offset leaves the offset
-// past the last window. Without a clamp on the way back, Left is dead
-// for as many presses as the operator made.
-func TestHScroll_LeftRecoversAfterTheColumnSetShrinks(t *testing.T) {
+// Shift+W changes which columns exist, so an offset measured against
+// the old set means nothing against the new one. Parking the row at
+// the far right hides the column the key was pressed to reveal.
+func TestHScroll_AChangedColumnSetReturnsTheRowToTheLeftEdge(t *testing.T) {
 	t.Parallel()
 
 	p := widePage(t, "")
@@ -179,10 +179,12 @@ func TestHScroll_LeftRecoversAfterTheColumnSetShrinks(t *testing.T) {
 		_ = p.View(narrowWidth, 20)
 		_, _ = p.Update(keyRight)
 	}
+	require.Contains(t, narrowHeader(t, p), "<", "the row must be scrolled before the toggle")
+
 	_, _ = p.Update(keyWide)
-	atEnd := narrowHeader(t, p)
-	_, _ = p.Update(keyLeft)
-	require.NotEqual(t, atEnd, narrowHeader(t, p), "one Left must move the window back")
+	header := narrowHeader(t, p)
+	require.NotContains(t, header, "<", "the toggle must return the row to the pinned left edge")
+	require.Contains(t, header, ">", "the row is still too wide, so it is the left edge and not a fit")
 }
 
 // On a terminal too narrow for a second column the right arrow has
