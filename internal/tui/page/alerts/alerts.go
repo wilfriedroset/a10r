@@ -49,7 +49,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -89,7 +88,7 @@ const labelAlertname = "alertname"
 // Severity uses Hotkey 'S' (Shift+S): unlike the L2 page, alerts L1
 // has no uppercase `S` verb — silence is lowercase `s` — so the
 // shortcut is free.
-func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
+func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 	cols := []tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
@@ -130,7 +129,7 @@ func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 // axis over the pre-computed labelCells slice. Cells compare
 // byte-wise with rollup markers ranked last, and an empty cell is
 // pinned to the tail in both directions (ADR 0048).
-func labelSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
+func labelSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 	out := make([]tablesort.Column[alertGroup], 0, len(user))
 	for _, c := range user {
 		idx := c.Index
@@ -145,9 +144,9 @@ func labelSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 		out = append(out, tablesort.Column[alertGroup]{
 			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
-				return labelcol.Less(labelCellAt(a, idx), labelCellAt(b, idx))
+				return table.CellLess(labelCellAt(a, idx), labelCellAt(b, idx))
 			}),
-			Tail: func(g *alertGroup) bool { return labelcol.IsEmpty(labelCellAt(g, idx)) },
+			Tail: func(g *alertGroup) bool { return table.CellEmpty(labelCellAt(g, idx)) },
 		})
 	}
 	return out
@@ -169,11 +168,11 @@ func (p *Page) isHiddenSortKey(key string) bool {
 // declares no wide column, which spares the caller a recompute that
 // would paint an identical frame.
 func (p *Page) toggleWide() bool {
-	if !labelcol.HasWide(p.labelCols) {
+	if !table.HasWide(p.labelCols) {
 		return false
 	}
 	p.wide = !p.wide
-	p.shownCols = labelcol.Visible(p.labelCols, p.wide)
+	p.shownCols = table.Visible(p.labelCols, p.wide)
 	return true
 }
 
@@ -484,9 +483,9 @@ type Page struct {
 	// renders, and wide is that tier: false hides every `wide: true`
 	// column until the operator presses Shift+W. A row's cells and
 	// the sorter's axes stay keyed by labelCols order through
-	// labelcol.Column.Index, so toggling the tier moves no cell.
-	labelCols []labelcol.Column
-	shownCols []labelcol.Column
+	// table.LabelColumn.Index, so toggling the tier moves no cell.
+	labelCols []table.LabelColumn
+	shownCols []table.LabelColumn
 	wide      bool
 
 	// labelWidths is the measured cell width of each shownCols entry
@@ -546,7 +545,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
-	labelCols := labelcol.Resolve(opts.Columns)
+	labelCols := table.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Scope,
 		BackendHealth:   map[string]listpage.BackendHealth{},
@@ -562,7 +561,7 @@ func New(opts Options) *Page {
 		stateFormat:     opts.StateFormat,
 		byTenant:        map[string][]backend.Alert{},
 		labelCols:       labelCols,
-		shownCols:       labelcol.Visible(labelCols, false),
+		shownCols:       table.Visible(labelCols, false),
 		groupDetailCols: opts.GroupDetailColumns,
 		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
 		marks:           map[string]struct{}{},
@@ -671,7 +670,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
 		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
 	)
-	if labelcol.HasWide(p.labelCols) {
+	if table.HasWide(p.labelCols) {
 		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: resourceAlerts})
 	}
 	out = append(out, sortBindings...)

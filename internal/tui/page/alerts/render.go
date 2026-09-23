@@ -12,7 +12,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
-	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -367,7 +366,7 @@ func (p *Page) measureLabelColumns() []int {
 		if c.Width > 0 {
 			continue
 		}
-		content := labelcol.HeaderWidth(c)
+		content := 0
 		for j := range p.groups {
 			if w := lipgloss.Width(labelCellAt(&p.groups[j], c.Index)); w > content {
 				content = w

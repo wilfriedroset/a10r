@@ -41,7 +41,6 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -71,7 +70,7 @@ const ViewName = "instances"
 // Severity defaults DESC (critical first); the rest read naturally
 // ascending. Every comparator falls back to fingerprint ASC so the
 // order is total and deterministic across re-sorts / poll ticks.
-func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] {
+func instanceSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEntry] {
 	cols := []tablesort.Column[instanceEntry]{
 		{
 			// Severity is the default column, so it needs no direct
@@ -122,7 +121,7 @@ func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntr
 // byte-wise and an empty cell is pinned to the tail in both
 // directions (ADR 0048). There is no rollup marker on this page, so
 // the marker rank never applies.
-func labelSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] {
+func labelSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEntry] {
 	out := make([]tablesort.Column[instanceEntry], 0, len(user))
 	for _, c := range user {
 		idx := c.Index
@@ -138,9 +137,9 @@ func labelSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntry] 
 		out = append(out, tablesort.Column[instanceEntry]{
 			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
 			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
-				return labelcol.Less(labelCellAt(a, idx), labelCellAt(b, idx))
+				return table.CellLess(labelCellAt(a, idx), labelCellAt(b, idx))
 			}),
-			Tail: func(e *instanceEntry) bool { return labelcol.IsEmpty(labelCellAt(e, idx)) },
+			Tail: func(e *instanceEntry) bool { return table.CellEmpty(labelCellAt(e, idx)) },
 		})
 	}
 	return out
@@ -162,11 +161,11 @@ func (p *Page) isHiddenSortKey(key string) bool {
 // declares no wide column, which spares the caller a recompute that
 // would paint an identical frame.
 func (p *Page) toggleWide() bool {
-	if !labelcol.HasWide(p.labelCols) {
+	if !table.HasWide(p.labelCols) {
 		return false
 	}
 	p.wide = !p.wide
-	p.shownCols = labelcol.Visible(p.labelCols, p.wide)
+	p.shownCols = table.Visible(p.labelCols, p.wide)
 	return true
 }
 
@@ -330,14 +329,14 @@ type Page struct {
 	// the subset the current display tier renders, and wide is that
 	// tier: false hides every `wide: true` column until the operator
 	// presses Shift+W. A row's cells and the sorter's axes stay keyed
-	// by labelCols order through labelcol.Column.Index, so toggling
+	// by labelCols order through table.LabelColumn.Index, so toggling
 	// the tier moves no cell.
 	//
 	// labelWidths are the measured cell widths of shownCols,
 	// refreshed by recompute so the renderer never scans the rows
 	// itself.
-	labelCols   []labelcol.Column
-	shownCols   []labelcol.Column
+	labelCols   []table.LabelColumn
+	shownCols   []table.LabelColumn
 	wide        bool
 	labelWidths []int
 
@@ -373,7 +372,7 @@ func New(opts Options) *Page {
 	if concurrency <= 0 {
 		concurrency = config.DefaultBulkConcurrency
 	}
-	labelCols := labelcol.Resolve(opts.Columns)
+	labelCols := table.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Tenant,
 		BackendHealth:   map[string]listpage.BackendHealth{},
@@ -392,7 +391,7 @@ func New(opts Options) *Page {
 		instances:       append([]backend.Alert(nil), opts.Instances...),
 		common:          map[string]string{},
 		labelCols:       labelCols,
-		shownCols:       labelcol.Visible(labelCols, false),
+		shownCols:       table.Visible(labelCols, false),
 		marks:           map[string]struct{}{},
 		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
@@ -508,7 +507,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+F", Description: "state filter", View: ViewName},
 		action.Action{Key: "Shift+C", Description: "common labels", View: ViewName},
 	)
-	if labelcol.HasWide(p.labelCols) {
+	if table.HasWide(p.labelCols) {
 		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: ViewName})
 	}
 	out = append(out, sortBindings...)

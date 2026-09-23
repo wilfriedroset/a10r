@@ -13,7 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
-	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 )
 
 // totalGroups is the unfiltered group count within the current
@@ -176,7 +176,7 @@ func (p *Page) flatten(total int) []alertEntry {
 // rows. A missing alertname (Labels["alertname"]=="") groups under
 // the synthetic empty-name key; the renderer surfaces it as
 // "(no alertname)".
-func aggregate(in []alertEntry, cols []labelcol.Column) []alertGroup {
+func aggregate(in []alertEntry, cols []table.LabelColumn) []alertGroup {
 	byKey := map[string]*alertGroup{}
 	order := make([]string, 0)
 	for _, e := range in {
@@ -219,13 +219,13 @@ func aggregate(in []alertEntry, cols []labelcol.Column) []alertGroup {
 
 // rollupCells returns nil when no columns are configured, so a page
 // without them allocates nothing per group.
-func rollupCells(instances []backend.Alert, cols []labelcol.Column) []string {
+func rollupCells(instances []backend.Alert, cols []table.LabelColumn) []string {
 	if len(cols) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(cols))
 	for _, c := range cols {
-		out = append(out, labelcol.AggregateCell(instances, c.Label))
+		out = append(out, aggregateCell(instances, c.Label))
 	}
 	return out
 }
@@ -383,4 +383,33 @@ func alertLowerComposite(a backend.Alert) string {
 		b.WriteString(strings.ToLower(v))
 	}
 	return b.String()
+}
+
+// aggregateCell rolls a label up over every instance of an alertname
+// aggregate: the shared value when all agree, a distinct-count marker
+// when they do not. An instance missing the label contributes the
+// empty value, which counts as one distinct value — a half-populated
+// label is disagreement, not absence.
+func aggregateCell(instances []backend.Alert, label string) string {
+	if len(instances) == 0 {
+		return ""
+	}
+	first := instances[0].Labels[label]
+	// The set is built only once a value disagrees. Most rows agree,
+	// and a map per group per column costs more than the scan does.
+	var seen map[string]struct{}
+	for _, a := range instances[1:] {
+		v := a.Labels[label]
+		if seen == nil {
+			if v == first {
+				continue
+			}
+			seen = map[string]struct{}{first: {}}
+		}
+		seen[v] = struct{}{}
+	}
+	if seen == nil {
+		return first
+	}
+	return table.RollupMarker(len(seen))
 }

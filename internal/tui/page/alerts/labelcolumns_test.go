@@ -492,3 +492,62 @@ func TestLabelColumn_NarrowTerminalKeepsTheSortArrow(t *testing.T) {
 			"CLUSTER ↑", "width %d", width)
 	}
 }
+
+func TestAggregateCell(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		instances []backend.Alert
+		want      string
+	}{
+		{
+			name: "no instances",
+			want: "",
+		},
+		{
+			name:      "every instance agrees",
+			instances: clusterAlerts("prod", "prod", "prod"),
+			want:      "prod",
+		},
+		{
+			name:      "instances disagree",
+			instances: clusterAlerts("prod", "staging"),
+			want:      "<2 values>",
+		},
+		{
+			name:      "no instance carries the label",
+			instances: clusterAlerts("", "", ""),
+			want:      "",
+		},
+		{
+			name:      "a missing value is one distinct value",
+			instances: clusterAlerts("prod", ""),
+			want:      "<2 values>",
+		},
+		{
+			name:      "distinct count ignores repeats",
+			instances: clusterAlerts("prod", "staging", "prod", "dev"),
+			want:      "<3 values>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, aggregateCell(tt.instances, "cluster"))
+		})
+	}
+}
+
+func clusterAlerts(values ...string) []backend.Alert {
+	out := make([]backend.Alert, 0, len(values))
+	for _, v := range values {
+		labels := map[string]string{"alertname": "DiskFull"}
+		if v != "" {
+			labels["cluster"] = v
+		}
+		out = append(out, backend.Alert{Labels: labels})
+	}
+	return out
+}
