@@ -122,7 +122,7 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | `Shift+N` | Sort by alertname. |
 | `Shift+C` | Sort by instance count. |
 | `Shift+A` | Sort by age (oldest instance). |
-| `←` / `→` | Scroll the columns when the row is too wide for the terminal. The first data column stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. |
+| `←` / `→` | Scroll the columns when the row is too wide for the terminal. The first data column stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. When no column past the cut fits beside the pinned one, `>` shows with `→` inert: the column is cut, but no scroll position brings it back. |
 
 ### Group detail
 
@@ -141,7 +141,7 @@ The instance list for one alert, reached by `Enter` on a multi-instance row. Row
 | `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. |
 | `Shift+N` | Sort by instance labels. |
 | `Shift+A` | Sort by age. |
-| `←` / `→` | Scroll the columns when the row is too wide for the terminal. SEVERITY stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. |
+| `←` / `→` | Scroll the columns when the row is too wide for the terminal. SEVERITY stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. When no column past the cut fits beside the pinned one, `>` shows with `→` inert: the column is cut, but no scroll position brings it back. |
 
 ### Alert detail (instance detail)
 

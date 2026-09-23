@@ -18,6 +18,9 @@ type Window struct {
 	// the header can mark it. Dropping a column the operator asked for
 	// without saying so is worse than a marker (ADR 0048).
 	ClipLeft, ClipRight bool
+	// CanRight asks whether an offset can bring a cut column back,
+	// where ClipRight asks only whether one is cut.
+	CanRight bool
 }
 
 // WindowAt picks the columns that fit budget, with column 0 pinned
@@ -66,7 +69,24 @@ func WindowAt(cols []Column, budget, separator, offset int) Window {
 		Total:     len(cols),
 		ClipLeft:  start > 1,
 		ClipRight: last < len(cols)-1,
+		CanRight:  last < len(cols)-1 && reachableRight(cols, budget, sep, max(start, last)),
 	}
+}
+
+// reachableRight reports whether any column after the given index
+// fits beside the pinned one. The loop above stops at the first
+// column too wide for the budget, so ClipRight stays true over
+// columns no offset can ever paint. The scan skips both the columns
+// in view, which fit by construction and would answer the question
+// with themselves, and the ones the offset already scrolled past.
+func reachableRight(cols []Column, budget, sep, after int) bool {
+	pinned := colWidth(cols[0])
+	for i := after + 1; i < len(cols); i++ {
+		if pinned+sep+colWidth(cols[i]) <= budget {
+			return true
+		}
+	}
+	return false
 }
 
 // reserved is the sum of the column floors plus the separators. Under
@@ -114,10 +134,10 @@ func (s *Scroll) Left(win Window) {
 	s.Offset = max(0, s.clamped(win)-1)
 }
 
-// Right moves the window on by one column. Only a clipped row
-// scrolls, so the key is dead on a terminal that shows everything.
+// Right moves the window on by one column, on the rows where that
+// brings something into view.
 func (s *Scroll) Right(win Window) {
-	if win.ClipRight {
+	if win.CanRight {
 		s.Offset = s.clamped(win) + 1
 	}
 }

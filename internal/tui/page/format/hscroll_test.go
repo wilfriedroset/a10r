@@ -139,8 +139,103 @@ func TestWindowAt_ReportsTheFullColumnCount(t *testing.T) {
 	require.Equal(t, 1, format.WindowAt(cols[:1], 2, 1, 0).Total)
 }
 
-// Right needs a clipped row, so the key is dead on a terminal that
-// shows every column.
+// A row that shows every column has nowhere to move to.
+func TestWindowAt_CanRightIsFalseWhenEverythingFits(t *testing.T) {
+	t.Parallel()
+
+	require.False(t, format.WindowAt(fiveCols(), 54, 1, 0).CanRight)
+}
+
+func TestWindowAt_CanRightOnAClippedRow(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, format.WindowAt(fiveCols(), 32, 1, 0).CanRight)
+}
+
+// A budget too small for a second column drops one at every offset,
+// so the marker belongs, but no offset ever paints more than the
+// pinned column.
+func TestWindowAt_CanRightIsFalseWithOnlyThePinnedColumn(t *testing.T) {
+	t.Parallel()
+
+	w := format.WindowAt(fiveCols(), 4, 1, 0)
+	require.True(t, w.ClipRight)
+	require.False(t, w.CanRight)
+}
+
+// A single column wider than the whole budget empties the window at
+// the offset it starts at, because WindowAt stops at the first column
+// that does not fit. The columns behind it are still reachable, so
+// the row must keep scrolling rather than parking on the fat one.
+func TestWindowAt_CanRightStepsOverAnUnfittableColumn(t *testing.T) {
+	t.Parallel()
+
+	cols := []format.Column{
+		{Min: 10, Content: 10},
+		{Min: 30, Content: 30},
+		{Min: 10, Content: 10},
+	}
+	w := format.WindowAt(cols, 25, 1, 0)
+	require.Equal(t, []int{0}, w.Cols)
+	require.True(t, w.ClipRight)
+	require.True(t, w.CanRight)
+	require.Equal(t, []int{0, 2}, format.WindowAt(cols, 25, 1, 1).Cols)
+
+	// Two fat columns in a row: the press off offset 0 paints the same
+	// window again. Reaching the last column is still worth the press,
+	// so CanRight leads the operator through rather than parking.
+	fatter := []format.Column{
+		{Min: 10, Content: 10},
+		{Min: 30, Content: 30},
+		{Min: 30, Content: 30},
+		{Min: 5, Content: 5},
+	}
+	require.True(t, format.WindowAt(fatter, 25, 1, 0).CanRight)
+	require.Equal(t, []int{0}, format.WindowAt(fatter, 25, 1, 1).Cols)
+	require.Equal(t, []int{0, 3}, format.WindowAt(fatter, 25, 1, 2).Cols)
+}
+
+// A window holding only the pinned column says nothing about which
+// columns the operator already scrolled past, so the scan starts at
+// the offset rather than at the painted edge. Here the column behind
+// the offset still fits, and answering with it would bank a press the
+// window saturates on.
+func TestWindowAt_CanRightIgnoresTheColumnsScrolledPast(t *testing.T) {
+	t.Parallel()
+
+	cols := []format.Column{
+		{Min: 10, Content: 10},
+		{Min: 5, Content: 5},
+		{Min: 30, Content: 30},
+	}
+	w := format.WindowAt(cols, 25, 1, 1)
+	require.Equal(t, []int{0}, w.Cols)
+	require.True(t, w.ClipRight)
+	require.False(t, w.CanRight)
+}
+
+// The columns already in view trivially fit beside the pinned one, so
+// a reachability scan that starts before the right edge answers with
+// a column the operator is already looking at. Here only the painted
+// pair fits and the last column never can, so Right would drop the
+// leftmost scrolled column and bring nothing back.
+func TestWindowAt_CanRightIgnoresTheColumnsAlreadyInView(t *testing.T) {
+	t.Parallel()
+
+	cols := []format.Column{
+		{Min: 10, Content: 10},
+		{Min: 5, Content: 5},
+		{Min: 5, Content: 5},
+		{Min: 30, Content: 30},
+	}
+	w := format.WindowAt(cols, 25, 1, 0)
+	require.Equal(t, []int{0, 1, 2}, w.Cols)
+	require.True(t, w.ClipRight)
+	require.False(t, w.CanRight)
+}
+
+// A clipped row is necessary for Right and not sufficient, so the key
+// is dead on a terminal that shows every column.
 func TestScroll_RightNeedsAClippedRow(t *testing.T) {
 	t.Parallel()
 
@@ -164,7 +259,7 @@ func TestScroll_RightMovesOn(t *testing.T) {
 	t.Parallel()
 
 	s := format.Scroll{}
-	s.Right(format.Window{Total: 6, ClipRight: true})
+	s.Right(format.Window{Total: 6, ClipRight: true, CanRight: true})
 	require.Equal(t, 1, s.Offset)
 }
 
@@ -174,7 +269,7 @@ func TestScroll_RightStopsAtTheLastColumn(t *testing.T) {
 	t.Parallel()
 
 	s := format.Scroll{Offset: 9}
-	s.Right(format.Window{Total: 6, ClipRight: true})
+	s.Right(format.Window{Total: 6, ClipRight: true, CanRight: true})
 	require.Equal(t, 5, s.Offset)
 }
 

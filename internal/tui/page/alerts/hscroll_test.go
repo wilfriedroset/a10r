@@ -184,10 +184,11 @@ func TestHScroll_LeftRecoversAfterTheColumnSetShrinks(t *testing.T) {
 	require.NotEqual(t, atEnd, narrowHeader(t, p), "one Left must move the window back")
 }
 
-// On a terminal too narrow for two columns every offset reports a
-// clipped right edge, so the counter needs a bound of its own.
-// Without one it runs away and Left is dead for as many presses as
-// the operator made.
+// On a terminal too narrow for a second column the right arrow has
+// nowhere to land, and the header cannot show that: it is the same
+// single column at every offset. Banking the presses anyway parks the
+// row at its far-right edge the moment the terminal widens, after the
+// operator only ever pressed an arrow that moved nothing.
 func TestHScroll_OffsetStopsGrowingOnATinyTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -196,7 +197,5 @@ func TestHScroll_OffsetStopsGrowingOnATinyTerminal(t *testing.T) {
 		_ = p.View(20, 20)
 		_, _ = p.Update(keyRight)
 	}
-	atEnd := narrowHeader(t, p)
-	_, _ = p.Update(keyLeft)
-	require.NotEqual(t, atEnd, narrowHeader(t, p), "one Left must move the window back")
+	require.Zero(t, p.scroll.Offset, "Right must not bank an offset it cannot honour")
 }
