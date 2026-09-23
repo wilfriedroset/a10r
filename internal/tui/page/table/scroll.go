@@ -2,7 +2,11 @@
 
 package table
 
-import "github.com/wilfriedroset/a10r/internal/tui/page/format"
+import (
+	"strings"
+
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
+)
 
 // Scroll is a table's horizontal position plus the key intent that
 // has not met a frame yet.
@@ -41,4 +45,23 @@ func (s *Scroll) resolve(sp []format.Column, budget int) {
 // the operator made going right.
 func clamped(offset int, win format.Window) int {
 	return min(offset, max(0, win.Total-2))
+}
+
+// Horizontal-scroll markers. The header carries them because it is
+// the one line that is not row data: dropping a column the operator
+// configured without saying so is worse than spending a cell on the
+// marker (ADR 0048).
+const (
+	scrollLeftMarker  = "<"
+	scrollRightMarker = ">"
+)
+
+// scrollPrefix is the header's row prefix. It carries the left marker
+// in the cells the data rows spend on the cursor arrow and the mark
+// glyph, so the marker costs no column width.
+func scrollPrefix(clipLeft bool) string {
+	if !clipLeft {
+		return strings.Repeat(" ", format.RowPrefixCols)
+	}
+	return format.PadRight("  "+scrollLeftMarker, format.RowPrefixCols)
 }

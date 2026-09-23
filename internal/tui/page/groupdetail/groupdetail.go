@@ -41,9 +41,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -103,7 +103,7 @@ func instanceSortColumns(user []labelcol.Column) []tablesort.Column[instanceEntr
 		},
 	}
 	// The user block goes before AGE, not after it, because the h/l
-	// walk steps this slice and it has to match what headerKeys
+	// walk steps this slice and it has to match what columns()
 	// renders. STATE renders but is not an axis, and a column with no
 	// sort_key renders but is skipped below, so the walk is the
 	// rendered order minus those two.
@@ -341,7 +341,7 @@ type Page struct {
 	wide        bool
 	labelWidths []int
 
-	scroll format.Scroll
+	scroll table.Scroll
 
 	sorter      *tablesort.Sorter[instanceEntry]
 	stateFilter string

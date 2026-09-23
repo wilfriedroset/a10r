@@ -48,6 +48,12 @@ const (
 	// not SGR-aware, so a cell its producer already coloured takes
 	// ClipPad.
 	ClipEllipsis
+	// ClipMiddle cuts the middle out instead of the tail. Two values
+	// sharing a long prefix and differing at the end (`…-1a-0042` vs
+	// `…-1b-0117`) stay distinguishable, where a tail cut collapses
+	// them to the same string. Plain text only, on the same terms as
+	// ClipEllipsis.
+	ClipMiddle
 )
 
 // Cell is one rendered value plus the optional paint the page applies

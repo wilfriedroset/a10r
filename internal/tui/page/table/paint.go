@@ -3,7 +3,10 @@
 package table
 
 import (
+	"slices"
 	"strings"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 )
@@ -12,7 +15,7 @@ import (
 // and appending its arrow.
 func (l Layout) Header(sort Sort, chrome Chrome) string {
 	var b strings.Builder
-	b.WriteString(format.ScrollPrefix(l.win.ClipLeft))
+	b.WriteString(scrollPrefix(l.win.ClipLeft))
 	for j, ci := range l.win.Cols {
 		if j > 0 {
 			b.WriteString(colSep)
@@ -30,7 +33,7 @@ func (l Layout) Header(sort Sort, chrome Chrome) string {
 		}
 	}
 	if l.win.ClipRight {
-		b.WriteString(format.ScrollRightMarker)
+		b.WriteString(scrollRightMarker)
 	}
 	return b.String()
 }
@@ -67,13 +70,56 @@ func cellAt(cells []Cell, i int) Cell {
 // row-level style for every column after it.
 func paintCell(c Cell, clip ClipMode, w int) string {
 	shown := c.Text
-	if clip == ClipEllipsis {
+	switch clip {
+	case ClipEllipsis:
 		shown = format.Ellipsize(shown, w)
-	} else {
+	case ClipMiddle:
+		shown = clipMiddle(shown, w)
+	default:
 		shown = format.SGRTruncate(shown, w)
 	}
 	if c.Paint != nil {
 		shown = c.Paint(shown)
 	}
 	return format.PadRight(shown, w)
+}
+
+// clipMiddle keeps both the head and the discriminating tail of s,
+// spending one cell on the ellipsis between them. Below the ellipsis
+// there is no middle to split, so the cut falls back to the tail
+// form.
+func clipMiddle(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	suffix := lipgloss.Width(format.EllipsizeSuffix)
+	if w <= suffix {
+		return format.Ellipsize(s, w)
+	}
+	keep := w - suffix
+	head := (keep + 1) / 2
+	return format.Truncate(s, head) + format.EllipsizeSuffix + truncateLeft(s, keep-head)
+}
+
+// truncateLeft returns the suffix of s at most w cells wide, walking
+// runes from the end. Mirrors format.Truncate from the other side.
+func truncateLeft(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	used := 0
+	cut := len(runes)
+	for i, r := range slices.Backward(runes) {
+		rw := lipgloss.Width(string(r))
+		if used+rw > w {
+			break
+		}
+		used += rw
+		cut = i
+	}
+	return string(runes[cut:])
 }

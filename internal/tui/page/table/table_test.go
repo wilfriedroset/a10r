@@ -11,6 +11,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // threeCols is three fixed 5-cell columns, so the arithmetic stays
@@ -145,6 +146,69 @@ func TestLayout_ClipModes(t *testing.T) {
 	require.Equal(t, "abcd abc…", strings.TrimRight(got, " "))
 }
 
+// clipMiddleCell renders text in a lone ClipMiddle column w cells
+// wide and returns the painted cell.
+func clipMiddleCell(text string, w int) string {
+	var s table.Scroll
+	width := w + format.RowPrefixCols
+	l := s.Layout([]table.Column{{Key: "a", Title: "A", Min: w, Content: w, Clip: table.ClipMiddle}}, width)
+	return strings.TrimRight(l.Row(table.Row{Cells: []table.Cell{{Text: text}}}, width), " ")
+}
+
+// A middle cut must never exceed its column: an over-wide result
+// fuses the column into its neighbour. Across every width regime —
+// the fallback boundary where there is no middle to split, the
+// smallest real split, a wide column, and multibyte text — the result
+// stays inside the budget and keeps the discriminating tail once a
+// split is possible.
+func TestLayout_ClipMiddleKeepsTheTail(t *testing.T) {
+	t.Parallel()
+
+	const long = "node-pool-eu-west-1a-0042"
+
+	for _, tc := range []struct {
+		name  string
+		text  string
+		width int
+		want  string // empty asserts the width invariant only
+	}{
+		{name: "no width leaves no cell", text: "abcdefgh", width: 0, want: ""},
+		{name: "already fits returns unchanged", text: "db-1", width: 10, want: "db-1"},
+		{name: "exact fit returns unchanged", text: "db-1", width: 4, want: "db-1"},
+		{name: "one cell has no middle to split", text: "abcdefgh", width: 1, want: "…"},
+		{name: "two cells keep the head", text: "abcdefgh", width: 2, want: "a…"},
+		{name: "three cells is the byte-compare boundary", text: "abcdefgh", width: 3, want: "a…h"},
+		{name: "a wide column splits head and tail", text: "abcdefgh", width: 6, want: "abc…gh"},
+		{name: "smallest middle split", text: long, width: 4},
+		{name: "typical narrow middle split", text: long, width: 10},
+		{name: "multibyte stays within width", text: "サービス-本番-0042", width: 8}, //nolint:gosmopolitan // deliberate wide-rune (CJK, width 2) case exercising width-aware truncation
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := clipMiddleCell(tc.text, tc.width)
+			require.LessOrEqualf(t, lipgloss.Width(got), tc.width,
+				"result %q exceeds width budget %d", got, tc.width)
+			if tc.want != "" {
+				require.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+// The whole point of the middle cut: two values sharing a long prefix
+// and differing in the tail clip to different strings, where a tail
+// cut collapses both to the shared head.
+func TestLayout_ClipMiddleDistinguishesSiblings(t *testing.T) {
+	t.Parallel()
+
+	a := clipMiddleCell("node-pool-eu-west-1a-0042", 12)
+	b := clipMiddleCell("node-pool-eu-west-1b-0117", 12)
+	require.NotEqual(t, a, b, "siblings sharing a prefix must clip distinguishably")
+	require.Contains(t, a, "0042")
+	require.Contains(t, b, "0117")
+}
+
 // A key press banks a direction and the next frame resolves it, so
 // the move is judged against the width the operator is looking at.
 func TestScroll_StepIsResolvedByTheNextLayout(t *testing.T) {
@@ -186,5 +250,43 @@ func TestScroll_StepBackRecoversTheLeftEdge(t *testing.T) {
 	require.Equal(t, 1, s.Offset)
 	s.Step(-1)
 	_ = s.Layout(threeCols(), 20)
+	require.Zero(t, s.Offset)
+}
+
+// The header prefix is fixed width at both edges, so a clipped header
+// lines up with the data rows under it rather than shifting by one
+// cell. The marker rides in the cells the rows spend on the cursor
+// arrow and the mark glyph, so it costs no column width.
+func TestLayout_HeaderPrefixKeepsItsWidthWhenClipped(t *testing.T) {
+	t.Parallel()
+
+	var s table.Scroll
+	plain := prefixOf(s.Layout(threeCols(), 20).Header(table.Sort{}, table.Chrome{}))
+	require.Equal(t, format.RowPrefixCols, lipgloss.Width(plain))
+	require.NotContains(t, plain, "<")
+
+	s.Step(1)
+	clipped := prefixOf(s.Layout(threeCols(), 20).Header(table.Sort{}, table.Chrome{}))
+	require.Equal(t, format.RowPrefixCols, lipgloss.Width(clipped))
+	require.Contains(t, clipped, "<")
+}
+
+// prefixOf is the leading format.RowPrefixCols cells of a painted
+// header line.
+func prefixOf(header string) string {
+	return format.Truncate(testutil.StripStyle(header), format.RowPrefixCols)
+}
+
+// A page with no columns has nowhere to scroll, so banked intent
+// resolves to the pinned left edge rather than walking off it.
+func TestScroll_AnEmptyColumnSetIsInert(t *testing.T) {
+	t.Parallel()
+
+	var s table.Scroll
+	s.Step(1)
+	_ = s.Layout(nil, 40)
+	require.Zero(t, s.Offset)
+	s.Step(-1)
+	_ = s.Layout(nil, 40)
 	require.Zero(t, s.Offset)
 }

@@ -5,7 +5,6 @@ package format_test
 import (
 	"testing"
 
-	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
@@ -232,72 +231,4 @@ func TestWindowAt_CanRightIgnoresTheColumnsAlreadyInView(t *testing.T) {
 	require.Equal(t, []int{0, 1, 2}, w.Cols)
 	require.True(t, w.ClipRight)
 	require.False(t, w.CanRight)
-}
-
-// A clipped row is necessary for Right and not sufficient, so the key
-// is dead on a terminal that shows every column.
-func TestScroll_RightNeedsAClippedRow(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{}
-	s.Right(format.Window{Total: 6})
-	require.Zero(t, s.Offset)
-}
-
-// The zero Window is reachable from any caller now that Scroll is
-// exported, and a page with no columns must not move.
-func TestScroll_ZeroWindowIsInert(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{}
-	s.Right(format.Window{})
-	s.Left(format.Window{})
-	require.Zero(t, s.Offset)
-}
-
-func TestScroll_RightMovesOn(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{}
-	s.Right(format.Window{Total: 6, ClipRight: true, CanRight: true})
-	require.Equal(t, 1, s.Offset)
-}
-
-// Right stops once the last column is in view, so the row never
-// scrolls into a window that holds only the pinned column.
-func TestScroll_RightStopsAtTheLastColumn(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{Offset: 9}
-	s.Right(format.Window{Total: 6, ClipRight: true, CanRight: true})
-	require.Equal(t, 5, s.Offset)
-}
-
-func TestScroll_LeftStopsAtZero(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{}
-	s.Left(format.Window{Total: 6})
-	require.Zero(t, s.Offset)
-}
-
-// An offset left over from a wider column set has to come back within
-// one press, not after as many presses as the operator made.
-func TestScroll_LeftRecoversFromAStaleOffset(t *testing.T) {
-	t.Parallel()
-
-	s := format.Scroll{Offset: 9}
-	s.Left(format.Window{Total: 6})
-	require.Equal(t, 3, s.Offset)
-}
-
-// The prefix is fixed width at both edges, so a clipped header lines
-// up with the data rows under it rather than shifting by one cell.
-func TestScrollPrefix_KeepsTheRowPrefixWidth(t *testing.T) {
-	t.Parallel()
-
-	require.Equal(t, format.RowPrefixCols, lipgloss.Width(format.ScrollPrefix(false)))
-	clipped := format.ScrollPrefix(true)
-	require.Equal(t, format.RowPrefixCols, lipgloss.Width(clipped))
-	require.Contains(t, clipped, "<")
 }

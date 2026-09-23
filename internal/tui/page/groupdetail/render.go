@@ -3,7 +3,6 @@
 package groupdetail
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -12,8 +11,8 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
-	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -22,9 +21,7 @@ func (p *Page) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-	// The scroll keys need to know whether the row fits, and no width
-	// reaches the page at key time.
-	p.scroll.Width = width
+	l := p.scroll.Layout(p.columns(), width)
 	band := p.RenderErrorBand(p.now(), width, p.styles.Severity.Critical.GetForeground())
 	bandLines := 0
 	if band != "" {
@@ -48,8 +45,8 @@ func (p *Page) View(width, height int) string {
 		}
 		return listpage.Pane(width, height, body)
 	}
-	headerLine := p.renderHeader(width)
-	rows := p.renderRows(width, height-1-bandLines-stripLines)
+	headerLine := p.renderHeader(l)
+	rows := p.renderRows(l, width, height-1-bandLines-stripLines)
 	body := headerLine + "\n" + rows
 	if strip != "" {
 		body = strip + "\n" + body
@@ -106,89 +103,30 @@ func (p *Page) renderCommonStrip() string {
 	return p.styles.YAML.Key.Render("common: ") + strings.Join(parts, sep)
 }
 
-// renderHeader returns the column-title row with a sort marker on the
-// active column. SEVERITY, INSTANCE (flex), STATE, AGE — no TENANT,
-// no COUNT.
-func (p *Page) renderHeader(width int) string {
-	keys := p.headerKeys()
-	widths, win := p.columnWidths(width)
-	headerFg := p.styles.Table.HeaderFg
-	activeFg := p.styles.Table.HeaderActiveFg
-
-	var b strings.Builder
-	b.WriteString(format.ScrollPrefix(win.ClipLeft))
-	for j, ci := range win.Cols {
-		if j > 0 {
-			b.WriteString(colSep)
-		}
-		k := keys[ci]
-		label := p.headerTitle(k)
-		// STATE has no sort column; only the sortable columns get an
-		// arrow / active tint.
-		if arrow := p.sorter.ArrowFor(k); arrow != "" {
-			label = label + " " + arrow
-		}
-		padded := format.PadRight(label, widths[j])
-		if p.sorter.IsActive(k) {
-			b.WriteString(activeFg.Render(padded))
-		} else {
-			b.WriteString(headerFg.Render(padded))
-		}
-	}
-	if win.ClipRight {
-		b.WriteString(format.ScrollRightMarker)
-	}
-	return b.String()
+// renderHeader returns the column-title row. The two foreground
+// renderers are fg-only so the header keeps the terminal default
+// background: a palette background inside the unstyled body frame
+// paints a coloured stripe. The active column takes the second tint,
+// which pairs with the arrow to give two cues for which sort is live.
+func (p *Page) renderHeader(l table.Layout) string {
+	return l.Header(
+		table.Sort{Arrow: p.sorter.ArrowFor, Active: p.sorter.IsActive},
+		table.Chrome{Fg: p.styles.Table.HeaderFg, ActiveFg: p.styles.Table.HeaderActiveFg},
+	)
 }
 
-// sortKeyState labels the STATE column header. It is NOT a sort key —
-// the column is non-sortable on this page — but the header renderer
-// walks a uniform key list, so the label lives here alongside the
-// real keys.
+// sortKeyState labels the STATE column. It is not a sort key — the
+// column is non-sortable on this page — but every column carries one.
 const sortKeyState = "state"
-
-// headerKeys is the header's copy of the rendered column order, with
-// the user-declared block spliced between INSTANCE and STATE.
-// renderRow, padColumns and columnSpecs splice at the same point;
-// this function is not the shared source of that order.
-func (p *Page) headerKeys() []string {
-	out := make([]string, 0, 4+len(p.shownCols))
-	out = append(out, sortKeySeverity, sortKeyInstance)
-	for _, c := range p.shownCols {
-		out = append(out, c.Key)
-	}
-	return append(out, sortKeyState, sortKeyAge)
-}
-
-// headerTitle maps a header key to its rendered title. A user column
-// carries its own, already upper-cased by the config loader.
-func (p *Page) headerTitle(k string) string {
-	for _, c := range p.labelCols {
-		if c.Key == k {
-			return c.Title
-		}
-	}
-	if k == sortKeyState {
-		return "STATE"
-	}
-	return strings.ToUpper(k)
-}
-
-// labelBlockStart is the row index the user-declared column block
-// begins at: after SEVERITY and INSTANCE. No TENANT column on this
-// page, so it never shifts.
-const labelBlockStart = 2
-
-func (p *Page) isLabelColumn(i int) bool {
-	return i >= labelBlockStart && i < labelBlockStart+len(p.shownCols)
-}
 
 // measureLabelColumns measures each user-declared column over the
 // whole filtered view, so a vertical scroll never shifts a width. A
 // column with a configured Width needs no measuring and is left at
-// zero, because labelColumnSpecs pins it before it reads this slice.
-// recompute calls this once per row change rather than the renderer
-// calling it once per frame.
+// zero, because labelColumns pins it before it reads this slice.
+// Nothing seeds a header width here: the layout pass floors every
+// column at its own header, so a second copy of the titles would only
+// rot. recompute calls this once per row change rather than the
+// renderer calling it once per frame.
 func (p *Page) measureLabelColumns() []int {
 	if len(p.shownCols) == 0 {
 		return nil
@@ -198,7 +136,7 @@ func (p *Page) measureLabelColumns() []int {
 		if c.Width > 0 {
 			continue
 		}
-		content := labelcol.HeaderWidth(c)
+		content := 0
 		for j := range p.view {
 			if w := lipgloss.Width(labelCellAt(&p.view[j], c.Index)); w > content {
 				content = w
@@ -209,28 +147,28 @@ func (p *Page) measureLabelColumns() []int {
 	return out
 }
 
-// labelColumnSpecs turns the measured widths into allocator columns.
-// A measured column flexes rather than reserving its full width:
-// label values run long, and a weight-0 request that wide pushes the
-// allocator into its proportional shrink, which takes the built-in
-// columns below their own floors. Flexing reserves only the floor and
-// grows into what is left alongside INSTANCE. A column with a
-// configured width is pinned at that width or at its own header,
-// whichever is wider: the width bounds the cells, not the column
-// (ADR 0048).
-func (p *Page) labelColumnSpecs() []format.Column {
-	out := make([]format.Column, 0, len(p.shownCols))
+// labelColumns turns the measured widths into the user-declared
+// block. A measured column flexes rather than reserving its full
+// width: label values run long, and a weight-0 request that wide
+// pushes the allocator into its proportional shrink, which takes the
+// built-in columns below their own floors. Flexing reserves only the
+// floor and grows into what is left alongside INSTANCE. A configured
+// width pins the cells; the layout pass still floors the column at
+// its own header (ADR 0048).
+func (p *Page) labelColumns() []table.Column {
+	out := make([]table.Column, 0, len(p.shownCols))
 	for i, c := range p.shownCols {
+		col := table.Column{Key: c.Key, Title: c.Title, Sortable: c.Hotkey != 0, Clip: table.ClipEllipsis}
 		if c.Width > 0 {
-			pinned := labelcol.Floor(c, c.Width)
-			out = append(out, format.Column{Min: pinned, Content: pinned, Weight: 0})
-			continue
+			col.Min, col.Content = c.Width, c.Width
+		} else {
+			w := 0
+			if i < len(p.labelWidths) {
+				w = p.labelWidths[i]
+			}
+			col.Min, col.Content, col.Weight = min(labelColumnWidthFloor, w), w, 1
 		}
-		w := 0
-		if i < len(p.labelWidths) {
-			w = p.labelWidths[i]
-		}
-		out = append(out, format.Column{Min: labelcol.Floor(c, min(labelColumnWidthFloor, w)), Content: w, Weight: 1})
+		out = append(out, col)
 	}
 	return out
 }
@@ -240,40 +178,18 @@ func (p *Page) labelColumnSpecs() []format.Column {
 // starts taking cells from the built-ins.
 const labelColumnWidthFloor = 6
 
-// renderRows returns the visible window of data rows, reconciling the
-// scroll window against the cursor each frame.
-//
-// Colour follows instance state: a FIRING (active) instance that is
-// neither the cursor (its row-level highlight wins) nor marked gets the
-// full treatment — its SEVERITY cell tints and its distinguishing
-// labels take the YAML palette so a k=v pair reads consistently
-// across the TUI. Suppressed and unprocessed
-// instances recede: the whole row dims, so the firing ones the operator
-// can still act on stand out. The cursor and marked rows keep their
-// row-level wrap (nested ANSI inside it is fragile), so their labels
-// stay plain under the wrap.
-func (p *Page) renderRows(width, maxRows int) string {
+func (p *Page) renderRows(l table.Layout, width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
-	cols, win := p.columnWidths(width)
-	// A scrolled row renumbers its columns, so the flex width comes
-	// from the window, not from the spec position.
-	flexW := 0
-	for j, ci := range win.Cols {
-		if ci == flexColumnIndex {
-			flexW = cols[j]
-			break
-		}
-	}
 	// An open range previews as marked rows; the keys only reach
 	// p.marks on commit, so the span is resolved per frame.
 	visual := listpage.VisualPreview(&p.Base, p.view, markKey)
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, cols, win, flexW, width, visual.Covers(i)))
+		b.WriteString(l.Row(p.row(i, visual.Covers(i)), width))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -281,9 +197,17 @@ func (p *Page) renderRows(width, maxRows int) string {
 	return b.String()
 }
 
-// renderRow renders one instance row at the pre-computed column
-// widths. See renderRows for the colour-by-state contract.
-func (p *Page) renderRow(i int, cols []int, win format.Window, flexW, width int, previewed bool) string {
+// row builds one instance row at view index i.
+//
+// Colour follows instance state: a FIRING (active) instance that is
+// neither the cursor (its row-level highlight wins) nor marked gets
+// the full treatment — its SEVERITY cell tints and its distinguishing
+// labels take the YAML palette so a k=v pair reads consistently across
+// the TUI. Suppressed and unprocessed instances recede: the whole row
+// dims, so the firing ones the operator can still act on stand out.
+// The cursor and marked rows keep their row-level wrap (nested ANSI
+// inside it is fragile), so their labels stay plain under the wrap.
+func (p *Page) row(i int, previewed bool) table.Row {
 	entry := p.view[i]
 	a := entry.a
 	ageLabel := p.formatTime(a.StartsAt)
@@ -298,67 +222,44 @@ func (p *Page) renderRow(i int, cols []int, win format.Window, flexW, width int,
 	}
 	isCursor := i == p.Index()
 	isActive := a.State == backend.AlertStateActive
-	colour := isActive && !isCursor && !marked
 
-	sevCell := severityOf(a)
-	// Clip the distinguishing labels on the PLAIN string (so the
-	// middle-out ellipsis and column widths stay correct), then colour
-	// the result — colouring never changes the cell's width.
-	labels := ellipsizeMiddle(entry.distinguishSummary, flexW)
-	if colour {
-		sevCell = p.styles.Severity.ForLabel(a.Labels["severity"]).Render(sevCell)
-		labels = p.styleDistinguish(labels)
+	sev := table.Cell{Text: severityOf(a)}
+	labels := table.Cell{Text: entry.distinguishSummary}
+	if isActive && !isCursor && !marked {
+		tint := p.styles.Severity.ForLabel(a.Labels["severity"])
+		sev.Paint = func(shown string) string { return tint.Render(shown) }
+		labels.Paint = p.styleDistinguish
 	}
+	cells := make([]table.Cell, 0, 4+len(p.shownCols))
+	cells = append(cells, sev, labels)
+	for _, c := range p.shownCols {
+		cells = append(cells, table.Cell{Text: labelCellAt(&entry, c.Index)})
+	}
+	cells = append(cells,
+		table.Cell{Text: stateToken(a.State, p.stateFormat)},
+		table.Cell{Text: ageLabel},
+	)
 	prefix := "  "
 	if isCursor {
 		prefix = "▸ "
 	}
-	row := make([]string, 0, 4+len(p.shownCols))
-	row = append(row, sevCell, labels)
-	for _, c := range p.shownCols {
-		row = append(row, labelCellAt(&entry, c.Index))
-	}
-	row = append(row, stateToken(a.State, p.stateFormat), ageLabel)
-	line := format.PadRight(prefix+mark+" "+p.padColumns(row, cols, win), width)
-	switch {
-	case isCursor:
-		return p.styles.Table.CursorOver(p.styles.Severity.ForLabel(a.Labels["severity"]).GetForeground()).Render(line)
-	case marked:
-		return p.styles.Table.MarkedFg.Render(line)
-	case !isActive:
-		return p.styles.Table.DimmedFg.Render(line)
-	}
-	return line
+	return table.Row{Prefix: prefix + mark + " ", Cells: cells, Style: p.rowStyle(a, isCursor, marked)}
 }
 
-// flexColumnIndex is the position of the INSTANCE (distinguishing-
-// labels) flex column in the rendered row: index 1, after SEVERITY.
-// No TENANT column on this page, so it never shifts.
-const flexColumnIndex = 1
-
-// padColumns lays out the row at the pre-computed widths, joining
-// adjacent cells with a single inter-column space (colSep) so columns
-// never fuse. Built-in cells arrive pre-clipped — renderRows
-// middle-clips the flex distinguishing-labels cell (and optionally
-// colours it) before calling. A user-declared cell is clipped here
-// instead, because its width is only known once the allocator has
-// run.
-func (p *Page) padColumns(parts []string, cols []int, win format.Window) string {
-	var b strings.Builder
-	for j, ci := range win.Cols {
-		if ci >= len(parts) {
-			break
-		}
-		if j > 0 {
-			b.WriteString(colSep)
-		}
-		v := parts[ci]
-		if p.isLabelColumn(ci) {
-			v = format.Ellipsize(v, cols[j])
-		}
-		b.WriteString(format.PadRight(v, cols[j]))
+// rowStyle returns the style wrapping the whole row, or the zero style
+// for a plain one. Precedence: cursor > marked > dimmed. Cursor wraps
+// in fg+bg (the "you are here" signal); marked and dimmed change the
+// foreground only so the row keeps the body background.
+func (p *Page) rowStyle(a backend.Alert, isCursor, marked bool) lipgloss.Style {
+	switch {
+	case isCursor:
+		return p.styles.Table.CursorOver(p.styles.Severity.ForLabel(a.Labels["severity"]).GetForeground())
+	case marked:
+		return p.styles.Table.MarkedFg
+	case a.State != backend.AlertStateActive:
+		return p.styles.Table.DimmedFg
 	}
-	return b.String()
+	return lipgloss.Style{}
 }
 
 // styleDistinguish colours an already-clipped distinguishing-labels
@@ -386,85 +287,13 @@ func (p *Page) styleDistinguish(clipped string) string {
 	return strings.Join(pairs, p.styles.YAML.Punct.Render(" · "))
 }
 
-// colSep is the single inter-column space the renderer inserts between
-// adjacent cells. colSeparator is its width, passed to
-// format.Distribute so the budget reserves n-1 gap cells.
-const (
-	colSep       = " "
-	colSeparator = 1
-)
-
-// ellipsizeMiddle clips s to at most w terminal cells, replacing the
-// middle with a single ellipsis so BOTH the head and the discriminating
-// tail survive. Two instance values sharing a long prefix but differing
-// in the tail (`…-1a-0042` vs `…-1b-0117`) stay distinguishable, where a
-// tail-truncating ellipsis would collapse them to the same shared
-// prefix. Returns "" for w <= 0 and s unchanged when it already fits;
-// falls back to a tail ellipsis (format.Ellipsize) at w == 1 where no
-// middle split is possible. Not SGR-aware — the distinguishing-labels
-// cell is plain text.
-func ellipsizeMiddle(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= w {
-		return s
-	}
-	if w <= len(format.EllipsizeSuffix) {
-		return format.Ellipsize(s, w)
-	}
-	keep := w - lipgloss.Width(format.EllipsizeSuffix)
-	head := (keep + 1) / 2
-	tail := keep - head
-	headStr := format.Truncate(s, head)
-	tailStr := truncateLeft(s, tail)
-	return headStr + format.EllipsizeSuffix + tailStr
-}
-
-// truncateLeft returns the suffix of s whose rendered width is at most
-// w cells, walking runes from the end so the discriminating tail is
-// preserved. Mirrors format.Truncate from the other side.
-func truncateLeft(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	runes := []rune(s)
-	used := 0
-	cut := len(runes)
-	for i, r := range slices.Backward(runes) {
-		rw := lipgloss.Width(string(r))
-		if used+rw > w {
-			break
-		}
-		used += rw
-		cut = i
-	}
-	return string(runes[cut:])
-}
-
-// columnWidths returns the SEVERITY, INSTANCE (flex), STATE, AGE
-// widths via the duf-style distributor. INSTANCE is the unbounded
-// weight-1 flex column; the rest are fixed at max(min, content).
-func (p *Page) columnWidths(width int) ([]int, format.Window) {
-	specs := p.columnSpecs()
-	budget := max(0, width-format.RowPrefixCols)
-	win := format.WindowAt(specs, budget, colSeparator, p.scroll.Offset)
-	if len(win.Cols) < win.Total {
-		// A clipped row keeps one cell out of the column budget for the
-		// ">" marker, so the header never runs past the body width and
-		// wraps. Re-running the window on the smaller budget can only
-		// drop a further column, never bring one back.
-		budget = max(0, budget-1)
-		win = format.WindowAt(specs, budget, colSeparator, p.scroll.Offset)
-	}
-	shown := make([]format.Column, len(win.Cols))
-	for i, ci := range win.Cols {
-		shown[i] = specs[ci]
-	}
-	return format.Distribute(shown, budget, colSeparator), win
-}
-
-func (p *Page) columnSpecs() []format.Column {
+// columns is the rendered column order, declared once. It is the only
+// place on this page that knows where the user-declared block splices
+// into the built-ins. Content widths come from the filtered view, so
+// the layout reacts to the data the operator is looking at. Header
+// labels need no measuring — the layout pass floors every column at
+// its own header.
+func (p *Page) columns() []table.Column {
 	const (
 		sevMin      = 12
 		stateMin    = 8
@@ -476,31 +305,27 @@ func (p *Page) columnSpecs() []format.Column {
 	if p.timeFormat == timerender.Absolute {
 		ageMin = ageAbsMin
 	}
-
-	sevContent := lipgloss.Width("SEVERITY")
-	stateContent := lipgloss.Width("STATE")
-	ageContent := lipgloss.Width("AGE")
+	sevContent, stateContent := 0, 0
 	for _, e := range p.view {
-		if w := lipgloss.Width(severityOf(e.a)); w > sevContent {
-			sevContent = w
-		}
-		if w := lipgloss.Width(stateToken(e.a.State, p.stateFormat)); w > stateContent {
-			stateContent = w
-		}
-	}
-	if ageMin > ageContent {
-		ageContent = ageMin
+		sevContent = max(sevContent, lipgloss.Width(severityOf(e.a)))
+		stateContent = max(stateContent, lipgloss.Width(stateToken(e.a.State, p.stateFormat)))
 	}
 
-	out := make([]format.Column, 0, 4+len(p.shownCols))
+	out := make([]table.Column, 0, 4+len(p.shownCols))
 	out = append(out,
-		format.Column{Min: sevMin, Content: max(sevMin, sevContent), Weight: 0},
-		format.Column{Min: instanceMin, Content: format.FlexUnbounded, Weight: 1},
+		table.Column{Key: sortKeySeverity, Title: "SEVERITY", Sortable: true, Min: sevMin, Content: max(sevMin, sevContent)},
+		// INSTANCE is the unbounded flex column: FlexUnbounded stops the
+		// allocator capping it, so it takes every leftover cell rather
+		// than leaving dead space beside the labels being scanned.
+		table.Column{
+			Key: sortKeyInstance, Title: "INSTANCE", Sortable: true,
+			Min: instanceMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipMiddle,
+		},
 	)
-	out = append(out, p.labelColumnSpecs()...)
+	out = append(out, p.labelColumns()...)
 	return append(out,
-		format.Column{Min: stateMin, Content: max(stateMin, stateContent), Weight: 0},
-		format.Column{Min: ageMin, Content: ageContent, Weight: 0},
+		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: max(stateMin, stateContent)},
+		table.Column{Key: sortKeyAge, Title: "AGE", Sortable: true, Min: ageMin, Content: ageMin},
 	)
 }
 
