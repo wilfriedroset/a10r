@@ -431,3 +431,45 @@ func TestLabelColumn_WalkOrderMatchesRenderedOrder(t *testing.T) {
 	}
 	require.Equal(t, rendered, walk)
 }
+
+// A configured width may bound the cells; it may not cut the header.
+// ADR 0048 makes the arrow the whole direction contract, so a column
+// that renders "CLU" with no arrow lies about both its own identity
+// and the live sort.
+func TestLabelColumn_FixedWidthKeepsItsHeaderAndArrow(t *testing.T) {
+	t.Parallel()
+
+	p := newColumnPage(t, config.Column{Label: "cluster", Width: 3, SortKey: "L"})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		clusterAlert("DiskFull", "fp1", "prod"),
+	}})
+	require.True(t, p.sorter.HandleKey("L"))
+
+	out := testutil.StripStyle(p.View(200, 24))
+	require.Contains(t, rowContaining(t, out, "SEVERITY"), "CLUSTER ↑")
+	require.Contains(t, rowContaining(t, out, "DiskFull"), "prod")
+}
+
+// A measured column asks for the flex floor, which is below the
+// header width until Floor raises it, so the arrow goes the same way
+// the pinned path lost it. The widths span the band where the window
+// drops a different built-in column at each step, 79 among them
+// because it is the most common terminal there is.
+func TestLabelColumn_NarrowTerminalKeepsTheSortArrow(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("long-cluster-", 8)
+	p := newColumnPage(t,
+		config.Column{Label: "cluster", SortKey: "L"},
+		config.Column{Label: "team"},
+	)
+	a := clusterAlert("DiskFull", "fp1", long)
+	a.Labels["team"] = long
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
+	require.True(t, p.sorter.HandleKey("L"))
+
+	for _, width := range []int{55, 67, 70, 79, 82} {
+		require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(width, 24)), "SEVERITY"),
+			"CLUSTER ↑", "width %d", width)
+	}
+}

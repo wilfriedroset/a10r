@@ -538,9 +538,10 @@ func (p *Page) columnSpecs() []format.Column {
 	return specs
 }
 
-// labelColumnWidthFloor is the narrowest a measured label column
-// gets. Below this a value is an ellipsis and a character or two,
-// which says less than an empty cell would.
+// labelColumnWidthFloor is the narrowest a measured label column asks
+// for before its own header floor is applied. Below this a value is
+// an ellipsis and a character or two, which says less than an empty
+// cell would.
 const labelColumnWidthFloor = 6
 
 // measureLabelColumns measures each user-declared column over the
@@ -577,20 +578,22 @@ func (p *Page) measureLabelColumns() []int {
 // shrink, which takes the built-in columns below their own floors.
 // Flexing reserves only the floor and grows into what is left
 // alongside ALERTNAME, so a long value ellipsizes instead of
-// collapsing the row. A column with a configured width is pinned
-// there, because that is what the operator asked for.
+// collapsing the row. A column with a configured width is pinned at
+// that width or at its own header, whichever is wider: the width
+// bounds the cells, not the column (ADR 0048).
 func (p *Page) labelColumnSpecs() []format.Column {
 	out := make([]format.Column, 0, len(p.shownCols))
 	for i, c := range p.shownCols {
 		if c.Width > 0 {
-			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
+			pinned := labelcol.Floor(c, c.Width)
+			out = append(out, format.Column{Min: pinned, Content: pinned, Weight: 0})
 			continue
 		}
 		w := 0
 		if i < len(p.labelWidths) {
 			w = p.labelWidths[i]
 		}
-		out = append(out, format.Column{Min: min(labelColumnWidthFloor, w), Content: w, Weight: 1})
+		out = append(out, format.Column{Min: labelcol.Floor(c, min(labelColumnWidthFloor, w)), Content: w, Weight: 1})
 	}
 	return out
 }

@@ -58,6 +58,16 @@ func HeaderWidth(c Column) int {
 // appends to the active sort column.
 const sortArrowCells = 2
 
+// Floor is the narrowest the allocator is asked to make c, given the
+// width want the caller would otherwise ask for. A column is never
+// narrower than its own header: a cut title with no arrow lies about
+// both the column's identity and the live sort direction, and the
+// arrow is the whole direction contract (ADR 0048). A configured
+// `width` therefore sizes the cells, not the column.
+func Floor(c Column, want int) int {
+	return max(want, HeaderWidth(c))
+}
+
 // Resolve materialises the rendering view of the configured columns.
 // The config loader has already validated every field, so this
 // function does not re-check them.

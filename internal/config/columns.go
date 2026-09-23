@@ -21,8 +21,11 @@ type Column struct {
 	// the h/l walk skips it rather than making a column the operator
 	// declared unsortable the active sort.
 	SortKey string `yaml:"sort_key,omitempty"`
-	// Width pins the column to a fixed cell count. Zero measures the
-	// widest cell in view, as the built-in columns do.
+	// Width sizes the column at a fixed cell count, never narrower
+	// than its own header, plus the sort arrow when SortKey is set:
+	// the arrow is the whole direction contract (ADR 0048), so the
+	// width sizes the cells rather than cutting the title. Zero
+	// measures the widest cell in view, as the built-in columns do.
 	Width int `yaml:"width,omitempty"`
 	// Wide hides the column until the user presses Shift+W.
 	Wide bool `yaml:"wide,omitempty"`

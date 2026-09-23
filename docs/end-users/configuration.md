@@ -227,7 +227,7 @@ pages:
       - label: cluster
         title: CLUSTER     # optional, default is the upper-cased label
         sort_key: L        # optional, binds Shift+L to sort by this column
-        width: 12          # optional, fixed cells; default measures the view
+        width: 12          # optional, bounds the cells; default measures the view
         wide: true         # optional, hides the column until you press Shift+W
   group_detail:
     columns:
@@ -239,7 +239,7 @@ pages:
 | `label` | string | required | The alert label to read the cell from. |
 | `title` | string | `label` | The header text. a10r upper-cases it. |
 | `sort_key` | string | none | One uppercase letter. Binds `Shift+<letter>`. |
-| `width` | int | measured | Fixed cell count. Minimum 3. |
+| `width` | int | measured | Cell count, at least 3. The column is `width` cells wide, but never narrower than its header, plus the sort arrow when `sort_key` is set. |
 | `wide` | bool | `false` | Hide the column behind the `Shift+W` tier. |
 
 User columns render after ALERTNAME on the alerts page, and after

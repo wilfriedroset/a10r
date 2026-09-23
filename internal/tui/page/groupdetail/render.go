@@ -215,27 +215,29 @@ func (p *Page) measureLabelColumns() []int {
 // allocator into its proportional shrink, which takes the built-in
 // columns below their own floors. Flexing reserves only the floor and
 // grows into what is left alongside INSTANCE. A column with a
-// configured width is pinned there, because that is what the operator
-// asked for.
+// configured width is pinned at that width or at its own header,
+// whichever is wider: the width bounds the cells, not the column
+// (ADR 0048).
 func (p *Page) labelColumnSpecs() []format.Column {
 	out := make([]format.Column, 0, len(p.shownCols))
 	for i, c := range p.shownCols {
 		if c.Width > 0 {
-			out = append(out, format.Column{Min: c.Width, Content: c.Width, Weight: 0})
+			pinned := labelcol.Floor(c, c.Width)
+			out = append(out, format.Column{Min: pinned, Content: pinned, Weight: 0})
 			continue
 		}
 		w := 0
 		if i < len(p.labelWidths) {
 			w = p.labelWidths[i]
 		}
-		out = append(out, format.Column{Min: min(labelColumnWidthFloor, w), Content: w, Weight: 1})
+		out = append(out, format.Column{Min: labelcol.Floor(c, min(labelColumnWidthFloor, w)), Content: w, Weight: 1})
 	}
 	return out
 }
 
-// labelColumnWidthFloor is the smallest a measured user column
-// shrinks to before the allocator starts taking cells from the
-// built-ins.
+// labelColumnWidthFloor is the smallest a measured user column asks
+// for, before its own header floor is applied, when the allocator
+// starts taking cells from the built-ins.
 const labelColumnWidthFloor = 6
 
 // renderRows returns the visible window of data rows, reconciling the

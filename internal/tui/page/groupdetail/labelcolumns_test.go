@@ -247,3 +247,44 @@ func TestLabelColumn_ScrollDoesNotChangeMeasuredWidth(t *testing.T) {
 	require.Positive(t, p.TopRow(), "the scroll must move the window off the wide row")
 	require.Equal(t, []int{lipgloss.Width("a-much-longer-pod-name")}, p.measureLabelColumns())
 }
+
+// A configured width may bound the cells; it may not cut the header.
+// ADR 0048 makes the arrow the whole direction contract, so a column
+// that renders "CLU" with no arrow lies about both its own identity
+// and the live sort.
+func TestLabelColumn_FixedWidthKeepsItsHeaderAndArrow(t *testing.T) {
+	t.Parallel()
+
+	p := newColumnPage(t, []config.Column{{Label: podKey, Title: "cluster", Width: 3, SortKey: "L"}},
+		podInstance("fp-1", "web-a"))
+	require.True(t, p.sorter.HandleKey("L"))
+	p.recompute()
+
+	header := rowContaining(t, testutil.StripStyle(p.View(200, 20)), "SEVERITY")
+	require.Contains(t, header, "CLUSTER ↑")
+}
+
+// A measured column asks for the flex floor, which is below the
+// header width until Floor raises it, so the arrow goes the same way
+// the pinned path lost it. The widths span the band where the window
+// drops a different built-in column at each step, 79 among them
+// because it is the most common terminal there is.
+func TestLabelColumn_NarrowTerminalKeepsTheSortArrow(t *testing.T) {
+	t.Parallel()
+
+	const clusterKey = "cluster"
+	long := strings.Repeat("long-pod-", 12)
+	a := podInstance("fp-1", long)
+	a.Labels[clusterKey] = long
+	p := newColumnPage(t, []config.Column{
+		{Label: clusterKey, SortKey: "L"},
+		{Label: podKey},
+	}, a)
+	require.True(t, p.sorter.HandleKey("L"))
+	p.recompute()
+
+	for _, width := range []int{55, 67, 70, 79, 82} {
+		require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(width, 20)), "SEVERITY"),
+			"CLUSTER ↑", "width %d", width)
+	}
+}

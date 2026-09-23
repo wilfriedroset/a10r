@@ -144,6 +144,21 @@ func TestIsEmptyPinsTheTail(t *testing.T) {
 	require.False(t, labelcol.IsEmpty("<2 values>"))
 }
 
+// The arrow reserve is conditional: a column with no sort_key never
+// renders one, so floors at its plain title.
+func TestFloorNeverGoesUnderTheHeader(t *testing.T) {
+	t.Parallel()
+
+	sortable := labelcol.Column{Title: "CLUSTER", Hotkey: 'L'}
+	plain := labelcol.Column{Title: "CLUSTER"}
+
+	require.Equal(t, 9, labelcol.Floor(sortable, 0))
+	require.Equal(t, 9, labelcol.Floor(sortable, 3))
+	require.Equal(t, 20, labelcol.Floor(sortable, 20))
+	require.Equal(t, 7, labelcol.Floor(plain, 3))
+	require.Equal(t, 20, labelcol.Floor(plain, 20))
+}
+
 func alertsWith(values ...string) []backend.Alert {
 	out := make([]backend.Alert, 0, len(values))
 	for _, v := range values {
