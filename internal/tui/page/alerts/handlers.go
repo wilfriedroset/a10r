@@ -274,19 +274,8 @@ func (p *Page) openSilenceAllForCursor() tea.Cmd {
 // the 80-col footer width.
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
-// handleClearMarks drops every mark on the page in response to
-// the global Ctrl+\ binding. Flashes "marks cleared" when the
-// pre-clear count was non-zero so the user sees confirmation;
-// silently no-ops otherwise (no flash on a key that did nothing
-// would be a poor affordance, but an unconditional flash on a
-// page that never had marks would be surprising spam).
 func (p *Page) handleClearMarks() tea.Cmd {
-	p.Visual.Cancel()
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // drillToDetail returns a Cmd that drills into the cursor group. A

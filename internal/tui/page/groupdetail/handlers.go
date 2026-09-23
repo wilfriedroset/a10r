@@ -189,15 +189,8 @@ func (p *Page) requestRefresh() tea.Cmd {
 	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "alerts")
 }
 
-// handleClearMarks drops every mark on the global Ctrl+\ binding,
-// flashing confirmation only when there was something to clear.
 func (p *Page) handleClearMarks() tea.Cmd {
-	p.Visual.Cancel()
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // drillToDetail pushes the L3 instance-detail page for the cursor
