@@ -33,7 +33,14 @@ touch the alertname-aggregate decision of ADR 0040.
 - **A too-narrow row scrolls, it does not drop columns.** Left and
   Right move the viewport by one column with the first data column
   pinned, and the header marks the clipped edge. Dropping a column the
-  user asked for would be a silent lie about the data on screen.
+  user asked for would be a silent lie about the data on screen. An
+  offset does not outlive the column set it was measured against, so
+  `Shift+W` returns the row to the pinned left edge.
+- **A column is never narrower than its own header.** The arrow beside
+  a header is the whole direction contract, so a header cut down to
+  fit would take the contract with it. A configured `width` therefore
+  bounds the cells, not the column: the column is the wider of `width`
+  and its own header plus the arrow.
 - **Columns are text and display-only.** No typed columns, no
   annotations, no `align`, nothing tagged Dangerous. Every label value
   is a string, so byte-wise comparison is the whole sort contract, with

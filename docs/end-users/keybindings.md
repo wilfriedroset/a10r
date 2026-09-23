@@ -117,7 +117,7 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | `/` | Substring filter over the instances. |
 | `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all. |
 | `Shift+T` | Toggle the STATE breakdown between full (`9 active · 3 suppressed`) and compact (`9ac 3su`) — app-wide. |
-| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. A row you scrolled sideways returns to the pinned left edge, because the toggle replaces the column set the scroll position was measured against. |
 | `Shift+S` | Sort by severity (worst in the group). |
 | `Shift+N` | Sort by alertname. |
 | `Shift+C` | Sort by instance count. |
@@ -138,7 +138,7 @@ The instance list for one alert, reached by `Enter` on a multi-instance row. Row
 | `/` | Substring filter. |
 | `Shift+F` | Cycle the state filter. |
 | `Shift+T` | Toggle the STATE rendering (full / compact). |
-| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. A row you scrolled sideways returns to the pinned left edge, because the toggle replaces the column set the scroll position was measured against. |
 | `Shift+N` | Sort by instance labels. |
 | `Shift+A` | Sort by age. |
 | `←` / `→` | Scroll the columns when the row is too wide for the terminal. SEVERITY stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. When no column past the cut fits beside the pinned one, `>` shows with `→` inert: the column is cut, but no scroll position brings it back. |

@@ -188,10 +188,13 @@ Pages and shared page bases (`internal/tui/page`):
 - `page/tenant`, `page/tenantconfig` -- the configured-backend table
   and the per-tenant config inspector.
 - `page/format` -- width-aware text helpers (cell padding,
-  cell-counting truncation) shared across pages and chrome.
-- `page/labelcol` -- resolves the configured label columns into their
-  rendered form, rolls a label up over an aggregate's instances, and
-  owns the cell comparator.
+  cell-counting truncation) shared across pages and chrome. Horizontal
+  scroll moved out of it into `page/table`.
+- `page/table` -- the shared list-table module: column layout under a
+  width budget, header and row painting, the horizontal window with
+  its `<` and `>` edge markers, and the configured label columns
+  (resolution, the aggregate rollup, the cell comparator). The alerts
+  and group-detail tables both paint through it.
 - `page/pagetest` -- the shared page-test harness (ADR 0026).
 - `internal/tui/testutil` -- the shared test fakes: styles, clipboard,
   backend client, and the fuzz codec.

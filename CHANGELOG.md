@@ -144,6 +144,12 @@ to [Semantic Versioning][semver].
   backend is writable, the hint strip drops the key on a frozen row,
   `?` keeps it with a `[guarded]` suffix, and a press refuses and
   names the backend.
+- **A sideways scroll no longer outlives the columns it was made
+  against.** `Shift+W`, or a scope change that adds or drops the
+  TENANT column, now returns a horizontally scrolled row to the
+  pinned left edge. Keeping the old offset opened the new column set
+  parked at its far right, hiding the column the key was pressed to
+  reveal.
 
 ### Fixed
 
