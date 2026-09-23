@@ -89,11 +89,9 @@ func TestRender_StateBreakdownEllipsizesUnderCap(t *testing.T) {
 
 	// STATE's measured content must not drive the column past the cap:
 	// ALERTNAME (the flex column) must keep room for its own glyphs.
-	widths, win := p.columnWidths(80)
-	stateIdx := stateColumnIndex(win)
-	require.GreaterOrEqual(t, stateIdx, 0, "STATE must be in view at this width")
-	require.LessOrEqual(t, widths[stateIdx], stateContentCap,
-		"STATE width must not exceed the cap")
+	stateWidth := p.scroll.Layout(p.columns(), 80).WidthOf(sortKeyState)
+	require.Positive(t, stateWidth, "STATE must be in view at this width")
+	require.LessOrEqual(t, stateWidth, stateContentCap, "STATE width must not exceed the cap")
 
 	// Compact: 3 buckets fit, no ellipsis needed.
 	p.stateFormat = stateformat.Compact

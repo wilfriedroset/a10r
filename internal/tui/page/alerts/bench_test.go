@@ -103,7 +103,7 @@ func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		_ = p.renderRows(160, 40)
+		_ = p.renderRows(p.scroll.Layout(p.columns(), 160), 160, 40)
 	}
 }
 
@@ -132,7 +132,7 @@ func BenchmarkAlertsDataMsgIngest(b *testing.B) {
 // per-frame cost on the visible window only, and the budget for it is
 // 1.5x the unfiltered frame. Every filter here keeps all 1000 groups
 // on purpose — a selective one would shrink the view, and the cheaper
-// columnWidths pass would pay for the paint. The expression case is
+// layout pass would pay for the paint. The expression case is
 // the floor: an expression paints nothing, so its frame allocates
 // like an unfiltered one.
 func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
@@ -153,7 +153,7 @@ func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for range b.N {
-				_ = p.renderRows(160, 40)
+				_ = p.renderRows(p.scroll.Layout(p.columns(), 160), 160, 40)
 			}
 		})
 	}
@@ -232,6 +232,6 @@ func BenchmarkAlertsRenderRowsLabelColumns(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		_ = p.renderRows(160, 40)
+		_ = p.renderRows(p.scroll.Layout(p.columns(), 160), 160, 40)
 	}
 }

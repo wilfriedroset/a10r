@@ -49,9 +49,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
-	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/labelcol"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -106,7 +106,7 @@ func alertSortColumns(user []labelcol.Column) []tablesort.Column[alertGroup] {
 	}
 	// The user block goes between ALERTNAME and COUNT, not after AGE,
 	// because the h/l walk steps this slice and it has to match what
-	// headerKeys renders. STATE renders but is not an axis, and a
+	// columns() renders. STATE renders but is not an axis, and a
 	// column with no sort_key renders but is skipped below, so the
 	// walk is the rendered order minus those two.
 	cols = append(cols, labelSortColumns(user)...)
@@ -494,7 +494,7 @@ type Page struct {
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
 
-	scroll format.Scroll
+	scroll table.Scroll
 	// groupDetailCols is the L2 page's column configuration, held
 	// only to hand to groupdetail.New on drill-down.
 	groupDetailCols []config.Column

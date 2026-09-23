@@ -242,12 +242,20 @@ func TestLabelColumn_ScrollKeepsWidthsStable(t *testing.T) {
 	}
 	_, _ = p.Update(poll.DataMsg{Resource: in})
 
-	before, _ := p.columnWidths(160)
+	widths := func() []int {
+		cols := p.columns()
+		l := p.scroll.Layout(cols, 160)
+		out := make([]int, len(cols))
+		for i, c := range cols {
+			out[i] = l.WidthOf(c.Key)
+		}
+		return out
+	}
+	before := widths()
 	for range 30 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
-	after, _ := p.columnWidths(160)
-	require.Equal(t, before, after)
+	require.Equal(t, before, widths())
 }
 
 // A measured label column flexes, so a long value ellipsizes inside
@@ -257,8 +265,9 @@ func TestLabelColumn_ScrollKeepsWidthsStable(t *testing.T) {
 // terminal; a weight-0 label column broke the floors at one.
 //
 // The floors are spelled out here rather than imported because
-// columnSpecs keeps them function-local. A change there must land
-// here too.
+// columns() keeps them function-local. A change there must land here
+// too. ALERTNAME's is 11 rather than its declared 10: the layout pass
+// floors every column at its own header plus the sort arrow.
 func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	t.Parallel()
 
@@ -272,11 +281,12 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
 
 	// SEVERITY, ALERTNAME, cluster, team, COUNT, STATE, AGE.
-	floors := []int{12, 10, labelColumnWidthFloor, labelColumnWidthFloor, 7, 14, 12}
-	widths, _ := p.columnWidths(80)
-	require.Len(t, widths, len(floors))
+	floors := []int{12, 11, labelColumnWidthFloor, labelColumnWidthFloor, 7, 14, 12}
+	cols := p.columns()
+	l := p.scroll.Layout(cols, 80)
+	require.Len(t, cols, len(floors))
 	for i, floor := range floors {
-		require.GreaterOrEqual(t, widths[i], floor, "column %d fell below its floor", i)
+		require.GreaterOrEqual(t, l.WidthOf(cols[i].Key), floor, "column %d fell below its floor", i)
 	}
 	require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(80, 24)), "DiskFull"), "…")
 }
@@ -298,13 +308,21 @@ func TestLabelColumn_TooNarrowScrollsInsteadOfShrinking(t *testing.T) {
 	a.Labels["pod"] = long
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
 
-	widths, win := p.columnWidths(80)
-	require.Len(t, widths, len(win.Cols))
-	require.Less(t, len(win.Cols), win.Total, "a row this narrow must drop columns")
-	require.True(t, win.ClipRight)
-	for i, w := range widths {
+	cols := p.columns()
+	l := p.scroll.Layout(cols, 80)
+	require.Zero(t, p.scroll.Offset)
+	require.Positive(t, l.Shown())
+	require.Less(t, l.Shown(), len(cols), "a row this narrow must drop columns")
+	// Nothing has scrolled, so the window is a contiguous run from the
+	// first column and the painted ones are the first Shown() of the set. One allocated
+	// nothing is the shrink this test forbids.
+	widths := make([]int, 0, l.Shown())
+	for i, c := range cols[:l.Shown()] {
+		w := l.WidthOf(c.Key)
 		require.Positive(t, w, "column %d collapsed to nothing", i)
+		widths = append(widths, w)
 	}
+	require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(80, 24)), "SEVERITY"), ">")
 	// One cell of the budget goes to the ">" marker.
 	require.LessOrEqual(t, sum(widths)+len(widths)-1, 80-format.RowPrefixCols-1)
 }
@@ -413,9 +431,10 @@ func TestLabelColumn_WalkOrderMatchesRenderedOrder(t *testing.T) {
 
 	// The walk is cyclic, so the break is the real exit. The bound is
 	// only a stop for a sorter that somehow never returns to its
-	// start, and headerKeys is always the longer of the two slices.
+	// start, and the column set is always the longer of the two.
+	cols := p.columns()
 	walk := []string{p.sorter.ActiveKey()}
-	for range len(p.headerKeys()) {
+	for range cols {
 		p.sorter.WalkRight()
 		if p.sorter.ActiveKey() == sortKeySeverity {
 			break
@@ -424,9 +443,9 @@ func TestLabelColumn_WalkOrderMatchesRenderedOrder(t *testing.T) {
 	}
 
 	rendered := make([]string, 0, len(walk))
-	for _, k := range p.headerKeys() {
-		if k != sortKeyState {
-			rendered = append(rendered, k)
+	for _, c := range cols {
+		if c.Sortable {
+			rendered = append(rendered, c.Key)
 		}
 	}
 	require.Equal(t, rendered, walk)

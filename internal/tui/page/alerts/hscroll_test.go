@@ -58,9 +58,6 @@ func TestHScroll_RightPinsTheFirstColumn(t *testing.T) {
 	t.Parallel()
 
 	p := scrollPage(t)
-	// The scroll keys read the width of the last painted frame, so
-	// the page has to render narrow before the arrow lands.
-	_ = p.View(narrowWidth, 20)
 	_, _ = p.Update(keyRight)
 	header := narrowHeader(t, p)
 	require.Contains(t, header, "SEVERITY")
@@ -146,6 +143,10 @@ func TestHScroll_RightOnAFittingRowBanksNoOffset(t *testing.T) {
 	_ = p.View(wideWidth, 20)
 	for range 4 {
 		_, _ = p.Update(keyRight)
+		// A press only records intent; the frame that follows it
+		// decides whether the move is legal. Bubble Tea paints after
+		// every Update, so the wide repaint belongs inside the loop.
+		_ = p.View(wideWidth, 20)
 	}
 	require.Contains(t, narrowHeader(t, p), "ALERTNAME")
 }
@@ -197,5 +198,6 @@ func TestHScroll_OffsetStopsGrowingOnATinyTerminal(t *testing.T) {
 		_ = p.View(20, 20)
 		_, _ = p.Update(keyRight)
 	}
+	_ = p.View(20, 20)
 	require.Zero(t, p.scroll.Offset, "Right must not bank an offset it cannot honour")
 }
