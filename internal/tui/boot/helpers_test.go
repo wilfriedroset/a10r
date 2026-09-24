@@ -18,6 +18,8 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
+	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -106,6 +108,55 @@ func TestLogTransportSurprises(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A guardrail naming a tenant this machine does not have is a
+// warning, not an error (ADR 0049); a glob that does match must stay
+// silent.
+func TestLogUnmatchedTenants_WarnsOncePerUnmatchedGlob(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Backends: []config.Backend{{Name: "prod"}},
+		Guardrails: guardrail.Set{
+			{Tenants: []string{"prod"}, Deny: true},
+			{Tenants: []string{"lab-*"}, Deny: true},
+		},
+	}
+
+	capture := &a10rlog.Capture{}
+	logger := captureTestLogger(capture)
+	capture.Start()
+	logUnmatchedTenants(logger, cfg)
+	capture.Stop()
+
+	require.Equal(t,
+		[]string{"guardrail tenant glob matches no configured backend (glob=lab-*)"},
+		capture.Messages(),
+		"only the glob that matches nothing is worth a warning")
+}
+
+// The warning is only useful if Build asks for it inside the capture
+// window, which is what puts it on the `:config` page. Driving Build
+// is what a helper-level test cannot do: it stays green if the call
+// site is deleted.
+func TestBuild_UnmatchedTenantGlobReachesTheConfigPage(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps(t)
+	deps.LoadConfig = func(_ config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends:   []config.Backend{{Name: "prod", URL: "http://prod.invalid"}},
+			Guardrails: guardrail.Set{{Tenants: []string{"lab-*"}, Deny: true}},
+		}, nil
+	}
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Contains(t, res.env.ConfigReport().Warnings,
+		"guardrail tenant glob matches no configured backend (glob=lab-*)")
 }
 
 // TestLevelFor pins the CLI flag fold. The debug-wins rows matter

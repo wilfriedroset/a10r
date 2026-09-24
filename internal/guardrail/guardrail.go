@@ -305,6 +305,14 @@ func (s Set) UnmatchedTenants(backends []string) []string {
 	return out
 }
 
+// UnmatchedTenantWarning is the one sentence a surface prints for a
+// glob UnmatchedTenants returned. It lives here so the `:config`
+// page, `a10r info`, and `a10r validate` cannot word the same warning
+// differently. The caller adds its own prefix and indent.
+func UnmatchedTenantWarning(glob string) string {
+	return fmt.Sprintf("tenant glob %q matches no configured backend", glob)
+}
+
 // match reports whether value hits any glob. An empty list matches
 // everything, which is what makes `tenants` and `actions` optional.
 func match(globs []string, value string) bool {

@@ -577,7 +577,8 @@ of `deny`, `confirmation`, and `max_bulk`. A `tenants` glob that
 matches no configured backend is a warning instead of an error, so
 you can share one `config.d` fragment across machines that do not all
 have every tenant. Run `a10r info` to see the warnings and the active
-rules.
+rules; `a10r validate` prints them too, and the TUI logs them at
+startup so they show up on the `:config` page.
 
 ## Reloading
 
@@ -637,7 +638,8 @@ a10r validate -c ~/.config/a10r/a10r.yaml
 ```
 
 Exits 0 on success, non-zero with a line:column diagnostic
-otherwise.
+otherwise. A warning — a `guardrails:` tenant glob that matches no
+configured backend — is printed but leaves the exit code at 0.
 
 ## Inspecting the resolved config
 

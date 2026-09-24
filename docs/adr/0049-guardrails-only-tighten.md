@@ -38,7 +38,8 @@ headless path in `cmd/` keeps its own check.
   so it is escaped into a literal glob instead of rejected.
 - **An unmatched tenant glob is a warning, not an error.** One
   `config.d` fragment is shared across machines that do not all have
-  every tenant. `a10r info` lists the warnings.
+  every tenant. `a10r info` and `a10r validate` list the warnings, and
+  the TUI logs them at startup so the `:config` page shows them.
 - **Every other rule error stops startup.** An unknown verb, an
   unknown confirmation level, a `max_bulk` below 1, or a rule that
   restricts nothing is a typo in a safety feature, and a typo that

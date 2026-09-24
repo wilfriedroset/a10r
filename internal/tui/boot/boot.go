@@ -158,6 +158,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	slog.SetDefault(logger)
 
 	logTransportSurprises(logger, effCfg.Backends)
+	logUnmatchedTenants(logger, &effCfg)
 
 	clients, silenceClients := buildBackendClients(flags, logger, d, &effCfg, errOut)
 	tenantRows := buildTenantRows(&effCfg, fetchTenantVersions(ctx, clients))

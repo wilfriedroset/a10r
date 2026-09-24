@@ -94,7 +94,7 @@ func renderGuardrails(w *writer, cfg *config.Config) {
 		names[i] = b.Name
 	}
 	for _, g := range cfg.Guardrails.UnmatchedTenants(names) {
-		w.printf("  warning: tenant glob %q matches no configured backend\n", g)
+		w.printf("  warning: %s\n", guardrail.UnmatchedTenantWarning(g))
 	}
 }
 

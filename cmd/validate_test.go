@@ -117,3 +117,20 @@ func TestLoadOptsFromArgs(t *testing.T) {
 		})
 	}
 }
+
+// A shared config.d fragment may name a tenant this machine does not
+// have (ADR 0049), so the headless operator gets the warning without
+// a pipeline-breaking exit code.
+func TestRunValidate_WarnsOnUnmatchedTenantGlob(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeYAML(t, dir, "a10r.yaml",
+		"backends:\n  - name: ok\n    url: http://x\nguardrails:\n  - tenants: [\"lab-*\"]\n    deny: true\n")
+
+	var buf bytes.Buffer
+	err := runValidate(&buf, &GlobalFlags{ConfigDir: dir}, nil)
+	require.NoError(t, err, "an unmatched glob is a warning, so validate still exits 0")
+	require.Contains(t, buf.String(), `warning: tenant glob "lab-*" matches no configured backend`)
+	require.Contains(t, buf.String(), "config valid")
+}

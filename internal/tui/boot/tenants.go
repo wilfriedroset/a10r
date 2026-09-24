@@ -3,6 +3,7 @@
 package boot
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/config"
@@ -16,8 +17,7 @@ import (
 const scopeAll = "all"
 
 // backendNames returns the configured tenant names in
-// configuration order. Used to populate the panel's tenant-
-// shortcut column.
+// configuration order.
 func backendNames(cfg *config.Config) []string {
 	out := make([]string, len(cfg.Backends))
 	for i, b := range cfg.Backends {
@@ -92,6 +92,19 @@ func writePolicy(cfg *config.Config) guardrail.Set {
 		}
 	}
 	return append(out, cfg.Guardrails...)
+}
+
+// logUnmatchedTenants warns once per `guardrails:` tenant glob that
+// names no configured backend. A warning rather than a startup
+// error per ADR 0049: one config.d fragment is shared across
+// machines that do not all have every tenant. The capture the
+// `:config` page reads is open around this call, so the warning
+// lands there as well as in the log file.
+func logUnmatchedTenants(logger *slog.Logger, cfg *config.Config) {
+	for _, glob := range cfg.Guardrails.UnmatchedTenants(backendNames(cfg)) {
+		logger.Warn("guardrail tenant glob matches no configured backend",
+			slog.String("glob", glob))
+	}
 }
 
 // globQuote escapes the pattern syntax path.Match reads. A rule's

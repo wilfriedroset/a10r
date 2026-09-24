@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
 // newValidateCmd returns the `a10r validate` subcommand. Loads the
@@ -46,6 +47,23 @@ func runValidate(out io.Writer, flags *GlobalFlags, args []string) error {
 	}
 	if _, err := fmt.Fprintf(out, "config valid: %d backend(s) configured\n", len(cfg.Backends)); err != nil {
 		return fmt.Errorf("write validate output: %w", err)
+	}
+	return writeUnmatchedTenantWarnings(out, cfg)
+}
+
+// writeUnmatchedTenantWarnings reports every `guardrails:` tenant glob
+// that names no configured backend. Non-fatal per ADR 0049 — one
+// config.d fragment is shared across machines that do not all have
+// every tenant — so validate still exits 0 and a pipeline keeps going.
+func writeUnmatchedTenantWarnings(out io.Writer, cfg *config.Config) error {
+	names := make([]string, len(cfg.Backends))
+	for i, be := range cfg.Backends {
+		names[i] = be.Name
+	}
+	for _, glob := range cfg.Guardrails.UnmatchedTenants(names) {
+		if _, err := fmt.Fprintf(out, "warning: %s\n", guardrail.UnmatchedTenantWarning(glob)); err != nil {
+			return fmt.Errorf("write validate warning: %w", err)
+		}
 	}
 	return nil
 }
