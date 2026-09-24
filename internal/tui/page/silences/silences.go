@@ -418,10 +418,10 @@ func (*Page) PollResources() []string { return []string{resourceSilences} }
 func (p *Page) Bindings() []action.Action {
 	sortBindings := p.sorter.Bindings(resourceSilences)
 	out := make([]action.Action, 0, 8+len(sortBindings))
-	_, create := p.writeDeny(guardrail.ActionSilenceCreate)
-	_, update := p.writeDeny(guardrail.ActionSilenceUpdate)
-	_, expire := p.writeDeny(guardrail.ActionSilenceExpire)
-	_, recreate := p.writeDeny(guardrail.ActionSilenceRecreate)
+	create := p.guarded(guardrail.ActionSilenceCreate)
+	update := p.guarded(guardrail.ActionSilenceUpdate)
+	expire := p.guarded(guardrail.ActionSilenceExpire)
+	recreate := p.guarded(guardrail.ActionSilenceRecreate)
 	out = append(out,
 		action.Action{Key: "Enter", Description: "detail", View: resourceSilences},
 		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true, Guarded: create},

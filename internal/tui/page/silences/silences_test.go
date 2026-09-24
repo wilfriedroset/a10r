@@ -2421,7 +2421,7 @@ func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
 	require.NotNil(t, cmd)
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok, "a denied press flashes instead of opening the confirm modal")
-	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
+	require.Equal(t, "bulk expire denied on prod: use the change ticket", msg.Text)
 	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
 }
 
@@ -2460,17 +2460,15 @@ func TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress(t *testing.T) {
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	require.NotNil(t, cmd)
 	msg := flashFrom(t, cmd)
-	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
+	require.Equal(t, "bulk expire denied on prod: use the change ticket", msg.Text)
 	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
 	require.Len(t, p.marks, 1, "a refusal leaves the marks so the user can narrow them")
 }
 
-// TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal pins spec item
-// 8: the count is per tenant, the check runs before the confirm modal,
-// and the marks survive so the user can narrow them.
-func TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal(t *testing.T) {
-	t.Parallel()
-
+// cappedMarksPage builds a prod page with three marked silences under
+// a max_bulk of two, the smallest shape that breaches the cap.
+func cappedMarksPage(t *testing.T) *Page {
+	t.Helper()
 	p := New(Options{
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
@@ -2493,14 +2491,58 @@ func TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal(t *testing.T) {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
 	require.Len(t, p.marks, 3)
+	return p
+}
+
+// TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal pins the cap
+// rule: the count is per tenant, the check runs before the confirm
+// modal, and the marks survive so the user can narrow them. The filtered case
+// pins what is counted — the run queues from byTenant, so a filter
+// narrowed after marking must not talk the press past the cap.
+func TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		filter string
+	}{
+		{name: "every marked row visible"},
+		{name: "a filter hides two marked rows", filter: "sil-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := cappedMarksPage(t)
+			if tc.filter != "" {
+				_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: tc.filter})
+				require.Len(t, p.view, 1, "the filter hides two of the three marked rows")
+			}
+
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+			require.NotNil(t, cmd)
+			msg := flashFrom(t, cmd)
+			require.Equal(t, footer.FlashWarn, msg.Level)
+			require.Equal(t, "bulk expire on prod: 3 targets exceed max_bulk 2", msg.Text)
+			require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
+			require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+		})
+	}
+}
+
+// TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip splits the run
+// from the binding: a binding outlives any one run, so a cap the
+// current marks happen to breach refuses the press without striking
+// `x` off the hint strip. A deny is the rule that does mark the key,
+// which TestGuardrail_DenyMarksOnlyTheDeniedVerb pins.
+func TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
+	require.Empty(t, guardedKeys(p), "a breached cap refuses this run, not the binding")
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	require.NotNil(t, cmd)
-	msg := flashFrom(t, cmd)
-	require.Equal(t, footer.FlashWarn, msg.Level)
-	require.Equal(t, "bulk expire on prod: 3 targets exceed max_bulk 2", msg.Text)
-	require.Empty(t, p.pendingExpire.ids, "nothing is queued for a write")
-	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+	require.Equal(t, "bulk expire on prod: 3 targets exceed max_bulk 2", flashFrom(t, cmd).Text)
 }
 
 // TestGuardrail_TheCapCountsOneTenantAtATime keeps a run that spreads

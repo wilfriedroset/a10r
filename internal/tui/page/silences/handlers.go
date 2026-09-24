@@ -205,51 +205,73 @@ func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
 		// on purpose, so the user can narrow them.
 		listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
 	}
-	if msg, denied := p.writeDeny(name); denied {
-		return footer.ShowFlash(footer.FlashWarn, msg)
+	if d := p.guardrails.Decide(p.writeRequest(name)); d.Refused() {
+		return footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	return action()
 }
 
-// writeDeny asks the write policy about the tenants the named verb
-// would land in. It returns the flash sentence for the first denied
-// tenant, because one refusal already stops the whole press.
-func (p *Page) writeDeny(name string) (string, bool) {
-	if len(p.guardrails) == 0 {
-		return "", false
-	}
-	for _, t := range p.writeTenants(name) {
-		if v := p.guardrails.Evaluate(t, name); v.Denied {
-			return v.DenyMessage(name, t), true
-		}
-	}
-	return "", false
+// writeRequest asks about the run a press would really fire, so the
+// duplicate tenants are the per-tenant count the cap compares against.
+func (p *Page) writeRequest(name string) guardrail.Request {
+	return p.request(name, p.markedTargets)
 }
 
-// writeTenants lists the tenants the named verb would write to, once
-// each. Expire is the only verb that fans out over marks; the others
-// act on one row, and a new silence lands wherever pickWriteTarget
-// resolves when the cursor row cannot host it.
-func (p *Page) writeTenants(name string) []string {
+// guarded answers the [guarded] suffix. It counts each marked tenant
+// once: a binding outlives any one run, so a cap the current marks
+// happen to breach must not strike the key off the hint strip.
+// Bindings() runs on the render path and again on every key press, so
+// an unconfigured policy pays for no walk at all.
+func (p *Page) guarded(name string) bool {
+	if len(p.guardrails) == 0 {
+		return false
+	}
+	return p.guardrails.Decide(p.request(name, p.markedTenants)).Refused()
+}
+
+// request turns the press into its targets; marked resolves the bulk
+// fan-out, the one case the two callers count differently.
+//
+// Lead follows the press rather than the rule, so the sentence names
+// the key the user pressed. A bulk expire is the only press this page
+// has a name for; every other one reads back as the rule to edit.
+func (p *Page) request(name string, marked func() []string) guardrail.Request {
 	switch {
+	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
+		return guardrail.Request{Action: name, Tenants: marked(), Lead: "bulk expire"}
 	case name == guardrail.ActionSilenceCreate:
 		if t, _, ok := p.pickWriteTarget(); ok {
-			return []string{t}
+			return guardrail.Request{Action: name, Tenants: []string{t}}
 		}
-		return nil
-	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
-		return p.markedTenants()
 	case p.Index() < len(p.view):
-		return []string{p.view[p.Index()].tenant}
+		return guardrail.Request{Action: name, Tenants: []string{p.view[p.Index()].tenant}}
 	}
-	return nil
+	return guardrail.Request{Action: name}
 }
 
-// markedTenants lists the tenants the marked silences live in, once
-// each and in a stable order. It walks byTenant rather than the
+// markedTargets names the tenant of every marked silence, once per
+// silence and in a stable order. It walks byTenant rather than the
 // filtered view because openBulkExpireConfirm queues from byTenant
 // too: a mark the active filter hides still reaches the write, so the
-// policy has to see the same rows.
+// policy has to count the same rows. A mark on a tenant with no
+// writeable client is kept for the same reason — refusing a press that
+// would have failed anyway costs nothing, and dropping it would let a
+// capped tenant through whenever its client is missing.
+func (p *Page) markedTargets() []string {
+	var out []string
+	for tenant, sils := range p.byTenant {
+		for _, s := range sils {
+			if _, marked := p.marks[s.ID]; marked {
+				out = append(out, tenant)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// markedTenants serves the callers that ask per backend rather than
+// per row.
 func (p *Page) markedTenants() []string {
 	var out []string
 	for tenant, sils := range p.byTenant {

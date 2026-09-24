@@ -116,9 +116,6 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	// Sort by ID for deterministic confirm-question wording and
 	// stable iteration order across runs / tests.
 	sort.Slice(ids, func(i, j int) bool { return ids[i].id < ids[j].id })
-	if msg := p.bulkCapBreach(ids); msg != "" {
-		return footer.ShowFlash(footer.FlashWarn, msg)
-	}
 	p.pendingExpire = pendingExpire{ids: ids, bulk: true}
 	var question string
 	if len(ids) == 1 {
@@ -128,27 +125,12 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	}
 	// markedTenants reads the same marks against the same byTenant map
 	// that built ids, so the prompt asks for the backends the run
-	// really touches. It keeps a mark on a tenant with no writeable
-	// client for the reason bulkCapBreach gives below.
+	// really touches. runWriteAction already asked the write policy
+	// about those same rows.
 	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceExpire, p.markedTenants())
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
-}
-
-// bulkCapBreach runs before the confirm modal, so a refused run never
-// asks a question it would not honour, and it leaves the marks alone
-// so the user can narrow them. ids already carries every marked
-// silence, including one on a tenant with no writeable client, and the
-// count keeps it: refusing a press that would have failed anyway costs
-// nothing, and dropping it would let a capped tenant through whenever
-// its client is missing at that moment.
-func (p *Page) bulkCapBreach(ids []pendingExpireID) string {
-	counts := make(map[string]int, len(ids))
-	for _, id := range ids {
-		counts[id.tenant]++
-	}
-	return p.guardrails.BulkBreach("bulk expire", guardrail.ActionSilenceExpire, counts)
 }
 
 func formatTenantBreakdown(ids []pendingExpireID) string {
