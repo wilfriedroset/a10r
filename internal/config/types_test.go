@@ -106,7 +106,7 @@ func TestConfig_LoadValidFull(t *testing.T) {
 			Reason:  "expire prod silences from the change ticket, not a10r",
 		},
 		{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName},
-		{MaxBulk: 20},
+		{MaxBulk: new(20)},
 	}, got.Guardrails)
 
 	require.NoError(t, got.Validate())

@@ -75,7 +75,7 @@ func TestWritePolicy_KeepsTheConfiguredRules(t *testing.T) {
 
 	cfg := &config.Config{
 		Backends:   []config.Backend{{Name: "prod", ReadOnly: true}, {Name: "staging"}},
-		Guardrails: guardrail.Set{{Tenants: []string{"staging"}, MaxBulk: 3}},
+		Guardrails: guardrail.Set{{Tenants: []string{"staging"}, MaxBulk: new(3)}},
 	}
 
 	v := writePolicy(cfg).Evaluate("staging", guardrail.ActionSilenceCreate)

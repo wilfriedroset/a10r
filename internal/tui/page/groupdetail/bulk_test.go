@@ -178,7 +178,7 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 		Guardrails: guardrail.Set{{
 			Tenants: []string{tenant},
 			Actions: []string{guardrail.ActionSilenceCreate},
-			MaxBulk: 2,
+			MaxBulk: new(2),
 		}},
 	})
 	for range insts {

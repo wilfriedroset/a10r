@@ -94,10 +94,10 @@ type Rule struct {
 	Actions      []string     `yaml:"actions,omitempty"`
 	Deny         bool         `yaml:"deny,omitempty"`
 	Confirmation Confirmation `yaml:"confirmation,omitempty"`
-	// MaxBulk zero means absent, the same idiom as
-	// config.Defaults.BulkConcurrency. A user who wants no bulk run at
-	// all writes deny rather than max_bulk: 0.
-	MaxBulk int `yaml:"max_bulk,omitempty"`
+	// MaxBulk is a pointer so an absent field, which leaves bulk
+	// uncapped, is distinguishable from an explicit max_bulk: 0, which
+	// Validate rejects. A user who wants no bulk run at all writes deny.
+	MaxBulk *int `yaml:"max_bulk,omitempty"`
 	// Reason is surfaced to the user on a deny, and nowhere else.
 	Reason string `yaml:"reason,omitempty"`
 }
@@ -178,8 +178,8 @@ func (s Set) Evaluate(tenant, action string) Verdict {
 				v.Reason = r.Reason
 			}
 		}
-		if r.MaxBulk > 0 && (v.MaxBulk == 0 || r.MaxBulk < v.MaxBulk) {
-			v.MaxBulk = r.MaxBulk
+		if r.MaxBulk != nil && *r.MaxBulk > 0 && (v.MaxBulk == 0 || *r.MaxBulk < v.MaxBulk) {
+			v.MaxBulk = *r.MaxBulk
 		}
 		v.Confirmation = v.Confirmation.Stronger(r.Confirmation)
 	}
@@ -256,10 +256,10 @@ func (r Rule) validate(i int) error {
 	default:
 		return fmt.Errorf("guardrails[%d].confirmation: unknown level %q (known: %s, %s)", i, r.Confirmation, ConfirmationPlain, ConfirmationTypeTenantName)
 	}
-	if r.MaxBulk < 0 {
-		return fmt.Errorf("guardrails[%d].max_bulk: must be >= 1 (got %d); omit the field to leave bulk uncapped", i, r.MaxBulk)
+	if r.MaxBulk != nil && *r.MaxBulk < 1 {
+		return fmt.Errorf("guardrails[%d].max_bulk: must be >= 1 (got %d); omit the field to leave bulk uncapped", i, *r.MaxBulk)
 	}
-	if !r.Deny && r.Confirmation == "" && r.MaxBulk == 0 {
+	if !r.Deny && r.Confirmation == "" && r.MaxBulk == nil {
 		return fmt.Errorf("guardrails[%d]: set at least one of deny, confirmation, max_bulk", i)
 	}
 	return nil

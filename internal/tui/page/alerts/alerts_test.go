@@ -1259,7 +1259,7 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 		Guardrails: guardrail.Set{{
 			Tenants: []string{"prod-eu"},
 			Actions: []string{guardrail.ActionSilenceCreate},
-			MaxBulk: 2,
+			MaxBulk: new(2),
 		}},
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{

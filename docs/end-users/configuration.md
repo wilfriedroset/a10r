@@ -541,7 +541,7 @@ guardrails:
 | `actions` | list of globs | Write verbs the rule covers. Omitted or empty matches every verb. |
 | `deny` | bool | Refuse the verb. |
 | `confirmation` | `plain` or `type-tenant-name` | The confirmation the user must clear. |
-| `max_bulk` | positive int | Largest number of targets one bulk run may touch, per tenant. Omit it (or write `0`) to leave bulk uncapped. To block bulk entirely, use `deny`. |
+| `max_bulk` | positive int | Largest number of targets one bulk run may touch, per tenant. Omit the field to leave bulk uncapped; a value below `1`, including `0`, is rejected at load. To block bulk entirely, use `deny`. |
 | `reason` | string | Text shown on a refusal. Ignored by `confirmation` and `max_bulk`. |
 
 The verbs are `silence.create`, `silence.update`, `silence.expire`,
@@ -572,7 +572,7 @@ is evaluated as a deny no rule can be edited around, and its reason
 is the one a refusal quotes.
 
 a10r refuses to start on a rule it cannot understand: an unknown verb
-or confirmation level, a negative `max_bulk`, or a rule that sets none
+or confirmation level, a `max_bulk` below `1`, or a rule that sets none
 of `deny`, `confirmation`, and `max_bulk`. A `tenants` glob that
 matches no configured backend is a warning instead of an error, so
 you can share one `config.d` fragment across machines that do not all

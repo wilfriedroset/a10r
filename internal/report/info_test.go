@@ -294,7 +294,7 @@ func TestInfo_Guardrails(t *testing.T) {
 				Reason:  "change ticket only",
 			},
 			{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName},
-			{MaxBulk: 20},
+			{MaxBulk: new(20)},
 			// A glob no backend answers: the shared config.d fragment
 			// case the report warns about rather than rejecting.
 			{Tenants: []string{"lab-*"}, Deny: true},

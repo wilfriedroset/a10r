@@ -40,7 +40,7 @@ headless path in `cmd/` keeps its own check.
   `config.d` fragment is shared across machines that do not all have
   every tenant. `a10r info` lists the warnings.
 - **Every other rule error stops startup.** An unknown verb, an
-  unknown confirmation level, a negative `max_bulk`, or a rule that
+  unknown confirmation level, a `max_bulk` below 1, or a rule that
   restricts nothing is a typo in a safety feature, and a typo that
   silently permits the write is the failure mode worth avoiding.
 

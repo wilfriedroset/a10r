@@ -84,7 +84,7 @@ func TestSetEvaluate(t *testing.T) {
 		{
 			name: "any deny wins and carries its own reason",
 			set: Set{
-				{Tenants: []string{"prod-*"}, MaxBulk: 5},
+				{Tenants: []string{"prod-*"}, MaxBulk: new(5)},
 				{Tenants: []string{"*"}, Deny: true, Reason: "frozen"},
 			},
 			tenant: "prod-eu",
@@ -94,9 +94,9 @@ func TestSetEvaluate(t *testing.T) {
 		{
 			name: "smallest max_bulk wins",
 			set: Set{
-				{Tenants: []string{"*"}, MaxBulk: 20},
-				{Tenants: []string{"prod-*"}, MaxBulk: 5},
-				{Tenants: []string{"prod-eu"}, MaxBulk: 50},
+				{Tenants: []string{"*"}, MaxBulk: new(20)},
+				{Tenants: []string{"prod-*"}, MaxBulk: new(5)},
+				{Tenants: []string{"prod-eu"}, MaxBulk: new(50)},
 			},
 			tenant: "prod-eu",
 			action: ActionSilenceExpire,
@@ -143,8 +143,25 @@ func TestSetEvaluate(t *testing.T) {
 			want:   Verdict{Denied: true, Reason: "frozen for the release"},
 		},
 		{
+			name:   "an absent max_bulk leaves the verdict uncapped",
+			set:    Set{{Tenants: []string{"prod-*"}, Confirmation: ConfirmationPlain}},
+			tenant: "prod-eu",
+			action: ActionSilenceExpire,
+			want:   Verdict{Confirmation: ConfirmationPlain},
+		},
+		{
+			// Validate rejects these, so reaching Evaluate means the
+			// loader was bypassed. Folding one in would win the min
+			// against every real cap and silently uncap the run.
+			name:   "an unvalidated non-positive cap never folds in",
+			set:    Set{{Tenants: []string{"prod-*"}, MaxBulk: new(0)}, {Tenants: []string{"prod-*"}, MaxBulk: new(-1)}, {Tenants: []string{"prod-*"}, MaxBulk: new(5)}},
+			tenant: "prod-eu",
+			action: ActionSilenceExpire,
+			want:   Verdict{MaxBulk: 5},
+		},
+		{
 			name:   "an action glob matches every verb under it",
-			set:    Set{{Actions: []string{"silence.*"}, MaxBulk: 3}},
+			set:    Set{{Actions: []string{"silence.*"}, MaxBulk: new(3)}},
 			tenant: "prod-eu",
 			action: ActionSilenceRecreate,
 			want:   Verdict{MaxBulk: 3},
@@ -223,13 +240,13 @@ func TestSetValidate(t *testing.T) {
 				Actions:      []string{ActionSilenceExpire},
 				Deny:         true,
 				Confirmation: ConfirmationTypeTenantName,
-				MaxBulk:      20,
+				MaxBulk:      new(20),
 				Reason:       "change ticket only",
 			}},
 		},
 		{
 			name: "max_bulk alone is an effect",
-			set:  Set{{MaxBulk: 1}},
+			set:  Set{{MaxBulk: new(1)}},
 		},
 		{
 			name:    "rule with no effect",
@@ -247,8 +264,13 @@ func TestSetValidate(t *testing.T) {
 			wantErr: `guardrails[0].confirmation: unknown level "two-man-rule" (known: plain, type-tenant-name)`,
 		},
 		{
+			name:    "an explicit max_bulk of zero",
+			set:     Set{{MaxBulk: new(0)}},
+			wantErr: `guardrails[0].max_bulk: must be >= 1 (got 0); omit the field to leave bulk uncapped`,
+		},
+		{
 			name:    "max_bulk below one",
-			set:     Set{{MaxBulk: -1}},
+			set:     Set{{MaxBulk: new(-1)}},
 			wantErr: `guardrails[0].max_bulk: must be >= 1 (got -1); omit the field to leave bulk uncapped`,
 		},
 		{
@@ -273,7 +295,7 @@ func TestSetValidate(t *testing.T) {
 		},
 		{
 			name:    "the index names the offending rule",
-			set:     Set{{Deny: true}, {MaxBulk: 0, Tenants: []string{"prod-*"}}},
+			set:     Set{{Deny: true}, {Tenants: []string{"prod-*"}}},
 			wantErr: `guardrails[1]: set at least one of deny, confirmation, max_bulk`,
 		},
 		{
@@ -322,7 +344,7 @@ func TestSetUnmatchedTenants(t *testing.T) {
 		},
 		{
 			name:     "a glob that matches nothing is reported once",
-			set:      Set{{Tenants: []string{"prod-*", "lab-*"}, Deny: true}, {Tenants: []string{"lab-*"}, MaxBulk: 3}},
+			set:      Set{{Tenants: []string{"prod-*", "lab-*"}, Deny: true}, {Tenants: []string{"lab-*"}, MaxBulk: new(3)}},
 			backends: []string{"prod-eu"},
 			want:     []string{"lab-*"},
 		},
@@ -433,8 +455,8 @@ func TestSet_BulkBreach(t *testing.T) {
 	t.Parallel()
 
 	set := Set{
-		{Tenants: []string{"prod-eu"}, MaxBulk: 20},
-		{Tenants: []string{"prod-us"}, MaxBulk: 5},
+		{Tenants: []string{"prod-eu"}, MaxBulk: new(20)},
+		{Tenants: []string{"prod-us"}, MaxBulk: new(5)},
 	}
 	tests := []struct {
 		name   string

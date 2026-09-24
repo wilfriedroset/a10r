@@ -2478,7 +2478,7 @@ func TestGuardrail_TheCapStopsTheBulkExpireBeforeTheModal(t *testing.T) {
 		Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
 			Actions: []string{guardrail.ActionSilenceExpire},
-			MaxBulk: 2,
+			MaxBulk: new(2),
 		}},
 	})
 	sils := make([]backend.Silence, 0, 3)
@@ -2514,7 +2514,7 @@ func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
 		Guardrails: guardrail.Set{{
 			Actions: []string{guardrail.ActionSilenceExpire},
-			MaxBulk: 1,
+			MaxBulk: new(1),
 		}},
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{

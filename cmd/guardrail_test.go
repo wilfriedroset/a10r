@@ -96,7 +96,7 @@ func TestGuardrailBlocks(t *testing.T) {
 		},
 		{
 			name:   "the cap counts targets per tenant, not per run",
-			rules:  guardrail.Set{{MaxBulk: 2}},
+			rules:  guardrail.Set{{MaxBulk: new(2)}},
 			action: guardrail.ActionSilenceExpire,
 			targets: []writeTarget{
 				{tenant: "prod-eu", id: "a"},
@@ -144,7 +144,7 @@ func TestGuardrailBlocks(t *testing.T) {
 			name: "deny outranks the cap and the confirmation on one tenant",
 			rules: guardrail.Set{
 				{Deny: true, Reason: "frozen"},
-				{MaxBulk: 1},
+				{MaxBulk: new(1)},
 				{Confirmation: guardrail.ConfirmationTypeTenantName},
 			},
 			action:  guardrail.ActionSilenceExpire,
@@ -226,7 +226,7 @@ func TestRunDryRun_GuardrailMaxBulkNote(t *testing.T) {
 	t.Parallel()
 
 	cfg := cfgWith(config.Backend{Name: "prod-eu"})
-	cfg.Guardrails = guardrail.Set{{MaxBulk: 1}}
+	cfg.Guardrails = guardrail.Set{{MaxBulk: new(1)}}
 	targets := []writeTarget{{tenant: "prod-eu", id: "a"}, {tenant: "prod-eu", id: "b"}}
 
 	var out, errOut bytes.Buffer

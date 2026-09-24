@@ -148,8 +148,8 @@ func guardrailLine(r guardrail.Rule) string {
 	if r.Confirmation != "" {
 		parts = append(parts, "confirmation="+string(r.Confirmation))
 	}
-	if r.MaxBulk > 0 {
-		parts = append(parts, fmt.Sprintf("max_bulk=%d", r.MaxBulk))
+	if r.MaxBulk != nil {
+		parts = append(parts, fmt.Sprintf("max_bulk=%d", *r.MaxBulk))
 	}
 	if r.Reason != "" {
 		parts = append(parts, fmt.Sprintf("reason=%q", r.Reason))

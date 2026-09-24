@@ -32,7 +32,7 @@ func TestGuardrails_LoadFixture(t *testing.T) {
 		},
 		{
 			Tenants: []string{"*"},
-			MaxBulk: 20,
+			MaxBulk: new(20),
 		},
 	}, cfg.Guardrails)
 }
@@ -59,6 +59,30 @@ guardrails:
 		func(string) string { return "" }, func() (string, error) { return "/u", nil }, "linux")
 	require.EqualError(t, err, `validate config "`+path+
 		`": guardrails[0].actions[0]: unknown action "silence.delete" (known: silence.create, silence.update, silence.expire, silence.recreate)`)
+}
+
+// TestGuardrails_ExplicitZeroMaxBulkIsRejected pins the difference between an
+// absent field and an explicit zero must keep: omitting max_bulk
+// leaves bulk uncapped, writing 0 is the typo the loader refuses.
+func TestGuardrails_ExplicitZeroMaxBulkIsRejected(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a10r.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+backends:
+  - name: prod-eu
+    url: https://am.internal
+guardrails:
+  - tenants: ["prod-*"]
+    confirmation: plain
+    max_bulk: 0
+`), 0o600))
+
+	_, err := loadWithEnv(LoadOpts{Dir: dir},
+		func(string) string { return "" }, func() (string, error) { return "/u", nil }, "linux")
+	require.EqualError(t, err, `validate config "`+path+
+		`": guardrails[0].max_bulk: must be >= 1 (got 0); omit the field to leave bulk uncapped`)
 }
 
 // TestGuardrails_UnknownFieldIsRejected pins the strict-decode
@@ -103,6 +127,6 @@ guardrails:
 	require.NoError(t, err)
 	require.Equal(t, guardrail.Set{
 		{Tenants: []string{"prod-*"}, Deny: true},
-		{MaxBulk: 5},
+		{MaxBulk: new(5)},
 	}, cfg.Guardrails)
 }
