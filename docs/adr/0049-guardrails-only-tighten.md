@@ -21,6 +21,11 @@ unions rows from several tenants and a page-wide switch cannot say
 refusal quote `backend is read_only` rather than a user rule. The
 headless path in `cmd/` keeps its own check.
 
+Every write surface asks the policy through one adapter,
+`Set.Decide`, which takes the verb and the targets of one press and
+returns the deny, the bulk cap, or the confirmation still owed, so a
+new surface cannot invent a fifth reading of the same rule.
+
 ## Consequences
 
 - **Rule order carries no meaning.** Any `deny` wins, the smallest

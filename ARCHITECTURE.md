@@ -117,9 +117,12 @@ are defined in CONTEXT.md and used here without redefinition.
 - `internal/guardrail` -- the per-tenant write policy declared under
   `guardrails:`. It is the single evaluator the TUI and the headless
   CLI both import, so a rule cannot mean one thing on a key press and
-  another on a command line. Pure: it answers what policy says about
-  one tenant and one verb, and never performs, blocks, or counts a
-  write itself. See
+  another on a command line. Every write surface asks it through one
+  entry point, `Set.Decide`, which takes the verb and the targets of
+  one press and answers with the deny, the bulk cap, or the
+  confirmation still owed. It counts the targets it is handed, because
+  a cap is a count, but it never performs or blocks a write itself:
+  the caller reads the verdict and acts on it. See
   [ADR 0049](docs/adr/0049-guardrails-only-tighten.md).
 
 ### TUI (`internal/tui`)

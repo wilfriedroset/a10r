@@ -44,10 +44,15 @@ to [Semantic Versioning][semver].
   retype the backend name before the write goes out, once per
   restricted backend the run touches. Rules only tighten, never
   loosen: read-only is checked first and always wins, and a verb no
-  rule names keeps the prompt it already had. `a10r config validate`
-  refuses a rule that names an unknown verb or level, and `a10r info`
-  lists the rules in force plus any rule whose tenants match no
-  backend. See ADR 0049.
+  rule names keeps the prompt it already had. A refusal names the
+  press when it fans out over your marks, for example `bulk silence
+  denied on prod-eu: use the change ticket`, and names the verb when
+  the cursor row alone is the target. `a10r validate` refuses a rule
+  that names an unknown verb, an unknown level, or a `max_bulk` below
+  `1`. `a10r validate` and `a10r info` both list any rule whose
+  tenants match no backend, and the TUI logs the same warnings at
+  startup so `:config` shows them. `a10r info` also lists the rules in
+  force. See ADR 0049.
 
 - **Label columns** — add your own columns to the alerts list and the
   group detail page with a `columns:` list under `pages`, one entry
@@ -152,6 +157,15 @@ to [Semantic Versioning][semver].
   reveal.
 
 ### Fixed
+
+- **A dry run of a read-only plan now exits like the real run.**
+  `--dry-run` promises the exit code the real run's pre-mutation phase
+  would give, so a clean dry run is a pre-commit gate. A plan against
+  a read-only backend exited `0` where the apply exits `1`, so a
+  wrapper could green-light a plan no backend accepts. The plan line
+  now reads `[read-only: apply would be refused]`, and the dry run
+  exits `1`. A plan that also holds a rule refusal exits `1` as well,
+  so read-only never arrives as the guardrail code `6`.
 
 - **A password inside a backend `url` no longer reaches the screen.**
   `a10r info`, the `:info` page, the `:tenant` table and the tenant
