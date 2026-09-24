@@ -6,10 +6,11 @@
 // thing on a key press and another on a command line.
 //
 // The package is pure: it answers "what does policy say about this
-// tenant and this verb" and never performs, blocks, or counts a
-// write itself. Callers own the enforcement — hiding a binding,
-// flashing a warning, refusing a command — and own the target count
-// that Verdict.ExceedsBulk compares against.
+// run" and never performs or blocks a write itself. Set.Decide owns
+// the counting rule — one Request.Tenants entry per resolved target
+// — so no surface can count bulk for itself. Callers own only the
+// enforcement: hiding a binding, flashing a warning, refusing a
+// command.
 //
 // Evaluation is per tenant. A run that spans several backends asks
 // once per backend and enforces each answer separately, because a
