@@ -171,7 +171,7 @@ func TestSetEvaluate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.set.Evaluate(tt.tenant, tt.action))
+			require.Equal(t, tt.want, tt.set.evaluate(tt.tenant, tt.action))
 		})
 	}
 }
@@ -220,7 +220,7 @@ func TestVerdictExceedsBulk(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.v.ExceedsBulk(tt.count))
+			require.Equal(t, tt.want, tt.v.exceedsBulk(tt.count))
 		})
 	}
 }
@@ -398,7 +398,7 @@ func TestVerdict_DenyMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.verdict.DenyMessage(ActionSilenceExpire, "prod-eu"))
+			require.Equal(t, tt.want, tt.verdict.denyMessage(ActionSilenceExpire, "prod-eu"))
 		})
 	}
 }
@@ -446,138 +446,7 @@ func TestVerdict_BulkMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.verdict.BulkMessage(tt.lead, "prod-eu", tt.count))
-		})
-	}
-}
-
-func TestSet_BulkBreach(t *testing.T) {
-	t.Parallel()
-
-	set := Set{
-		{Tenants: []string{"prod-eu"}, MaxBulk: new(20)},
-		{Tenants: []string{"prod-us"}, MaxBulk: new(5)},
-	}
-	tests := []struct {
-		name   string
-		counts map[string]int
-		want   string
-	}{
-		{
-			name:   "the first breached tenant in name order answers",
-			counts: map[string]int{"prod-eu": 25, "prod-us": 9},
-			want:   "bulk expire on prod-eu: 25 targets exceed max_bulk 20",
-		},
-		{
-			name:   "a tenant inside its cap does not hide the one over it",
-			counts: map[string]int{"prod-eu": 20, "prod-us": 9},
-			want:   "bulk expire on prod-us: 9 targets exceed max_bulk 5",
-		},
-		{
-			name:   "the cap counts one tenant at a time, never the run total",
-			counts: map[string]int{"prod-eu": 15, "prod-us": 5},
-			want:   "",
-		},
-		{
-			name:   "an unruled tenant is uncapped",
-			counts: map[string]int{"staging": 900},
-			want:   "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, set.BulkBreach("bulk expire", ActionSilenceExpire, tt.counts))
-		})
-	}
-}
-
-func TestSet_AsksConfirmation(t *testing.T) {
-	t.Parallel()
-
-	set := Set{
-		{Tenants: []string{"staging"}, Confirmation: ConfirmationPlain},
-		{Tenants: []string{"lab"}, Actions: []string{ActionSilenceCreate}, Confirmation: ConfirmationTypeTenantName},
-	}
-	tests := []struct {
-		name    string
-		action  string
-		tenants []string
-		want    bool
-	}{
-		{
-			name:    "a plain rule counts, which is what TypedTenants leaves out",
-			action:  ActionSilenceExpire,
-			tenants: []string{"staging"},
-			want:    true,
-		},
-		{
-			name:    "one covered tenant in a run is enough",
-			action:  ActionSilenceExpire,
-			tenants: []string{"prod-us", "staging"},
-			want:    true,
-		},
-		{
-			name:    "a rule on another action asks for nothing",
-			action:  ActionSilenceExpire,
-			tenants: []string{"lab"},
-			want:    false,
-		},
-		{
-			name:    "no rule covers the run",
-			action:  ActionSilenceCreate,
-			tenants: []string{"prod-us"},
-			want:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, set.AsksConfirmation(tt.action, tt.tenants))
-		})
-	}
-}
-
-func TestSet_TypedTenants(t *testing.T) {
-	t.Parallel()
-
-	set := Set{
-		{Tenants: []string{"prod-*"}, Confirmation: ConfirmationTypeTenantName},
-		{Tenants: []string{"staging"}, Confirmation: ConfirmationPlain},
-		{Tenants: []string{"lab"}, Actions: []string{ActionSilenceCreate}, Confirmation: ConfirmationTypeTenantName},
-	}
-	tests := []struct {
-		name    string
-		action  string
-		tenants []string
-		want    []string
-	}{
-		{
-			name:    "only the tenants a typed rule covers are asked, in the given order",
-			action:  ActionSilenceExpire,
-			tenants: []string{"prod-us", "staging", "prod-eu"},
-			want:    []string{"prod-us", "prod-eu"},
-		},
-		{
-			name:    "a rule on another action asks for nothing",
-			action:  ActionSilenceExpire,
-			tenants: []string{"lab"},
-			want:    nil,
-		},
-		{
-			name:    "a plain rule stays plain",
-			action:  ActionSilenceExpire,
-			tenants: []string{"staging"},
-			want:    nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tt.want, set.TypedTenants(tt.action, tt.tenants))
+			require.Equal(t, tt.want, tt.verdict.bulkMessage(tt.lead, "prod-eu", tt.count))
 		})
 	}
 }

@@ -386,7 +386,7 @@ func (p *Page) guarded() bool {
 }
 
 // request turns the press into its targets; marked resolves the bulk
-// fan-out, the one case the two callers count differently.
+// fan-out, the one case the callers count differently.
 //
 // Lead follows the press rather than the rule, so the sentence names
 // the key the user pressed. Only the marked fan-out has a name of its

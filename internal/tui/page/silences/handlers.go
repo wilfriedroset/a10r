@@ -230,7 +230,7 @@ func (p *Page) guarded(name string) bool {
 }
 
 // request turns the press into its targets; marked resolves the bulk
-// fan-out, the one case the two callers count differently.
+// fan-out, the one case the callers count differently.
 //
 // Lead follows the press rather than the rule, so the sentence names
 // the key the user pressed. A bulk expire is the only press this page
@@ -497,14 +497,17 @@ func (p *Page) startEditor(entry silenceEntry) tea.Cmd {
 // one route and waved through on the other. A deny is already refused
 // upstream in runWriteAction.
 func (p *Page) confirmEdit(entry silenceEntry) (tea.Cmd, bool) {
-	if !p.guardrails.AsksConfirmation(guardrail.ActionSilenceUpdate, []string{entry.tenant}) {
+	d := p.guardrails.Decide(guardrail.Request{
+		Action:  guardrail.ActionSilenceUpdate,
+		Tenants: []string{entry.tenant},
+	})
+	if d.Confirm == "" {
 		return nil, false
 	}
-	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceUpdate, []string{entry.tenant})
 	captured := entry
 	p.pendingEditConfirm = &captured
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm("edit silence "+entry.s.ID+"?", modal.ConfirmDefaultNo, typed)
+		return modal.NewGuardedConfirm("edit silence "+entry.s.ID+"?", modal.ConfirmDefaultNo, d.Typed)
 	}), true
 }
 

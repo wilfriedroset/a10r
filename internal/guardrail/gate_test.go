@@ -77,6 +77,37 @@ func TestSetDecide(t *testing.T) {
 			},
 		},
 		{
+			name: "a tenant inside its cap does not hide the one over it",
+			set: Set{
+				{Tenants: []string{"prod-eu"}, MaxBulk: new(3)},
+				{Tenants: []string{"prod-us"}, MaxBulk: new(1)},
+			},
+			req: Request{
+				Action:  ActionSilenceExpire,
+				Tenants: []string{"prod-eu", "prod-eu", "prod-eu", "prod-us", "prod-us"},
+			},
+			want: Decision{Refusals: []Refusal{{
+				Tenant:  "prod-us",
+				Note:    "max_bulk 1 exceeded",
+				Message: "silence.expire on prod-us: 2 targets exceed max_bulk 1",
+			}}},
+		},
+		{
+			name: "only the tenants a typed rule covers are owed a prompt, in request order",
+			set: Set{
+				{Tenants: []string{"prod-*"}, Confirmation: ConfirmationTypeTenantName},
+				{Tenants: []string{"staging"}, Confirmation: ConfirmationPlain},
+			},
+			req: Request{
+				Action:  ActionSilenceExpire,
+				Tenants: []string{"prod-us", "staging", "prod-eu"},
+			},
+			want: Decision{
+				Typed:   []string{"prod-us", "prod-eu"},
+				Confirm: ConfirmationTypeTenantName,
+			},
+		},
+		{
 			name: "deny beats a breached cap",
 			set: Set{
 				{Tenants: []string{"prod-*"}, Deny: true},
@@ -145,6 +176,12 @@ func TestSetDecide(t *testing.T) {
 				Typed:   []string{"prod-eu"},
 				Confirm: ConfirmationTypeTenantName,
 			},
+		},
+		{
+			name: "an unruled tenant beside a ruled one still owes the prompt",
+			set:  Set{{Tenants: []string{"staging"}, Confirmation: ConfirmationPlain}},
+			req:  Request{Action: ActionSilenceExpire, Tenants: []string{"prod-eu", "staging"}},
+			want: Decision{Confirm: ConfirmationPlain},
 		},
 		{
 			name: "the strongest level across the request wins",

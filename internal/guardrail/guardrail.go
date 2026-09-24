@@ -20,7 +20,6 @@ package guardrail
 
 import (
 	"fmt"
-	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -121,28 +120,28 @@ type Verdict struct {
 	Confirmation Confirmation
 }
 
-// ExceedsBulk reports whether count breaches the cap. An uncapped
+// exceedsBulk reports whether count breaches the cap. An uncapped
 // verdict never breaches, however large the run.
-func (v Verdict) ExceedsBulk(count int) bool {
+func (v Verdict) exceedsBulk(count int) bool {
 	return v.MaxBulk > 0 && count > v.MaxBulk
 }
 
-// BulkMessage is the one sentence a surface prints when a target count
+// bulkMessage is the one sentence a surface prints when a target count
 // breaches the cap. Empty when the count fits. lead names the verb the
 // reader recognizes, which differs per surface: the TUI says "bulk
 // expire" because that is the key the user pressed, and the headless
 // path says "silence.expire" because that is the rule name to edit.
-func (v Verdict) BulkMessage(lead, tenant string, count int) string {
-	if !v.ExceedsBulk(count) {
+func (v Verdict) bulkMessage(lead, tenant string, count int) string {
+	if !v.exceedsBulk(count) {
 		return ""
 	}
 	return fmt.Sprintf("%s on %s: %d targets exceed max_bulk %d", lead, tenant, count, v.MaxBulk)
 }
 
-// DenyMessage is the one sentence a surface prints when policy refuses
+// denyMessage is the one sentence a surface prints when policy refuses
 // a verb. It lives here so the TUI flash and the headless stderr line
 // cannot word the same refusal differently. Empty when nothing denies.
-func (v Verdict) DenyMessage(action, tenant string) string {
+func (v Verdict) denyMessage(action, tenant string) string {
 	if !v.Denied {
 		return ""
 	}
@@ -158,16 +157,17 @@ func (v Verdict) DenyMessage(action, tenant string) string {
 // verdict quotes, and the order Validate and UnmatchedTenants report
 // in.
 //
-// Evaluate assumes Validate already passed. On an unvalidated glob it
+// evaluate assumes Validate already passed. On an unvalidated glob it
 // fails open — a pattern path.Match cannot compile matches nothing,
 // so a deny rule would quietly stop denying. The config loader is the
 // one place that gate lives.
 type Set []Rule
 
-// Evaluate folds every rule matching tenant and action into one
+// evaluate folds every rule matching tenant and action into one
 // verdict: any deny wins, the smallest cap wins, the strongest
-// confirmation wins.
-func (s Set) Evaluate(tenant, action string) Verdict {
+// confirmation wins. It stays unexported so Decide is the only way in
+// and a new write verb cannot forget the check.
+func (s Set) evaluate(tenant, action string) Verdict {
 	var v Verdict
 	for _, r := range s {
 		if !match(r.Tenants, tenant) || !match(r.Actions, action) {
@@ -185,46 +185,6 @@ func (s Set) Evaluate(tenant, action string) Verdict {
 		v.Confirmation = v.Confirmation.Stronger(r.Confirmation)
 	}
 	return v
-}
-
-// BulkBreach names the first breached tenant in name order, or "" when
-// every count fits. Callers pass a count per tenant, never the run
-// total: a cap restricts what lands in one backend, so a run spread
-// over three tenants is three counts.
-func (s Set) BulkBreach(lead, action string, counts map[string]int) string {
-	for _, t := range slices.Sorted(maps.Keys(counts)) {
-		if msg := s.Evaluate(t, action).BulkMessage(lead, t, counts[t]); msg != "" {
-			return msg
-		}
-	}
-	return ""
-}
-
-// AsksConfirmation reports whether any of these tenants demands a
-// confirmation for this action. A caller that skips its prompt on a
-// small run asks this first, because the level can be plain, which
-// TypedTenants leaves out by design.
-func (s Set) AsksConfirmation(action string, tenants []string) bool {
-	for _, t := range tenants {
-		if s.Evaluate(t, action).Confirmation != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// TypedTenants lists the tenants, in the order given, that demand the
-// typed confirmation for this action. Empty means the verb keeps the
-// confirmation it has today, because a rule can only strengthen the
-// prompt, never weaken it.
-func (s Set) TypedTenants(action string, tenants []string) []string {
-	var out []string
-	for _, t := range tenants {
-		if s.Evaluate(t, action).Confirmation.rank() >= ConfirmationTypeTenantName.rank() {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 // Validate checks every rule and returns the first problem, naming the

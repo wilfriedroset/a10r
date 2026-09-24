@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -261,7 +260,7 @@ func (p *Page) openSilenceAllForCursor() tea.Cmd {
 		scopeNote: p.silenceAllScopeNote(g),
 	}
 	if g.count > 1 {
-		typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, []string{g.tenant})
+		typed := p.guardrails.Decide(p.silenceRequest()).Typed
 		return app.OpenModal(func() modal.Modal {
 			return modal.NewGuardedConfirm(silenceAllQuestion(g), modal.ConfirmDefaultYes, typed)
 		})

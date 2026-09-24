@@ -72,7 +72,7 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 		bulk: false,
 	}
 	question := "expire silence " + entry.s.ID + "?"
-	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceExpire, []string{entry.tenant})
+	typed := p.guardrails.Decide(p.writeRequest(guardrail.ActionSilenceExpire)).Typed
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
@@ -125,9 +125,11 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	}
 	// markedTenants reads the same marks against the same byTenant map
 	// that built ids, so the prompt asks for the backends the run
-	// really touches. runWriteAction already asked the write policy
-	// about those same rows.
-	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceExpire, p.markedTenants())
+	// really touches, once each rather than once per row. Only the
+	// prompt is read: runWriteAction already asked the write policy
+	// about these same rows, counting them one per row as the cap
+	// needs.
+	typed := p.guardrails.Decide(p.request(guardrail.ActionSilenceExpire, p.markedTenants)).Typed
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})

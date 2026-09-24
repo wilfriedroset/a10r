@@ -11,7 +11,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -59,16 +58,16 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no marked instances remain")
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
+	d := p.guardrails.Decide(p.writeRequest())
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
 	// nothing downstream would ask on its behalf.
-	if len(targets) == 1 && !p.guardrails.AsksConfirmation(guardrail.ActionSilenceCreate, []string{p.tenant}) {
+	if len(targets) == 1 && d.Confirm == "" {
 		return p.pushBulkSilenceForm()
 	}
-	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, []string{p.tenant})
 	question := bulkSilenceQuestion(len(targets), p.tenant)
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, d.Typed)
 	})
 }
 

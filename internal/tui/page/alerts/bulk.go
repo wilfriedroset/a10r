@@ -159,17 +159,20 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
+	// tenants is what the run resolved to, not what is marked: a marked
+	// tenant whose client vanished still counts for the cap, but has no
+	// name worth asking the user to type.
+	d := p.guardrails.Decide(p.request(func() []string { return tenants }))
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
 	// nothing downstream would ask on its behalf.
-	if len(targets) == 1 && !p.guardrails.AsksConfirmation(guardrail.ActionSilenceCreate, tenants) {
+	if len(targets) == 1 && d.Confirm == "" {
 		return p.pushBulkSilenceForm()
 	}
-	typed := p.guardrails.TypedTenants(guardrail.ActionSilenceCreate, tenants)
 	question := fmt.Sprintf("silence %d %s? (tenant %s)",
 		len(targets), alertNoun(len(targets)), formatTenantBreakdownAlerts(targets))
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, d.Typed)
 	})
 }
 

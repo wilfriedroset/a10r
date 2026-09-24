@@ -3,6 +3,7 @@
 package boot
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -17,6 +18,12 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
+
+// decide asks the policy about one target on one backend, the shape
+// every read-only assertion here needs.
+func decide(set guardrail.Set, tenant, action string) guardrail.Decision {
+	return set.Decide(guardrail.Request{Action: action, Tenants: []string{tenant}})
+}
 
 // configuration.md documents per-backend `read_only` as the first
 // source of the read-only precedence, so every write verb has to
@@ -39,10 +46,10 @@ func TestWritePolicy_DeniesEveryWriteVerbOnAReadOnlyBackend(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 
-			v := set.Evaluate("prod", action)
-			require.True(t, v.Denied)
-			require.Contains(t, v.DenyMessage(action, "prod"), "prod", "the refusal names the tenant it refused")
-			require.False(t, set.Evaluate("staging", action).Denied)
+			d := decide(set, "prod", action)
+			require.True(t, d.Refused())
+			require.Contains(t, d.Flash(), "prod", "the refusal names the tenant it refused")
+			require.False(t, decide(set, "staging", action).Refused())
 		})
 	}
 }
@@ -62,10 +69,10 @@ func TestWritePolicy_QuotesTheReadOnlyReasonOverAUserRule(t *testing.T) {
 		}},
 	}
 
-	v := writePolicy(cfg).Evaluate("prod", guardrail.ActionSilenceExpire)
+	d := decide(writePolicy(cfg), "prod", guardrail.ActionSilenceExpire)
 
-	require.True(t, v.Denied)
-	require.Equal(t, "backend is read_only", v.Reason)
+	require.True(t, d.Refused())
+	require.Equal(t, "silence.expire denied on prod: backend is read_only", d.Flash())
 }
 
 // The configured rules keep working beside the synthesized ones: a
@@ -78,10 +85,18 @@ func TestWritePolicy_KeepsTheConfiguredRules(t *testing.T) {
 		Guardrails: guardrail.Set{{Tenants: []string{"staging"}, MaxBulk: new(3)}},
 	}
 
-	v := writePolicy(cfg).Evaluate("staging", guardrail.ActionSilenceCreate)
+	set := writePolicy(cfg)
+	req := func(targets int) guardrail.Request {
+		return guardrail.Request{
+			Action:  guardrail.ActionSilenceCreate,
+			Tenants: slices.Repeat([]string{"staging"}, targets),
+		}
+	}
 
-	require.False(t, v.Denied)
-	require.Equal(t, 3, v.MaxBulk)
+	require.False(t, set.Decide(req(3)).Refused(), "the configured cap still fits at its own limit")
+	require.Equal(t,
+		"silence.create on staging: 4 targets exceed max_bulk 3",
+		set.Decide(req(4)).Flash())
 }
 
 // A backend name is free-form while a rule's tenant list is a glob.
@@ -97,7 +112,7 @@ func TestWritePolicy_DeniesABackendNamedWithGlobSyntax(t *testing.T) {
 
 			cfg := &config.Config{Backends: []config.Backend{{Name: name, ReadOnly: true}}}
 
-			require.True(t, writePolicy(cfg).Evaluate(name, guardrail.ActionSilenceCreate).Denied)
+			require.True(t, decide(writePolicy(cfg), name, guardrail.ActionSilenceCreate).Refused())
 		})
 	}
 }
@@ -166,8 +181,8 @@ func TestBuild_PerBackendReadOnlyReachesThePageEnv(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, res.Close()) })
 
 	require.False(t, res.env.ReadOnly, "a writable tenant keeps the bindings up")
-	require.True(t, res.env.Guardrails.Evaluate("prod", guardrail.ActionSilenceCreate).Denied)
-	require.False(t, res.env.Guardrails.Evaluate("staging", guardrail.ActionSilenceCreate).Denied)
+	require.True(t, decide(res.env.Guardrails, "prod", guardrail.ActionSilenceCreate).Refused())
+	require.False(t, decide(res.env.Guardrails, "staging", guardrail.ActionSilenceCreate).Refused())
 }
 
 // A reload is the other way the flag moves, and the pages read the
@@ -185,7 +200,7 @@ func TestReload_AppliesAPerBackendReadOnlyFlipToThePolicy(t *testing.T) {
 
 	require.IsType(t, app.ReloadedMsg{}, r.reload()())
 
-	require.True(t, env.Guardrails.Evaluate("prod", guardrail.ActionSilenceExpire).Denied)
+	require.True(t, decide(env.Guardrails, "prod", guardrail.ActionSilenceExpire).Refused())
 	require.True(t, env.ReadOnly, "the only backend is frozen, so the page-wide switch is honest")
 }
 

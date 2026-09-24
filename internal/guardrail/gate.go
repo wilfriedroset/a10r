@@ -78,7 +78,7 @@ func (s Set) Decide(req Request) Decision {
 		}
 		seen[tenant] = true
 
-		v := s.Evaluate(tenant, req.Action)
+		v := s.evaluate(tenant, req.Action)
 		d.Confirm = d.Confirm.Stronger(v.Confirmation)
 		typed := v.Confirmation.rank() >= ConfirmationTypeTenantName.rank() && !slices.Contains(req.Confirmed, tenant)
 		if typed {
@@ -96,13 +96,13 @@ func (s Set) Decide(req Request) Decision {
 func refusal(v Verdict, lead, tenant string, count int) (Refusal, bool) {
 	switch {
 	case v.Denied:
-		return Refusal{Tenant: tenant, Note: "denied", Message: v.DenyMessage(lead, tenant)}, true
+		return Refusal{Tenant: tenant, Note: "denied", Message: v.denyMessage(lead, tenant)}, true
 
-	case v.ExceedsBulk(count):
+	case v.exceedsBulk(count):
 		return Refusal{
 			Tenant:  tenant,
 			Note:    fmt.Sprintf("max_bulk %d exceeded", v.MaxBulk),
-			Message: v.BulkMessage(lead, tenant, count),
+			Message: v.bulkMessage(lead, tenant, count),
 		}, true
 	}
 	return Refusal{}, false
