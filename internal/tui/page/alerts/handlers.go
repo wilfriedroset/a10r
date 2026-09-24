@@ -228,8 +228,8 @@ func (p *Page) openSilenceForS() tea.Cmd {
 	// cursor group alone and let the range carry a denied tenant
 	// through. Marks are additive, so a refusal here keeps them.
 	listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey)
-	if msg, denied := p.silenceDeny(); denied {
-		return footer.ShowFlash(footer.FlashWarn, msg)
+	if d := p.guardrails.Decide(p.silenceRequest()); d.Refused() {
+		return footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	if len(p.marks) == 0 {
 		return p.openSilenceAllForCursor()

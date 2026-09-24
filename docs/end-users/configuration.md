@@ -506,6 +506,9 @@ write while triaging.
 Source 1 covers one backend. A list page mixes rows from every tenant
 in scope, so the bindings stay up and a10r refuses per row, naming
 the backend: `silence.create denied on prod: backend is read_only`.
+That is the cursor case. A press that fans out over marks names the
+press instead, as [keybindings.md](keybindings.md#guardrails)
+describes.
 The hint strip drops the key while the cursor or a mark sits on a
 frozen backend, and `?` keeps the row with a `[guarded]` suffix. A run
 spanning several tenants is refused whole rather than partly applied

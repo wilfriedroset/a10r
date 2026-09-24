@@ -154,9 +154,6 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		if p.readOnly {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
-		if msg, denied := p.silenceDeny(); denied {
-			return p, footer.ShowFlash(footer.FlashWarn, msg)
-		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "S":
@@ -238,7 +235,14 @@ func (p *Page) drillToDetail() tea.Cmd {
 // openSilenceForS routes `s`: no marks → silence-one form for the
 // cursor instance; with marks → the bulk silence-one fanout.
 func (p *Page) openSilenceForS() tea.Cmd {
+	// The policy is asked after the commit, not in handleAction: an
+	// open range is not marked yet, so checking earlier would count one
+	// instance and talk a capped range past the gate. Marks are
+	// additive, so a refusal here keeps them.
 	listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
+	if d := p.guardrails.Decide(p.writeRequest()); d.Refused() {
+		return footer.ShowFlash(footer.FlashWarn, d.Flash())
+	}
 	if len(p.marks) == 0 {
 		return p.openSilenceFormForCursor()
 	}

@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -494,7 +495,7 @@ func (*Page) PollResources() []string { return []string{"alerts"} }
 // lives on every table view via TableMotions and isn't repeated.
 // Dangerous entries (`s`) are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
-	_, guarded := p.silenceDeny()
+	guarded := p.guarded()
 	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
@@ -526,9 +527,34 @@ func (p *Page) Bindings() []action.Action {
 	return out
 }
 
-// silenceDeny asks the write policy about this page's single tenant.
-// It returns the flash sentence when a rule denies the verb.
-func (p *Page) silenceDeny() (string, bool) {
-	v := p.guardrails.Evaluate(p.tenant, guardrail.ActionSilenceCreate)
-	return v.DenyMessage(guardrail.ActionSilenceCreate, p.tenant), v.Denied
+// guarded answers the [guarded] suffix. It asks about the page's one
+// backend rather than the current marks: a binding outlives any one
+// run, so a cap the marks happen to breach must not strike `s` off the
+// hint strip.
+func (p *Page) guarded() bool {
+	if len(p.guardrails) == 0 {
+		return false
+	}
+	return p.guardrails.Decide(guardrail.Request{
+		Action:  guardrail.ActionSilenceCreate,
+		Tenants: []string{p.tenant},
+	}).Refused()
+}
+
+// writeRequest asks about the run the press would really fire. Lead
+// follows the press rather than the rule, so only the marked fan-out
+// has a name of its own; a cursor press reads back as the rule to edit.
+func (p *Page) writeRequest() guardrail.Request {
+	if len(p.marks) > 0 {
+		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: p.markedTargets(), Lead: "bulk silence"}
+	}
+	return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.tenant}}
+}
+
+// markedTargets names this page's tenant once per instance the fan-out
+// would write, so the duplicates are the count max_bulk compares
+// against. It resolves through the same walk openBulkSilence queues
+// from, so the policy and the run see the same marks.
+func (p *Page) markedTargets() []string {
+	return slices.Repeat([]string{p.tenant}, len(p.resolveBulkSilenceTargets()))
 }

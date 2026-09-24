@@ -158,9 +158,6 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	if len(targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
-	if msg := p.bulkCapBreach(targets); msg != "" {
-		return footer.ShowFlash(footer.FlashWarn, msg)
-	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
@@ -174,17 +171,6 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, typed)
 	})
-}
-
-// bulkCapBreach runs before the confirm modal, so a refused run never
-// asks a question it would not honour, and it leaves the marks alone
-// so the user can narrow them.
-func (p *Page) bulkCapBreach(targets []bulkSilenceTarget) string {
-	counts := make(map[string]int, len(targets))
-	for _, t := range targets {
-		counts[t.Tenant]++
-	}
-	return p.guardrails.BulkBreach("bulk silence", guardrail.ActionSilenceCreate, counts)
 }
 
 // resolveBulkSilenceTargets walks the current groups so a marked group

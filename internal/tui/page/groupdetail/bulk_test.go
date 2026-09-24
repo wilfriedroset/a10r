@@ -157,12 +157,23 @@ func TestBulkSilence_FanoutRoundTripDropsMarksAndFlashes(t *testing.T) {
 	require.Contains(t, flash.Text, "silenced 2 instances")
 }
 
-// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins spec item
-// 8 on this page: the check runs before the confirm modal and leaves
-// the marks set, so the user can narrow the selection and retry.
-func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
-	t.Parallel()
+// cappedMarksPage marks three instances under a max_bulk of two, the
+// smallest shape that breaches the cap.
+func cappedMarksPage(t *testing.T) *Page {
+	t.Helper()
+	p := cappedPage(t)
+	for range 3 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+	return p
+}
 
+// cappedPage is cappedMarksPage before the marks, so a test can reach
+// the same breach through the visual range instead.
+func cappedPage(t *testing.T) *Page {
+	t.Helper()
 	insts := make([]backend.Alert, 3)
 	for i := range insts {
 		insts[i] = instance(fmt.Sprintf("fp-%d", i), "warning", backend.AlertStateActive,
@@ -181,11 +192,16 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 			MaxBulk: new(2),
 		}},
 	})
-	for range insts {
-		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
-		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	}
-	require.Len(t, p.marks, 3)
+	return p
+}
+
+// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins the cap
+// rule on this page: the check runs before the confirm modal and
+// leaves the marks set, so the user can narrow the selection and retry.
+func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -195,6 +211,55 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 	require.Equal(t, "bulk silence on "+tenant+": 3 targets exceed max_bulk 2", msg.Text)
 	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
 	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+}
+
+// TestGuardrail_AVisualRangeOverTheCapStopsThePress covers the range
+// branch: the rows are not marked until `s` commits them, so the check
+// has to run after the commit or a capped range reaches the modal.
+func TestGuardrail_AVisualRangeOverTheCapStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := cappedPage(t)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Empty(t, p.marks, "a range is not marked until the press commits it")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a capped range flashes instead of opening the confirm modal")
+	require.Equal(t, "bulk silence on "+tenant+": 3 targets exceed max_bulk 2", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+}
+
+// TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip splits the run
+// from the binding: a binding outlives any one run, so a cap the
+// current marks happen to breach refuses the press without striking
+// `s` off the hint strip.
+func TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
+	require.Empty(t, guardedKeys(p), "a breached cap refuses this run, not the binding")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, "bulk silence on "+tenant+": 3 targets exceed max_bulk 2", msg.Text)
+}
+
+// guardedKeys lists the keys the page currently reports as guarded, so
+// a test names the whole outcome rather than one binding at a time.
+func guardedKeys(p *Page) []string {
+	var out []string
+	for _, b := range p.Bindings() {
+		if b.Guarded {
+			out = append(out, b.Key)
+		}
+	}
+	return out
 }
 
 // TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6

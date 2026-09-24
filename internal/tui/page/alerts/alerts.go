@@ -366,41 +366,65 @@ func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + aler
 // so a re-sort carries a mark with its row instead of its index.
 func markKey(g alertGroup) string { return g.key() }
 
-// silenceDeny asks the write policy about the tenants an `s` press
-// would land in: every marked group when marks are set, the cursor
-// group otherwise. It returns the flash sentence for the first denied
-// tenant, because one refusal already stops the whole press.
-func (p *Page) silenceDeny() (string, bool) {
-	if len(p.guardrails) == 0 {
-		return "", false
-	}
-	for _, g := range p.silenceTargets() {
-		v := p.guardrails.Evaluate(g, guardrail.ActionSilenceCreate)
-		if v.Denied {
-			return v.DenyMessage(guardrail.ActionSilenceCreate, g), true
-		}
-	}
-	return "", false
+// silenceRequest asks about the run an `s` press would really fire,
+// so the duplicate tenants are the per-tenant count the cap compares
+// against.
+func (p *Page) silenceRequest() guardrail.Request {
+	return p.request(p.markedTargets)
 }
 
-// silenceTargets lists the tenants `s` would write to, once each. It
-// keeps a marked tenant with no writeable client, which
-// resolveBulkSilenceTargets drops: refusing a press that would have
-// flashed "no writeable backend" costs nothing, and aligning the two
-// walks would let a denied tenant through whenever its client is
-// missing at that moment.
-func (p *Page) silenceTargets() []string {
-	var out []string
-	if len(p.marks) > 0 {
-		for _, g := range p.groups {
-			if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
-				out = append(out, g.tenant)
-			}
-		}
-		return out
+// guarded answers the [guarded] suffix. It counts each marked tenant
+// once: a binding outlives any one run, so a cap the current marks
+// happen to breach must not strike `s` off the hint strip. Bindings()
+// runs on the render path and again on every key press, so an
+// unconfigured policy pays for no walk at all.
+func (p *Page) guarded() bool {
+	if len(p.guardrails) == 0 {
+		return false
 	}
-	if p.Index() < len(p.groups) {
-		out = append(out, p.groups[p.Index()].tenant)
+	return p.guardrails.Decide(p.request(p.markedTenants)).Refused()
+}
+
+// request turns the press into its targets; marked resolves the bulk
+// fan-out, the one case the two callers count differently.
+//
+// Lead follows the press rather than the rule, so the sentence names
+// the key the user pressed. Only the marked fan-out has a name of its
+// own; a cursor press reads back as the rule to edit.
+func (p *Page) request(marked func() []string) guardrail.Request {
+	switch {
+	case len(p.marks) > 0:
+		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: marked(), Lead: "bulk silence"}
+	case p.Index() < len(p.groups):
+		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.groups[p.Index()].tenant}}
+	}
+	return guardrail.Request{Action: guardrail.ActionSilenceCreate}
+}
+
+// markedTargets names the tenant of every marked group, once per group
+// and in the page's own row order. It keeps a marked tenant with no
+// writeable client, which resolveBulkSilenceTargets drops: refusing a
+// press that would have flashed "no writeable backend" costs nothing,
+// and aligning the two walks would let a capped or denied tenant
+// through whenever its client is missing at that moment.
+func (p *Page) markedTargets() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked {
+			out = append(out, g.tenant)
+		}
+	}
+	return out
+}
+
+// markedTenants serves the caller that asks per backend rather than
+// per row.
+func (p *Page) markedTenants() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
+			out = append(out, g.tenant)
+		}
 	}
 	return out
 }
@@ -659,7 +683,7 @@ func (*Page) PollResources() []string { return []string{resourceAlerts} }
 
 // When read-only, Dangerous entries ('s') are stripped before returning.
 func (p *Page) Bindings() []action.Action {
-	_, guarded := p.silenceDeny()
+	guarded := p.guarded()
 	sortBindings := p.sorter.Bindings(resourceAlerts)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,

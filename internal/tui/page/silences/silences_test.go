@@ -2831,6 +2831,66 @@ func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
 		"the confirmed row is edited, not whatever the cursor reached")
 }
 
+// TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant closes
+// the hole the defensive tenant recovery left: when pendingEdit lost
+// its tenant between open and finish, the tenant the write lands on is
+// picked after runWriteAction's verdict, so it has to be asked for
+// itself or a denied tenant is written to on a cleared press.
+func TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		rules guardrail.Set
+		write bool
+	}{
+		{
+			name: "the recovered tenant is denied",
+			rules: guardrail.Set{{
+				Tenants: []string{"prod"},
+				Actions: []string{guardrail.ActionSilenceUpdate},
+				Deny:    true,
+				Reason:  "frozen",
+			}},
+		},
+		{
+			name:  "the recovered tenant is allowed",
+			rules: guardrail.Set{{Tenants: []string{"staging"}, Deny: true, Reason: "frozen"}},
+			write: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeSilenceClient{}
+			p := guardedEditorPage(t, fake, &recordingResolver{}, tc.rules)
+			body, err := silenceToYAML(p.view[0].s)
+			require.NoError(t, err)
+			// A finished edit with no tenant is the branch that
+			// recovers one from the view.
+			p.pendingEdit = pendingEdit{}
+
+			_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
+			require.NotNil(t, cmd)
+			msg := cmd()
+
+			if tc.write {
+				require.Equal(t, "sil-a", fake.lastUpdateID,
+					"a recovered tenant no rule refuses still reaches UpdateSilence")
+				require.IsType(t, editorUpdateResultMsg{}, msg)
+				return
+			}
+			fm, ok := msg.(footer.FlashShowMsg)
+			require.True(t, ok, "expected a footer.FlashShowMsg, got %T", msg)
+			require.Equal(t, footer.FlashWarn, fm.Level)
+			require.Contains(t, fm.Text, "frozen")
+			require.Empty(t, fake.lastUpdateID,
+				"a refused tenant must not reach UpdateSilence")
+		})
+	}
+}
+
 // Same live-reload contract as the alerts list: the four Dangerous
 // verbs have to leave Bindings() the moment `:reload` tightens
 // read_only, because the hint strip and `?` recompute from it.

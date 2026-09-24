@@ -573,17 +573,9 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	// editor with the user's typed content preserved, mirroring the
 	// id-mismatch path above. Losing the user's edits to a transient
 	// 5xx is the user-pain that motivates this branch.
-	tenant := pending.tenant
-	if tenant == "" {
-		// Defensive — pending was cleared between open and finish
-		// (concurrent close, etc.). Look up the silence's tenant
-		// from the current view via the parsed ID.
-		for _, e := range p.view {
-			if e.s.ID == id {
-				tenant = e.tenant
-				break
-			}
-		}
+	tenant, refusal := p.tenantForUpdate(pending.tenant, id)
+	if refusal != nil {
+		return refusal
 	}
 	client, ok := p.clients[tenant]
 	if !ok {
@@ -595,6 +587,37 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 		return footer.ShowFlash(footer.FlashError, "no writeable backend for silence "+id)
 	}
 	return p.dispatchEditorUpdate(client, id, spec, pending, m.Content)
+}
+
+// tenantForUpdate names the tenant a finished edit writes to, and
+// refuses the write when the policy does not allow it.
+//
+// A finished edit can arrive with no tenant, so the defensive branch
+// recovers one from the view by the parsed id. The recovery stays
+// because losing the operator's buffer is worse than the extra check,
+// but the tenant it picks is chosen after runWriteAction's verdict,
+// so the gate is asked again for it. Only the refusing half is asked:
+// a recovered tenant owed a typed prompt still writes without one,
+// because there is no way to prompt without dropping the buffer.
+func (p *Page) tenantForUpdate(known, id string) (string, tea.Cmd) {
+	if known != "" {
+		return known, nil
+	}
+	var tenant string
+	for _, e := range p.view {
+		if e.s.ID == id {
+			tenant = e.tenant
+			break
+		}
+	}
+	if tenant == "" {
+		return "", nil
+	}
+	req := guardrail.Request{Action: guardrail.ActionSilenceUpdate, Tenants: []string{tenant}}
+	if d := p.guardrails.Decide(req); d.Refused() {
+		return "", footer.ShowFlash(footer.FlashWarn, d.Flash())
+	}
+	return tenant, nil
 }
 
 // dispatchEditorUpdate runs UpdateSilence asynchronously so a slow

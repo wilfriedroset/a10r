@@ -966,7 +966,7 @@ func TestGuardrail_AMarkOnADeniedTenantStopsThePress(t *testing.T) {
 	require.NotNil(t, cmd)
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok, "a denied press flashes instead of opening the form")
-	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+	require.Equal(t, "bulk silence denied on prod-eu: use the change ticket", msg.Text)
 	require.Len(t, p.marks, 1, "a refusal keeps the marks the user set")
 }
 
@@ -987,7 +987,7 @@ func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
 	require.NotNil(t, cmd)
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok, "a denied press flashes instead of opening the confirm modal")
-	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+	require.Equal(t, "bulk silence denied on prod-eu: use the change ticket", msg.Text)
 	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
 }
 
@@ -1246,12 +1246,10 @@ func TestGuardrail_TheInstancePageInheritsThePolicy(t *testing.T) {
 	t.Fatal("the pushed page must keep its silence row")
 }
 
-// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins spec item
-// 8 on the alerts page: the check runs before the confirm modal and
-// the marks survive, so the user can narrow the selection and retry.
-func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
-	t.Parallel()
-
+// cappedMarksPage marks three prod-eu groups under a max_bulk of two,
+// the smallest shape that breaches the cap.
+func cappedMarksPage(t *testing.T) *Page {
+	t.Helper()
 	p := New(Options{
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
@@ -1273,6 +1271,16 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
 	require.Len(t, p.marks, 3)
+	return p
+}
+
+// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins the cap
+// rule on the alerts page: the check runs before the confirm modal and
+// the marks survive, so the user can narrow the selection and retry.
+func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -1282,6 +1290,35 @@ func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
 	require.Equal(t, "bulk silence on prod-eu: 3 targets exceed max_bulk 2", msg.Text)
 	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
 	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+}
+
+// TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip splits the run
+// from the binding: a binding outlives any one run, so a cap the
+// current marks happen to breach refuses the press without striking
+// `s` off the hint strip.
+func TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
+	require.Empty(t, guardedKeys(p), "a breached cap refuses this run, not the binding")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, "bulk silence on prod-eu: 3 targets exceed max_bulk 2", msg.Text)
+}
+
+// guardedKeys lists the keys the page currently reports as guarded, so
+// a test names the whole outcome rather than one binding at a time.
+func guardedKeys(p *Page) []string {
+	var out []string
+	for _, b := range p.Bindings() {
+		if b.Guarded {
+			out = append(out, b.Key)
+		}
+	}
+	return out
 }
 
 // TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6

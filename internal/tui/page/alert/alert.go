@@ -201,7 +201,7 @@ func (p *Page) Title() string {
 // Bindings returns the page's key bindings; Dangerous (`s`) entries
 // are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
-	_, guarded := p.silenceDeny()
+	guarded := p.guarded()
 	out := []action.Action{
 		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true, Guarded: guarded},
 		{Key: "S", Description: "open silences", View: viewAlert},
@@ -272,8 +272,8 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		if p.readOnly {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
-		if msg, denied := p.silenceDeny(); denied {
-			return p, footer.ShowFlash(footer.FlashWarn, msg)
+		if d := p.guardrails.Decide(p.request()); d.Refused() {
+			return p, footer.ShowFlash(footer.FlashWarn, d.Flash())
 		}
 		cmd := p.openSilenceForm()
 		return p, cmd
@@ -338,14 +338,21 @@ func (p *Page) openSilenceForm() tea.Cmd {
 
 const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
-// silenceDeny asks the write policy about this page's single tenant.
-// It returns the flash sentence when a rule denies the verb.
-func (p *Page) silenceDeny() (string, bool) {
+// request is the whole fan-out an `s` press can reach here: one alert
+// on one backend, so the adapter is a one-element slice and no Lead is
+// owed — the sentence reads back as the rule to edit.
+func (p *Page) request() guardrail.Request {
+	return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.tenant}}
+}
+
+// guarded answers the [guarded] suffix. Bindings() runs on the render
+// path and again on every key press, so an unconfigured policy pays
+// for no request at all.
+func (p *Page) guarded() bool {
 	if len(p.guardrails) == 0 {
-		return "", false
+		return false
 	}
-	v := p.guardrails.Evaluate(p.tenant, guardrail.ActionSilenceCreate)
-	return v.DenyMessage(guardrail.ActionSilenceCreate, p.tenant), v.Denied
+	return p.guardrails.Decide(p.request()).Refused()
 }
 
 func (p *Page) copyFingerprint() tea.Cmd {

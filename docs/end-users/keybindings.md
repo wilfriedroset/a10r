@@ -320,6 +320,11 @@ right-hand hint strip, and pressing it flashes a warning such as
 `silence.create denied on prod-eu: use the change ticket` instead of
 acting.
 
+The warning names the press when it fans out over your marks, and the
+rule when it does not. A marked bulk silence therefore reads `bulk
+silence denied on prod-eu: use the change ticket`, while a cursor press
+names the rule you would edit.
+
 The difference from read-only is scope. A rule names tenants, so the
 verb still works elsewhere, and `?` keeps listing it with a `[guarded]`
 suffix rather than dropping the row. Read-only is checked first, so a

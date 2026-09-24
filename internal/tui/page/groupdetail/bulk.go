@@ -58,14 +58,6 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	if len(targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked instances remain")
 	}
-	// The cap is read before the confirm modal, so a refused run never
-	// asks a question it would not honour. The marks stay set on
-	// purpose: narrowing them is the retry. One count, because the
-	// page never leaves its tenant.
-	if msg := p.guardrails.BulkBreach("bulk silence", guardrail.ActionSilenceCreate,
-		map[string]int{p.tenant: len(targets)}); msg != "" {
-		return footer.ShowFlash(footer.FlashWarn, msg)
-	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
