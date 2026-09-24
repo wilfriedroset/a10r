@@ -5,11 +5,13 @@ package silence
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -217,18 +219,25 @@ func (f *Form) submitNow() tea.Cmd {
 // submitNow, which finds the tenant already confirmed and lets the
 // write through.
 func (f *Form) guardrailGate() (tea.Cmd, bool) {
-	v := f.guardrails.Evaluate(f.tenant, f.action)
-	if v.Denied {
-		return footer.ShowFlash(footer.FlashWarn, v.DenyMessage(f.action, f.tenant)), true
+	d := f.guardrails.Decide(guardrail.Request{
+		Action:    f.action,
+		Tenants:   []string{f.tenant},
+		Confirmed: f.confirmed,
+	})
+	if d.Refused() {
+		return footer.ShowFlash(footer.FlashWarn, d.Flash()), true
 	}
-	if v.Confirmation == "" || f.confirmedTenant == f.tenant {
+	// Decision.Confirm names the level the rule demands, never the one
+	// still owed, so the answer already given stays the form's own
+	// memory. Confirmed rides on the request for the shared type; with
+	// one tenant this branch settles it before Typed is read.
+	if d.Confirm == "" || slices.Contains(f.confirmed, f.tenant) {
 		return nil, false
 	}
-	typed := f.guardrails.TypedTenants(f.action, []string{f.tenant})
 	question := "submit " + f.action + " on " + f.tenant + "?"
 	f.awaitingConfirm = true
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, d.Typed)
 	}), true
 }
 
@@ -244,7 +253,7 @@ func (f *Form) applyGuardrailConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	if m.Cancelled || !m.Yes {
 		return nil
 	}
-	f.confirmedTenant = f.tenant
+	f.confirmed = []string{f.tenant}
 	return f.submitNow()
 }
 

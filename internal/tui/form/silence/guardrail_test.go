@@ -154,22 +154,79 @@ func TestGuardrail_ACancelledPromptKeepsTheFormOpen(t *testing.T) {
 		"the next submit asks again")
 }
 
-// TestGuardrail_ABulkFormLeavesThePolicyToThePage pins the split: a
-// bulk form collects metadata and the page owns the write, so the gate
-// it already cleared is not asked a second time here.
-func TestGuardrail_ABulkFormLeavesThePolicyToThePage(t *testing.T) {
+// TestGuardrail_ABulkSubmitNeverReachesTheGate pins the split: a bulk
+// form collects metadata and the page owns the write, so the gate it
+// already cleared is not asked a second time here. Every rule below
+// names no tenant, so it matches whatever tenant the form holds and a
+// green case cannot mean the rule simply missed.
+func TestGuardrail_ABulkSubmitNeverReachesTheGate(t *testing.T) {
 	t.Parallel()
 
-	f := guardedForm(t, &fakeClient{}, guardrail.Set{{
-		Tenants:      []string{defaultTenant},
-		Deny:         true,
-		Confirmation: guardrail.ConfirmationTypeTenantName,
-	}}, Options{Bulk: true})
+	tests := []struct {
+		name string
+		rule guardrail.Rule
+	}{
+		{"deny", guardrail.Rule{Deny: true, Reason: "use the change ticket"}},
+		{"typed confirmation", guardrail.Rule{Confirmation: guardrail.ConfirmationTypeTenantName}},
+		{"plain confirmation", guardrail.Rule{Confirmation: guardrail.ConfirmationPlain}},
+	}
 
-	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.NotNil(t, cmd)
-	_, ok := cmd().(BulkSubmittedMsg)
-	require.True(t, ok, "a bulk form still emits its metadata message")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := &fakeClient{}
+			f := guardedForm(t, client, guardrail.Set{tt.rule}, Options{
+				Bulk:   true,
+				Action: guardrail.ActionSilenceCreate,
+			})
+
+			_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+			require.NotNil(t, cmd)
+			_, ok := cmd().(BulkSubmittedMsg)
+			require.True(t, ok, "a bulk form still emits its metadata message")
+			require.Equal(t, 0, client.calls())
+		})
+	}
+}
+
+// TestGuardrail_AConfirmedTenantSkipsThePrompt pins the hand-off: an
+// answer the pushing page already collected clears the prompt for that
+// backend and for no other, so one write asks once.
+func TestGuardrail_AConfirmedTenantSkipsThePrompt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		confirmed []string
+		wantWrite bool
+	}{
+		{"the form's own tenant", []string{defaultTenant}, true},
+		{"another tenant", []string{"staging"}, false},
+		{"nothing confirmed", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := &fakeClient{wantID: "sil-1"}
+			f := guardedForm(t, client, guardrail.Set{{
+				Confirmation: guardrail.ConfirmationTypeTenantName,
+			}}, Options{Confirmed: tt.confirmed})
+
+			_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+			require.NotNil(t, cmd)
+			if !tt.wantWrite {
+				require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, cmd))
+				require.Equal(t, 0, client.calls())
+				return
+			}
+			_, ok := cmd().(submitDoneMsg)
+			require.True(t, ok, "the carried answer releases the write")
+			require.Equal(t, 1, client.createCalls)
+		})
+	}
 }
 
 // TestGuardrail_APlainRuleAsksTheYesNoQuestion pins that the form

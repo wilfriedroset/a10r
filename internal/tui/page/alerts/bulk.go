@@ -103,23 +103,23 @@ func (p *Page) pushSilenceAllForm() tea.Cmd {
 	scopeNote := pending.scopeNote
 	submitCtx := p.submitCtx
 	guardrails := p.guardrails
-	var confirmedTenant string
+	var confirmed []string
 	if pending.confirmed {
-		confirmedTenant = pending.tenant
+		confirmed = []string{pending.tenant}
 	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:         clients,
-			Tenant:          tenant,
-			Styles:          styles,
-			Now:             now,
-			Creator:         creator,
-			Matchers:        matchers,
-			ScopeNote:       scopeNote,
-			SubmitCtx:       submitCtx,
-			Guardrails:      guardrails,
-			Action:          guardrail.ActionSilenceCreate,
-			ConfirmedTenant: confirmedTenant,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			ScopeNote:  scopeNote,
+			SubmitCtx:  submitCtx,
+			Guardrails: guardrails,
+			Action:     guardrail.ActionSilenceCreate,
+			Confirmed:  confirmed,
 		})
 	})
 }
@@ -227,26 +227,29 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 	if len(pending.targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
+	opts := p.bulkFormOptions(pending)
+	return app.PushPage(func() app.Page { return silenceform.New(opts) })
+}
+
+// bulkFormOptions omits Guardrails and Action on purpose, which is the
+// contract silenceform.Options.Bulk records: a bulk submit returns
+// before the form's own gate, so a verb handed over here would name a
+// check nothing runs. This page cleared the run already. Whatever the
+// page adds to the form belongs in here, where the omission is pinned.
+func (p *Page) bulkFormOptions(pending pendingBulkSilence) silenceform.Options {
 	creator := p.creator
 	if creator == "" {
 		creator = "a10r"
 	}
-	styles := p.styles
-	now := p.now
-	banner := bulkSilenceBanner(pending.targets, pending.tenants)
-	clients := p.clients
-	submitCtx := p.submitCtx
-	return app.PushPage(func() app.Page {
-		return silenceform.New(silenceform.Options{
-			Clients:    clients,
-			Styles:     styles,
-			Now:        now,
-			Creator:    creator,
-			Bulk:       true,
-			BulkBanner: banner,
-			SubmitCtx:  submitCtx,
-		})
-	})
+	return silenceform.Options{
+		Clients:    p.clients,
+		Styles:     p.styles,
+		Now:        p.now,
+		Creator:    creator,
+		Bulk:       true,
+		BulkBanner: bulkSilenceBanner(pending.targets, pending.tenants),
+		SubmitCtx:  p.submitCtx,
+	}
 }
 
 // bulkSilenceBanner formats the form's banner. Single tenant reads

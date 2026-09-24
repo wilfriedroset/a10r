@@ -1497,6 +1497,30 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget(t *testing.T) {
 	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
 }
 
+// TestGuardrail_TheBulkFormCarriesNoPolicy holds the two files in
+// agreement: the form emits BulkSubmittedMsg before its own gate runs,
+// so a verb handed over here would name a check nothing runs. This
+// page cleared the run already.
+func TestGuardrail_TheBulkFormCarriesNoPolicy(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:     pagetest.Styles(t),
+		Now:        func() time.Time { return fixedNow },
+		Clients:    map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Guardrails: guardrail.Set{{Deny: true}},
+	})
+
+	opts := p.bulkFormOptions(pendingBulkSilence{
+		targets: []bulkSilenceTarget{{Key: "k", Tenant: "prod-eu", AlertName: "HighCPU"}},
+		tenants: []string{"prod-eu"},
+	})
+
+	require.Empty(t, opts.Action, "the options carry no verb")
+	require.Empty(t, opts.Guardrails, "a bulk form carries no policy")
+	require.True(t, opts.Bulk)
+}
+
 // A `:reload` that tightens read_only reaches this page while it is
 // already on the stack. Flipping the field is not enough: the hint
 // strip and the help overlay both re-read Bindings(), so a page that

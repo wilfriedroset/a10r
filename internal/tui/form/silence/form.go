@@ -126,11 +126,14 @@ type Form struct {
 	// form. A ConfirmResultMsg with no prompt pending starts a write
 	// nobody asked for, so the form answers only its own question.
 	awaitingConfirm bool
-	// confirmedTenant is the backend whose typed confirmation the user
-	// already cleared on this form. It holds a name rather than a bool
+	// confirmed are the backends whose guardrail confirmation is
+	// already cleared for this write. It holds names rather than a bool
 	// because the Tenant row can move the write to another backend
-	// after the answer, and that backend has its own rule.
-	confirmedTenant string
+	// after the answer, and that backend has its own rule. It is the
+	// slice guardrail.Request.Confirmed takes, so the page that asked
+	// before it pushed the form hands over the same type the gate
+	// reads.
+	confirmed []string
 
 	// bulk hides matchers, skips matcher validation, renders the
 	// banner instead of the textarea, and routes submit through
@@ -190,15 +193,18 @@ type Options struct {
 	// Action names the verb the submit performs: one of the
 	// guardrail.ActionSilence* names. Empty means silence.create.
 	Action string
-	// ConfirmedTenant names the backend whose guardrail confirmation the
+	// Confirmed names the backends whose guardrail confirmation the
 	// pushing page already collected, so a page that asked before it
 	// pushed the form does not make the user answer twice for one write.
-	ConfirmedTenant string
+	Confirmed []string
 
 	// Bulk hides matchers, skips matcher validation, renders the
 	// banner in the buffer's slot, and emits BulkSubmittedMsg
 	// instead of calling Client.CreateSilence. Mutually exclusive
-	// with EditID (bulk-edit is out of scope).
+	// with EditID (bulk-edit is out of scope). A bulk submit returns
+	// before the guardrail gate, so Guardrails and Action are dead
+	// weight here: the pushing page owns the policy, and a form handed
+	// a verb would name a check it never runs.
 	Bulk bool
 	// BulkBanner is rendered where the matchers buffer would
 	// otherwise sit when Bulk is true; the page formats this so the
@@ -291,7 +297,7 @@ func New(opts Options) *Form {
 		editID:          opts.EditID,
 		guardrails:      opts.Guardrails,
 		action:          verb,
-		confirmedTenant: opts.ConfirmedTenant,
+		confirmed:       opts.Confirmed,
 		bulk:            opts.Bulk,
 		bulkBanner:      opts.BulkBanner,
 		scopeNote:       opts.ScopeNote,
