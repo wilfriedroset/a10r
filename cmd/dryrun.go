@@ -30,9 +30,9 @@ type plannedWrite struct {
 	Skip      string   `json:"skip,omitempty" yaml:"skip,omitempty"`
 	ReadOnly  bool     `json:"read_only,omitempty" yaml:"read_only,omitempty"`
 	// Guardrail is the short refusal note ("denied", "max_bulk 20
-	// exceeded") when the write policy would stop this tenant. Empty on
-	// a read-only target: read-only is checked first and wins, so a10r
-	// never names a guardrail where read-only was the real answer.
+	// exceeded") when the write policy would stop this tenant. A
+	// read-only tenant never carries one: ADR 0049 answers read-only
+	// first, so only one reason is ever named.
 	Guardrail string `json:"guardrail,omitempty" yaml:"guardrail,omitempty"`
 }
 
@@ -60,7 +60,7 @@ func runDryRun(
 		readOnly[be.Name] = be.ReadOnly
 	}
 
-	notes := guardrailNotes(cfg, action, targets, globalReadOnly, readOnly, confirmTenants)
+	notes := guardrailNotes(cfg, action, targets, readOnly, globalReadOnly, confirmTenants)
 
 	verb := strings.TrimPrefix(action, "silence.")
 	plans := make([]plannedWrite, 0, len(targets))
@@ -101,34 +101,29 @@ func runDryRun(
 	return writeExitError(results, nil)
 }
 
-// guardrailNotes maps each refused tenant to its short note. Read-only
-// targets are dropped before the policy is consulted: read-only is
-// checked first and always wins (spec item 11), and dropping them also
-// keeps a read-only tenant out of the max_bulk count.
+// guardrailNotes maps each refused tenant to its short note. The whole
+// resolved target list is asked about, read-only targets included,
+// because one entry per target is the count max_bulk compares against.
+// A read-only tenant is then dropped from the notes rather than from
+// the count: ADR 0049 puts read-only first, so a10r never names a user
+// rule on a backend that was already refused for another reason.
 func guardrailNotes(
 	cfg *config.Config,
 	action string,
 	targets []writeTarget,
-	globalReadOnly bool,
 	readOnly map[string]bool,
+	globalReadOnly bool,
 	confirmTenants []string,
 ) map[string]string {
 	if globalReadOnly || len(cfg.Guardrails) == 0 {
 		return nil
 	}
-	writable := make([]writeTarget, 0, len(targets))
-	for _, t := range targets {
-		if !readOnly[t.tenant] {
-			writable = append(writable, t)
+	notes := make(map[string]string)
+	for _, r := range guardrailRefusals(cfg.Guardrails, action, targets, confirmTenants) {
+		if readOnly[r.Tenant] {
+			continue
 		}
-	}
-	blocks := guardrailBlocks(cfg.Guardrails, action, writable, confirmTenants)
-	if len(blocks) == 0 {
-		return nil
-	}
-	notes := make(map[string]string, len(blocks))
-	for _, b := range blocks {
-		notes[b.tenant] = b.note
+		notes[r.Tenant] = r.Note
 	}
 	return notes
 }

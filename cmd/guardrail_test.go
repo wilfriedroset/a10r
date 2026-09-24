@@ -16,7 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
-func TestGuardrailBlocks(t *testing.T) {
+func TestGuardrailRefusals(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,7 +25,7 @@ func TestGuardrailBlocks(t *testing.T) {
 		action    string
 		targets   []writeTarget
 		confirmed []string
-		want      []guardrailBlock
+		want      []guardrail.Refusal
 	}{
 		{
 			name:    "no rules blocks nothing",
@@ -38,10 +38,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Tenants: []string{"prod-*"}, Actions: []string{"silence.expire"}, Deny: true, Reason: "use the change ticket"}},
 			action:  guardrail.ActionSilenceExpire,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.expire denied on prod-eu: use the change ticket",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.expire denied on prod-eu: use the change ticket",
 			}},
 		},
 		{
@@ -49,10 +49,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Deny: true}},
 			action:  guardrail.ActionSilenceCreate,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.create denied on prod-eu",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.create denied on prod-eu",
 			}},
 		},
 		{
@@ -60,10 +60,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Actions: []string{"silence.create"}, Deny: true}},
 			action:  guardrail.ActionSilenceCreate,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.create denied on prod-eu",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.create denied on prod-eu",
 			}},
 		},
 		{
@@ -71,10 +71,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Actions: []string{"silence.update"}, Deny: true}},
 			action:  guardrail.ActionSilenceUpdate,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.update denied on prod-eu",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.update denied on prod-eu",
 			}},
 		},
 		{
@@ -82,10 +82,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Actions: []string{"silence.recreate"}, Deny: true}},
 			action:  guardrail.ActionSilenceRecreate,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.recreate denied on prod-eu",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.recreate denied on prod-eu",
 			}},
 		},
 		{
@@ -105,10 +105,10 @@ func TestGuardrailBlocks(t *testing.T) {
 				{tenant: "staging", id: "d"},
 				{tenant: "staging", id: "e"},
 			},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "max_bulk 2 exceeded",
-				message: "guardrail: silence.expire on prod-eu: 3 targets exceed max_bulk 2",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "max_bulk 2 exceeded",
+				Message: "guardrail: silence.expire on prod-eu: 3 targets exceed max_bulk 2",
 			}},
 		},
 		{
@@ -116,10 +116,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			rules:   guardrail.Set{{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName}},
 			action:  guardrail.ActionSilenceUpdate,
 			targets: []writeTarget{{tenant: "prod-eu"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "needs --confirm-tenant prod-eu",
-				message: "guardrail: prod-eu requires --confirm-tenant prod-eu",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "needs --confirm-tenant prod-eu",
+				Message: "guardrail: prod-eu requires --confirm-tenant prod-eu",
 			}},
 		},
 		{
@@ -128,10 +128,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			action:    guardrail.ActionSilenceUpdate,
 			targets:   []writeTarget{{tenant: "prod-eu"}, {tenant: "prod-us"}},
 			confirmed: []string{"prod-eu"},
-			want: []guardrailBlock{{
-				tenant:  "prod-us",
-				note:    "needs --confirm-tenant prod-us",
-				message: "guardrail: prod-us requires --confirm-tenant prod-us",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-us",
+				Note:    "needs --confirm-tenant prod-us",
+				Message: "guardrail: prod-us requires --confirm-tenant prod-us",
 			}},
 		},
 		{
@@ -149,10 +149,10 @@ func TestGuardrailBlocks(t *testing.T) {
 			},
 			action:  guardrail.ActionSilenceExpire,
 			targets: []writeTarget{{tenant: "prod-eu", id: "a"}, {tenant: "prod-eu", id: "b"}},
-			want: []guardrailBlock{{
-				tenant:  "prod-eu",
-				note:    "denied",
-				message: "guardrail: silence.expire denied on prod-eu: frozen",
+			want: []guardrail.Refusal{{
+				Tenant:  "prod-eu",
+				Note:    "denied",
+				Message: "guardrail: silence.expire denied on prod-eu: frozen",
 			}},
 		},
 		{
@@ -164,9 +164,25 @@ func TestGuardrailBlocks(t *testing.T) {
 				{tenant: "prod-eu", id: "b"},
 				{tenant: "staging", id: "c"},
 			},
-			want: []guardrailBlock{
-				{tenant: "staging", note: "denied", message: "guardrail: silence.expire denied on staging"},
-				{tenant: "prod-eu", note: "denied", message: "guardrail: silence.expire denied on prod-eu"},
+			want: []guardrail.Refusal{
+				{Tenant: "staging", Note: "denied", Message: "guardrail: silence.expire denied on staging"},
+				{Tenant: "prod-eu", Note: "denied", Message: "guardrail: silence.expire denied on prod-eu"},
+			},
+		},
+		{
+			name: "a typed refusal keeps its target order against a deny",
+			rules: guardrail.Set{
+				{Tenants: []string{"staging"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+				{Tenants: []string{"prod-eu"}, Deny: true},
+			},
+			action: guardrail.ActionSilenceExpire,
+			targets: []writeTarget{
+				{tenant: "staging", id: "a"},
+				{tenant: "prod-eu", id: "b"},
+			},
+			want: []guardrail.Refusal{
+				{Tenant: "staging", Note: "needs --confirm-tenant staging", Message: "guardrail: staging requires --confirm-tenant staging"},
+				{Tenant: "prod-eu", Note: "denied", Message: "guardrail: silence.expire denied on prod-eu"},
 			},
 		},
 	}
@@ -174,7 +190,7 @@ func TestGuardrailBlocks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, guardrailBlocks(tt.rules, tt.action, tt.targets, tt.confirmed))
+			require.Equal(t, tt.want, guardrailRefusals(tt.rules, tt.action, tt.targets, tt.confirmed))
 		})
 	}
 }
@@ -194,6 +210,18 @@ func TestEnsureGuardrailsAllow(t *testing.T) {
 		require.EqualError(t, err,
 			"guardrail: silence.expire denied on prod-eu: frozen; no silence was written")
 		require.Equal(t, ExitGuardrailRefused, exitCodeFor(err))
+	})
+
+	t.Run("a deny and a typed refusal read in target order", func(t *testing.T) {
+		t.Parallel()
+		rules := guardrail.Set{
+			{Tenants: []string{"staging"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+			{Tenants: []string{"prod-eu"}, Deny: true},
+		}
+		err := ensureGuardrailsAllow(rules, guardrail.ActionSilenceExpire,
+			[]writeTarget{{tenant: "staging"}, {tenant: "prod-eu"}}, nil)
+		require.EqualError(t, err,
+			"guardrail: staging requires --confirm-tenant staging; guardrail: silence.expire denied on prod-eu; no silence was written")
 	})
 
 	t.Run("every blocked tenant is named at once", func(t *testing.T) {
@@ -254,10 +282,11 @@ func TestRunDryRun_GuardrailConfirmTenantNote(t *testing.T) {
 	require.NotContains(t, out.String(), "guardrail")
 }
 
-// TestRunDryRun_ReadOnlyTenantSkipsTheGuardrail pins spec item 11: a
-// read-only backend is refused for being read-only, and a10r never
-// names a guardrail there.
-func TestRunDryRun_ReadOnlyTenantSkipsTheGuardrail(t *testing.T) {
+// TestRunDryRun_ReadOnlyOutranksTheGuardrail holds the dry run to what
+// TestSilenceExpire_ReadOnlyOutranksTheGuardrail holds the real run
+// to: ADR 0049 puts read-only first, so neither surface names a user
+// rule on a backend that was already refused for another reason.
+func TestRunDryRun_ReadOnlyOutranksTheGuardrail(t *testing.T) {
 	t.Parallel()
 
 	cfg := cfgWith(config.Backend{Name: "prod-eu", ReadOnly: true})
@@ -350,4 +379,29 @@ func TestSilenceExpire_ReadOnlyOutranksTheGuardrail(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "guardrail")
 	require.Empty(t, client.expired)
+}
+
+// TestRunDryRun_CapCountsPerTenant pins the one counting rule: max_bulk
+// compares against the targets landing in one tenant, so a read-only
+// tenant elsewhere in the run neither adds to another tenant's count
+// nor gets named by the rule itself (ADR 0049).
+func TestRunDryRun_CapCountsPerTenant(t *testing.T) {
+	t.Parallel()
+
+	cfg := cfgWith(config.Backend{Name: "prod-eu"}, config.Backend{Name: "prod-ro", ReadOnly: true})
+	cfg.Guardrails = guardrail.Set{{MaxBulk: new(2)}}
+	targets := []writeTarget{
+		{tenant: "prod-eu", id: "a"},
+		{tenant: "prod-eu", id: "b"},
+		{tenant: "prod-eu", id: "c"},
+		{tenant: "prod-ro", id: "d"},
+		{tenant: "prod-ro", id: "e"},
+		{tenant: "prod-ro", id: "f"},
+	}
+
+	var out, errOut bytes.Buffer
+	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
+	require.Equal(t, ExitGuardrailRefused, exitCodeFor(err))
+	require.Contains(t, out.String(), "would expire prod-eu a [guardrail: max_bulk 2 exceeded]")
+	require.Contains(t, out.String(), "would expire prod-ro d [read-only: apply would be refused]\n")
 }
