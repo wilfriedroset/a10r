@@ -133,7 +133,11 @@ tenant. Without it a10r prints `guardrail: prod-eu requires
 plan line gains `[guardrail: denied]`, `[guardrail: max_bulk 20
 exceeded]`, or `[guardrail: needs --confirm-tenant prod-eu]`, and the
 dry run exits `6`. Read-only is checked first and always wins, so a
-read-only target is never reported as a guardrail refusal.
+read-only target is never reported as a guardrail refusal: the plan
+line says `[read-only: apply would be refused]` and the dry run exits
+`1`, the code the real run gives. A plan with any read-only target
+exits `1` even when another tenant is refused by a rule, so a wrapper
+that branches on `6` sees `1` for a mixed plan.
 
 ## Output and exit codes
 

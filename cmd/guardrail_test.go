@@ -295,7 +295,8 @@ func TestRunDryRun_ReadOnlyOutranksTheGuardrail(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "read-only owns the exit code too")
 	require.Contains(t, out.String(), "[read-only: apply would be refused]")
 	require.NotContains(t, out.String(), "guardrail")
 }
@@ -401,7 +402,8 @@ func TestRunDryRun_CapCountsPerTenant(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
-	require.Equal(t, ExitGuardrailRefused, exitCodeFor(err))
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err),
+		"the real run refuses this plan for read-only before it reaches the rule")
 	require.Contains(t, out.String(), "would expire prod-eu a [guardrail: max_bulk 2 exceeded]")
 	require.Contains(t, out.String(), "would expire prod-ro d [read-only: apply would be refused]\n")
 }

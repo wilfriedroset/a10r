@@ -47,7 +47,9 @@ produce: `0` when every target is cleanly writable, and the same
 non-zero code the real run would give when a target cannot land — a
 not-found or already-expired id, an all-unreachable scope, or a
 guardrail refusal (`6`). (Writes are not lenient, so a reported skip is
-non-zero, unlike the read fan-out's partial rule above.) A clean
+non-zero, unlike the read fan-out's partial rule above.) A read-only
+target exits `1`, the code the real run gives, and never `6`, even
+when another tenant in the same plan is refused by a rule. A clean
 dry-run is therefore a reliable pre-commit gate.
 
 ## Stability

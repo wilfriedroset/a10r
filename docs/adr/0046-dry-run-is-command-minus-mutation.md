@@ -37,9 +37,11 @@ their real runs do.
   (`3` all-unreachable, `5` not-found). Dry-run is never unconditionally
   `0`, or it would be useless as a pre-commit gate.
 - **`--read-only` + `--dry-run`** shows the plan and notes read-only
-  rather than refusing: the fail-closed gate exists to prevent a
-  mutation, and with no mutation in flight it is moot. The note rides
-  stderr in lines mode and a `read_only` field in structured mode.
+  rather than suppressing it: the value of the preview does not depend
+  on whether the apply would land. The note rides stderr in lines mode
+  and a `read_only` field in structured mode. The gate is still asked
+  for the exit code, because a dry run that exits `0` on a plan the
+  apply refuses is not a pre-commit gate.
 
 ## Considered and rejected
 

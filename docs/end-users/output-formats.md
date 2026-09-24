@@ -106,8 +106,8 @@ $ a10r silences expire sil-1 --dry-run -o json
 A create/recreate plan carries the resolved `matchers`, `starts_at`,
 `ends_at`, `comment`, and `created_by` (but no `id` — that is minted at
 apply); a skipped target carries a `skip` reason; a target in a
-read-only backend carries `read_only: true` (dry-run plans even under
-read-only — it never writes, so it is never refused); a target a
+read-only backend carries `read_only: true` (the plan still renders
+under read-only, but it exits `1` as the apply would); a target a
 `guardrails:` rule would refuse carries `guardrail` with the short
 reason (`denied`, `max_bulk 20 exceeded`, `needs --confirm-tenant
 prod-eu`), which the lines mode prints as a trailing `[guardrail: …]`.

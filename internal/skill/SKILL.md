@@ -69,7 +69,8 @@ Before any of them:
   run's pre-mutation phase, so a clean dry-run (exit `0`) is a reliable pre-commit
   gate. Always dry-run a write you are not certain about, and show the user the plan.
 - **`--read-only`** hard-disables every write verb for the session. Dry-run still
-  plans under it (it never writes), marking targets `read_only: true`.
+  plans under it (it never writes), marking targets `read_only: true`. A plan with
+  any read-only target exits `1`, the code the real run gives, never `6`.
 - **Guardrails** (`guardrails:` in `a10r.yaml`) restrict write verbs per tenant.
   A refusal writes nothing and exits `6`: the verb is denied, the run exceeds that
   tenant's `max_bulk`, or the tenant needs `--confirm-tenant <name>` (repeatable,

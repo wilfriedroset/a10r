@@ -109,7 +109,8 @@ func TestSilenceCreate_DryRunUnderGlobalReadOnlyStillPlans(t *testing.T) {
 			Comment:  "m",
 			DryRun:   true,
 		}, "alice", "")
-	require.NoError(t, err, "dry-run plans even under read-only; it does not abort")
+	require.Error(t, err)
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "the plan exits as the apply would")
 	require.Nil(t, client.created)
 	require.Contains(t, out.String(), "would create")
 	require.Contains(t, errOut.String(), "read-only", "lines mode notes read-only on stderr")
@@ -130,7 +131,8 @@ func TestSilenceCreate_DryRunReadOnlyBackendStructuredField(t *testing.T) {
 			Comment:  "m",
 			DryRun:   true,
 		}, "alice", output.FormatJSON)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "the plan exits as the apply would")
 	require.Nil(t, client.created)
 
 	var got []plannedWrite
@@ -264,4 +266,68 @@ func TestRunDryRun_SpecRendersMatchersAndTimes(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "severity")
 	require.Contains(t, out.String(), testNow.Add(2*time.Hour).UTC().Format(time.RFC3339))
+}
+
+// TestRunDryRun_ExitMatchesTheRealRun pins spec item 8: a dry run exits
+// with the code the real run's pre-mutation phase would produce, which
+// is 1 for a read-only refusal and 6 for a guardrail one.
+func TestRunDryRun_ExitMatchesTheRealRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		be             config.Backend
+		rules          guardrail.Set
+		globalReadOnly bool
+		wantCode       int
+		wantLine       string
+	}{
+		{
+			name:     "a clean plan exits zero",
+			be:       config.Backend{Name: "prod"},
+			wantLine: "would expire prod sil-1",
+		},
+		{
+			name:     "a guardrail refusal exits six",
+			be:       config.Backend{Name: "prod"},
+			rules:    guardrail.Set{{Deny: true}},
+			wantCode: ExitGuardrailRefused,
+			wantLine: "[guardrail: denied]",
+		},
+		{
+			name:     "a read-only backend exits one",
+			be:       config.Backend{Name: "prod", ReadOnly: true},
+			wantCode: ExitRuntimeError,
+			wantLine: "[read-only: apply would be refused]",
+		},
+		{
+			name:           "the global read-only flag exits one",
+			be:             config.Backend{Name: "prod"},
+			globalReadOnly: true,
+			wantCode:       ExitRuntimeError,
+			wantLine:       "[read-only: apply would be refused]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := cfgWith(tt.be)
+			cfg.Guardrails = tt.rules
+			targets := []writeTarget{{tenant: "prod", id: "sil-1"}}
+
+			var out, errOut bytes.Buffer
+			err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, tt.globalReadOnly, nil)
+			require.Contains(t, out.String(), tt.wantLine)
+			if tt.wantCode == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Equal(t, tt.wantCode, exitCodeFor(err))
+			var ex *ExitError
+			require.ErrorAs(t, err, &ex)
+			require.True(t, ex.Emitted, "the plan the user read already carried the reason")
+		})
+	}
 }

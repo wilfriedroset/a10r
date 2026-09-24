@@ -41,11 +41,10 @@ type plannedWrite struct {
 // a guardrail.ActionSilence* constant; the plan's display verb is
 // derived from it so the rendered word and the evaluated rule name can
 // never drift apart. It runs after target-building and instead of
-// ensureWritableTargets/runWrites, so read-only is noted on the plan
-// rather than aborting — with no
-// mutation in flight the fail-closed gate is moot. The exit code is
-// faithful: a target carrying a skip exits non-zero exactly as the real
-// run would, a fully writable plan exits zero.
+// runWrites, so every refusal lands on the plan before it lands on the
+// exit code. The exit code is faithful: the plan exits with whatever
+// the real run's pre-mutation phase would give it, and a target
+// carrying a skip exits non-zero exactly as the real run would.
 func runDryRun(
 	out, errOut io.Writer,
 	cfg *config.Config,
@@ -88,6 +87,13 @@ func runDryRun(
 		}
 	default:
 		dryRunLines(out, errOut, plans)
+	}
+
+	// Read-only is asked through the real run's own gate, so the code a
+	// dry run promises cannot drift from the code an apply gives. It is
+	// asked first because ADR 0049 answers read-only ahead of any rule.
+	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
+		return newEmittedError(exitCodeFor(err), err)
 	}
 
 	// A guardrail refuses the whole command, so its code outranks the
