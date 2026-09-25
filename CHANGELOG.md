@@ -17,9 +17,11 @@ to [Semantic Versioning][semver].
   config file, the aliases file and the keys file while your page
   stack, cursors, marks, filters and tenant scope stay as they are. A
   reload refuses the whole file when it changes a backend or the log.
-  It reports success without applying `tui.notify`,
-  `tui.terminal_title` and `tui.remember`, which the session wires in
-  at startup. See `docs/end-users/keybindings.md`.
+  Everything else applies at once, including to the pages already on
+  your stack: `read_only`, `guardrails`, `bulk_concurrency`, label
+  columns, `tui.notify` and `tui.terminal_title`. The one exception is
+  `tui.remember`, which the flash names for a restart. See
+  `docs/end-users/keybindings.md`.
 
 - **Alert notifications** — with `tui.notify.enabled: true`, a poll
   that brings a firing alert the poll before it did not have rings the

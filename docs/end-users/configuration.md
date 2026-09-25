@@ -589,17 +589,20 @@ Run `:reload` from inside the TUI to re-read this file, your aliases
 file, and your keys file. You keep your page stack, your cursors,
 your marks, your filters, and your tenant scope.
 
-These apply without a restart:
+These apply without a restart. Each one applies at once, including
+to the pages already on your stack:
 
 | Key | Note |
 | --- | --- |
 | `theme.name` | Repaints at once. The `auto` value is left as it is, because the terminal answered that question at startup. |
 | `tui.tips`, `tui.tips_interval` | Rebuilds the hint bar. |
-| `defaults.poll_interval`, per-backend `poll_interval`, `pages.<page>.poll_interval` | Restarts the pollers whose interval moved. |
-| `defaults.read_only` | Applies at once, including to the pages already on your stack: their dangerous bindings appear or disappear in place. |
-| `defaults.bulk_concurrency` | Applies to pages you open after the reload. |
-| `guardrails`, per-backend `read_only` | Applies to pages you open after the reload. A per-backend flag is enforced as a guardrail, so a page already open keeps the policy it was built with. |
-| `tui.poll_delta`, `pages.<page>.columns` | Applies to pages you open after the reload. |
+| `defaults.poll_interval`, per-backend `poll_interval`, `pages.<page>.poll_interval` | Restarts the pollers whose interval moved, and only those. |
+| `defaults.read_only`, per-backend `read_only`, `guardrails` | Dangerous bindings appear or disappear in place, and the next key press is checked against the new rules. |
+| `defaults.bulk_concurrency` | The next bulk run uses the new pool size. |
+| `pages.<page>.columns` | The table rebuilds its columns. A sort on a column you removed falls back to the page default. |
+| `tui.poll_delta` | The next poll reads the new value. |
+| `tui.notify` | Switching it on starts a fresh warm-up, so the alerts that were already firing are not announced. |
+| `tui.terminal_title` | The window title follows on the next frame. |
 | Aliases, keys | Swapped as a whole file, so an entry you deleted stops working. |
 
 These need a restart, and `:reload` refuses the whole file when one
@@ -610,15 +613,13 @@ of them changed:
 | `backends`: the list itself, and every field of an entry except `read_only` and `poll_interval` | The session built its HTTP clients from these and keeps them for its lifetime. |
 | `log.*`, `defaults.log_format` | The audit trail writes to the file the session opened with the encoder it built. Re-opening it mid-session loses the write order. |
 
-These also need a restart, but `:reload` does not refuse them. It
-reports success and leaves them as they are, because the session
-wired them into the running program at startup:
+This one also needs a restart, but `:reload` does not refuse it. It
+applies the rest of the file and names the key in the flash, for
+example `reloaded, restart a10r to apply tui.remember`:
 
 | Key | Why |
 | --- | --- |
-| `tui.notify` | The notifier is built once and handed to the app. |
-| `tui.terminal_title` | The title writer is built once and handed to the app. |
-| `tui.remember` | The state store is opened once, at startup. |
+| `tui.remember` | The state store is opened once, at startup. Turning it on mid-session would write a file the run never read. Until you restart, `:config` shows the value the run started with, and every later `:reload` names the key again. |
 
 When a refused key changed, `:reload` applies nothing at all and
 flashes `reload: backends or log changed, restart a10r`. A partly

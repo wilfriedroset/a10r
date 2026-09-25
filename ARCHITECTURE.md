@@ -142,13 +142,24 @@ Shell and orchestration:
   resolver and the `App`. `boot.Build` reads top-to-bottom as a
   named-stage list ([ADR 0033](docs/adr/0033-boot-stage-extraction.md)).
   `reload.go` re-runs the reloadable part of that list for `:reload`,
-  so the same package owns the startup read and the live re-read.
+  so the same package owns the startup read and the live re-read: it
+  refuses a frozen change, applies the file to the session, lets the
+  poller registry `Sync` its intervals, and names what needs a
+  restart.
   `frame_test.go` renders whole frames headlessly against the goldens
   in `testdata/frames/`, boot included, with no terminal and no
   network. `snapshot.go` does the same against live backends for the
   hidden `a10r snapshot` command: it drives the real bubbletea
   program with the renderer and the input disabled, waits for the
   first poll of every backend, and returns the frame as text.
+- `internal/tui/session` -- the live effective configuration and the
+  values derived from it (the read-only switch, the write policy with
+  per-backend `read_only` folded in, the bulk pool size, the label
+  columns). The App and every page hold the one `*Session` and ask it
+  at the point of use, so `:reload` reaches the pages already on the
+  stack by calling `Apply`. State derived at construction (label
+  columns) is re-derived on the payload-free `app.ConfigReloadedMsg`.
+  See [ADR 0050](docs/adr/0050-pages-read-the-live-configuration.md).
 - `internal/tui/keys` -- the keybindings dispatcher: five precedence
   layers (modal > prompt > per-view > table-context > global), first
   match wins, 500 ms chords.
@@ -297,8 +308,11 @@ the binary entry to a live page:
    the `newXxxPage` factories. `pageEnv` bundles the shared deps every
    page needs at construction time (styles, scope, clients, the
    time/state-format closures that read the live `App`, the editor
-   resolver, tenant rows, ...) so adding a future shared dep is a
-   struct-field change, not an N-arg propagation. `newAlertsPage`
+   resolver, tenant rows, the `*session.Session`, ...) so adding a
+   future shared dep is a struct-field change, not an N-arg
+   propagation. Configuration reaches a page only through the
+   session, never as a copied value, so a reload cannot leave an open
+   page behind. `newAlertsPage`
    translates the `pageEnv` into `alerts.Options` and calls
    `alerts.New`. The cmdbar resolver registers the other factories
    (`newSilencesPage`, ...) as `:command` handlers
@@ -318,7 +332,7 @@ the binary entry to a live page:
    ([ADR 0013](docs/adr/0013-list-page-shared-base.md)). `alerts.New`
    constructs the page value and initialises its `Base`, wiring the
    `Recompute`, `RowCount`, `SnapshotFocus`, `SetTimeFormat`,
-   `SetStateFormat`, and `ClearMarks` callbacks. From then on the
+   `SetStateFormat`, `Reconfigure`, and `ClearMarks` callbacks. From then on the
    App routes messages to the top page's `Update`, the page delegates
    sideband and `DataMsg` handling into `Base`
    ([ADR 0018](docs/adr/0018-listpage-wire-to-domain-seam.md)), and

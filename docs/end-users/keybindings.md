@@ -264,16 +264,19 @@ as they are.
 - `theme.name`
 - `tui.tips` and `tui.tips_interval`
 - every `poll_interval`, which restarts the pollers that changed
-- `defaults.read_only`, at once everywhere — the title bar, the help
-  overlay, and every page already on your stack
-- per-backend `read_only`, for pages you open after the reload: it is
-  enforced as a guardrail, and a page keeps the rules it was built
-  with
+- `defaults.read_only`, per-backend `read_only` and `guardrails`, at
+  once everywhere — the title bar, the help overlay, and every page
+  already on your stack
+- `defaults.bulk_concurrency`, `tui.poll_delta` and every
+  `pages.<page>.columns` block, on the pages already open too
+- `tui.notify` and `tui.terminal_title`
 - your aliases and your keys, as a whole-file swap
 
-`:reload` reports success but changes nothing for `tui.notify`,
-`tui.terminal_title`, and `tui.remember`. The session wired those
-into the running program at startup. Restart a10r to pick them up.
+`:reload` applies everything else in the file but cannot apply
+`tui.remember`, because the state store is opened once at startup.
+When that key changed, the flash says
+`reloaded, restart a10r to apply tui.remember`. Restart a10r to pick
+it up.
 
 `:reload` refuses the whole reload when the new file changes a
 backend or the log. That covers the backend list, every field of a
