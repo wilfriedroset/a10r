@@ -220,6 +220,9 @@ func fuzzConfig(cols []config.Column, rules guardrail.Set) config.Config {
 	return config.Config{
 		Defaults:   config.Defaults{BulkConcurrency: 4},
 		Guardrails: rules,
+		// Both escape transports, and kept on across the reload so the
+		// frames after it still drive the diff and the sanitiser.
+		TUI: config.TUI{Notify: config.Notify{Enabled: true, Desktop: config.NotifyDesktopBoth}},
 		Pages: config.PageOverrides{
 			Alerts:      config.AlertsPageConfig{Columns: cols},
 			GroupDetail: config.GroupDetailConfig{Columns: cols},
@@ -273,7 +276,7 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		// warm-up polls below only seed the firing set; the third one
 		// carries a new alertname and is what drives the diff, the
 		// sanitiser and the raw emission.
-		Notify: notify.New(config.Notify{Enabled: true, Desktop: config.NotifyDesktopBoth}),
+		Notify: notify.New(sess.Notify()),
 	})
 
 	clients := map[string]silenceform.Client{

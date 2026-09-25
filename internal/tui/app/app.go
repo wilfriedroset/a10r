@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/help"
@@ -57,9 +58,6 @@ type Options struct {
 	// SaveScope is handed every scope the user switches to, so the
 	// next run can open on it. Nil is a no-op.
 	SaveScope func(scope string)
-	// TerminalTitle opts into writing the terminal window title; off
-	// leaves the title untouched.
-	TerminalTitle bool
 	// AutoTheme opts into terminal-background detection: Styles holds
 	// the provisional dark skin and the App swaps it for the light one
 	// when the terminal reports a light background. Off means the user
@@ -83,7 +81,8 @@ type Options struct {
 	// this; everything else about the reload belongs to the caller.
 	Reload func() tea.Cmd
 	// Notify rings and raises a desktop notification on a new firing
-	// alert. Nil is the feature turned off; every method tolerates it.
+	// alert. A reload hands it the session's tui.notify. Nil builds a
+	// disabled one.
 	Notify *notify.Notifier
 }
 
@@ -103,12 +102,8 @@ type App struct {
 	scope     string
 	saveScope func(scope string)
 
-	// notify watches the alert polls for a newly firing aggregate. Nil
-	// when the feature is off, which its own methods handle.
+	// notify watches the alert polls for a newly firing aggregate.
 	notify *notify.Notifier
-
-	// terminalTitle gates every write to tea.View.WindowTitle.
-	terminalTitle bool
 
 	// autoTheme is armed at boot and disarmed by the first background
 	// colour report, so detection runs once per process.
@@ -242,16 +237,18 @@ func NewApp(opts Options) *App {
 		skinName:   opts.SkinName,
 		reload:     opts.Reload,
 
-		terminalTitle: opts.TerminalTitle,
-		crumbs:        footer.NewCrumbs(),
-		prompt:        footer.NewPrompt(resolver.Suggest),
-		flash:         footer.NewFlash(),
-		hintbar:       opts.HintBar,
+		crumbs:  footer.NewCrumbs(),
+		prompt:  footer.NewPrompt(resolver.Suggest),
+		flash:   footer.NewFlash(),
+		hintbar: opts.HintBar,
 		caches: caches{
 			poll:   map[string]map[string]poll.DataMsg{},
 			status: map[string]poll.BackendStatusMsg{},
 		},
 		histories: newAppHistories(opts.HistoryDir),
+	}
+	if a.notify == nil {
+		a.notify = notify.New(config.Notify{})
 	}
 	// The boot scope has to reach the notifier here: a run that starts
 	// narrowed would otherwise announce every tenant until the user

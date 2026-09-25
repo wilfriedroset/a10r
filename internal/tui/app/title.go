@@ -18,7 +18,7 @@ import (
 // It deliberately ignores filters, marks and poll ticks: a title that
 // changes on every keystroke makes window managers flicker.
 func (a *App) windowTitle() string {
-	if !a.terminalTitle {
+	if !a.session.Config().TUI.TerminalTitle {
 		return ""
 	}
 	title := "a10r: " + sanitizeTitle(scopeLabel(a.scope))

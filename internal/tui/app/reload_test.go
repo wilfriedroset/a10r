@@ -257,11 +257,11 @@ func drainFlashes(t *testing.T, cmd tea.Cmd) []footer.FlashShowMsg {
 func TestApp_ChromeReadsReadOnlyFromTheSession(t *testing.T) {
 	t.Parallel()
 
-	sess := session.New(config.Config{})
-	a := NewApp(Options{Styles: testutil.LoadStyles(t), Dispatcher: keys.New(nil), Session: sess, TerminalTitle: true})
+	sess := session.New(config.Config{TUI: config.TUI{TerminalTitle: true}})
+	a := NewApp(Options{Styles: testutil.LoadStyles(t), Dispatcher: keys.New(nil), Session: sess})
 	require.NotContains(t, a.windowTitle(), "[read-only]")
 
-	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}, TUI: config.TUI{TerminalTitle: true}})
 
 	require.Contains(t, a.windowTitle(), "[read-only]")
 }

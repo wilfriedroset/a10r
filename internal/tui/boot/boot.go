@@ -431,8 +431,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		SkinName: startupSkinName(effCfg.Theme.Name),
 		Reload:   reload,
 
-		TerminalTitle: effCfg.TUI.TerminalTitle,
-		Notify:        notifierFor(d.Headless, effCfg.TUI.Notify),
+		Notify: notifierFor(d.Headless, effCfg.TUI.Notify),
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,
@@ -440,11 +439,13 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 	})
 }
 
-// notifierFor answers nil on the headless path whatever the config
-// says. The rule is the boot path, not the config: spec 15 item 12.
+// notifierFor answers a disabled notifier on the headless path
+// whatever the config says. The rule is the boot path, not the config:
+// spec 15 item 12. A headless render never receives a `:reload`, which
+// is the only other thing that hands the notifier its settings.
 func notifierFor(headless bool, cfg config.Notify) *notify.Notifier {
 	if headless {
-		return nil
+		return notify.New(config.Notify{})
 	}
 	return notify.New(cfg)
 }

@@ -71,6 +71,9 @@ func (s *Session) AlertColumns() []config.Column { return s.cfg.Pages.Alerts.Col
 // which the alerts list constructs and boot never sees.
 func (s *Session) GroupDetailColumns() []config.Column { return s.cfg.Pages.GroupDetail.Columns }
 
+// Notify is `tui.notify`, which the App hands the notifier on a reload.
+func (s *Session) Notify() config.Notify { return s.cfg.TUI.Notify }
+
 // TenantConfig backs the tenant-config drill, which is keyed by name.
 func (s *Session) TenantConfig(name string) (config.Backend, bool) {
 	be, ok := s.tenants[name]

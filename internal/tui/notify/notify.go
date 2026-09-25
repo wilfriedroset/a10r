@@ -34,13 +34,14 @@ const (
 	commandTimeout = time.Second
 )
 
-// Notifier holds the per-tenant firing set the diff runs against.
-// Every method is nil-receiver safe so the App can hold a nil
-// *Notifier when the feature is off and no call site gates on it.
+// Notifier holds the settings and the per-tenant firing set the diff
+// runs against. It exists whether or not the feature is on, so a
+// reload that switches it on has something to apply to.
 //
 // Only commandFailed is safe to touch off the event loop; seen and
 // scope are mutated unguarded and belong to the Update goroutine.
 type Notifier struct {
+	enabled bool
 	minRank int
 	bell    bool
 	desktop string
@@ -60,28 +61,36 @@ type Notifier struct {
 	commandFailed atomic.Bool
 }
 
-// New returns nil when the feature is off, which is the signal every
-// method reads to stay quiet.
-func New(n config.Notify) *Notifier {
-	if !n.Enabled {
-		return nil
+// New returns a notifier under cfg. A disabled one announces nothing.
+func New(cfg config.Notify) *Notifier {
+	n := &Notifier{run: runCommand, seen: map[string]map[string]int{}}
+	n.Apply(cfg)
+	return n
+}
+
+// Apply replaces the settings. Switching the feature on drops the
+// firing sets an off notifier stopped updating, so it warms up rather
+// than announce what was already firing. Staying on keeps them, or a
+// reload would swallow the alert that started firing across it; the
+// sets ignore the severity floor, so no other setting needs a reset.
+func (n *Notifier) Apply(cfg config.Notify) {
+	if cfg.Enabled && !n.enabled {
+		n.seen = map[string]map[string]int{}
 	}
-	return &Notifier{
-		minRank: backend.SeverityRank(map[string]string{"severity": n.MinSeverityOrDefault()}),
-		bell:    n.BellOrDefault(),
-		desktop: n.DesktopOrDefault(),
-		command: n.Command,
-		seen:    map[string]map[string]int{},
-		run:     runCommand,
-	}
+	n.enabled = cfg.Enabled
+	n.minRank = backend.SeverityRank(map[string]string{"severity": cfg.MinSeverityOrDefault()})
+	n.bell = cfg.BellOrDefault()
+	n.desktop = cfg.DesktopOrDefault()
+	n.command = cfg.Command
 }
 
 // Observe diffs one tenant's alert snapshot against the previous one
 // and returns the batch that announces the new firing alertnames. It
-// returns nil for a tenant outside the scope, for a tenant that is
-// warming up, and when nothing new clears the severity floor.
+// returns nil when the feature is off, for a tenant outside the
+// scope, for a tenant that is warming up, and when nothing new clears
+// the severity floor.
 func (n *Notifier) Observe(tenant string, alerts []backend.Alert) tea.Cmd {
-	if n == nil || !config.ScopeMatches(n.scope, tenant) {
+	if !n.enabled || !config.ScopeMatches(n.scope, tenant) {
 		return nil
 	}
 	current := activeRanks(alerts)
@@ -104,9 +113,6 @@ func (n *Notifier) Observe(tenant string, alerts []backend.Alert) tea.Cmd {
 // the new scope excludes loses its set, so it warms up again if it
 // comes back.
 func (n *Notifier) SetScope(scope string) {
-	if n == nil {
-		return
-	}
 	n.scope = scope
 	maps.DeleteFunc(n.seen, func(tenant string, _ map[string]int) bool {
 		return !config.ScopeMatches(scope, tenant)

@@ -25,9 +25,7 @@ func alert(name, severity string, state backend.AlertState) backend.Alert {
 
 func enabled(t *testing.T) *Notifier {
 	t.Helper()
-	n := New(config.Notify{Enabled: true})
-	require.NotNil(t, n)
-	return n
+	return New(config.Notify{Enabled: true})
 }
 
 // flashText resolves cmd and returns the text of the single flash
@@ -86,14 +84,71 @@ func resolve(cmd tea.Cmd) []tea.Msg {
 	return out
 }
 
-func TestNewReturnsNilWhenDisabled(t *testing.T) {
-	require.Nil(t, New(config.Notify{}))
-}
-
-func TestNilNotifierIsSafe(t *testing.T) {
-	var n *Notifier
+func TestDisabledNotifierAnnouncesNothing(t *testing.T) {
+	t.Parallel()
+	n := New(config.Notify{})
+	require.NotNil(t, n, "a disabled notifier still exists, so a reload can switch it on")
+	require.Nil(t, n.Observe("prod", nil))
 	require.Nil(t, n.Observe("prod", []backend.Alert{alert("A", "critical", backend.AlertStateActive)}))
 	n.SetScope("prod")
+}
+
+func TestApplyReplacesSettings(t *testing.T) {
+	t.Parallel()
+	n := New(config.Notify{})
+	var gotArgs []string
+	n.run = func(_ context.Context, _ string, args ...string) error {
+		gotArgs = args
+		return nil
+	}
+
+	n.Apply(config.Notify{
+		Enabled:     true,
+		MinSeverity: "critical",
+		Bell:        new(false),
+		Desktop:     config.NotifyDesktopOSC9,
+		Command:     []string{"notify-send", config.NotifyMessagePlaceholder},
+	})
+	require.Nil(t, n.Observe("prod", nil))
+	cmd := n.Observe("prod", []backend.Alert{
+		alert("PageMe", "critical", backend.AlertStateActive),
+		alert("Chatter", "warning", backend.AlertStateActive),
+	})
+
+	require.Equal(t, "prod: PageMe (critical)", flashText(t, cmd), "min_severity follows Apply")
+	require.Equal(t, []string{desktopSequence(config.NotifyDesktopOSC9, "prod: PageMe (critical)")}, rawText(t, cmd),
+		"desktop follows Apply and bell: false rings nothing")
+	require.Equal(t, []string{"prod: PageMe (critical)"}, gotArgs, "command follows Apply")
+}
+
+// A notifier switched on mid-session must warm up again rather than
+// announce every alert that was already firing before the reload.
+func TestApplyClearsSeen(t *testing.T) {
+	t.Parallel()
+
+	n := enabled(t)
+	firing := []backend.Alert{alert("HighLatency", "critical", backend.AlertStateActive)}
+	require.Nil(t, n.Observe("prod", nil))
+	n.Apply(config.Notify{})
+	require.Nil(t, n.Observe("prod", firing), "an off notifier records nothing")
+
+	n.Apply(config.Notify{Enabled: true})
+
+	require.Empty(t, flashText(t, n.Observe("prod", firing)), "the first poll after switching on only seeds")
+}
+
+// A reload that leaves the feature on must not drop the sets, or the
+// alert that started firing across the reload is seeded, not announced.
+func TestApplyKeepsSeenWhileOn(t *testing.T) {
+	t.Parallel()
+
+	n := enabled(t)
+	require.Nil(t, n.Observe("prod", nil))
+
+	n.Apply(config.Notify{Enabled: true, MinSeverity: "warning"})
+
+	cmd := n.Observe("prod", []backend.Alert{alert("HighLatency", "critical", backend.AlertStateActive)})
+	require.Equal(t, "prod: HighLatency (critical)", flashText(t, cmd))
 }
 
 func TestObserveDiff(t *testing.T) {

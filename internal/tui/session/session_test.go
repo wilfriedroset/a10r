@@ -111,7 +111,7 @@ func TestApplyRederivesPolicy(t *testing.T) {
 	}
 }
 
-func TestColumnsFollowApply(t *testing.T) {
+func TestColumnsAndNotifyFollowApply(t *testing.T) {
 	t.Parallel()
 
 	s := session.New(config.Config{})
@@ -120,11 +120,13 @@ func TestColumnsFollowApply(t *testing.T) {
 			Alerts:      config.AlertsPageConfig{Columns: []config.Column{{Label: "team"}}},
 			GroupDetail: config.GroupDetailConfig{Columns: []config.Column{{Label: "pod"}}},
 		},
+		TUI: config.TUI{Notify: config.Notify{Enabled: true}},
 	}
 	s.Apply(next)
 
 	require.Equal(t, next.Pages.Alerts.Columns, s.AlertColumns())
 	require.Equal(t, next.Pages.GroupDetail.Columns, s.GroupDetailColumns())
+	require.Equal(t, next.TUI.Notify, s.Notify())
 }
 
 // The page-wide switch still has one honest case: nothing writable

@@ -60,6 +60,7 @@ type ReloadedMsg struct {
 // the wiring half has already swapped pollers, aliases, key
 // overrides, guardrails and column sets it never hears about.
 func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
+	a.notify.Apply(a.session.Notify())
 	applied := tea.Batch(
 		a.forwardToAll(ConfigReloadedMsg{}),
 		a.applyReloadedTips(m),

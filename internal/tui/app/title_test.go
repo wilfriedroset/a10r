@@ -77,11 +77,13 @@ func TestApp_WindowTitle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			a := NewApp(Options{
-				Styles:        testutil.LoadStyles(t),
-				Dispatcher:    keys.New(nil),
-				TerminalTitle: tc.enabled,
-				Session:       session.New(config.Config{Defaults: config.Defaults{ReadOnly: tc.readOnly}}),
-				Scope:         tc.scope,
+				Styles:     testutil.LoadStyles(t),
+				Dispatcher: keys.New(nil),
+				Session: session.New(config.Config{
+					Defaults: config.Defaults{ReadOnly: tc.readOnly},
+					TUI:      config.TUI{TerminalTitle: tc.enabled},
+				}),
+				Scope: tc.scope,
 			})
 			if tc.crumb != "" {
 				a.stack = append(a.stack, newFakePage(tc.crumb))
@@ -95,10 +97,10 @@ func TestApp_WindowTitleFollowsScopeChange(t *testing.T) {
 	t.Parallel()
 
 	a := NewApp(Options{
-		Styles:        testutil.LoadStyles(t),
-		Dispatcher:    keys.New(nil),
-		TerminalTitle: true,
-		Scope:         scopeAll,
+		Styles:     testutil.LoadStyles(t),
+		Dispatcher: keys.New(nil),
+		Session:    titled(),
+		Scope:      scopeAll,
 	})
 	a.stack = append(a.stack, newFakePage("alerts"))
 	a.Update(ScopeChangedMsg{Scope: "prod,staging"})
@@ -112,10 +114,10 @@ func TestApp_ViewCarriesTheWindowTitle(t *testing.T) {
 	t.Parallel()
 
 	a := NewApp(Options{
-		Styles:        testutil.LoadStyles(t),
-		Dispatcher:    keys.New(nil),
-		TerminalTitle: true,
-		Scope:         scopeAll,
+		Styles:     testutil.LoadStyles(t),
+		Dispatcher: keys.New(nil),
+		Session:    titled(),
+		Scope:      scopeAll,
 	})
 	a.stack = append(a.stack, newFakePage("alerts"))
 
@@ -136,4 +138,22 @@ func TestApp_ViewWritesNoTitleWhenDisabled(t *testing.T) {
 	require.Empty(t, a.View().WindowTitle,
 		"tui.terminal_title defaults to false, so a10r must leave the "+
 			"terminal title alone")
+}
+
+func titled() *session.Session {
+	return session.New(config.Config{TUI: config.TUI{TerminalTitle: true}})
+}
+
+// tui.terminal_title is read per frame, so a reload that switches it
+// reaches the running window without a restart.
+func TestApp_WindowTitleFollowsApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	a := NewApp(Options{Styles: testutil.LoadStyles(t), Dispatcher: keys.New(nil), Session: sess, Scope: scopeAll})
+	require.Empty(t, a.windowTitle())
+
+	sess.Apply(config.Config{TUI: config.TUI{TerminalTitle: true}})
+
+	require.Equal(t, "a10r: all", a.windowTitle())
 }

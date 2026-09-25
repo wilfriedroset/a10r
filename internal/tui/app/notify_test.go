@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -139,10 +140,51 @@ func TestApp_NotifyScopeChangeReWarmsATenant(t *testing.T) {
 	require.Equal(t, "prod: DiskFull (critical)", notifyFlash(cmd))
 }
 
-func TestApp_NilNotifierIsNoOp(t *testing.T) {
+func TestApp_UnsetNotifierIsDisabled(t *testing.T) {
 	t.Parallel()
 	a := newTestApp(t)
 	_, cmd := a.Update(firingMsg("prod", "HighLatency"))
 	require.Empty(t, notifyFlash(cmd))
 	_, _ = a.Update(ScopeChangedMsg{Scope: "prod"})
+}
+
+// A notifier the boot built disabled has to come on when a reload
+// switches tui.notify on, and warm up first rather than announce the
+// alerts that were already firing.
+func TestApplyReloadedReconfiguresNotifier(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	a := NewApp(Options{
+		Styles:     testutil.LoadStyles(t),
+		Dispatcher: keys.New(nil),
+		Session:    sess,
+		Notify:     notify.New(sess.Notify()),
+	})
+	_, _ = a.Update(firingMsg("prod", "HighLatency"))
+	_, cmd := a.Update(firingMsg("prod", "DiskFull"))
+	require.Empty(t, notifyFlash(cmd), "off at boot")
+
+	sess.Apply(config.Config{TUI: config.TUI{Notify: config.Notify{Enabled: true}}})
+	_, _ = a.Update(ReloadedMsg{})
+
+	_, cmd = a.Update(firingMsg("prod", "DiskFull"))
+	require.Empty(t, notifyFlash(cmd), "the first poll after the reload warms up")
+	_, cmd = a.Update(firingMsg("prod", "OOM"))
+	require.Equal(t, "prod: OOM (critical)", notifyFlash(cmd))
+}
+
+// An on-call user who reloads for a skin must still hear the alert
+// that started firing across the reload.
+func TestApplyReloadedKeepsAWarmNotifierWarm(t *testing.T) {
+	t.Parallel()
+
+	a := notifyApp(t, "")
+	a.session.Apply(config.Config{TUI: config.TUI{Notify: config.Notify{Enabled: true}}})
+	_, _ = a.Update(firingMsg("prod", "HighLatency"))
+
+	_, _ = a.Update(ReloadedMsg{})
+
+	_, cmd := a.Update(firingMsg("prod", "DiskFull"))
+	require.Equal(t, "prod: DiskFull (critical)", notifyFlash(cmd))
 }
