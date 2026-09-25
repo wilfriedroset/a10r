@@ -151,7 +151,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
-		if p.readOnly {
+		if p.session.ReadOnly() {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
 		cmd := p.openSilenceForS()
@@ -202,32 +202,28 @@ func (p *Page) drillToDetail() tea.Cmd {
 	clients := p.clients
 	creator := p.creator
 	tf := p.timeFormat
-	readOnly := p.readOnly
-	bulkConcurrency := p.bulkConcurrency
+	sess := p.session
 	logger := p.logger
 	bulkCtx := p.bulkCtx
 	submitCtx := p.submitCtx
 	editorResolver := p.editorResolver
 	editorCtx := p.editorCtx
 	tenant := p.tenant
-	guardrails := p.guardrails
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:           entry.a,
-			Tenant:          tenant,
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			TimeFormat:      tf,
-			ReadOnly:        readOnly,
-			Guardrails:      guardrails,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			EditorResolver:  editorResolver,
-			EditorCtx:       editorCtx,
+			Alert:          entry.a,
+			Tenant:         tenant,
+			Styles:         styles,
+			Now:            now,
+			Clients:        clients,
+			Creator:        creator,
+			TimeFormat:     tf,
+			Session:        sess,
+			Logger:         logger,
+			BulkCtx:        bulkCtx,
+			SubmitCtx:      submitCtx,
+			EditorResolver: editorResolver,
+			EditorCtx:      editorCtx,
 		})
 	})
 }
@@ -240,7 +236,7 @@ func (p *Page) openSilenceForS() tea.Cmd {
 	// instance and talk a capped range past the gate. Marks are
 	// additive, so a refusal here keeps them.
 	listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
-	if d := p.guardrails.Decide(p.writeRequest()); d.Refused() {
+	if d := p.session.Guardrails().Decide(p.writeRequest()); d.Refused() {
 		return footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	if len(p.marks) == 0 {
@@ -273,7 +269,7 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	clients := p.clients
 	tenant := p.tenant
 	submitCtx := p.submitCtx
-	guardrails := p.guardrails
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
 			Clients:    clients,
@@ -283,7 +279,7 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 			Creator:    creator,
 			Matchers:   matchers,
 			SubmitCtx:  submitCtx,
-			Guardrails: guardrails,
+			Guardrails: sess.Guardrails(),
 			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
@@ -308,28 +304,25 @@ func (p *Page) openSilencesView() tea.Cmd {
 }
 
 // silencesPageOptions is what the restricted silences list inherits
-// from this page. Every write-policy field has to travel: boot is not
-// the only construction site, and a page built without the guardrails
-// would let a denied verb through.
+// from this page. The session has to travel: boot is not the only
+// construction site, and a page built without it reads as writable.
 func (p *Page) silencesPageOptions(restrictIDs []string) silencespage.Options {
 	return silencespage.Options{
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		EditorResolver:  p.editorResolver,
-		TimeFormat:      p.timeFormat,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		ReadOnly:        p.readOnly,
-		Guardrails:      p.guardrails,
-		EditorCtx:       p.editorCtx,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		Tenants:         []string{p.tenant},
-		RestrictIDs:     restrictIDs,
-		AlertName:       p.alertName,
-		AlertLabels:     p.commonLabelsCopy(),
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		EditorResolver: p.editorResolver,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		EditorCtx:      p.editorCtx,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		Tenants:        []string{p.tenant},
+		RestrictIDs:    restrictIDs,
+		AlertName:      p.alertName,
+		AlertLabels:    p.commonLabelsCopy(),
 	}
 }
 

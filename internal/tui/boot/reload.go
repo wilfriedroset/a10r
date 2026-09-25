@@ -117,21 +117,17 @@ func (r *reloader) reload() tea.Cmd {
 	}
 
 	reportReadOnly := readOnlyChanged(live, &effCfg)
-	backendReadOnly := backendReadOnlyChanged(live, &effCfg)
 	restartPollers := pollIntervalsChanged(live, &effCfg)
 	r.env.Session.Apply(effCfg)
 	if restartPollers {
 		r.registry.Restart(live)
 	}
-	readOnly := r.env.Session.ReadOnly()
 	return func() tea.Msg {
 		return app.ReloadedMsg{
-			ThemeName:              effCfg.Theme.Name,
-			Tips:                   effCfg.TUI.Tips,
-			TipsInterval:           effCfg.TUI.TipsInterval,
-			ReadOnly:               readOnly,
-			ReadOnlyChanged:        reportReadOnly,
-			BackendReadOnlyChanged: backendReadOnly,
+			ThemeName:       effCfg.Theme.Name,
+			Tips:            effCfg.TUI.Tips,
+			TipsInterval:    effCfg.TUI.TipsInterval,
+			ReadOnlyChanged: reportReadOnly,
 		}
 	}
 }
@@ -156,24 +152,15 @@ func (r *reloader) unknownAction(overrides config.KeyOverrides) string {
 	return ""
 }
 
-// readOnlyChanged reports whether the write policy moved at either
+// readOnlyChanged reports whether a read_only flag moved at either
 // layer, which is what decides whether the flash mentions read_only
 // at all.
 //
 // Same length precondition as pollIntervalsChanged.
 func readOnlyChanged(old, next *config.Config) bool {
-	return old.Defaults.ReadOnly != next.Defaults.ReadOnly || backendReadOnlyChanged(old, next)
-}
-
-// backendReadOnlyChanged reports whether any per-backend read_only
-// moved. Reported apart from the session-wide layer because the two
-// reach different places: the session-wide value rides a broadcast to
-// every open page, while a per-backend flag rides the guardrail set,
-// which a page copies at construction. A flash that claimed the whole
-// change landed would contradict the page in front of the user.
-//
-// Same length precondition as pollIntervalsChanged.
-func backendReadOnlyChanged(old, next *config.Config) bool {
+	if old.Defaults.ReadOnly != next.Defaults.ReadOnly {
+		return true
+	}
 	for i := range old.Backends {
 		if old.Backends[i].ReadOnly != next.Backends[i].ReadOnly {
 			return true

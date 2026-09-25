@@ -115,35 +115,6 @@ func TestBase_HandleSidebandMsg(t *testing.T) {
 			msg: app.TimeFormatChangedMsg{Format: timerender.Absolute},
 		},
 		{
-			// A reload flips read_only under a page already on the
-			// stack; the page keeps the value it was built with unless
-			// the sideband hands it the new one.
-			name: "read only wired",
-			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
-				t.Helper()
-				got := false
-				b := &listpage.Base{
-					SetReadOnly: func(v bool) { got = v },
-				}
-				return b, func(t *testing.T) {
-					t.Helper()
-					require.True(t, got, "callback must receive the new state")
-				}
-			},
-			msg:         app.ReadOnlyChangedMsg{ReadOnly: true},
-			wantHandled: true,
-		},
-		{
-			// Pages with no Dangerous verb (receivers) don't wire
-			// SetReadOnly — the message must fall through cleanly.
-			name: "read only unwired falls through",
-			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
-				t.Helper()
-				return &listpage.Base{}, nil
-			},
-			msg: app.ReadOnlyChangedMsg{ReadOnly: true},
-		},
-		{
 			name: "state format wired",
 			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
 				t.Helper()

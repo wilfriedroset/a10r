@@ -27,13 +27,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -164,8 +164,6 @@ type Page struct {
 	// the question named.
 	pendingEditConfirm *silenceEntry
 
-	// bulkConcurrency: tenants always parallel; this limits the inner pool per tenant.
-	bulkConcurrency int
 	// logger is the structured logger used for per-failure detail
 	// in the bulk fanout. Nil suppresses logging — the page never
 	// crashes on a missing logger.
@@ -193,11 +191,7 @@ type Page struct {
 	alertName   string
 	alertLabels map[string]string
 
-	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
-	readOnly bool
-
-	// guardrails: see Options.Guardrails.
-	guardrails guardrail.Set
+	session *session.Session
 
 	// editorCtx is the parent context the editor subprocess
 	// inherits when the user presses Ctrl+E. Wired to the
@@ -229,26 +223,15 @@ type Options struct {
 	// so a page pushed *after* the user toggled `t` doesn't open
 	// in relative while the rest of the app reads absolute.
 	TimeFormat timerender.Format
-	// BulkConcurrency caps the per-tenant worker pool for the
-	// bulk-expire fanout. Zero resolves to config.DefaultBulkConcurrency
-	// at construction time so callers can pass the unmaterialised
-	// `defaults.bulk_concurrency` directly.
-	BulkConcurrency int
 	// Logger receives per-failure detail (`backend`, `tenant`,
 	// `silence_id`, `err`) at error level when the bulk fanout
 	// surfaces individual ExpireSilence failures. Nil suppresses
 	// logging — the page never crashes on a missing logger.
 	Logger *slog.Logger
-	// ReadOnly hides the page's Dangerous bindings from the hint
-	// strip / help overlay and turns every write keystroke into a
-	// flash hint instead of pushing the form / confirm modal. Wired
-	// from the resolved defaults.read_only / --read-only / A10R_READ_ONLY
-	// chain so a misclick or stray paste cannot mutate state.
-	ReadOnly bool
-	// Guardrails is the per-tenant write policy. Each of the page's
-	// four write verbs asks it about the tenants that key would land
-	// in, so a rule can guard `x` on one backend and leave `n` alone.
-	Guardrails guardrail.Set
+	// Session is the live configuration the page reads its write
+	// policy and bulk pool size from at the point of use, so a reload
+	// reaches the page while it is open. Nil reads as an empty config.
+	Session *session.Session
 	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
 	// inherits. Cancelling kills the editor so a parent shutdown
 	// can abort a hung session. nil falls back to
@@ -296,35 +279,29 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	concurrency := opts.BulkConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultBulkConcurrency
-	}
 	p := &Page{
-		Scope:           listpage.ScopeAll,
-		BackendHealth:   map[string]listpage.BackendHealth{},
-		Tenants:         opts.Tenants,
-		PolledTenants:   map[string]struct{}{},
-		NextRefresh:     map[string]time.Time{},
-		Spinner:         sp,
-		styles:          opts.Styles,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		editor:          opts.EditorResolver,
-		timeFormat:      opts.TimeFormat,
-		byTenant:        map[string][]backend.Silence{},
-		marks:           map[string]struct{}{},
-		sorter:          tablesort.New(silenceSortColumns(), sortKeyEndsAt),
-		bulkConcurrency: concurrency,
-		logger:          opts.Logger,
-		readOnly:        opts.ReadOnly,
-		guardrails:      opts.Guardrails,
-		editorCtx:       opts.EditorCtx,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
-		alertName:       opts.AlertName,
-		alertLabels:     opts.AlertLabels,
+		Scope:         listpage.ScopeAll,
+		BackendHealth: map[string]listpage.BackendHealth{},
+		Tenants:       opts.Tenants,
+		PolledTenants: map[string]struct{}{},
+		NextRefresh:   map[string]time.Time{},
+		Spinner:       sp,
+		styles:        opts.Styles,
+		now:           now,
+		clients:       opts.Clients,
+		creator:       opts.Creator,
+		editor:        opts.EditorResolver,
+		timeFormat:    opts.TimeFormat,
+		byTenant:      map[string][]backend.Silence{},
+		marks:         map[string]struct{}{},
+		sorter:        tablesort.New(silenceSortColumns(), sortKeyEndsAt),
+		logger:        opts.Logger,
+		session:       session.OrEmpty(opts.Session),
+		editorCtx:     opts.EditorCtx,
+		bulkCtx:       opts.BulkCtx,
+		submitCtx:     opts.SubmitCtx,
+		alertName:     opts.AlertName,
+		alertLabels:   opts.AlertLabels,
 	}
 	if len(opts.RestrictIDs) > 0 {
 		p.restrictIDs = make(map[string]struct{}, len(opts.RestrictIDs))
@@ -337,7 +314,6 @@ func New(opts Options) *Page {
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
-	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	p.ClearMarks = p.handleClearMarks
 	return p
 }
@@ -437,7 +413,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "r", Description: "refresh", View: resourceSilences},
 		action.Action{Key: "w", Description: "toggle watch", View: resourceSilences},
 	)
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out

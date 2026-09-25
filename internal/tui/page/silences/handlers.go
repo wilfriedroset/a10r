@@ -193,7 +193,7 @@ func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 // bypass them. name is a guardrail.ActionSilence* constant, never a
 // hand-written string: a name no rule can match would fail open.
 func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 	}
 	if name == guardrail.ActionSilenceExpire {
@@ -205,7 +205,7 @@ func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
 		// on purpose, so the user can narrow them.
 		listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
 	}
-	if d := p.guardrails.Decide(p.writeRequest(name)); d.Refused() {
+	if d := p.session.Guardrails().Decide(p.writeRequest(name)); d.Refused() {
 		return footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	return action()
@@ -223,10 +223,11 @@ func (p *Page) writeRequest(name string) guardrail.Request {
 // Bindings() runs on the render path and again on every key press, so
 // an unconfigured policy pays for no walk at all.
 func (p *Page) guarded(name string) bool {
-	if len(p.guardrails) == 0 {
+	rules := p.session.Guardrails()
+	if len(rules) == 0 {
 		return false
 	}
-	return p.guardrails.Decide(p.request(name, p.markedTenants)).Refused()
+	return rules.Decide(p.request(name, p.markedTenants)).Refused()
 }
 
 // request turns the press into its targets; marked resolves the bulk
@@ -359,7 +360,7 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	tenant := entry.tenant
 	s := entry.s
 	submitCtx := p.submitCtx
-	guardrails := p.guardrails
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
 			Clients:    clients,
@@ -371,7 +372,7 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 			Comment:    s.Comment,
 			EndsAt:     s.EndsAt,
 			EditID:     s.ID,
-			Guardrails: guardrails,
+			Guardrails: sess.Guardrails(),
 			Action:     guardrail.ActionSilenceUpdate,
 			SubmitCtx:  submitCtx,
 		})
@@ -409,7 +410,7 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		Comment:    entry.s.Comment,
 		BlankEnds:  true,
 		FocusEnds:  true,
-		Guardrails: p.guardrails,
+		Guardrails: p.session.Guardrails(),
 		Action:     guardrail.ActionSilenceRecreate,
 		SubmitCtx:  p.submitCtx,
 	}, nil, true
@@ -497,7 +498,7 @@ func (p *Page) startEditor(entry silenceEntry) tea.Cmd {
 // one route and waved through on the other. A deny is already refused
 // upstream in runWriteAction.
 func (p *Page) confirmEdit(entry silenceEntry) (tea.Cmd, bool) {
-	d := p.guardrails.Decide(guardrail.Request{
+	d := p.session.Guardrails().Decide(guardrail.Request{
 		Action:  guardrail.ActionSilenceUpdate,
 		Tenants: []string{entry.tenant},
 	})
@@ -617,7 +618,7 @@ func (p *Page) tenantForUpdate(known, id string) (string, tea.Cmd) {
 		return "", nil
 	}
 	req := guardrail.Request{Action: guardrail.ActionSilenceUpdate, Tenants: []string{tenant}}
-	if d := p.guardrails.Decide(req); d.Refused() {
+	if d := p.session.Guardrails().Decide(req); d.Refused() {
 		return "", footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	return tenant, nil
@@ -698,7 +699,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	styles := p.styles
 	clients := p.clients
 	submitCtx := p.submitCtx
-	guardrails := p.guardrails
+	sess := p.session
 	var matchers []backend.Matcher
 	if len(p.alertLabels) > 0 {
 		matchers = matcher.FromLabels(p.alertLabels)
@@ -711,7 +712,7 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 			Now:        now,
 			Creator:    creator,
 			Matchers:   matchers,
-			Guardrails: guardrails,
+			Guardrails: sess.Guardrails(),
 			Action:     guardrail.ActionSilenceCreate,
 			SubmitCtx:  submitCtx,
 		})

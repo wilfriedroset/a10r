@@ -214,7 +214,9 @@ func TestReload_AcceptsAPerBackendReadOnlyFlip(t *testing.T) {
 		return &config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am", ReadOnly: true}}}, nil
 	})
 
-	require.IsType(t, app.ReloadedMsg{}, r.reload()())
+	msg, ok := r.reload()().(app.ReloadedMsg)
+	require.True(t, ok)
+	require.True(t, msg.ReadOnlyChanged, "a per-backend flag alone must name read_only in the flash")
 	require.True(t, env.Session.Config().Backends[0].ReadOnly)
 }
 
@@ -342,14 +344,12 @@ func TestFrozenConfigChanged_CoversTheLogFormat(t *testing.T) {
 	require.True(t, frozenConfigChanged(old, next))
 }
 
-// A user who just tightened read_only and saw a plain "reloaded" has
-// fair grounds to think the running page is covered. It is not, until
-// the live propagation lands, so the flash has to say which pages the
-// new value reaches.
-func TestReload_SaysWhereReadOnlyApplies(t *testing.T) {
+// A user who just tightened read_only needs to read that it took,
+// rather than a bare "reloaded" that says nothing about the policy.
+func TestReload_NamesAReadOnlyChange(t *testing.T) {
 	t.Parallel()
 
-	r, _, _ := reloadFixture(t, config.Config{}, func() (*config.Config, error) {
+	r, env, _ := reloadFixture(t, config.Config{}, func() (*config.Config, error) {
 		return &config.Config{Defaults: config.Defaults{ReadOnly: true}}, nil
 	})
 
@@ -357,7 +357,7 @@ func TestReload_SaysWhereReadOnlyApplies(t *testing.T) {
 
 	require.True(t, ok)
 	require.True(t, msg.ReadOnlyChanged)
-	require.True(t, msg.ReadOnly, "the App composes its help overlay from this value")
+	require.True(t, env.Session.ReadOnly(), "the App composes its help overlay from the session")
 }
 
 // The pollers must run on the config the rest of the session reads,

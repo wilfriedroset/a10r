@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -33,6 +34,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -169,9 +171,9 @@ func TestPage_ReadOnlyDropsDangerousBindings(t *testing.T) {
 	// list, so dropping them here turns off the affordance in
 	// both surfaces without each consumer re-filtering.
 	p := New(Options{
-		Styles:   pagetest.Styles(t),
-		Now:      func() time.Time { return fixedNow },
-		ReadOnly: true,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}}),
 	})
 	for _, b := range p.Bindings() {
 		require.False(t, b.Dangerous,
@@ -205,10 +207,10 @@ func TestPage_ReadOnlyWriteKeysFlashHintInsteadOfDispatching(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := New(Options{
-				Styles:   pagetest.Styles(t),
-				Now:      func() time.Time { return fixedNow },
-				ReadOnly: true,
-				Clients:  map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+				Styles:  pagetest.Styles(t),
+				Now:     func() time.Time { return fixedNow },
+				Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+				Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}}),
 			})
 			// Land at least one row so the cursor isn't on an empty view.
 			_, _ = p.Update(poll.DataMsg{
@@ -258,11 +260,10 @@ func editorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver) *
 func guardedEditorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingResolver, rules guardrail.Set) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Clients:    map[string]silenceform.Client{"prod": fake},
-		Creator:    "wilfried",
-		Guardrails: rules,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": fake},
+		Creator: "wilfried",
 		EditorResolver: edit.Resolver{
 			DefaultEditor: "true", // satisfies "editor configured" guard
 			ExecRunner: func(_ *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
@@ -275,6 +276,7 @@ func guardedEditorPage(t *testing.T, fake *fakeSilenceClient, rec *recordingReso
 				}
 			},
 		},
+		Session: session.New(config.Config{Guardrails: rules}),
 	})
 	silences := []backend.Silence{
 		{
@@ -1762,11 +1764,11 @@ func TestPage_BulkExpireRespectsConcurrency(t *testing.T) {
 	// Concurrency = 2 with 5 marks → at most 2 blocked at once.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          pagetest.Styles(t),
-		Now:             func() time.Time { return fixedNow },
-		Clients:         map[string]silenceform.Client{"prod": fake},
-		Creator:         "wilfried",
-		BulkConcurrency: 2,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": fake},
+		Creator: "wilfried",
+		Session: session.New(config.Config{Defaults: config.Defaults{BulkConcurrency: 2}}),
 	})
 	silences := make([]backend.Silence, 0, 5)
 	for i := range 5 {
@@ -1817,11 +1819,11 @@ func TestPage_BulkExpireCancelsOnPageClose(t *testing.T) {
 	// callers arrive at the fake after Close.
 	fake := newConcurrencyFake()
 	p := New(Options{
-		Styles:          pagetest.Styles(t),
-		Now:             func() time.Time { return fixedNow },
-		Clients:         map[string]silenceform.Client{"prod": fake},
-		Creator:         "wilfried",
-		BulkConcurrency: 1,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": fake},
+		Creator: "wilfried",
+		Session: session.New(config.Config{Defaults: config.Defaults{BulkConcurrency: 1}}),
 	})
 	silences := make([]backend.Silence, 0, 5)
 	for i := range 5 {
@@ -2279,11 +2281,11 @@ func TestBindings_MarkIsShared(t *testing.T) {
 func guardedRowsPage(t *testing.T, rules guardrail.Set) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Creator:    "wilfried",
-		Guardrails: rules,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Creator: "wilfried",
+		Session: session.New(config.Config{Guardrails: rules}),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2365,11 +2367,10 @@ func TestGuardrail_ReadOnlyOutranksTheRule(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		ReadOnly:   true,
-		Guardrails: guardrail.Set{{Deny: true, Reason: "frozen"}},
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}, Guardrails: guardrail.Set{{Deny: true, Reason: "frozen"}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2398,12 +2399,12 @@ func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
 			Actions: []string{guardrail.ActionSilenceExpire},
 			Deny:    true,
 			Reason:  "use the change ticket",
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2436,12 +2437,12 @@ func TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
 			Actions: []string{guardrail.ActionSilenceExpire},
 			Deny:    true,
 			Reason:  "use the change ticket",
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2473,11 +2474,11 @@ func cappedMarksPage(t *testing.T) *Page {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
 			Actions: []string{guardrail.ActionSilenceExpire},
 			MaxBulk: new(2),
-		}},
+		}}}),
 	})
 	sils := make([]backend.Silence, 0, 3)
 	for _, id := range []string{"sil-1", "sil-2", "sil-3"} {
@@ -2554,10 +2555,10 @@ func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Actions: []string{guardrail.ActionSilenceExpire},
 			MaxBulk: new(1),
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2605,11 +2606,11 @@ func TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone(t *testi
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
 			Actions:      []string{guardrail.ActionSilenceExpire},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2655,11 +2656,11 @@ func TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
 			Actions:      []string{guardrail.ActionSilenceExpire},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-1", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2719,11 +2720,11 @@ func TestGuardrail_TheRecreateFormReadsTheRecreateVerb(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
 			Actions:      []string{guardrail.ActionSilenceRecreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{
@@ -2894,17 +2895,91 @@ func TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant(t *testing.T) 
 // Same live-reload contract as the alerts list: the four Dangerous
 // verbs have to leave Bindings() the moment `:reload` tightens
 // read_only, because the hint strip and `?` recompute from it.
-func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+func TestBindingsFollowReadOnlyAfterApply(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	sess := session.New(config.Config{})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: sess})
 	require.True(t, hasBinding(p, "x"), "a writable page starts with the expire verb")
 
-	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
-	require.False(t, hasBinding(updated, "x"), "read-only must hide the verb without a restart")
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	require.False(t, hasBinding(p, "x"), "read-only must hide the verb without a restart")
 
-	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
-	require.True(t, hasBinding(updated, "x"), "loosening read_only must bring the verb back")
+	sess.Apply(config.Config{})
+	require.True(t, hasBinding(p, "x"), "loosening read_only must bring the verb back")
+}
+
+func TestGuardrailAppliesAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: sess,
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Silence{{
+		ID:        "sil-a",
+		CreatedBy: "alice",
+		State:     backend.SilenceStateActive,
+		StartsAt:  fixedNow.Add(-time.Hour),
+		EndsAt:    fixedNow.Add(time.Hour),
+	}}})
+
+	sess.Apply(config.Config{Guardrails: guardrail.Set{{
+		Tenants: []string{"prod"}, Deny: true, Reason: "change freeze",
+	}}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.expire denied on prod: change freeze"},
+		cmd())
+}
+
+// The pool size is read when the fan-out starts, so an Apply between
+// the page build and the press shrinks the pool of that very press.
+func TestBulkConcurrencyReadAtDispatch(t *testing.T) {
+	t.Parallel()
+
+	fake := newConcurrencyFake()
+	sess := session.New(config.Config{Defaults: config.Defaults{BulkConcurrency: 5}})
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": fake},
+		Creator: "wilfried",
+		Session: sess,
+	})
+	silences := make([]backend.Silence, 0, 5)
+	for i := range 5 {
+		silences = append(silences, backend.Silence{
+			ID:        "sil-" + string(rune('a'+i)),
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(time.Hour),
+		})
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
+	for range 5 {
+		_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	sess.Apply(config.Config{Defaults: config.Defaults{BulkConcurrency: 1}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+
+	_, dispatchCmd := p.Update(modal.ConfirmResultMsg{Yes: true})
+	resultCh := make(chan tea.Msg, 1)
+	go func() { resultCh <- dispatchCmd() }()
+
+	require.Eventually(t, func() bool { return fake.inFlight() >= 1 }, time.Second, time.Millisecond)
+	for range 5 {
+		fake.release()
+	}
+	<-resultCh
+	require.Equal(t, 1, fake.peak(), "the reloaded pool size must cap the press")
 }
 
 func hasBinding(p app.Page, key string) bool {

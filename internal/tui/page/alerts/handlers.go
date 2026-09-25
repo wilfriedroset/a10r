@@ -194,7 +194,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		// page's SetStateFormat hook receives the broadcast result.
 		return p, func() tea.Msg { return app.StateFormatToggleMsg{} }
 	case "s":
-		if p.readOnly {
+		if p.session.ReadOnly() {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
 		cmd := p.openSilenceForS()
@@ -227,7 +227,7 @@ func (p *Page) openSilenceForS() tea.Cmd {
 	// cursor group alone and let the range carry a denied tenant
 	// through. Marks are additive, so a refusal here keeps them.
 	listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey)
-	if d := p.guardrails.Decide(p.silenceRequest()); d.Refused() {
+	if d := p.session.Guardrails().Decide(p.silenceRequest()); d.Refused() {
 		return footer.ShowFlash(footer.FlashWarn, d.Flash())
 	}
 	if len(p.marks) == 0 {
@@ -260,7 +260,7 @@ func (p *Page) openSilenceAllForCursor() tea.Cmd {
 		scopeNote: p.silenceAllScopeNote(g),
 	}
 	if g.count > 1 {
-		typed := p.guardrails.Decide(p.silenceRequest()).Typed
+		typed := p.session.Guardrails().Decide(p.silenceRequest()).Typed
 		return app.OpenModal(func() modal.Modal {
 			return modal.NewGuardedConfirm(silenceAllQuestion(g), modal.ConfirmDefaultYes, typed)
 		})
@@ -309,21 +309,19 @@ func (p *Page) drillToInstance(g alertGroup) tea.Cmd {
 // the App's unexported push message.
 func (p *Page) buildInstancePage(g alertGroup) app.Page {
 	return alert.New(alert.Options{
-		Alert:           g.instances[0],
-		Tenant:          g.tenant,
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		TimeFormat:      p.timeFormat,
-		ReadOnly:        p.readOnly,
-		Guardrails:      p.guardrails,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		EditorResolver:  p.editorResolver,
-		EditorCtx:       p.editorCtx,
+		Alert:          g.instances[0],
+		Tenant:         g.tenant,
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		EditorResolver: p.editorResolver,
+		EditorCtx:      p.editorCtx,
 	})
 }
 
@@ -341,24 +339,22 @@ func (p *Page) drillToGroup(g alertGroup) tea.Cmd {
 // never aliases the live group.
 func (p *Page) buildGroupPage(g alertGroup) app.Page {
 	return groupdetail.New(groupdetail.Options{
-		Tenant:          g.tenant,
-		AlertName:       g.alertName,
-		Instances:       append([]backend.Alert(nil), g.instances...),
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		TimeFormat:      p.timeFormat,
-		StateFormat:     p.stateFormat,
-		ReadOnly:        p.readOnly,
-		Guardrails:      p.guardrails,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		EditorResolver:  p.editorResolver,
-		EditorCtx:       p.editorCtx,
-		SortMemory:      p.sortMemory,
-		Columns:         p.groupDetailCols,
+		Tenant:         g.tenant,
+		AlertName:      g.alertName,
+		Instances:      append([]backend.Alert(nil), g.instances...),
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		TimeFormat:     p.timeFormat,
+		StateFormat:    p.stateFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		EditorResolver: p.editorResolver,
+		EditorCtx:      p.editorCtx,
+		SortMemory:     p.sortMemory,
+		Columns:        p.groupDetailCols,
 	})
 }

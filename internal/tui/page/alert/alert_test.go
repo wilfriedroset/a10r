@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
@@ -25,6 +26,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -1130,7 +1132,7 @@ func TestPage_CopyFieldPickerIgnoresAForeignOrigin(t *testing.T) {
 func TestPage_ReadOnlyKeepsCopyFieldBinding(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), ReadOnly: true})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}})})
 	keys := make([]string, 0, len(p.Bindings()))
 	for _, b := range p.Bindings() {
 		keys = append(keys, b.Key)
@@ -1144,12 +1146,12 @@ func TestPage_ReadOnlyKeepsCopyFieldBinding(t *testing.T) {
 func guardedPage(t *testing.T, rules guardrail.Set) *Page {
 	t.Helper()
 	return New(Options{
-		Alert:      sample(),
-		Tenant:     "prod",
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Clients:    map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Guardrails: rules,
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: rules}),
 	})
 }
 
@@ -1213,18 +1215,17 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 		Actions: []string{guardrail.ActionSilenceExpire},
 		Deny:    true,
 	}}
+	sess := session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}, Guardrails: rules})
 	p := New(Options{
-		Alert:      suppressedSample([]string{"sil-1", "sil-2"}, nil, nil),
-		Tenant:     "prod",
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Guardrails: rules,
-		ReadOnly:   true,
+		Alert:   suppressedSample([]string{"sil-1", "sil-2"}, nil, nil),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: sess,
 	})
 
 	opts := p.silencesPageOptions()
-	require.Equal(t, rules, opts.Guardrails)
-	require.True(t, opts.ReadOnly, "the read-only gate travels with it")
+	require.Same(t, sess, opts.Session, "the policy and the read-only gate travel with it")
 	require.Equal(t, []string{"sil-1", "sil-2"}, opts.RestrictIDs)
 }
 
@@ -1244,20 +1245,37 @@ func TestGuardrail_TheSilenceFormCarriesThePolicy(t *testing.T) {
 	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
 }
 
-// The alert detail page is a detailpage, not a list page, so it needs
-// its own wiring to hear the reload — and the same live-Bindings()
-// contract once it does.
-func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+// The alert detail page is a detailpage, not a list page, so it has
+// no list sideband to lean on and has to read the session itself.
+func TestBindingsFollowReadOnlyAfterApply(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	sess := session.New(config.Config{})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: sess})
 	require.True(t, hasBinding(p, "s"), "a writable page starts with the silence verb")
 
-	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
-	require.False(t, hasBinding(updated, "s"), "read-only must hide the verb without a restart")
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	require.False(t, hasBinding(p, "s"), "read-only must hide the verb without a restart")
 
-	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
-	require.True(t, hasBinding(updated, "s"), "loosening read_only must bring the verb back")
+	sess.Apply(config.Config{})
+	require.True(t, hasBinding(p, "s"), "loosening read_only must bring the verb back")
+}
+
+func TestGuardrailAppliesAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: pagetest.Styles(t), Session: sess})
+
+	sess.Apply(config.Config{Guardrails: guardrail.Set{{
+		Tenants: []string{"prod"}, Deny: true, Reason: "change freeze",
+	}}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on prod: change freeze"},
+		cmd())
 }
 
 func hasBinding(p app.Page, key string) bool {

@@ -36,6 +36,7 @@ import (
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	silencespage "github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
@@ -52,9 +53,10 @@ type Options struct {
 	Alert  backend.Alert
 	Tenant string
 	Styles *theme.Styles
-	// Guardrails is the per-tenant write policy. The page sits on one
-	// tenant, so a rule that denies the verb there marks `s` guarded.
-	Guardrails guardrail.Set
+	// Session is the live configuration the page reads its write
+	// policy from at the point of use, so a reload reaches the page
+	// while it is open. Nil reads as an empty config.
+	Session *session.Session
 	// Clipboard handles `c` (copy fingerprint) and `Y` (copy any
 	// field); nil defaults to OSC52.
 	Clipboard clipboard.Clipboard
@@ -72,18 +74,12 @@ type Options struct {
 	// TimeFormat seeds the page's time-format mode at push so the
 	// detail body opens in the same mode the parent list was showing.
 	TimeFormat timerender.Format
-	// ReadOnly hides Dangerous bindings (`s`) from the hint strip /
-	// help overlay and turns the keystroke into a flash hint.
-	ReadOnly bool
 	// EditorResolver handles the `Ctrl+E` round-trip on the restricted
 	// silences page pushed by `S` (N>1). Zero value flashes a hint.
 	EditorResolver edit.Resolver
 	// EditorCtx is the parent ctx the editor subprocess and bulk-expire
 	// fanout inherit; nil falls back to context.Background().
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	// BulkConcurrency caps the per-tenant bulk worker pool; zero resolves
-	// to the config default inside silences.New.
-	BulkConcurrency int
 	// Logger receives per-failure detail from bulk operations; nil suppresses logging.
 	Logger *slog.Logger
 	// BulkCtx is the parent ctx the bulk-expire fanout inherits; nil falls back to context.Background().
@@ -124,11 +120,7 @@ type Page struct {
 	// IDs in backend.Alert are never cross-tenant.
 	silences map[string]backend.Silence
 
-	// readOnly filters Dangerous bindings and turns `s` into a flash hint.
-	readOnly bool
-
-	// guardrails: see Options.Guardrails.
-	guardrails guardrail.Set
+	session *session.Session
 
 	// rawYAML toggles the body to a raw payload dump (k9s-style escape
 	// hatch). Per-page, not persisted across pushes, so a fresh drill-in
@@ -137,12 +129,11 @@ type Page struct {
 
 	// These fields are forwarded to the restricted silences page pushed
 	// by `S` when the alert has N>1 silenced-by IDs (ADR 0035).
-	editorResolver  edit.Resolver
-	editorCtx       context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	bulkConcurrency int
-	logger          *slog.Logger
-	bulkCtx         context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
-	submitCtx       context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+	editorResolver edit.Resolver
+	editorCtx      context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
+	logger         *slog.Logger
+	bulkCtx        context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	submitCtx      context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 func New(opts Options) *Page {
@@ -155,29 +146,26 @@ func New(opts Options) *Page {
 		br = browser.System{}
 	}
 	p := &Page{
-		Base:            &detailpage.Base{},
-		a:               opts.Alert,
-		silencedBy:      dedupStrings(opts.Alert.SilencedBy),
-		tenant:          opts.Tenant,
-		styles:          opts.Styles,
-		clip:            clipboard.Resolve(opts.Clipboard),
-		browser:         br,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		timeFormat:      opts.TimeFormat,
-		silences:        map[string]backend.Silence{},
-		readOnly:        opts.ReadOnly,
-		guardrails:      opts.Guardrails,
-		editorResolver:  opts.EditorResolver,
-		editorCtx:       opts.EditorCtx,
-		bulkConcurrency: opts.BulkConcurrency,
-		logger:          opts.Logger,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
+		Base:           &detailpage.Base{},
+		a:              opts.Alert,
+		silencedBy:     dedupStrings(opts.Alert.SilencedBy),
+		tenant:         opts.Tenant,
+		styles:         opts.Styles,
+		clip:           clipboard.Resolve(opts.Clipboard),
+		browser:        br,
+		now:            now,
+		clients:        opts.Clients,
+		creator:        opts.Creator,
+		timeFormat:     opts.TimeFormat,
+		silences:       map[string]backend.Silence{},
+		session:        session.OrEmpty(opts.Session),
+		editorResolver: opts.EditorResolver,
+		editorCtx:      opts.EditorCtx,
+		logger:         opts.Logger,
+		bulkCtx:        opts.BulkCtx,
+		submitCtx:      opts.SubmitCtx,
 	}
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
-	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	return p
 }
 
@@ -210,7 +198,7 @@ func (p *Page) Bindings() []action.Action {
 		{Key: "Y", Description: "copy field", View: viewAlert},
 		{Key: "o", Description: "open URL", View: viewAlert},
 	}
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out
@@ -269,10 +257,10 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		cmd := p.openGeneratorURL()
 		return p, cmd
 	case "s":
-		if p.readOnly {
+		if p.session.ReadOnly() {
 			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 		}
-		if d := p.guardrails.Decide(p.request()); d.Refused() {
+		if d := p.session.Guardrails().Decide(p.request()); d.Refused() {
 			return p, footer.ShowFlash(footer.FlashWarn, d.Flash())
 		}
 		cmd := p.openSilenceForm()
@@ -321,7 +309,7 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	now := p.now
 	clients := p.clients
 	tenant := p.tenant
-	guardrails := p.guardrails
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
 			Clients:    clients,
@@ -330,7 +318,7 @@ func (p *Page) openSilenceForm() tea.Cmd {
 			Now:        now,
 			Creator:    creator,
 			Matchers:   matchers,
-			Guardrails: guardrails,
+			Guardrails: sess.Guardrails(),
 			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
@@ -349,10 +337,11 @@ func (p *Page) request() guardrail.Request {
 // path and again on every key press, so an unconfigured policy pays
 // for no request at all.
 func (p *Page) guarded() bool {
-	if len(p.guardrails) == 0 {
+	rules := p.session.Guardrails()
+	if len(rules) == 0 {
 		return false
 	}
-	return p.guardrails.Decide(p.request()).Refused()
+	return rules.Decide(p.request()).Refused()
 }
 
 func (p *Page) copyFingerprint() tea.Cmd {
@@ -640,28 +629,25 @@ func (p *Page) openSilencedByDetail() tea.Cmd {
 }
 
 // silencesPageOptions is what the restricted silences list inherits
-// from this page. Every write-policy field has to travel: boot is not
-// the only construction site, and a page built without the guardrails
-// would let a denied verb through.
+// from this page. The session has to travel: boot is not the only
+// construction site, and a page built without it reads as writable.
 func (p *Page) silencesPageOptions() silencespage.Options {
 	return silencespage.Options{
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		EditorResolver:  p.editorResolver,
-		TimeFormat:      p.timeFormat,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		ReadOnly:        p.readOnly,
-		Guardrails:      p.guardrails,
-		EditorCtx:       p.editorCtx,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		Tenants:         []string{p.tenant},
-		RestrictIDs:     p.silencedBy,
-		AlertName:       p.a.Labels["alertname"],
-		AlertLabels:     p.a.Labels,
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		EditorResolver: p.editorResolver,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		EditorCtx:      p.editorCtx,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		Tenants:        []string{p.tenant},
+		RestrictIDs:    p.silencedBy,
+		AlertName:      p.a.Labels["alertname"],
+		AlertLabels:    p.a.Labels,
 	}
 }
 

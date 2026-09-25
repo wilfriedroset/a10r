@@ -44,6 +44,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -209,9 +210,10 @@ type Options struct {
 	// Clients is the per-tenant write surface handed to the silence
 	// form on `s`. Empty / missing tenant flashes a hint.
 	Clients map[string]silenceform.Client
-	// Guardrails is the per-tenant write policy. The page sits on one
-	// tenant, so a rule that denies the verb there marks `s` guarded.
-	Guardrails guardrail.Set
+	// Session is the live configuration the page reads its write
+	// policy and bulk pool size from at the point of use, so a reload
+	// reaches the page while it is open. Nil reads as an empty config.
+	Session *session.Session
 	// Creator seeds the silence form's CreatedBy field; empty falls
 	// back to "a10r" in the form factory.
 	Creator string
@@ -221,9 +223,6 @@ type Options struct {
 	// StateFormat seeds the STATE column density at push so the page
 	// opens in the same full/compact mode the L1 list showed.
 	StateFormat stateformat.Format
-	// ReadOnly hides the page's Dangerous bindings (`s`) and turns
-	// the keystroke into a flash hint.
-	ReadOnly bool
 	// EditorResolver handles the Ctrl+E round-trip on the restricted
 	// silences page pushed by `S`.
 	EditorResolver edit.Resolver
@@ -236,9 +235,6 @@ type Options struct {
 	// SubmitCtx parents the silence form's submit ctx. nil falls back
 	// to context.Background() inside the form.
 	SubmitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
-	// BulkConcurrency caps the per-tenant worker pool for the bulk
-	// silence-one fanout. Zero resolves to config.DefaultBulkConcurrency.
-	BulkConcurrency int
 	// Logger receives per-failure detail from the bulk fanout. Nil
 	// suppresses logging.
 	Logger *slog.Logger
@@ -322,7 +318,6 @@ type Page struct {
 	marks map[string]struct{}
 
 	pendingBulkSilence pendingBulkSilence
-	bulkConcurrency    int
 	logger             *slog.Logger
 	cancelBulk         context.CancelFunc
 
@@ -351,10 +346,7 @@ type Page struct {
 	// by default; toggled page-locally by Shift+C (no app broadcast).
 	commonCollapsed bool
 
-	readOnly bool
-
-	// guardrails: see Options.Guardrails.
-	guardrails guardrail.Set
+	session *session.Session
 
 	bulkCtx   context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
 	submitCtx context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
@@ -369,40 +361,34 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	concurrency := opts.BulkConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultBulkConcurrency
-	}
 	labelCols := table.Resolve(opts.Columns)
 	p := &Page{
-		Scope:           opts.Tenant,
-		BackendHealth:   map[string]listpage.BackendHealth{},
-		Tenants:         []string{opts.Tenant},
-		PolledTenants:   map[string]struct{}{},
-		NextRefresh:     map[string]time.Time{},
-		Spinner:         sp,
-		styles:          opts.Styles,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		timeFormat:      opts.TimeFormat,
-		stateFormat:     opts.StateFormat,
-		tenant:          opts.Tenant,
-		alertName:       opts.AlertName,
-		instances:       append([]backend.Alert(nil), opts.Instances...),
-		common:          map[string]string{},
-		labelCols:       labelCols,
-		shownCols:       table.Visible(labelCols, false),
-		marks:           map[string]struct{}{},
-		bulkConcurrency: concurrency,
-		logger:          opts.Logger,
-		readOnly:        opts.ReadOnly,
-		guardrails:      opts.Guardrails,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
-		editorResolver:  opts.EditorResolver,
-		editorCtx:       opts.EditorCtx,
-		sorter:          tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
+		Scope:          opts.Tenant,
+		BackendHealth:  map[string]listpage.BackendHealth{},
+		Tenants:        []string{opts.Tenant},
+		PolledTenants:  map[string]struct{}{},
+		NextRefresh:    map[string]time.Time{},
+		Spinner:        sp,
+		styles:         opts.Styles,
+		now:            now,
+		clients:        opts.Clients,
+		creator:        opts.Creator,
+		timeFormat:     opts.TimeFormat,
+		stateFormat:    opts.StateFormat,
+		tenant:         opts.Tenant,
+		alertName:      opts.AlertName,
+		instances:      append([]backend.Alert(nil), opts.Instances...),
+		common:         map[string]string{},
+		labelCols:      labelCols,
+		shownCols:      table.Visible(labelCols, false),
+		marks:          map[string]struct{}{},
+		logger:         opts.Logger,
+		session:        session.OrEmpty(opts.Session),
+		bulkCtx:        opts.BulkCtx,
+		submitCtx:      opts.SubmitCtx,
+		editorResolver: opts.EditorResolver,
+		editorCtx:      opts.EditorCtx,
+		sorter:         tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
 	}
 	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.sorter.SetHidden(p.isHiddenSortKey)
@@ -411,7 +397,6 @@ func New(opts Options) *Page {
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
-	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
 	p.recompute()
@@ -521,7 +506,7 @@ func (p *Page) Bindings() []action.Action {
 		// the tail first.
 		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: ViewName},
 	)
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out
@@ -532,10 +517,11 @@ func (p *Page) Bindings() []action.Action {
 // run, so a cap the marks happen to breach must not strike `s` off the
 // hint strip.
 func (p *Page) guarded() bool {
-	if len(p.guardrails) == 0 {
+	rules := p.session.Guardrails()
+	if len(rules) == 0 {
 		return false
 	}
-	return p.guardrails.Decide(guardrail.Request{
+	return rules.Decide(guardrail.Request{
 		Action:  guardrail.ActionSilenceCreate,
 		Tenants: []string{p.tenant},
 	}).Refused()

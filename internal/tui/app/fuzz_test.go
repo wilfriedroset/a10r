@@ -21,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -236,6 +237,10 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		return app.OpenSkinPicker()
 	})
 	resolver.Register("reload", func([]string) tea.Cmd { return app.Reload() })
+	sess := session.New(config.Config{
+		Defaults:   config.Defaults{BulkConcurrency: 4},
+		Guardrails: rules,
+	})
 	a := app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -244,10 +249,16 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		SkinNames:  func() []string { return theme.Names("") },
 		SkinName:   theme.DefaultSkinName,
 		LoadStyles: fuzzLoadSkin,
+		Session:    sess,
 		// A reload that always succeeds and always repaints, so the
 		// seed below drives applyReloaded's skin swap and hint-bar
-		// rebuild rather than its refusal path.
+		// rebuild rather than its refusal path. It also denies prod,
+		// so the open pages meet a policy they were not built with.
 		Reload: func() tea.Cmd {
+			sess.Apply(config.Config{
+				Defaults:   config.Defaults{BulkConcurrency: 4},
+				Guardrails: append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...),
+			})
 			return func() tea.Msg {
 				return app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: time.Second}
 			}
@@ -270,11 +281,10 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 			Scope:              "all",
 			Clients:            clients,
 			Creator:            "fuzz",
-			BulkConcurrency:    4,
 			Logger:             slog.Default(),
 			Columns:            fuzzColumns,
 			GroupDetailColumns: fuzzColumns,
-			Guardrails:         rules,
+			Session:            sess,
 		})
 	}
 
@@ -354,6 +364,14 @@ func addAppSeeds(f *testing.F) {
 		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('e'),
 		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
 		testutil.FuzzFrameResize(80, 24),
+	))
+
+	// A reload that adds a deny, then the verb it denies on the page
+	// that was already open: the sequence that used to write anyway.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('e'),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKey('s'),
 	))
 
 	// Tenant quick-switch.

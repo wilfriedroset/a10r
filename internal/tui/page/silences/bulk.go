@@ -72,7 +72,7 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 		bulk: false,
 	}
 	question := "expire silence " + entry.s.ID + "?"
-	typed := p.guardrails.Decide(p.writeRequest(guardrail.ActionSilenceExpire)).Typed
+	typed := p.session.Guardrails().Decide(p.writeRequest(guardrail.ActionSilenceExpire)).Typed
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
@@ -129,7 +129,7 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	// prompt is read: runWriteAction already asked the write policy
 	// about these same rows, counting them one per row as the cap
 	// needs.
-	typed := p.guardrails.Decide(p.request(guardrail.ActionSilenceExpire, p.markedTenants)).Typed
+	typed := p.session.Guardrails().Decide(p.request(guardrail.ActionSilenceExpire, p.markedTenants)).Typed
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
@@ -191,7 +191,7 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		}
 		return "", c.ExpireSilence(ctx, op.Key)
 	}
-	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.session.BulkConcurrency())
 	return bulkop.RunRound(cancel, func() tea.Msg {
 		done, _ := dispatch().(bulkop.DoneMsg[string])
 		return bulkExpireDoneMsg{bulk: bulk, done: done}

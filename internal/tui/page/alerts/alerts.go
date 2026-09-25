@@ -51,6 +51,7 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -226,27 +227,15 @@ type Options struct {
 	// (stateformat.Full) is the pre-toggle default, so a zero-value
 	// Options opens in the legible full mode.
 	StateFormat stateformat.Format
-	// BulkConcurrency caps the per-tenant worker pool for the
-	// bulk-silence fanout (one CreateSilence per marked alert).
-	// Zero resolves to config.DefaultBulkConcurrency at construction
-	// time so callers can pass the unmaterialised
-	// `defaults.bulk_concurrency` directly.
-	BulkConcurrency int
 	// Logger receives per-failure detail (`backend`, `tenant`,
 	// `alert_fingerprint`, `err`) at error level when the bulk
 	// fanout surfaces individual CreateSilence failures. Nil
 	// suppresses logging.
 	Logger *slog.Logger
-	// Guardrails is the per-tenant write policy. The page consults it
-	// for the tenants the `s` key would write to, so a rule that names
-	// one backend leaves the verb working on the others.
-	Guardrails guardrail.Set
-
-	// ReadOnly hides the page's Dangerous bindings (`s` for
-	// silence) from the hint strip / help overlay and turns the
-	// keystroke into a flash hint. Wired from the resolved
-	// defaults.read_only chain — see internal/config/resolve.go.
-	ReadOnly bool
+	// Session is the live configuration the page reads its write
+	// policy and bulk pool size from at the point of use, so a reload
+	// reaches the page while it is open. Nil reads as an empty config.
+	Session *session.Session
 	// BulkCtx is the parent ctx the bulk-silence fanout inherits.
 	// Cancelling cancels every in-flight worker — important for
 	// multi-day sessions where a quit must not orphan goroutines.
@@ -379,10 +368,11 @@ func (p *Page) silenceRequest() guardrail.Request {
 // runs on the render path and again on every key press, so an
 // unconfigured policy pays for no walk at all.
 func (p *Page) guarded() bool {
-	if len(p.guardrails) == 0 {
+	rules := p.session.Guardrails()
+	if len(rules) == 0 {
 		return false
 	}
-	return p.guardrails.Decide(p.request(p.markedTenants)).Refused()
+	return rules.Decide(p.request(p.markedTenants)).Refused()
 }
 
 // request turns the press into its targets; marked resolves the bulk
@@ -489,10 +479,6 @@ type Page struct {
 	// code paths and must not share state. Cleared after consumption.
 	pendingSilenceAll pendingSilenceAll
 
-	// bulkConcurrency caps the per-tenant worker pool for the
-	// bulk-silence fanout. Tenants always run in parallel; this
-	// knob limits the inner pool size per tenant.
-	bulkConcurrency int
 	// logger: nil suppresses logging.
 	logger *slog.Logger
 	// cancelBulk cancels the in-flight bulk-silence fanout when
@@ -536,11 +522,7 @@ type Page struct {
 	// stateFormat is flipped by app.StateFormatChangedMsg so L1 and L2 agree on density.
 	stateFormat stateformat.Format
 
-	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
-	readOnly bool
-
-	// guardrails: see Options.Guardrails.
-	guardrails guardrail.Set
+	session *session.Session
 
 	// pollDelta: see Options.PollDelta.
 	pollDelta bool
@@ -565,10 +547,6 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	concurrency := opts.BulkConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultBulkConcurrency
-	}
 	labelCols := table.Resolve(opts.Columns)
 	p := &Page{
 		Scope:           opts.Scope,
@@ -589,10 +567,8 @@ func New(opts Options) *Page {
 		groupDetailCols: opts.GroupDetailColumns,
 		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
 		marks:           map[string]struct{}{},
-		bulkConcurrency: concurrency,
 		logger:          opts.Logger,
-		readOnly:        opts.ReadOnly,
-		guardrails:      opts.Guardrails,
+		session:         session.OrEmpty(opts.Session),
 		pollDelta:       opts.PollDelta,
 		bulkCtx:         opts.BulkCtx,
 		submitCtx:       opts.SubmitCtx,
@@ -609,7 +585,6 @@ func New(opts Options) *Page {
 	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
-	p.SetReadOnly = func(v bool) { p.readOnly = v }
 	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
 	return p
@@ -708,7 +683,7 @@ func (p *Page) Bindings() []action.Action {
 		// the tail first.
 		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: resourceAlerts},
 	)
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out

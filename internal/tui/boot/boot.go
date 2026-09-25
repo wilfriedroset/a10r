@@ -414,7 +414,7 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 		CmdBar:     resolver,
 		Tenants:    backendNames(effCfg),
 		Refresh:    registry.Refresh,
-		ReadOnly:   sess.ReadOnly(),
+		Session:    sess,
 		HistoryDir: historyDir,
 		Scope:      scope,
 		SaveScope:  store.SetScope,

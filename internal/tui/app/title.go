@@ -27,7 +27,7 @@ func (a *App) windowTitle() string {
 			title += " " + crumb
 		}
 	}
-	if a.readOnly {
+	if a.session.ReadOnly() {
 		title += " [read-only]"
 	}
 	return title

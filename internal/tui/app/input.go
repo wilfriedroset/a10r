@@ -122,7 +122,7 @@ func (a *App) registerGlobalBindings() {
 			Tenants:      a.tenants,
 			Commands:     a.cmdbar.Groups(),
 			UserCommands: a.cmdbar.UserAliases(),
-			ReadOnly:     a.readOnly,
+			ReadOnly:     a.session.ReadOnly(),
 			Styles:       a.styles,
 		})
 	})

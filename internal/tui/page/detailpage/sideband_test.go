@@ -53,34 +53,6 @@ func TestBase_HandleSidebandMsg(t *testing.T) {
 			msg: unrelatedMsg{},
 		},
 		{
-			// Same contract as the list pages: a reload must reach the
-			// detail page the user is already reading.
-			name: "read only wired",
-			baseFactory: func(t *testing.T) (*detailpage.Base, func(t *testing.T)) {
-				t.Helper()
-				got := false
-				b := &detailpage.Base{
-					SetReadOnly: func(v bool) { got = v },
-				}
-				return b, func(t *testing.T) {
-					t.Helper()
-					require.True(t, got, "callback must receive the new state")
-				}
-			},
-			msg:         app.ReadOnlyChangedMsg{ReadOnly: true},
-			wantHandled: true,
-		},
-		{
-			// Pages with no Dangerous verb (silence, tenantconfig)
-			// don't wire SetReadOnly — the message falls through.
-			name: "read only unwired falls through",
-			baseFactory: func(t *testing.T) (*detailpage.Base, func(t *testing.T)) {
-				t.Helper()
-				return &detailpage.Base{}, nil
-			},
-			msg: app.ReadOnlyChangedMsg{ReadOnly: true},
-		},
-		{
 			name: "time format wired",
 			baseFactory: func(t *testing.T) (*detailpage.Base, func(t *testing.T)) {
 				t.Helper()

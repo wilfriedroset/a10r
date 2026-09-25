@@ -17,6 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -41,9 +42,11 @@ type Options struct {
 	Tenants []string
 	// Refresh is invoked on a RefreshRequestedMsg. Nil is a no-op.
 	Refresh func(resource, scope string)
-	// ReadOnly drops Dangerous bindings from help, hints, and dispatch,
-	// and is threaded into each page's Options.ReadOnly.
-	ReadOnly bool
+	// Session is the live configuration. The App reads the read-only
+	// switch from it for the chrome it composes on demand: the help
+	// overlay on every `?` and the window title on every frame. Nil
+	// reads as an empty config.
+	Session *session.Session
 	// HistoryDir is `$XDG_STATE_HOME/a10r/`; empty keeps history in-memory.
 	HistoryDir string
 	// HintBar is the optional rotating tip strip; zero value is disabled.
@@ -92,7 +95,7 @@ type App struct {
 	cmdbar     *cmdbar.Resolver
 	tenants    []string
 	refresh    func(resource, scope string)
-	readOnly   bool
+	session    *session.Session
 
 	// scope mirrors the active tenant scope so the window title can name
 	// it. Pages own their own copy; the App keeps one because the title
@@ -228,7 +231,7 @@ func NewApp(opts Options) *App {
 		cmdbar:     resolver,
 		tenants:    opts.Tenants,
 		refresh:    opts.Refresh,
-		readOnly:   opts.ReadOnly,
+		session:    session.OrEmpty(opts.Session),
 		scope:      opts.Scope,
 		saveScope:  opts.SaveScope,
 		notify:     opts.Notify,

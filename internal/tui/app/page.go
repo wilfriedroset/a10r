@@ -85,14 +85,13 @@ type TimeFormatChangedMsg struct {
 	Format timerender.Format
 }
 
-// ReadOnlyChangedMsg announces that a reload moved the session-wide
-// read-only state. Unlike the format toggles the App delivers it to
-// every page on the stack, not just the top one: the user walks back
-// to the pages underneath with Esc and would otherwise find the
-// pre-reload policy waiting there.
-type ReadOnlyChangedMsg struct {
-	ReadOnly bool
-}
+// ConfigReloadedMsg announces that a reload applied a new file to the
+// session. Unlike the format toggles the App delivers it to every page
+// on the stack, not just the top one: the user walks back to the pages
+// underneath with Esc. It carries nothing, because a page reads the
+// session itself; only a page with state derived from the config at
+// construction has anything to do on it.
+type ConfigReloadedMsg struct{}
 
 // StateFormatToggleMsg is a page-emitted request to flip the app-global
 // state-breakdown density. `Shift+T` is a page binding (not a global like

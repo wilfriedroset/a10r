@@ -102,7 +102,7 @@ func (p *Page) pushSilenceAllForm() tea.Cmd {
 	matchers := alertnameMatcher(pending.alertName)
 	scopeNote := pending.scopeNote
 	submitCtx := p.submitCtx
-	guardrails := p.guardrails
+	sess := p.session
 	var confirmed []string
 	if pending.confirmed {
 		confirmed = []string{pending.tenant}
@@ -117,7 +117,7 @@ func (p *Page) pushSilenceAllForm() tea.Cmd {
 			Matchers:   matchers,
 			ScopeNote:  scopeNote,
 			SubmitCtx:  submitCtx,
-			Guardrails: guardrails,
+			Guardrails: sess.Guardrails(),
 			Action:     guardrail.ActionSilenceCreate,
 			Confirmed:  confirmed,
 		})
@@ -162,7 +162,7 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	// tenants is what the run resolved to, not what is marked: a marked
 	// tenant whose client vanished still counts for the cap, but has no
 	// name worth asking the user to type.
-	d := p.guardrails.Decide(p.request(func() []string { return tenants }))
+	d := p.session.Guardrails().Decide(p.request(func() []string { return tenants }))
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
 	// nothing downstream would ask on its behalf.
@@ -344,7 +344,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		spec.Matchers = matchersByKey[op.Key]
 		return c.CreateSilence(ctx, spec)
 	}
-	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.session.BulkConcurrency())
 	return bulkop.RunRound(cancel, dispatch)
 }
 

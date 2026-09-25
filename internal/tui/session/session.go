@@ -32,6 +32,15 @@ func New(cfg config.Config) *Session {
 	return s
 }
 
+// OrEmpty returns s, or a Session over the zero config when s is nil,
+// so a page built without one reads as writable with no guardrails.
+func OrEmpty(s *Session) *Session {
+	if s == nil {
+		return New(config.Config{})
+	}
+	return s
+}
+
 // Apply swaps in cfg and redoes every derivation, so a report closure
 // that captured Config reads the new file.
 func (s *Session) Apply(cfg config.Config) {

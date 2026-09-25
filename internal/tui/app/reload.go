@@ -46,19 +46,10 @@ type ReloadedMsg struct {
 	ThemeName    string
 	Tips         bool
 	TipsInterval time.Duration
-	// ReadOnly is the reloaded session-wide read-only state. The App holds its
-	// own copy for the chrome it composes on demand: the help
-	// overlay is built on every `?` press and the window title on
-	// every frame, so both must read the reloaded value.
-	ReadOnly bool
-	// ReadOnlyChanged says ReadOnly differs from the running value,
+	// ReadOnlyChanged says a read_only flag moved at either layer,
 	// which is what the flash names so a user who tightened the
 	// setting sees it took rather than reading a bare success.
 	ReadOnlyChanged bool
-	// BackendReadOnlyChanged says a per-backend read_only moved. It
-	// rides the guardrail set, which a page copies at construction,
-	// so it reaches the pages opened next rather than the open ones.
-	BackendReadOnlyChanged bool
 }
 
 // applyReloaded folds a successful reload into the App and always
@@ -69,12 +60,8 @@ type ReloadedMsg struct {
 // the wiring half has already swapped pollers, aliases, key
 // overrides, guardrails and column sets it never hears about.
 func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
-	sessionMoved := a.readOnly != m.ReadOnly
-	a.readOnly = m.ReadOnly
-	// Broadcast rather than left to the next page push: the page in
-	// front of the user is the one whose Dangerous chips are wrong.
 	applied := tea.Batch(
-		a.forwardToAll(ReadOnlyChangedMsg{ReadOnly: m.ReadOnly}),
+		a.forwardToAll(ConfigReloadedMsg{}),
 		a.applyReloadedTips(m),
 	)
 	if skin := a.reloadedSkin(m.ThemeName); skin != "" {
@@ -86,24 +73,9 @@ func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
 		}
 	}
 	if m.ReadOnlyChanged {
-		return tea.Batch(applied, showFlash(footer.FlashInfo, readOnlyFlash(sessionMoved, m.BackendReadOnlyChanged)))
+		return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded, read_only applied"))
 	}
 	return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded"))
-}
-
-// readOnlyFlash qualifies how far a read_only change reached. The
-// session-wide value rides a broadcast to every page on the stack; a
-// per-backend flag rides the guardrail set, which a page copies at
-// construction, so the pages already open keep the old policy.
-//
-// A moved backend flag keeps the caveat even when the session-wide
-// value moved beside it. Under-claiming costs the user one page push;
-// over-claiming leaves them pressing a key the open page refuses.
-func readOnlyFlash(sessionMoved, backendMoved bool) string {
-	if sessionMoved && !backendMoved {
-		return "reloaded, read_only applied"
-	}
-	return "reloaded, read_only applies to pages you open next"
 }
 
 // reloadedSkin returns the skin a reload must switch to, or empty

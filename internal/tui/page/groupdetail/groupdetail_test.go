@@ -13,11 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -363,7 +365,7 @@ func TestReadOnly_StripsDangerousBindings(t *testing.T) {
 		Now:       func() time.Time { return fixedNow },
 		Tenant:    tenant,
 		AlertName: alertName,
-		ReadOnly:  true,
+		Session:   session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}}),
 	})
 	keys := map[string]bool{}
 	for _, b := range p.Bindings() {
@@ -380,8 +382,8 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 		Now:       func() time.Time { return fixedNow },
 		Tenant:    tenant,
 		AlertName: alertName,
-		ReadOnly:  true,
 		Instances: []backend.Alert{instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1})},
+		Session:   session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}}),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd)
@@ -393,12 +395,12 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 func guardedPage(t *testing.T, rules guardrail.Set) *Page {
 	t.Helper()
 	return New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Tenant:     tenant,
-		AlertName:  alertName,
-		Guardrails: rules,
-		Instances:  []backend.Alert{instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1})},
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Instances: []backend.Alert{instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1})},
+		Session:   session.New(config.Config{Guardrails: rules}),
 	})
 }
 
@@ -487,27 +489,53 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 	p := guardedPage(t, rules)
 
 	opts := p.silencesPageOptions([]string{"sil-1"})
-	require.Equal(t, rules, opts.Guardrails)
+	require.Equal(t, rules, opts.Session.Guardrails())
 	require.Equal(t, []string{"sil-1"}, opts.RestrictIDs)
 }
 
 // A drill-down is exactly the page a reload catches mid-read, so it
 // has to take the new read_only rather than the one it was pushed
 // with.
-func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+func TestBindingsFollowReadOnlyAfterApply(t *testing.T) {
 	t.Parallel()
 
+	sess := session.New(config.Config{})
 	p := New(Options{
 		Styles:    pagetest.Styles(t),
 		Now:       func() time.Time { return fixedNow },
 		Tenant:    tenant,
 		AlertName: alertName,
+		Session:   sess,
 	})
 	require.True(t, hasBinding(p.Bindings(), "s"), "a writable page starts with the silence verb")
 
-	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
-	require.False(t, hasBinding(updated.Bindings(), "s"), "read-only must hide the verb without a restart")
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	require.False(t, hasBinding(p.Bindings(), "s"), "read-only must hide the verb without a restart")
 
-	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
-	require.True(t, hasBinding(updated.Bindings(), "s"), "loosening read_only must bring the verb back")
+	sess.Apply(config.Config{})
+	require.True(t, hasBinding(p.Bindings(), "s"), "loosening read_only must bring the verb back")
+}
+
+func TestGuardrailAppliesAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{
+		Styles:    pagetest.Styles(t),
+		Now:       func() time.Time { return fixedNow },
+		Tenant:    tenant,
+		AlertName: alertName,
+		Instances: []backend.Alert{instance("fp1", "warning", backend.AlertStateActive, nil)},
+		Session:   sess,
+	})
+
+	sess.Apply(config.Config{Guardrails: guardrail.Set{{
+		Tenants: []string{tenant}, Deny: true, Reason: "change freeze",
+	}}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on " + tenant + ": change freeze"},
+		cmd())
 }

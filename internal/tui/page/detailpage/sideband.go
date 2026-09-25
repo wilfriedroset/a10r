@@ -10,7 +10,7 @@ import (
 
 // HandleSidebandMsg consumes the cross-cutting messages every detail
 // page sees: the universal app.GoToFirstRowMsg scroll-home reset and
-// the optional app.TimeFormatChangedMsg / app.ReadOnlyChangedMsg.
+// the optional app.TimeFormatChangedMsg.
 // Pages call this first and short-circuit on handled=true.
 //
 // A nil callback is a fall-through (handled=false) so pages without
@@ -26,12 +26,6 @@ func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 			return false, nil
 		}
 		b.SetTimeFormat(m.Format)
-		return true, nil
-	case app.ReadOnlyChangedMsg:
-		if b.SetReadOnly == nil {
-			return false, nil
-		}
-		b.SetReadOnly(m.ReadOnly)
 		return true, nil
 	}
 	return false, nil

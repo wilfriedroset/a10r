@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -19,6 +20,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -186,11 +188,11 @@ func cappedPage(t *testing.T) *Page {
 		AlertName: alertName,
 		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
 		Instances: insts,
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{tenant},
 			Actions: []string{guardrail.ActionSilenceCreate},
 			MaxBulk: new(2),
-		}},
+		}}}),
 	})
 	return p
 }
@@ -279,11 +281,11 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 		AlertName: alertName,
 		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
 		Instances: insts,
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	for range insts {
 		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
@@ -312,11 +314,11 @@ func TestGuardrail_TheSilenceOneFormCarriesThePolicy(t *testing.T) {
 		Instances: []backend.Alert{
 			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 		},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
@@ -337,11 +339,11 @@ func TestGuardrail_APlainRuleAsksOnASingleMarkedInstance(t *testing.T) {
 		Instances: []backend.Alert{
 			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 		},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationPlain,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 
@@ -367,11 +369,11 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedInstance(t *testing.T) {
 		Instances: []backend.Alert{
 			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 		},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	require.Len(t, p.marks, 1)

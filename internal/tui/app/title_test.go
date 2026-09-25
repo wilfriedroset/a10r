@@ -7,7 +7,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -78,7 +80,7 @@ func TestApp_WindowTitle(t *testing.T) {
 				Styles:        testutil.LoadStyles(t),
 				Dispatcher:    keys.New(nil),
 				TerminalTitle: tc.enabled,
-				ReadOnly:      tc.readOnly,
+				Session:       session.New(config.Config{Defaults: config.Defaults{ReadOnly: tc.readOnly}}),
 				Scope:         tc.scope,
 			})
 			if tc.crumb != "" {

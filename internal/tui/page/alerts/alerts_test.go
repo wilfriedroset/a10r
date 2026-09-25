@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -27,6 +28,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -825,7 +827,7 @@ func TestMarks_KeyedByGroupKey(t *testing.T) {
 func TestReadOnly_StripsSilenceBinding(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, ReadOnly: true})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}})})
 	for _, b := range p.Bindings() {
 		require.NotEqual(t, "s", b.Key, "read-only mode hides the silence binding")
 	}
@@ -834,7 +836,7 @@ func TestReadOnly_StripsSilenceBinding(t *testing.T) {
 func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, ReadOnly: true})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}})})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 	}})
@@ -848,9 +850,9 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 func guardedPage(t *testing.T, rules guardrail.Set) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Guardrails: rules,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: session.New(config.Config{Guardrails: rules}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -902,13 +904,13 @@ func TestGuardrail_ARuleOnAnotherTenantLeavesTheVerbAlone(t *testing.T) {
 func twoTenantGuardedPage(t *testing.T, rules guardrail.Set) *Page {
 	t.Helper()
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Guardrails: rules,
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{
 			"prod-eu": &fakeSilenceClient{},
 			"staging": &fakeSilenceClient{},
 		},
+		Session: session.New(config.Config{Guardrails: rules}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1254,11 +1256,11 @@ func cappedMarksPage(t *testing.T) *Page {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod-eu"},
 			Actions: []string{guardrail.ActionSilenceCreate},
 			MaxBulk: new(2),
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1330,11 +1332,11 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1361,11 +1363,11 @@ func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1389,11 +1391,11 @@ func TestGuardrail_TheSilenceAllFormCarriesThePolicy(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("Solo", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1415,11 +1417,11 @@ func TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": client},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1447,11 +1449,11 @@ func TestGuardrail_APlainRuleAsksOnASingleMarkedTarget(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": client},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationPlain,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1475,11 +1477,11 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod-eu"},
 			Actions:      []string{guardrail.ActionSilenceCreate},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
-		}},
+		}}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
@@ -1505,10 +1507,10 @@ func TestGuardrail_TheBulkFormCarriesNoPolicy(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles:     pagetest.Styles(t),
-		Now:        func() time.Time { return fixedNow },
-		Clients:    map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
-		Guardrails: guardrail.Set{{Deny: true}},
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{Deny: true}}}),
 	})
 
 	opts := p.bulkFormOptions(pendingBulkSilence{
@@ -1522,18 +1524,41 @@ func TestGuardrail_TheBulkFormCarriesNoPolicy(t *testing.T) {
 }
 
 // A `:reload` that tightens read_only reaches this page while it is
-// already on the stack. Flipping the field is not enough: the hint
-// strip and the help overlay both re-read Bindings(), so a page that
-// kept stale chips would still advertise a key it now refuses.
-func TestReadOnlyChangedMsg_FlipsTheBindingsLive(t *testing.T) {
+// already on the stack. The hint strip and the help overlay both
+// re-read Bindings(), so a page that kept a copy would still
+// advertise a key it now refuses.
+func TestBindingsFollowReadOnlyAfterApply(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	sess := session.New(config.Config{})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: sess})
 	require.True(t, hasBinding(p.Bindings(), "s"), "a writable page starts with the silence verb")
 
-	updated, _ := p.Update(app.ReadOnlyChangedMsg{ReadOnly: true})
-	require.False(t, hasBinding(updated.Bindings(), "s"), "read-only must hide the verb without a restart")
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	require.False(t, hasBinding(p.Bindings(), "s"), "read-only must hide the verb without a restart")
 
-	updated, _ = updated.Update(app.ReadOnlyChangedMsg{ReadOnly: false})
-	require.True(t, hasBinding(updated.Bindings(), "s"), "loosening read_only must bring the verb back")
+	sess.Apply(config.Config{})
+	require.True(t, hasBinding(p.Bindings(), "s"), "loosening read_only must bring the verb back")
+}
+
+// A reload that adds a deny rule and touches no read_only flag is the
+// case that used to leave an open page permissive.
+func TestGuardrailAppliesAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: sess})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+
+	sess.Apply(config.Config{Guardrails: guardrail.Set{{
+		Tenants: []string{"prod-eu"}, Deny: true, Reason: "change freeze",
+	}}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on prod-eu: change freeze"},
+		cmd())
 }

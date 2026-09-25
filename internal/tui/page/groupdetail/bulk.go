@@ -58,7 +58,7 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no marked instances remain")
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
-	d := p.guardrails.Decide(p.writeRequest())
+	d := p.session.Guardrails().Decide(p.writeRequest())
 	// A single target skips the blast-radius question, but not a
 	// guardrail one: the bulk form leaves policy to this page, so
 	// nothing downstream would ask on its behalf.
@@ -194,7 +194,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		spec.Matchers = matchersByFP[op.Key]
 		return c.CreateSilence(ctx, spec)
 	}
-	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.session.BulkConcurrency())
 	return bulkop.RunRound(cancel, dispatch)
 }
 
