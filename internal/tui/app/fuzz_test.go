@@ -267,10 +267,11 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		// and drops the wide column, so the open pages meet a policy
 		// and a column set they were not built with.
 		Reload: func() tea.Cmd {
-			sess.Apply(fuzzConfig(fuzzColumns[:1], append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...)))
-			return func() tea.Msg {
-				return app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: time.Second}
-			}
+			next := fuzzConfig(fuzzColumns[:1], append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...))
+			next.Theme.Name = "catppuccin-latte"
+			next.TUI.Tips, next.TUI.TipsInterval = true, time.Second
+			sess.Apply(next)
+			return func() tea.Msg { return app.ReloadedMsg{} }
 		},
 		// Notifications on with both escape transports. The two
 		// warm-up polls below only seed the firing set; the third one

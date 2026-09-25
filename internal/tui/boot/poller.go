@@ -4,6 +4,7 @@ package boot
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -179,6 +180,9 @@ type pollerRegistry struct {
 	// the clients and the send func a Poller needs. Nil until then,
 	// which is what makes a Restart before the start a no-op.
 	spawn func(*config.Config) []*poll.Poller
+	// ticks is what the live set was spawned under, so Sync can tell
+	// whether a new config moves any of them.
+	ticks map[string]time.Duration
 }
 
 // Restart rebuilds every poller under the new config, because
@@ -201,12 +205,44 @@ type pollerRegistry struct {
 func (r *pollerRegistry) Restart(cfg *config.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.restartLocked(cfg)
+}
+
+func (r *pollerRegistry) restartLocked(cfg *config.Config) {
 	if r.spawn == nil {
 		return
 	}
 	outgoing := r.pollers
 	r.pollers = r.spawn(cfg)
+	r.ticks = pollTicks(cfg)
 	go stopPollers(outgoing)
+}
+
+// Sync restarts the pollers when cfg moves any tick and does nothing
+// otherwise, because a restart drops the fetch in flight and starts
+// every cycle from zero. The registry is the part that knows what its
+// pollers run on, so it answers whether it is current.
+func (r *pollerRegistry) Sync(cfg *config.Config) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !maps.Equal(r.ticks, pollTicks(cfg)) {
+		r.restartLocked(cfg)
+	}
+}
+
+// pollTicks keys every tick a config asks for by backend and
+// resource. It reads through pageInterval, the same helper
+// spawnPollers builds with, because the tick comes from three config
+// layers: a per-page override beats the per-backend value, which
+// beats the global default.
+func pollTicks(cfg *config.Config) map[string]time.Duration {
+	out := make(map[string]time.Duration, len(cfg.Backends)*len(pollResources))
+	for _, be := range cfg.Backends {
+		for _, resource := range pollResources {
+			out[be.Name+"/"+resource] = pageInterval(be, cfg, resource)
+		}
+	}
+	return out
 }
 
 // stopAll stops every live poller and waits for them, unlike

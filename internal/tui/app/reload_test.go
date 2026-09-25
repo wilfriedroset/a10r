@@ -96,7 +96,7 @@ func TestApp_ReloadStartsTheHintBarItTurnedOn(t *testing.T) {
 
 	a := newReloadApp(t, nil)
 
-	_, cmd := a.Update(ReloadedMsg{Tips: true, TipsInterval: time.Millisecond})
+	cmd := reloadWith(a, config.Config{TUI: config.TUI{Tips: true, TipsInterval: time.Millisecond}})
 
 	require.NotNil(t, cmd)
 	require.True(t, a.hintbar.Enabled())
@@ -140,10 +140,11 @@ func TestApp_ReloadLeavesAnUnchangedHintBarAlone(t *testing.T) {
 	t.Parallel()
 
 	a := newReloadApp(t, nil)
-	_, _ = a.Update(ReloadedMsg{Tips: true, TipsInterval: time.Millisecond})
+	tips := config.Config{TUI: config.TUI{Tips: true, TipsInterval: time.Millisecond}}
+	_ = reloadWith(a, tips)
 	before := a.hintbar
 
-	_, cmd := a.Update(ReloadedMsg{Tips: true, TipsInterval: time.Millisecond})
+	cmd := reloadWith(a, tips)
 
 	require.Equal(t, before, a.hintbar, "an unchanged bar keeps its rotation cursor and its timer")
 	require.False(t, hasHintBarTick(t, cmd), "a second timer beside the live one double-rotates the bar")
@@ -153,11 +154,9 @@ func TestApp_ReloadLeavesAnUnchangedHintBarAlone(t *testing.T) {
 	)
 }
 
-// The App can only see the skin, the tips and the read_only flag. A
-// reload that moved none of them still restarted pollers and swapped
-// aliases and key overrides down in the wiring layer, so the flash
-// must not claim that nothing was applied.
-func TestApp_ReloadReportsSuccessWithoutClaimingNothingChanged(t *testing.T) {
+// The App does not know what moved, so an empty Restart reads as a
+// reload that landed whole, never as "nothing changed".
+func TestApplyReloadedFlashesReloaded(t *testing.T) {
 	t.Parallel()
 
 	a := newReloadApp(t, nil)
@@ -170,59 +169,76 @@ func TestApp_ReloadReportsSuccessWithoutClaimingNothingChanged(t *testing.T) {
 	)
 }
 
-// A reload that moved both the skin and read_only must keep the
-// read_only flash: it is the message with safety content, and the
-// repaint is the one the user can already see for themselves.
-func TestApp_ReloadKeepsTheReadOnlyFlashBesideASkinChange(t *testing.T) {
+// The settings the session cannot apply are the only thing left for
+// the flash to say, and the user needs to know which ones to restart
+// for.
+func TestApplyReloadedNamesRestartFields(t *testing.T) {
 	t.Parallel()
 
-	a := newReloadApp(t, nil)
-	a.skinNames = func() []string { return []string{"nord"} }
-	a.loadStyles = func(string) (*theme.Styles, error) { return &theme.Styles{}, nil }
+	cases := []struct {
+		restart []string
+		want    string
+	}{
+		{restart: []string{"tui.remember"}, want: "reloaded, restart a10r to apply tui.remember"},
+		{restart: []string{"tui.remember", "tui.other"}, want: "reloaded, restart a10r to apply tui.remember, tui.other"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
 
-	_, cmd := a.Update(ReloadedMsg{ThemeName: "nord", ReadOnlyChanged: true})
+			a := newReloadApp(t, nil)
 
-	require.Equal(t, "nord", a.skinName)
-	require.Equal(t,
-		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded, read_only applied"}},
-		drainFlashes(t, cmd),
-	)
-}
+			_, cmd := a.Update(ReloadedMsg{Restart: tc.restart})
 
-// A reload that moved read_only must not report a plain success: the
-// user who tightened it needs to read that it took. Pages read the
-// policy from the session, so a per-backend flag reaches the open
-// pages as surely as the session-wide one and needs no caveat.
-func TestApp_ReloadQualifiesAReadOnlyChange(t *testing.T) {
-	t.Parallel()
-
-	a := newReloadApp(t, nil)
-
-	_, cmd := a.Update(ReloadedMsg{ReadOnlyChanged: true})
-
-	require.Equal(t,
-		footer.FlashShowMsg{Level: footer.FlashInfo, Text: "reloaded, read_only applied"},
-		cmd(),
-	)
+			require.Equal(t,
+				[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: tc.want}},
+				drainFlashes(t, cmd))
+		})
+	}
 }
 
 // A reload whose theme.name no longer resolves must leave the user
 // with the refusal, not a success flash painted over it one message
 // later. Both flashes share one slot, and the last one wins.
-func TestApp_ReloadDoesNotPaintOverAFailedSkin(t *testing.T) {
+func TestApplyReloadedKeepsSkinRefusalFlash(t *testing.T) {
 	t.Parallel()
 
 	a := newReloadApp(t, nil)
 	a.skinNames = func() []string { return []string{"nord"} }
 	a.loadStyles = func(string) (*theme.Styles, error) { return &theme.Styles{}, nil }
 
-	_, cmd := a.Update(ReloadedMsg{ThemeName: "gone"})
+	cmd := reloadWith(a, config.Config{Theme: config.Theme{Name: "gone"}})
 
 	flashes := drainFlashes(t, cmd)
 	require.Equal(t,
 		[]footer.FlashShowMsg{{Level: footer.FlashWarn, Text: `skin "gone" not found`}},
 		flashes,
 	)
+}
+
+// A reload that switched the skin repaints; the name comes from the
+// session, which the wiring layer applied before the message.
+func TestApplyReloadedSwitchesTheSkin(t *testing.T) {
+	t.Parallel()
+
+	a := newReloadApp(t, nil)
+	a.skinNames = func() []string { return []string{"nord"} }
+	a.loadStyles = func(string) (*theme.Styles, error) { return &theme.Styles{}, nil }
+
+	cmd := reloadWith(a, config.Config{Theme: config.Theme{Name: "nord"}})
+
+	require.Equal(t, "nord", a.skinName)
+	require.Equal(t,
+		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded"}},
+		drainFlashes(t, cmd))
+}
+
+// reloadWith applies cfg to the App's session the way the wiring layer
+// does before it hands the App the message, and returns the App's Cmd.
+func reloadWith(a *App, cfg config.Config) tea.Cmd {
+	a.session.Apply(cfg)
+	_, cmd := a.Update(ReloadedMsg{})
+	return cmd
 }
 
 // drainFlashes runs a Cmd tree and collects every flash it emits, in

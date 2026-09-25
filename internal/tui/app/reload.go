@@ -3,10 +3,11 @@
 package app
 
 import (
-	"time"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
@@ -36,36 +37,30 @@ func (a *App) reloadConfig() tea.Cmd {
 	return a.reload()
 }
 
-// ReloadedMsg carries the values a successful reload found, for the
-// App to fold into the state the wiring layer cannot reach. The
-// wiring layer has already applied everything else.
+// ReloadedMsg reports a reload the wiring layer applied to the
+// session. The App reads what it needs from the session itself.
 type ReloadedMsg struct {
-	// ThemeName is the reloaded theme.name. The App re-applies it
-	// only when it differs from the applied skin, so a reload that
-	// left the theme alone does not repaint.
-	ThemeName    string
-	Tips         bool
-	TipsInterval time.Duration
-	// ReadOnlyChanged says a read_only flag moved at either layer,
-	// which is what the flash names so a user who tightened the
-	// setting sees it took rather than reading a bare success.
-	ReadOnlyChanged bool
+	// Restart names the settings the new file changed that the
+	// running session cannot apply. Empty means the reload landed
+	// whole.
+	Restart []string
 }
 
 // applyReloaded folds a successful reload into the App and always
 // reports it, because a reload that prints nothing is
 // indistinguishable from a key that did not register.
 //
-// No "nothing changed" wording: the App sees three settings, while
-// the wiring half has already swapped pollers, aliases, key
-// overrides, guardrails and column sets it never hears about.
+// No "nothing changed" wording: the App does not know what moved, and
+// a page on the stack does not need it to, because it reads the
+// session.
 func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
+	cfg := a.session.Config()
 	a.notify.Apply(a.session.Notify())
 	applied := tea.Batch(
 		a.forwardToAll(ConfigReloadedMsg{}),
-		a.applyReloadedTips(m),
+		a.applyReloadedTips(cfg.TUI),
 	)
-	if skin := a.reloadedSkin(m.ThemeName); skin != "" {
+	if skin := a.reloadedSkin(cfg.Theme.Name); skin != "" {
 		// Called rather than dispatched, because applySkin's return
 		// is the refusal and a success flash batched beside it would
 		// take the one flash slot that refusal needs.
@@ -73,8 +68,8 @@ func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
 			return tea.Batch(applied, refused)
 		}
 	}
-	if m.ReadOnlyChanged {
-		return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded, read_only applied"))
+	if len(m.Restart) > 0 {
+		return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded, restart a10r to apply "+strings.Join(m.Restart, ", ")))
 	}
 	return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded"))
 }
@@ -97,10 +92,10 @@ func (a *App) reloadedSkin(themeName string) string {
 // did not move. Only App.Init otherwise schedules that timer, so a
 // bar switched on here and left without its tick would paint one tip
 // and never move again.
-func (a *App) applyReloadedTips(m ReloadedMsg) tea.Cmd {
+func (a *App) applyReloadedTips(tui config.TUI) tea.Cmd {
 	bar, cmd := a.hintbar.Reconfigure(footer.HintBarOptions{
-		Enabled:  m.Tips,
-		Interval: m.TipsInterval,
+		Enabled:  tui.Tips,
+		Interval: tui.TipsInterval,
 	})
 	a.hintbar = bar
 	return cmd

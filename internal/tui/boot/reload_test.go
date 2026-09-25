@@ -197,10 +197,25 @@ func TestReload_AppliesTheReloadableSubset(t *testing.T) {
 	cmd := r.reload()
 
 	require.Equal(t, "catppuccin-latte", env.Session.Config().Theme.Name, "a page pushed after the reload must read the new config")
-	require.Equal(t,
-		app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: 30 * time.Second},
-		cmd(),
-	)
+	require.True(t, env.Session.Config().TUI.Tips)
+	require.Equal(t, app.ReloadedMsg{}, cmd(), "everything landed, so nothing is named for a restart")
+}
+
+// tui.remember opens the state store once, at startup. Turning it on
+// mid-session would write a file the run never read, so the reload
+// applies the rest and names it for a restart instead.
+func TestReloadNamesRememberForRestart(t *testing.T) {
+	t.Parallel()
+
+	r, env, _ := reloadFixture(t, config.Config{}, func() (*config.Config, error) {
+		return &config.Config{TUI: config.TUI{Remember: true, Tips: true}}, nil
+	})
+
+	require.Equal(t, app.ReloadedMsg{Restart: []string{"tui.remember"}}, r.reload()())
+	require.True(t, env.Session.Config().TUI.Tips, "the rest of the file still applies")
+	require.False(t, env.Session.Config().TUI.Remember, "the session reports what the run does")
+	require.Equal(t, app.ReloadedMsg{Restart: []string{"tui.remember"}}, r.reload()(),
+		"a second reload of the same file still owes the restart")
 }
 
 // read_only is on the reloadable list, and it sits inside a Backend
@@ -214,9 +229,7 @@ func TestReload_AcceptsAPerBackendReadOnlyFlip(t *testing.T) {
 		return &config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am", ReadOnly: true}}}, nil
 	})
 
-	msg, ok := r.reload()().(app.ReloadedMsg)
-	require.True(t, ok)
-	require.True(t, msg.ReadOnlyChanged, "a per-backend flag alone must name read_only in the flash")
+	require.Equal(t, app.ReloadedMsg{}, r.reload()())
 	require.True(t, env.Session.Config().Backends[0].ReadOnly)
 }
 
@@ -299,11 +312,10 @@ func TestBuild_WiresReloadIntoTheApp(t *testing.T) {
 	require.IsType(t, app.ReloadedMsg{}, cmd())
 }
 
-// The tick a poller runs on is the effective one: a per-page
-// override beats the per-backend value, which beats the global
-// default. Comparing only the per-backend field would report "no
-// change" for the two settings most users actually edit.
-func TestReload_RestartsPollersOnEveryIntervalLayer(t *testing.T) {
+// The tick a poller runs on comes from three layers, and each one has
+// to move it. A rebuild drops the current fetch, so Sync must not
+// restart when no tick moved.
+func TestSyncRestartsOnlyWhenIntervalMoved(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -323,10 +335,28 @@ func TestReload_RestartsPollersOnEveryIntervalLayer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			old := &config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am"}}}
+			var spawned int
+			var ticks []time.Duration
+			reg := &pollerRegistry{}
+			reg.setSpawn(func(c *config.Config) []*poll.Poller {
+				spawned++
+				ticks = append(ticks, pageInterval(c.Backends[0], c, resourceAlerts))
+				return nil
+			})
+			reg.Restart(&config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am"}}})
 			next := &config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am"}}}
 			tc.mutate(next)
-			require.Equal(t, tc.want, pollIntervalsChanged(old, next))
+
+			reg.Sync(next)
+			reg.Sync(next)
+
+			want := 1
+			if tc.want {
+				want = 2
+			}
+			require.Equal(t, want, spawned, "one restart per moved tick, none for a repeat")
+			require.Equal(t, pageInterval(next.Backends[0], next, resourceAlerts), ticks[len(ticks)-1],
+				"the last spawn runs on the new ticks")
 		})
 	}
 }
@@ -342,22 +372,6 @@ func TestFrozenConfigChanged_CoversTheLogFormat(t *testing.T) {
 	next := &config.Config{Defaults: config.Defaults{LogFormat: "json"}}
 
 	require.True(t, frozenConfigChanged(old, next))
-}
-
-// A user who just tightened read_only needs to read that it took,
-// rather than a bare "reloaded" that says nothing about the policy.
-func TestReload_NamesAReadOnlyChange(t *testing.T) {
-	t.Parallel()
-
-	r, env, _ := reloadFixture(t, config.Config{}, func() (*config.Config, error) {
-		return &config.Config{Defaults: config.Defaults{ReadOnly: true}}, nil
-	})
-
-	msg, ok := r.reload()().(app.ReloadedMsg)
-
-	require.True(t, ok)
-	require.True(t, msg.ReadOnlyChanged)
-	require.True(t, env.Session.ReadOnly(), "the App composes its help overlay from the session")
 }
 
 // The pollers must run on the config the rest of the session reads,
@@ -429,7 +443,7 @@ func TestReload_LeavesThePollersAloneWhenNoIntervalMoved(t *testing.T) {
 	t.Parallel()
 
 	start := config.Config{Backends: []config.Backend{{Name: "prod", URL: "https://am"}}}
-	r, _, _ := reloadFixture(t, start, func() (*config.Config, error) {
+	r, env, _ := reloadFixture(t, start, func() (*config.Config, error) {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "prod", URL: "https://am"}},
 			Theme:    config.Theme{Name: "nord"},
@@ -440,10 +454,11 @@ func TestReload_LeavesThePollersAloneWhenNoIntervalMoved(t *testing.T) {
 		spawned++
 		return nil
 	})
+	r.registry.Restart(env.Session.Config())
 
 	require.IsType(t, app.ReloadedMsg{}, r.reload()())
 
-	require.Zero(t, spawned)
+	require.Equal(t, 1, spawned, "only the start spawned")
 }
 
 // `:reload` runs on the bubbletea update goroutine, which is the one

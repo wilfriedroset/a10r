@@ -116,20 +116,26 @@ func (r *reloader) reload() tea.Cmd {
 		return flashWarnCmd(fmt.Sprintf("reload: %v", err))
 	}
 
-	reportReadOnly := readOnlyChanged(live, &effCfg)
-	restartPollers := pollIntervalsChanged(live, &effCfg)
+	restart := restartFields(live, &effCfg)
+	// The session keeps what the run is doing, not what the file asks
+	// for, so a second reload still names it and `:config` does not
+	// claim a persistence this run never opened.
+	effCfg.TUI.Remember = live.TUI.Remember
 	r.env.Session.Apply(effCfg)
-	if restartPollers {
-		r.registry.Restart(live)
+	r.registry.Sync(live)
+	return func() tea.Msg { return app.ReloadedMsg{Restart: restart} }
+}
+
+// restartFields names the settings the new file changed that the
+// running session applies only at startup. tui.remember is one because
+// the state store is opened once: turning persistence on mid-session
+// would write a file the run never read.
+func restartFields(old, next *config.Config) []string {
+	var out []string
+	if old.TUI.Remember != next.TUI.Remember {
+		out = append(out, "tui.remember")
 	}
-	return func() tea.Msg {
-		return app.ReloadedMsg{
-			ThemeName:       effCfg.Theme.Name,
-			Tips:            effCfg.TUI.Tips,
-			TipsInterval:    effCfg.TUI.TipsInterval,
-			ReadOnlyChanged: reportReadOnly,
-		}
-	}
+	return out
 }
 
 // unknownAction names the first action in the keys file the
@@ -150,41 +156,4 @@ func (r *reloader) unknownAction(overrides config.KeyOverrides) string {
 		}
 	}
 	return ""
-}
-
-// readOnlyChanged reports whether a read_only flag moved at either
-// layer, which is what decides whether the flash mentions read_only
-// at all.
-//
-// Same length precondition as pollIntervalsChanged.
-func readOnlyChanged(old, next *config.Config) bool {
-	if old.Defaults.ReadOnly != next.Defaults.ReadOnly {
-		return true
-	}
-	for i := range old.Backends {
-		if old.Backends[i].ReadOnly != next.Backends[i].ReadOnly {
-			return true
-		}
-	}
-	return false
-}
-
-// pollIntervalsChanged reports whether any poller would now run on a
-// different tick. It compares through pageInterval, the same helper
-// spawnPollers builds with, because the tick comes from three config
-// layers: a per-page override beats the per-backend value, which
-// beats the global default. Reading only the per-backend field would
-// report "no change" for the two layers most configs actually set.
-//
-// Callers must have cleared frozenConfigChanged first: that is what
-// makes the two backend lists the same length.
-func pollIntervalsChanged(old, next *config.Config) bool {
-	for i := range old.Backends {
-		for _, resource := range pollResources {
-			if pageInterval(old.Backends[i], old, resource) != pageInterval(next.Backends[i], next, resource) {
-				return true
-			}
-		}
-	}
-	return false
 }
