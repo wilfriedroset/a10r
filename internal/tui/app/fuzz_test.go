@@ -216,6 +216,17 @@ func fuzzLoadSkin(name string) (*theme.Styles, error) {
 	return styles, nil
 }
 
+func fuzzConfig(cols []config.Column, rules guardrail.Set) config.Config {
+	return config.Config{
+		Defaults:   config.Defaults{BulkConcurrency: 4},
+		Guardrails: rules,
+		Pages: config.PageOverrides{
+			Alerts:      config.AlertsPageConfig{Columns: cols},
+			GroupDetail: config.GroupDetailConfig{Columns: cols},
+		},
+	}
+}
+
 // bootApp constructs the App, pushes the alerts home page, and
 // hydrates it with one synthetic poll.DataMsg so the fuzzer's
 // random keys land on a populated table from the first iteration.
@@ -237,10 +248,7 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		return app.OpenSkinPicker()
 	})
 	resolver.Register("reload", func([]string) tea.Cmd { return app.Reload() })
-	sess := session.New(config.Config{
-		Defaults:   config.Defaults{BulkConcurrency: 4},
-		Guardrails: rules,
-	})
+	sess := session.New(fuzzConfig(fuzzColumns, rules))
 	a := app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
@@ -252,13 +260,11 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 		Session:    sess,
 		// A reload that always succeeds and always repaints, so the
 		// seed below drives applyReloaded's skin swap and hint-bar
-		// rebuild rather than its refusal path. It also denies prod,
-		// so the open pages meet a policy they were not built with.
+		// rebuild rather than its refusal path. It also denies prod
+		// and drops the wide column, so the open pages meet a policy
+		// and a column set they were not built with.
 		Reload: func() tea.Cmd {
-			sess.Apply(config.Config{
-				Defaults:   config.Defaults{BulkConcurrency: 4},
-				Guardrails: append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...),
-			})
+			sess.Apply(fuzzConfig(fuzzColumns[:1], append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...)))
 			return func() tea.Msg {
 				return app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: time.Second}
 			}
@@ -276,15 +282,13 @@ func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 	}
 	homeFactory := func() app.Page {
 		return alerts.New(alerts.Options{
-			Styles:             styles,
-			Now:                func() time.Time { return fuzzNow },
-			Scope:              "all",
-			Clients:            clients,
-			Creator:            "fuzz",
-			Logger:             slog.Default(),
-			Columns:            fuzzColumns,
-			GroupDetailColumns: fuzzColumns,
-			Session:            sess,
+			Styles:  styles,
+			Now:     func() time.Time { return fuzzNow },
+			Scope:   "all",
+			Clients: clients,
+			Creator: "fuzz",
+			Logger:  slog.Default(),
+			Session: sess,
 		})
 	}
 

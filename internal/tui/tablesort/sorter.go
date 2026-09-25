@@ -219,6 +219,23 @@ func New[T any](cols []Column[T], defaultKey string) *Sorter[T] {
 	return s
 }
 
+// SetColumns swaps the axis set under a live sorter, for a page whose
+// columns a reload changed. The operator's choice and its direction
+// survive when the new set still has that key; otherwise the sort
+// falls back to the default column, which every page builds in and a
+// reload cannot remove. Nothing is persisted: the remembered choice
+// stays, and Bind already ignores a key the page no longer has. A
+// reload that brings the column back does not restore the choice on
+// the open page; the next page built binds it again.
+func (s *Sorter[T]) SetColumns(cols []Column[T]) {
+	next := New(cols, s.cols[s.defaultIdx].Key)
+	next.mem, next.resource, next.hidden = s.mem, s.resource, s.hidden
+	if i := indexOf(cols, s.cols[s.active].Key); i >= 0 {
+		next.active, next.asc = i, s.asc
+	}
+	*s = *next
+}
+
 // Apply sorts in place by the active column and direction using
 // sort.SliceStable so tied entries preserve their input order.
 // Tied-entry stability is what keeps the cursor on the same row

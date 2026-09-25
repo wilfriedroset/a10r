@@ -11,6 +11,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -207,7 +208,7 @@ func benchColumns() []config.Column {
 // feature.
 func BenchmarkAlertsRecomputeLabelColumns(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now, Columns: benchColumns()})
+	p := New(Options{Styles: styles, Now: time.Now, Session: session.New(withAlertColumns(benchColumns()...))})
 	p.byTenant = benchAlerts(1000, 4)
 
 	b.ReportAllocs()
@@ -224,7 +225,7 @@ func BenchmarkAlertsRecomputeLabelColumns(b *testing.B) {
 // frame shows up as a multiple, not a margin.
 func BenchmarkAlertsRenderRowsLabelColumns(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now, Columns: benchColumns()})
+	p := New(Options{Styles: styles, Now: time.Now, Session: session.New(withAlertColumns(benchColumns()...))})
 	p.byTenant = benchAlerts(1000, 4)
 	p.recompute()
 	p.SetViewport(40, len(p.groups))

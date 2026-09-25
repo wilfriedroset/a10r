@@ -10,18 +10,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 )
 
 func newDeltaPage(t *testing.T, tenants []string) *Page {
 	t.Helper()
 	return New(Options{
-		Styles:    pagetest.Styles(t),
-		Now:       func() time.Time { return fixedNow },
-		PollDelta: true,
-		Tenants:   tenants,
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: session.New(config.Config{TUI: config.TUI{PollDelta: true}}),
+		Tenants: tenants,
 	})
 }
 

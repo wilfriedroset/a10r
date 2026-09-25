@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -26,7 +27,7 @@ func newColumnPage(t *testing.T, cols []config.Column, instances ...backend.Aler
 		Tenant:    tenant,
 		AlertName: alertName,
 		Instances: instances,
-		Columns:   cols,
+		Session:   session.New(withGroupColumns(cols...)),
 	})
 }
 

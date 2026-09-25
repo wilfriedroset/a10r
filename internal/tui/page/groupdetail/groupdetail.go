@@ -35,7 +35,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
@@ -212,7 +211,9 @@ type Options struct {
 	Clients map[string]silenceform.Client
 	// Session is the live configuration the page reads its write
 	// policy and bulk pool size from at the point of use, so a reload
-	// reaches the page while it is open. Nil reads as an empty config.
+	// reaches the page while it is open. The label columns, rendered
+	// between INSTANCE and STATE (ADR 0048), are re-derived on a
+	// reload instead. Nil reads as an empty config.
 	Session *session.Session
 	// Creator seeds the silence form's CreatedBy field; empty falls
 	// back to "a10r" in the form factory.
@@ -249,10 +250,6 @@ type Options struct {
 	// SortMemory persists the active sort column across runs; nil
 	// disables sort memory for this page.
 	SortMemory tablesort.Memory
-	// Columns are the operator's extra label columns, rendered
-	// between INSTANCE and STATE (ADR 0048). Empty renders the page
-	// exactly as it did before the feature existed.
-	Columns []config.Column
 }
 
 // instanceEntry wraps one alert instance with the precomputed
@@ -361,7 +358,8 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	labelCols := table.Resolve(opts.Columns)
+	sess := session.OrEmpty(opts.Session)
+	labelCols := table.Resolve(sess.GroupDetailColumns())
 	p := &Page{
 		Scope:          opts.Tenant,
 		BackendHealth:  map[string]listpage.BackendHealth{},
@@ -383,7 +381,7 @@ func New(opts Options) *Page {
 		shownCols:      table.Visible(labelCols, false),
 		marks:          map[string]struct{}{},
 		logger:         opts.Logger,
-		session:        session.OrEmpty(opts.Session),
+		session:        sess,
 		bulkCtx:        opts.BulkCtx,
 		submitCtx:      opts.SubmitCtx,
 		editorResolver: opts.EditorResolver,
@@ -399,8 +397,22 @@ func New(opts Options) *Page {
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
 	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
+	p.Reconfigure = p.reconfigure
 	p.recompute()
 	return p
+}
+
+// reconfigure re-derives the label columns after a reload, for the
+// same reason as the alerts list: they key the sorter and the header
+// geometry. A sort on a removed column falls back to the default.
+func (p *Page) reconfigure() {
+	p.labelCols = table.Resolve(p.session.GroupDetailColumns())
+	if !table.HasWide(p.labelCols) {
+		p.wide = false
+	}
+	p.shownCols = table.Visible(p.labelCols, p.wide)
+	p.sorter.SetColumns(instanceSortColumns(p.labelCols))
+	p.recompute()
 }
 
 // Init kicks the spinner so the cold-start loading affordance

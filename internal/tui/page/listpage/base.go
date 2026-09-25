@@ -68,6 +68,11 @@ type Base struct {
 	// the alerts list and group detail; nil falls through — see
 	// ADR-0018.
 	SetStateFormat func(stateformat.Format)
+	// Reconfigure re-derives the state a page built from the config at
+	// construction, on app.ConfigReloadedMsg. Nil on pages that read
+	// the session at the point of use; nil falls through — see
+	// ADR-0018.
+	Reconfigure func()
 	// ClearMarks runs the page's mark-clearing routine and returns
 	// any follow-up flash command. Nil on pages without marks; nil
 	// falls through — see ADR-0018.

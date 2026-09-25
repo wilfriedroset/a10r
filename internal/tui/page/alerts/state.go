@@ -39,7 +39,7 @@ func (p *Page) totalGroups() int {
 // state filter on purpose: the flash narrates what the backend did,
 // not what the view shows.
 func (p *Page) pollDeltaFlash(tenant string, before, after []backend.Alert) tea.Cmd {
-	if !p.pollDelta || !p.ScopeIncludes(tenant) {
+	if !p.session.Config().TUI.PollDelta || !p.ScopeIncludes(tenant) {
 		return nil
 	}
 	// A tenant with no map key has never polled, so the whole first

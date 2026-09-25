@@ -8,9 +8,9 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 )
 
-// HandleSidebandMsg routes the five cross-cutting messages every list
+// HandleSidebandMsg routes the six cross-cutting messages every list
 // page handles uniformly (scope, time/state format, go-to-first-row,
-// mark-clear). Pages call it first and short-circuit
+// config reload, mark-clear). Pages call it first and short-circuit
 // on handled=true.
 // For the optional cases a nil callback is a fall-through
 // (handled=false), so pages lacking that feature pass through without
@@ -41,6 +41,12 @@ func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 			return false, nil
 		}
 		b.SetStateFormat(m.Format)
+		return true, nil
+	case app.ConfigReloadedMsg:
+		if b.Reconfigure == nil {
+			return false, nil
+		}
+		b.Reconfigure()
 		return true, nil
 	case app.ClearMarksMsg:
 		if b.ClearMarks == nil {

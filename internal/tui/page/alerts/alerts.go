@@ -42,7 +42,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
@@ -233,8 +232,10 @@ type Options struct {
 	// suppresses logging.
 	Logger *slog.Logger
 	// Session is the live configuration the page reads its write
-	// policy and bulk pool size from at the point of use, so a reload
-	// reaches the page while it is open. Nil reads as an empty config.
+	// policy, bulk pool size and `tui.poll_delta` from at the point of
+	// use, so a reload reaches the page while it is open. The label
+	// columns are the one exception, re-derived on a reload instead.
+	// Nil reads as an empty config.
 	Session *session.Session
 	// BulkCtx is the parent ctx the bulk-silence fanout inherits.
 	// Cancelling cancels every in-flight worker — important for
@@ -279,23 +280,9 @@ type Options struct {
 	// observed DataMsgs — kept for tests that don't care about the
 	// column toggle.
 	Tenants []string
-	// PollDelta is wired from `tui.poll_delta`. When true, a poll
-	// that adds or removes an aggregate flashes the delta. Opt-in,
-	// like tui.tips and tui.terminal_title.
-	PollDelta bool
 	// SortMemory persists the active sort column across runs; nil
 	// disables sort memory for this page.
 	SortMemory tablesort.Memory
-	// Columns are the user-declared label columns from
-	// `pages.alerts.columns`. The config loader has validated them;
-	// the page renders them in order. Empty leaves the table on its
-	// built-in columns alone.
-	Columns []config.Column
-	// GroupDetailColumns are `pages.group_detail.columns`, carried
-	// through rather than read here: the L2 page is constructed on
-	// drill-down from this page, so this is the only path the
-	// configuration has to reach it.
-	GroupDetailColumns []config.Column
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -488,12 +475,13 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
-	// labelCols are the user-declared label columns, resolved once at
-	// construction. shownCols is the subset the current display tier
-	// renders, and wide is that tier: false hides every `wide: true`
-	// column until the operator presses Shift+W. A row's cells and
-	// the sorter's axes stay keyed by labelCols order through
-	// table.LabelColumn.Index, so toggling the tier moves no cell.
+	// labelCols are the user-declared label columns, resolved at
+	// construction and again by reconfigure. shownCols is the subset
+	// the current display tier renders, and wide is that tier: false
+	// hides every `wide: true` column until the operator presses
+	// Shift+W. A row's cells and the sorter's axes stay keyed by
+	// labelCols order through table.LabelColumn.Index, so toggling the
+	// tier moves no cell.
 	labelCols []table.LabelColumn
 	shownCols []table.LabelColumn
 	wide      bool
@@ -504,9 +492,6 @@ type Page struct {
 	labelWidths []int
 
 	scroll table.Scroll
-	// groupDetailCols is the L2 page's column configuration, held
-	// only to hand to groupdetail.New on drill-down.
-	groupDetailCols []config.Column
 
 	// sorter: comparators from alertSortColumns.
 	sorter *tablesort.Sorter[alertGroup]
@@ -523,9 +508,6 @@ type Page struct {
 	stateFormat stateformat.Format
 
 	session *session.Session
-
-	// pollDelta: see Options.PollDelta.
-	pollDelta bool
 
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
@@ -547,35 +529,34 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	labelCols := table.Resolve(opts.Columns)
+	sess := session.OrEmpty(opts.Session)
+	labelCols := table.Resolve(sess.AlertColumns())
 	p := &Page{
-		Scope:           opts.Scope,
-		BackendHealth:   map[string]listpage.BackendHealth{},
-		Tenants:         opts.Tenants,
-		PolledTenants:   map[string]struct{}{},
-		NextRefresh:     map[string]time.Time{},
-		Spinner:         sp,
-		styles:          opts.Styles,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		timeFormat:      opts.TimeFormat,
-		stateFormat:     opts.StateFormat,
-		byTenant:        map[string][]backend.Alert{},
-		labelCols:       labelCols,
-		shownCols:       table.Visible(labelCols, false),
-		groupDetailCols: opts.GroupDetailColumns,
-		sorter:          tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
-		marks:           map[string]struct{}{},
-		logger:          opts.Logger,
-		session:         session.OrEmpty(opts.Session),
-		pollDelta:       opts.PollDelta,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
-		stateFilter:     opts.InitialStateFilter,
-		editorResolver:  opts.EditorResolver,
-		editorCtx:       opts.EditorCtx,
-		sortMemory:      opts.SortMemory,
+		Scope:          opts.Scope,
+		BackendHealth:  map[string]listpage.BackendHealth{},
+		Tenants:        opts.Tenants,
+		PolledTenants:  map[string]struct{}{},
+		NextRefresh:    map[string]time.Time{},
+		Spinner:        sp,
+		styles:         opts.Styles,
+		now:            now,
+		clients:        opts.Clients,
+		creator:        opts.Creator,
+		timeFormat:     opts.TimeFormat,
+		stateFormat:    opts.StateFormat,
+		byTenant:       map[string][]backend.Alert{},
+		labelCols:      labelCols,
+		shownCols:      table.Visible(labelCols, false),
+		sorter:         tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
+		marks:          map[string]struct{}{},
+		logger:         opts.Logger,
+		session:        sess,
+		bulkCtx:        opts.BulkCtx,
+		submitCtx:      opts.SubmitCtx,
+		stateFilter:    opts.InitialStateFilter,
+		editorResolver: opts.EditorResolver,
+		editorCtx:      opts.EditorCtx,
+		sortMemory:     opts.SortMemory,
 	}
 	p.sorter.Bind(opts.SortMemory, resourceAlerts)
 	p.sorter.SetHidden(p.isHiddenSortKey)
@@ -587,7 +568,22 @@ func New(opts Options) *Page {
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
 	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
+	p.Reconfigure = p.reconfigure
 	return p
+}
+
+// reconfigure re-derives the label columns after a reload. They key
+// the sorter's axes and the header geometry, so unlike the policy they
+// cannot be read at the point of use. A sort on a column the reload
+// removed falls back to the page default.
+func (p *Page) reconfigure() {
+	p.labelCols = table.Resolve(p.session.AlertColumns())
+	if !table.HasWide(p.labelCols) {
+		p.wide = false
+	}
+	p.shownCols = table.Visible(p.labelCols, p.wide)
+	p.sorter.SetColumns(alertSortColumns(p.labelCols))
+	p.recompute()
 }
 
 // SetScope mirrors app.ScopeChangedMsg for tests, which is its only

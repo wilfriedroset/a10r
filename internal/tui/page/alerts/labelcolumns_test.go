@@ -16,6 +16,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
@@ -24,7 +25,7 @@ func newColumnPage(t *testing.T, cols ...config.Column) *Page {
 	return New(Options{
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
-		Columns: cols,
+		Session: session.New(withAlertColumns(cols...)),
 	})
 }
 
@@ -207,7 +208,7 @@ func TestLabelColumn_MultiTenantKeepsColumnOrder(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod", "staging"},
 		Scope:   "all",
-		Columns: []config.Column{{Label: "cluster"}},
+		Session: session.New(withAlertColumns(config.Column{Label: "cluster"})),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		clusterAlert("DiskFull", "fp1", "eu-1"),
@@ -399,9 +400,11 @@ func TestLabelColumn_GroupDetailColumnsReachTheDrillDown(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Styles:             pagetest.Styles(t),
-		Now:                func() time.Time { return fixedNow },
-		GroupDetailColumns: []config.Column{{Label: "cluster", Title: "FLEET"}},
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+		Session: session.New(config.Config{Pages: config.PageOverrides{
+			GroupDetail: config.GroupDetailConfig{Columns: []config.Column{{Label: "cluster", Title: "FLEET"}}},
+		}}),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		clusterAlert("Multi", "fp1", "eu-1"),
