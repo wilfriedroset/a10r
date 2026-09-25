@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/uistate"
 )
@@ -103,9 +104,9 @@ func TestBuildApp_ArmsAutoThemeFromConfig(t *testing.T) {
 
 			styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
 			require.NoError(t, err)
-			cfg := &config.Config{Theme: config.Theme{Name: tc.themeName}}
+			sess := session.New(config.Config{Theme: config.Theme{Name: tc.themeName}})
 
-			a := buildApp(buildDispatcher(), nil, styles, cfg, &pollerRegistry{}, testDeps(t).resolved(), t.TempDir(), scopeAll, uistate.Open(""), nil)
+			a := buildApp(buildDispatcher(), nil, styles, sess, &pollerRegistry{}, testDeps(t).resolved(), t.TempDir(), scopeAll, uistate.Open(""), nil)
 			if tc.wantArmed {
 				require.NotNil(t, a.Init())
 				return

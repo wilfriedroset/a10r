@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
-	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/report"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -23,6 +21,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/status"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenantconfig"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -42,22 +41,15 @@ type pageEnv struct {
 	SilenceClients map[string]silenceform.Client
 	Creator        string
 	TenantRows     []tenant.Row
-	Config         *config.Config
 	Clients        map[string]backend.Client
 	TimeFormat     func() timerender.Format
 	StateFormat    func() stateformat.Format
-	// ReadOnly is the session-wide switch, not the raw
-	// defaults.read_only: a fleet where every backend is read_only
-	// has nothing writable either. Per-backend policy rides
-	// Guardrails instead, because a list page mixes tenants.
-	ReadOnly bool
-	// Guardrails is the per-tenant write policy every write page
-	// consults before it offers or runs a verb.
-	Guardrails         guardrail.Set
-	TenantNames        []string
-	TenantConfigByName map[string]config.Backend
-	EditorResolver     edit.Resolver
-	Now                func() time.Time
+	// Session is the live configuration. A reload applies to it, so
+	// a factory reads it at push time rather than holding a copy.
+	Session        *session.Session
+	TenantNames    []string
+	EditorResolver edit.Resolver
+	Now            func() time.Time
 	// SortMemory is the per-page remembered sort column, handed to
 	// every page's Options. Never nil; a disabled store answers empty.
 	SortMemory tablesort.Memory
@@ -119,20 +111,20 @@ func newAlertsPage(env *pageEnv, stateFilter, filter string) app.Page {
 		EditorResolver:     env.EditorResolver,
 		TimeFormat:         env.TimeFormat(),
 		StateFormat:        env.StateFormat(),
-		BulkConcurrency:    env.Config.Defaults.BulkConcurrencyOrDefault(),
+		BulkConcurrency:    env.Session.BulkConcurrency(),
 		Logger:             slog.Default(),
-		ReadOnly:           env.ReadOnly,
-		Guardrails:         env.Guardrails,
+		ReadOnly:           env.Session.ReadOnly(),
+		Guardrails:         env.Session.Guardrails(),
 		EditorCtx:          env.EditorCtx,
 		BulkCtx:            env.EditorCtx,
 		SubmitCtx:          env.EditorCtx,
 		InitialStateFilter: stateFilter,
 		InitialFilter:      filter,
 		Tenants:            env.TenantNames,
-		PollDelta:          env.Config.TUI.PollDelta,
+		PollDelta:          env.Session.Config().TUI.PollDelta,
 		SortMemory:         env.SortMemory,
-		Columns:            env.Config.Pages.Alerts.Columns,
-		GroupDetailColumns: env.Config.Pages.GroupDetail.Columns,
+		Columns:            env.Session.AlertColumns(),
+		GroupDetailColumns: env.Session.GroupDetailColumns(),
 	})
 }
 
@@ -144,10 +136,10 @@ func newSilencesPage(env *pageEnv) app.Page {
 		Creator:         env.Creator,
 		EditorResolver:  env.EditorResolver,
 		TimeFormat:      env.TimeFormat(),
-		BulkConcurrency: env.Config.Defaults.BulkConcurrencyOrDefault(),
+		BulkConcurrency: env.Session.BulkConcurrency(),
 		Logger:          slog.Default(),
-		ReadOnly:        env.ReadOnly,
-		Guardrails:      env.Guardrails,
+		ReadOnly:        env.Session.ReadOnly(),
+		Guardrails:      env.Session.Guardrails(),
 		EditorCtx:       env.EditorCtx,
 		BulkCtx:         env.EditorCtx,
 		SubmitCtx:       env.EditorCtx,
@@ -179,7 +171,7 @@ func newTenantPage(env *pageEnv, drill func(string) (app.Page, error)) app.Page 
 }
 
 func newTenantConfigPage(env *pageEnv, name string) (app.Page, error) {
-	be, ok := env.TenantConfigByName[name]
+	be, ok := env.Session.TenantConfig(name)
 	if !ok {
 		return nil, fmt.Errorf("backend %q not in config", name)
 	}

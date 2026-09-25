@@ -43,6 +43,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -140,7 +141,8 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	if err != nil {
 		return nil, err
 	}
-	effCfg := effective.Config
+	sess := session.New(effective.Config)
+	effCfg := sess.Config()
 
 	// The capture window opens before the logger is built and closes
 	// when Build returns, so the `:config` page can show the startup
@@ -151,26 +153,26 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	capture.Start()
 	defer capture.Stop()
 
-	logger, closer, err := initLogger(d, effCfg, effective, capture)
+	logger, closer, err := initLogger(d, *effCfg, effective, capture)
 	if err != nil {
 		return nil, err
 	}
 	slog.SetDefault(logger)
 
 	logTransportSurprises(logger, effCfg.Backends)
-	logUnmatchedTenants(logger, &effCfg)
+	logUnmatchedTenants(logger, effCfg)
 
-	clients, silenceClients := buildBackendClients(flags, logger, d, &effCfg, errOut)
-	tenantRows := buildTenantRows(&effCfg, fetchTenantVersions(ctx, clients))
+	clients, silenceClients := buildBackendClients(flags, logger, d, effCfg, errOut)
+	tenantRows := buildTenantRows(effCfg, fetchTenantVersions(ctx, clients))
 
 	configDir, styles, err := resolveConfigDirAndStyles(d, flags.ConfigDir, effCfg.Theme.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	store := openStateStore(d, &effCfg)
+	store := openStateStore(d, effCfg)
 	store.PruneSort(sortResources)
-	scope := bootScope(store, &effCfg)
+	scope := bootScope(store, effCfg)
 
 	dispatcher := buildDispatcher()
 
@@ -180,19 +182,19 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
+	env, resolver, err := buildPageEnv(ctx, sess, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
 	if err != nil {
 		_ = store.Close()
 		return nil, err
 	}
 	env.ConfigReport = buildConfigReport(configInputs{
-		cfg:       &effCfg,
+		cfg:       effCfg,
 		configDir: configDir,
 		capture:   capture,
 	})
 	env.InfoReport = buildInfoReport(infoInputs{
 		deps:      d,
-		cfg:       &effCfg,
+		cfg:       effCfg,
 		configDir: configDir,
 		// Asked of the resolver rather than counted at boot, because
 		// `:reload` swaps the whole user-alias set.
@@ -211,7 +213,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		dispatcher: dispatcher,
 		configDir:  configDir,
 	}
-	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d, configDir, scope, store, rl.reload)
+	a = buildApp(dispatcher, resolver, styles, sess, registry, d, configDir, scope, store, rl.reload)
 
 	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
 		_ = store.Close()
@@ -221,7 +223,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	return &Result{
 		app:      a,
 		closer:   closer,
-		cfg:      &effCfg,
+		cfg:      effCfg,
 		clients:  clients,
 		registry: registry,
 		env:      env,
@@ -361,7 +363,7 @@ func buildDispatcher() *keys.Dispatcher {
 // User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
 // alias.
-func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
+func buildPageEnv(ctx context.Context, sess *session.Session, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
 	timeFormat := func() timerender.Format {
 		if *appPtr == nil {
 			return timerender.Relative
@@ -375,23 +377,20 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		return (*appPtr).StateFormat()
 	}
 	env := &pageEnv{
-		EditorCtx:          ctx,
-		Styles:             styles,
-		Scope:              scope,
-		SilenceClients:     silenceClients,
-		Creator:            os.Getenv("USER"),
-		TenantRows:         tenantRows,
-		Config:             effCfg,
-		Clients:            clients,
-		TimeFormat:         timeFormat,
-		StateFormat:        stateFormat,
-		ReadOnly:           sessionReadOnly(effCfg),
-		Guardrails:         writePolicy(effCfg),
-		TenantNames:        backendNames(effCfg),
-		TenantConfigByName: tenantConfigIndex(effCfg),
-		EditorResolver:     d.EditorResolver(),
-		Now:                d.Now,
-		SortMemory:         sortMemory,
+		EditorCtx:      ctx,
+		Styles:         styles,
+		Scope:          scope,
+		SilenceClients: silenceClients,
+		Creator:        os.Getenv("USER"),
+		TenantRows:     tenantRows,
+		Clients:        clients,
+		TimeFormat:     timeFormat,
+		StateFormat:    stateFormat,
+		Session:        sess,
+		TenantNames:    backendNames(sess.Config()),
+		EditorResolver: d.EditorResolver(),
+		Now:            d.Now,
+		SortMemory:     sortMemory,
 	}
 	resolver := newResolver(env)
 	if err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
@@ -406,15 +405,16 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 // pollers once Result.StartPollers fills the registry in (the user
 // can only press `r` after Run starts, which is after StartPollers
 // has settled).
-func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store, reload func() tea.Cmd) *app.App {
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, sess *session.Session, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store, reload func() tea.Cmd) *app.App {
 	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
+	effCfg := sess.Config()
 	return app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
 		Tenants:    backendNames(effCfg),
 		Refresh:    registry.Refresh,
-		ReadOnly:   sessionReadOnly(effCfg),
+		ReadOnly:   sess.ReadOnly(),
 		HistoryDir: historyDir,
 		Scope:      scope,
 		SaveScope:  store.SetScope,

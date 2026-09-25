@@ -398,23 +398,6 @@ func TestFetchTenantVersions_EmptyClientMap(t *testing.T) {
 	require.Empty(t, got)
 }
 
-// TestTenantConfigIndex_KeyedByBackendName covers the small
-// helper that powers the drill factory's name→config lookup.
-func TestTenantConfigIndex_KeyedByBackendName(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		Backends: []config.Backend{
-			{Name: "prod", URL: "http://am-prod"},
-			{Name: "staging", URL: "http://am-staging"},
-		},
-	}
-	got := tenantConfigIndex(cfg)
-	require.Equal(t, "http://am-prod", got["prod"].URL)
-	require.Equal(t, "http://am-staging", got["staging"].URL)
-	_, hasMissing := got["dev"]
-	require.False(t, hasMissing)
-}
-
 func TestPageInterval_PageOverrideWins(t *testing.T) {
 	t.Parallel()
 

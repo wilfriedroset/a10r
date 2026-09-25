@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 )
 
 // The whole safety story of `:reload` rests on this predicate: a
@@ -121,14 +122,13 @@ func TestPollerRegistry_RestartBeforeStartIsANoOp(t *testing.T) {
 // "the file now reads like this" without touching a disk.
 func reloadFixture(t *testing.T, start config.Config, next func() (*config.Config, error)) (r *reloader, env *pageEnv, live config.Config) {
 	t.Helper()
-	// Resolved, because that is what Build puts behind env.Config. A
+	// Resolved, because that is what Build puts behind the session. A
 	// raw start config would differ from every reloaded one in the
 	// defaults the resolver fills in, and the frozen check would
 	// refuse reloads production accepts.
 	effective, err := resolveEffectiveConfig(&config.CLIFlags{}, &start)
 	require.NoError(t, err)
-	cfg := effective.Config
-	env = &pageEnv{Config: &cfg}
+	env = &pageEnv{Session: session.New(effective.Config)}
 	d := testDeps(t).resolved()
 	d.LoadConfig = func(config.LoadOpts) (*config.Config, error) { return next() }
 	return &reloader{
@@ -154,7 +154,7 @@ func TestReload_AParseErrorChangesNothing(t *testing.T) {
 
 	cmd := r.reload()
 
-	require.Equal(t, live, *env.Config, "a failed reload must leave the live config alone")
+	require.Equal(t, live, *env.Session.Config(), "a failed reload must leave the live config alone")
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok)
 	require.Equal(t, footer.FlashWarn, msg.Level)
@@ -174,7 +174,7 @@ func TestReload_RefusesAChangedBackend(t *testing.T) {
 
 	cmd := r.reload()
 
-	require.Equal(t, live, *env.Config)
+	require.Equal(t, live, *env.Session.Config())
 	require.Equal(t,
 		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "reload: backends or log changed, restart a10r"},
 		cmd(),
@@ -196,7 +196,7 @@ func TestReload_AppliesTheReloadableSubset(t *testing.T) {
 
 	cmd := r.reload()
 
-	require.Equal(t, "catppuccin-latte", env.Config.Theme.Name, "a page pushed after the reload must read the new config")
+	require.Equal(t, "catppuccin-latte", env.Session.Config().Theme.Name, "a page pushed after the reload must read the new config")
 	require.Equal(t,
 		app.ReloadedMsg{ThemeName: "catppuccin-latte", Tips: true, TipsInterval: 30 * time.Second},
 		cmd(),
@@ -215,7 +215,7 @@ func TestReload_AcceptsAPerBackendReadOnlyFlip(t *testing.T) {
 	})
 
 	require.IsType(t, app.ReloadedMsg{}, r.reload()())
-	require.True(t, env.Config.Backends[0].ReadOnly)
+	require.True(t, env.Session.Config().Backends[0].ReadOnly)
 }
 
 // Step 8 of the spec: a reload re-runs the alias loader, so an alias
@@ -255,7 +255,7 @@ func TestReload_AnAliasErrorAppliesNothing(t *testing.T) {
 
 	cmd := r.reload()
 
-	require.Equal(t, live, *env.Config, "the config must not move when a later step fails")
+	require.Equal(t, live, *env.Session.Config(), "the config must not move when a later step fails")
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok)
 	require.Contains(t, msg.Text, "bad indent")
@@ -276,7 +276,7 @@ func TestReload_AKeysErrorAppliesNothing(t *testing.T) {
 
 	cmd := r.reload()
 
-	require.Equal(t, live, *env.Config)
+	require.Equal(t, live, *env.Session.Config())
 	msg, ok := cmd().(footer.FlashShowMsg)
 	require.True(t, ok)
 	require.Contains(t, msg.Text, "nosuchaction")
@@ -375,7 +375,7 @@ func TestStartPollers_UsesTheEffectiveConfig(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = res.Close() })
 
-	require.Same(t, res.env.Config, res.cfg, "the pollers and the pages must read one config")
+	require.Same(t, res.env.Session.Config(), res.cfg, "the pollers and the pages must read one config")
 }
 
 // `:info` prints the alias count, and `:reload` is the one thing
@@ -384,11 +384,11 @@ func TestStartPollers_UsesTheEffectiveConfig(t *testing.T) {
 func TestBuildInfoReport_FollowsAReloadedAliasCount(t *testing.T) {
 	t.Parallel()
 
-	env := &pageEnv{Config: &config.Config{}}
+	env := &pageEnv{Session: session.New(config.Config{})}
 	resolver := newResolver(env)
 	render := buildInfoReport(infoInputs{
 		deps:       testDeps(t).resolved(),
-		cfg:        env.Config,
+		cfg:        env.Session.Config(),
 		aliasCount: func() int { return len(resolver.UserAliases()) },
 	})
 	require.Zero(t, render().AliasCount)

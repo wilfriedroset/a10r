@@ -89,7 +89,8 @@ func (r *reloader) reload() tea.Cmd {
 		return flashWarnCmd(fmt.Sprintf("reload: %v", err))
 	}
 	effCfg := effective.Config
-	if frozenConfigChanged(r.env.Config, &effCfg) {
+	live := r.env.Session.Config()
+	if frozenConfigChanged(live, &effCfg) {
 		return flashWarnCmd("reload: backends or log changed, restart a10r")
 	}
 	aliases, err := r.deps.LoadAliases(r.configDir)
@@ -115,19 +116,20 @@ func (r *reloader) reload() tea.Cmd {
 		return flashWarnCmd(fmt.Sprintf("reload: %v", err))
 	}
 
-	reportReadOnly := readOnlyChanged(r.env.Config, &effCfg)
-	backendReadOnly := backendReadOnlyChanged(r.env.Config, &effCfg)
-	restartPollers := pollIntervalsChanged(r.env.Config, &effCfg)
-	r.apply(&effCfg)
+	reportReadOnly := readOnlyChanged(live, &effCfg)
+	backendReadOnly := backendReadOnlyChanged(live, &effCfg)
+	restartPollers := pollIntervalsChanged(live, &effCfg)
+	r.env.Session.Apply(effCfg)
 	if restartPollers {
-		r.registry.Restart(r.env.Config)
+		r.registry.Restart(live)
 	}
+	readOnly := r.env.Session.ReadOnly()
 	return func() tea.Msg {
 		return app.ReloadedMsg{
 			ThemeName:              effCfg.Theme.Name,
 			Tips:                   effCfg.TUI.Tips,
 			TipsInterval:           effCfg.TUI.TipsInterval,
-			ReadOnly:               sessionReadOnly(&effCfg),
+			ReadOnly:               readOnly,
 			ReadOnlyChanged:        reportReadOnly,
 			BackendReadOnlyChanged: backendReadOnly,
 		}
@@ -152,20 +154,6 @@ func (r *reloader) unknownAction(overrides config.KeyOverrides) string {
 		}
 	}
 	return ""
-}
-
-// apply writes the new config into the env every page factory reads,
-// through the same pointer the `:config` and `:info` reports hold, so
-// a page opened after the reload describes the file on disk.
-//
-// The three derived fields are recomputed rather than left alone:
-// they are copies taken at boot, and a stale copy would let a page
-// built after the reload disagree with the config beside it.
-func (r *reloader) apply(effCfg *config.Config) {
-	*r.env.Config = *effCfg
-	r.env.ReadOnly = sessionReadOnly(effCfg)
-	r.env.Guardrails = writePolicy(effCfg)
-	r.env.TenantConfigByName = tenantConfigIndex(effCfg)
 }
 
 // readOnlyChanged reports whether the write policy moved at either
