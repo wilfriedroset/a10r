@@ -234,12 +234,14 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 }
 
 // openStateStore opens the remembered-view-state file, or a
-// disabled store when tui.remember is off. Deps.HistoryDir is the
+// disabled store when tui.remember is off or the run is headless: a
+// snapshot must render the configured default and must not prune a
+// file the interactive session owns. Deps.HistoryDir is the
 // existing injectable seam onto the same state dir; a failure to
 // resolve it degrades to "no memory" rather than failing startup.
 func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
 	stateDir := ""
-	if effCfg.TUI.Remember {
+	if effCfg.TUI.Remember && !d.Headless {
 		dir, err := d.HistoryDir()
 		if err != nil {
 			slog.Debug("no state dir, tui.remember has nothing to write to",

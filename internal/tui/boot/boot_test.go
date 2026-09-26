@@ -503,3 +503,25 @@ func TestBuild_ForgetsAScopeThatLostEveryName(t *testing.T) {
 	require.NoFileExists(t, filepath.Join(dir, uistate.FileName),
 		"a state file with nothing left to remember is removed")
 }
+
+// TestBuild_HeadlessLeavesTheStateAlone pins that a headless boot
+// never acts on ui-state.yaml: a snapshot renders the configured
+// default and never prunes the file the interactive session owns.
+func TestBuild_HeadlessLeavesTheStateAlone(t *testing.T) {
+	t.Parallel()
+
+	const body = "scope: gone,staging\nsort:\n  alerts: severity:desc\n  retired: name:asc\n"
+	deps := depsWithState(t, true, body)
+	deps.Headless = true
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.Equal(t, scopeAll, res.env.Scope, "a headless frame ignores the remembered scope")
+	require.Empty(t, res.store.Sort(resourceAlerts), "a headless frame ignores the remembered sort")
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(dir, uistate.FileName))
+	require.NoError(t, err)
+	require.Equal(t, body, string(got), "a headless run must not rewrite ui-state.yaml")
+}

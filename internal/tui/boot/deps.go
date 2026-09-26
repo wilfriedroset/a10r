@@ -99,7 +99,8 @@ type Deps struct {
 	Date    string
 
 	// Headless marks a one-frame render (cmd/snapshot.go) rather than
-	// an interactive session, so the App it builds gets no notifier.
+	// an interactive session, so the App it builds gets no notifier
+	// and no ui-state.yaml store.
 	Headless bool
 
 	// Stderr is the destination for non-fatal startup warnings
