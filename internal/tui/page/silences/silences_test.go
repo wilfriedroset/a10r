@@ -299,7 +299,7 @@ func TestPage_CtrlEEmitsEditCmd(t *testing.T) {
 	p := editorPage(t, &fakeSilenceClient{}, rec)
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	require.NotNil(t, cmd, "Ctrl+E with editor configured must produce a Cmd")
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit,
 		"pendingEdit must capture id + tenant at open time")
 }
 
@@ -456,7 +456,7 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 
 	// Open the editor (Ctrl+E) so pendingEdit captures id=sil-a.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit)
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit)
 
 	// Feed back a YAML whose id field was typoed by the user
 	// during their editor session ("sil-b" instead of "sil-a").
@@ -470,7 +470,7 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 
 	require.Empty(t, fake.lastUpdateID,
 		"id mismatch must NOT call UpdateSilence — the typo would otherwise rewrite the wrong silence")
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit,
 		"pendingEdit must persist across the refusal so the reopened editor session targets the original silence")
 }
 
@@ -535,7 +535,7 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 	_, openCmd := p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
 	require.NotNil(t, openCmd)
 	openCmd()
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit)
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit)
 	require.Len(t, capturedInitials, 1, "Ctrl+E must produce exactly one Edit invocation")
 	originalSnapshot := capturedInitials[0]
 
@@ -558,11 +558,110 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 	require.NotNil(t, c2, "backend-error result must emit a Cmd (flash + reopen)")
 	c2()
 
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit,
 		"pendingEdit must persist across the backend error so the reopened editor session targets the same silence")
 	require.Len(t, capturedInitials, 2, "backend error must trigger an editor reopen")
 	require.YAMLEq(t, editedYAML, capturedInitials[1],
 		"reopened editor must carry the user's edited YAML, not the original snapshot")
+}
+
+// twoTenantEditorPage holds sil-a on prod and sil-b on staging, and
+// records the Initial of every editor round it opens.
+func twoTenantEditorPage(t *testing.T, prod, staging silenceform.Client) (page *Page, initials *[]string) {
+	t.Helper()
+	initials = new([]string)
+	page = New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": prod, "staging": staging},
+		Creator: "wilfried",
+		EditorResolver: edit.Resolver{
+			DefaultEditor: "true",
+			CacheDir:      t.TempDir(),
+			ExecRunner: func(cmd *exec.Cmd, _ func(error) tea.Msg) tea.Cmd {
+				body, _ := os.ReadFile(cmd.Args[len(cmd.Args)-1])
+				*initials = append(*initials, string(body))
+				return nil
+			},
+		},
+	})
+	for i, tenant := range []string{"prod", "staging"} {
+		_, _ = page.Update(poll.DataMsg{Tenant: tenant, Resource: []backend.Silence{{
+			ID:        "sil-" + string(rune('a'+i)),
+			CreatedBy: "alice",
+			State:     backend.SilenceStateActive,
+			StartsAt:  fixedNow.Add(-time.Hour),
+			EndsAt:    fixedNow.Add(time.Duration(i+1) * time.Hour),
+			Comment:   "ack",
+			Matchers:  []backend.Matcher{{Name: "alertname", Value: "HighCPU", IsEqual: true}},
+		}}})
+	}
+	return page, initials
+}
+
+// openEditorOn moves the cursor to id, opens its editor round, and
+// returns the round-tripped YAML the operator would save.
+func openEditorOn(t *testing.T, p *Page, id string) string {
+	t.Helper()
+	for range p.view {
+		if p.view[p.Index()].s.ID == id {
+			break
+		}
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	entry := p.view[p.Index()]
+	require.Equal(t, id, entry.s.ID)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	body, err := silenceToYAML(entry.s)
+	require.NoError(t, err)
+	return string(body)
+}
+
+// TestPage_AnEarlierEditorWriteLeavesTheOpenRoundAlone pins that the
+// result of a write still in flight when a second Ctrl+E opened a new
+// round belongs to its own round: it must neither end the new round,
+// which would leave that edit with no tenant, nor reopen its buffer
+// over it.
+func TestPage_AnEarlierEditorWriteLeavesTheOpenRoundAlone(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		updateErr error
+		second    string
+		tenant    string
+	}{
+		{name: "the earlier write succeeds", second: "sil-b", tenant: "staging"},
+		{name: "the earlier write fails", updateErr: errors.New("am unreachable"), second: "sil-b", tenant: "staging"},
+		{name: "the earlier write on the same silence succeeds", second: "sil-a", tenant: "prod"},
+		{name: "the earlier write on the same silence fails", updateErr: errors.New("am unreachable"), second: "sil-a", tenant: "prod"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fakes := map[string]*fakeSilenceClient{"prod": {updateErr: tc.updateErr}, "staging": {}}
+			p, initials := twoTenantEditorPage(t, fakes["prod"], fakes["staging"])
+
+			bodyA := openEditorOn(t, p, "sil-a")
+			_, writeA := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: bodyA})
+			require.NotNil(t, writeA)
+			bodyB := openEditorOn(t, p, tc.second)
+			roundB := p.pendingEdit
+			require.Equal(t, tc.tenant, roundB.tenant)
+
+			_, cmd := p.Update(writeA())
+			require.NotNil(t, cmd)
+			cmd()
+			require.Equal(t, roundB, p.pendingEdit, "the earlier write must not touch the open round")
+			require.Len(t, *initials, 2, "the earlier write must not reopen its buffer over the open round")
+
+			fakes["prod"].lastUpdateID = ""
+			_, writeB := p.Update(edit.FinishedMsg{ResourceID: tc.second, Content: bodyB})
+			require.NotNil(t, writeB)
+			require.IsType(t, editorUpdateResultMsg{}, writeB())
+			require.Equal(t, tc.second, fakes[tc.tenant].lastUpdateID, "the open round writes to its own tenant")
+		})
+	}
 }
 
 func TestPage_FinishedMsgInvalidYAMLFlashes(t *testing.T) {
@@ -2765,7 +2864,7 @@ func TestGuardrail_ATypedRuleAsksBeforeTheEditorOpens(t *testing.T) {
 
 	_, open := p.Update(modal.ConfirmResultMsg{Yes: true})
 	require.NotNil(t, open, "the cleared prompt opens the editor")
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit)
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit)
 }
 
 // TestGuardrail_ACancelledEditorPromptOpensNothing pins that Esc on the
@@ -2828,7 +2927,7 @@ func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
 
 	_, cmd := p.Update(modal.ConfirmResultMsg{Yes: true})
 	require.NotNil(t, cmd)
-	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod"}, p.pendingEdit,
+	require.Equal(t, pendingEdit{id: "sil-a", tenant: "prod", round: 1}, p.pendingEdit,
 		"the confirmed row is edited, not whatever the cursor reached")
 }
 

@@ -156,6 +156,8 @@ type Page struct {
 	// $EDITOR so the FinishedMsg handler can call UpdateSilence
 	// against the right backend. Empty between rounds.
 	pendingEdit pendingEdit
+	// editRounds numbers the editor rounds opened so far.
+	editRounds uint64
 	// pendingEditConfirm holds the row a guardrail prompt is open for,
 	// nil between rounds. It is a captured copy rather than a flag for
 	// the reason pendingEdit and pendingExpire are: a poll tick lands

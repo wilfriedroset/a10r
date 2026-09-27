@@ -432,10 +432,12 @@ func (p *Page) openRecreateSilenceForm() tea.Cmd {
 // session and its FinishedMsg. id is the silence ID; tenant is
 // the backend the silence belongs to (cached at open time so a
 // poll-tick reordering between open and save still routes the
-// update correctly).
+// update correctly). round tells two rounds on the same silence
+// apart, so a write result only settles the round that sent it.
 type pendingEdit struct {
 	id     string
 	tenant string
+	round  uint64
 }
 
 // editorUpdateResultMsg carries the outcome of the asynchronous
@@ -482,7 +484,8 @@ func (p *Page) startEditor(entry silenceEntry) tea.Cmd {
 	if err != nil {
 		return footer.ShowFlash(footer.FlashError, "yaml encode: "+err.Error())
 	}
-	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant}
+	p.editRounds++
+	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant, round: p.editRounds}
 	return p.editor.Edit(edit.Request{
 		ResourceID: entry.s.ID,
 		Initial:    string(body),
@@ -637,8 +640,8 @@ func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec b
 	ctx, cancel := context.WithCancel(parent)
 	p.mu.Lock()
 	if p.cancelEditorUpdate != nil {
-		// A previous editor write was somehow still in flight;
-		// cancel it so we don't have two writes racing.
+		// A second Ctrl+E saved while the earlier write was still in
+		// flight; cancel it so we don't have two writes racing.
 		p.cancelEditorUpdate()
 	}
 	p.cancelEditorUpdate = cancel
@@ -664,9 +667,17 @@ func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec b
 // handleEditorUpdateResult resolves the async UpdateSilence
 // outcome. On failure, the editor is reopened with the user's
 // typed YAML preserved (same retry pattern as the id-mismatch path).
+//
+// A result can land after a second Ctrl+E opened a newer round,
+// since nothing holds the key while a write is in flight. Such a
+// result only reports: ending or reopening over the newer round
+// would drop its tenant or bury its buffer.
 func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 	if m.err != nil {
 		flash := footer.ShowFlash(footer.FlashError, "update: "+m.err.Error())
+		if m.pending != p.pendingEdit {
+			return flash
+		}
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: m.pending.id,
 			Initial:    m.content,
@@ -675,7 +686,9 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 		})
 		return tea.Batch(flash, reopen)
 	}
-	p.pendingEdit = pendingEdit{}
+	if m.pending == p.pendingEdit {
+		p.pendingEdit = pendingEdit{}
+	}
 	auditSilenceWrite("updated", m.id, "editor")
 	return footer.ShowFlash(footer.FlashSuccess, "silence updated: "+m.id)
 }
