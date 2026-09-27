@@ -2931,32 +2931,34 @@ func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
 		"the confirmed row is edited, not whatever the cursor reached")
 }
 
-// TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant closes
-// the hole the defensive tenant recovery left: when pendingEdit lost
-// its tenant between open and finish, the tenant the write lands on is
-// picked after runWriteAction's verdict, so it has to be asked for
-// itself or a denied tenant is written to on a cleared press.
-func TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant(t *testing.T) {
+// TestGuardrail_AFinishedEditWithNoTenantWritesNothing pins that a
+// finished edit the page never opened a round for fails closed: the
+// only route that asks a rule's confirmation runs before the editor
+// opens, so a tenant picked after the editor closes would skip it.
+func TestGuardrail_AFinishedEditWithNoTenantWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name  string
 		rules guardrail.Set
-		write bool
 	}{
+		{name: "no rule"},
 		{
-			name: "the recovered tenant is denied",
+			name: "a typed rule",
+			rules: guardrail.Set{{
+				Tenants:      []string{"prod"},
+				Actions:      []string{guardrail.ActionSilenceUpdate},
+				Confirmation: guardrail.ConfirmationTypeTenantName,
+			}},
+		},
+		{
+			name: "a deny rule",
 			rules: guardrail.Set{{
 				Tenants: []string{"prod"},
 				Actions: []string{guardrail.ActionSilenceUpdate},
 				Deny:    true,
 				Reason:  "frozen",
 			}},
-		},
-		{
-			name:  "the recovered tenant is allowed",
-			rules: guardrail.Set{{Tenants: []string{"staging"}, Deny: true, Reason: "frozen"}},
-			write: true,
 		},
 	}
 	for _, tc := range cases {
@@ -2967,26 +2969,14 @@ func TestGuardrail_TheEditorRecoveryPathAsksForTheRecoveredTenant(t *testing.T) 
 			p := guardedEditorPage(t, fake, &recordingResolver{}, tc.rules)
 			body, err := silenceToYAML(p.view[0].s)
 			require.NoError(t, err)
-			// A finished edit with no tenant is the branch that
-			// recovers one from the view.
 			p.pendingEdit = pendingEdit{}
 
 			_, cmd := p.Update(edit.FinishedMsg{ResourceID: "sil-a", Content: string(body)})
 			require.NotNil(t, cmd)
-			msg := cmd()
-
-			if tc.write {
-				require.Equal(t, "sil-a", fake.lastUpdateID,
-					"a recovered tenant no rule refuses still reaches UpdateSilence")
-				require.IsType(t, editorUpdateResultMsg{}, msg)
-				return
-			}
-			fm, ok := msg.(footer.FlashShowMsg)
-			require.True(t, ok, "expected a footer.FlashShowMsg, got %T", msg)
-			require.Equal(t, footer.FlashWarn, fm.Level)
-			require.Contains(t, fm.Text, "frozen")
-			require.Empty(t, fake.lastUpdateID,
-				"a refused tenant must not reach UpdateSilence")
+			fm, ok := cmd().(footer.FlashShowMsg)
+			require.True(t, ok, "expected a footer.FlashShowMsg")
+			require.Equal(t, footer.FlashError, fm.Level)
+			require.Empty(t, fake.lastUpdateID, "an edit with no tenant must not reach UpdateSilence")
 		})
 	}
 }
