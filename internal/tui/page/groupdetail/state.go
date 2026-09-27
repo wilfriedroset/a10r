@@ -8,6 +8,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 )
 
 // recompute rebuilds common, the entry slice, and the sorted/filtered
@@ -17,7 +18,7 @@ func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
 	p.view = p.applyFilter(flat)
-	p.labelWidths = p.measureLabelColumns()
+	p.labelWidths = table.MeasureLabels(p.shownCols, len(p.view), func(r, i int) string { return labelCellAt(&p.view[r], i) })
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))

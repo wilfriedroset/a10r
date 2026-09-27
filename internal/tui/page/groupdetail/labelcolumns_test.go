@@ -211,7 +211,7 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	)
 
 	// SEVERITY, INSTANCE, pod, STATE, AGE.
-	floors := []int{12, 10, labelColumnWidthFloor, 8, 12}
+	floors := []int{12, 10, 6, 8, 12}
 	cols := p.columns()
 	l := p.scroll.Layout(cols, 80)
 	require.Len(t, cols, len(floors))
@@ -222,11 +222,9 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 }
 
 // Spec item 9: a vertical scroll must never change a column width.
-// measureLabelColumns is called directly at two scroll positions
-// because recompute resets the viewport before it measures, so a
-// scroll-then-recompute test would pass against a window-local
-// measure too. Only one row carries the wide value, and it is off
-// screen at the top of the list.
+// The only row carrying the wide value sits outside the 10-row
+// viewport whichever way recompute leaves it, so a window-local
+// measure would miss it.
 func TestLabelColumn_ScrollDoesNotChangeMeasuredWidth(t *testing.T) {
 	t.Parallel()
 
@@ -240,14 +238,13 @@ func TestLabelColumn_ScrollDoesNotChangeMeasuredWidth(t *testing.T) {
 	}
 	p := newColumnPage(t, []config.Column{{Label: podKey}}, in...)
 	p.SetViewport(10, len(p.view))
-	require.Equal(t, []int{lipgloss.Width("a-much-longer-pod-name")}, p.measureLabelColumns(),
-		"the wide value must drive the width before any scroll")
-
 	for range len(p.view) - 1 {
 		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	}
-	require.Positive(t, p.TopRow(), "the scroll must move the window off the wide row")
-	require.Equal(t, []int{lipgloss.Width("a-much-longer-pod-name")}, p.measureLabelColumns())
+	require.Greater(t, p.TopRow(), 20, "the scroll must move the window past the wide row")
+
+	p.recompute()
+	require.Equal(t, []int{lipgloss.Width("a-much-longer-pod-name")}, p.labelWidths)
 }
 
 // A configured width may bound the cells; it may not cut the header.

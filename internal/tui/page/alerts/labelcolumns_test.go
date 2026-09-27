@@ -266,9 +266,10 @@ func TestLabelColumn_ScrollKeepsWidthsStable(t *testing.T) {
 // terminal; a weight-0 label column broke the floors at one.
 //
 // The floors are spelled out here rather than imported because
-// columns() keeps them function-local. A change there must land here
-// too. ALERTNAME's is 11 rather than its declared 10: the layout pass
-// floors every column at its own header plus the sort arrow.
+// columns() and the table package keep them unexported. A change
+// there must land here too. ALERTNAME's is 11 rather than its
+// declared 10: the layout pass floors every column at its own header
+// plus the sort arrow.
 func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	t.Parallel()
 
@@ -282,7 +283,7 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{a}})
 
 	// SEVERITY, ALERTNAME, cluster, team, COUNT, STATE, AGE.
-	floors := []int{12, 11, labelColumnWidthFloor, labelColumnWidthFloor, 7, 14, 12}
+	floors := []int{12, 11, 6, 6, 7, 14, 12}
 	cols := p.columns()
 	l := p.scroll.Layout(cols, 80)
 	require.Len(t, cols, len(floors))

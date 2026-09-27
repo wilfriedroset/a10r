@@ -284,7 +284,7 @@ func (p *Page) columns() []table.Column {
 			Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipEllipsis,
 		},
 	)
-	out = append(out, p.labelColumns(m.label)...)
+	out = append(out, table.LabelColumns(p.shownCols, m.label)...)
 	return append(out,
 		table.Column{Key: sortKeyCount, Title: "COUNT", Sortable: true, Min: countMin, Content: m.count},
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: min(stateContentCap, max(stateMin, m.state))},
@@ -315,66 +315,6 @@ func (p *Page) measure() measured {
 		m.state = max(m.state, lipgloss.Width(stateBreakdownPlain(*g, p.stateFormat)))
 	}
 	return m
-}
-
-// labelColumns turns the measured widths into the user-declared
-// block. A measured column flexes rather than reserving its full
-// width: label values run long (a pod name, an instance URL), and a
-// weight-0 request that wide pushes the allocator into its
-// proportional shrink, which takes the built-in columns below their
-// own floors. Flexing reserves only the floor and grows into what is
-// left alongside ALERTNAME, so a long value ellipsizes instead of
-// collapsing the row. A configured width pins the cells; the layout
-// pass still floors the column at its own header (ADR 0048).
-func (p *Page) labelColumns(widths []int) []table.Column {
-	out := make([]table.Column, 0, len(p.shownCols))
-	for i, c := range p.shownCols {
-		col := table.Column{Key: c.Key, Title: c.Title, Sortable: c.Hotkey != 0, Clip: table.ClipEllipsis}
-		if c.Width > 0 {
-			col.Min, col.Content = c.Width, c.Width
-		} else {
-			w := 0
-			if i < len(widths) {
-				w = widths[i]
-			}
-			col.Min, col.Content, col.Weight = min(labelColumnWidthFloor, w), w, 1
-		}
-		out = append(out, col)
-	}
-	return out
-}
-
-// labelColumnWidthFloor is the narrowest a measured label column asks
-// for before its own header floor is applied. Below this a value is
-// an ellipsis and a character or two, which says less than an empty
-// cell would.
-const labelColumnWidthFloor = 6
-
-// measureLabelColumns measures each user-declared column over the
-// whole filtered view, so a vertical scroll never shifts a width. A
-// column with a configured Width needs no measuring and is left at
-// zero, because labelColumns pins it before it reads this slice.
-// recompute calls this once per row change rather than the renderer
-// calling it once per frame: the scan is O(rows x columns) and the
-// widths only move when the rows do.
-func (p *Page) measureLabelColumns() []int {
-	if len(p.shownCols) == 0 {
-		return nil
-	}
-	out := make([]int, len(p.shownCols))
-	for i, c := range p.shownCols {
-		if c.Width > 0 {
-			continue
-		}
-		content := 0
-		for j := range p.groups {
-			if w := lipgloss.Width(labelCellAt(&p.groups[j], c.Index)); w > content {
-				content = w
-			}
-		}
-		out[i] = content
-	}
-	return out
 }
 
 // formatTime renders ts according to the page's active time

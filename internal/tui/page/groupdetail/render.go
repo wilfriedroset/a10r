@@ -119,65 +119,6 @@ func (p *Page) renderHeader(l table.Layout) string {
 // column is non-sortable on this page — but every column carries one.
 const sortKeyState = "state"
 
-// measureLabelColumns measures each user-declared column over the
-// whole filtered view, so a vertical scroll never shifts a width. A
-// column with a configured Width needs no measuring and is left at
-// zero, because labelColumns pins it before it reads this slice.
-// Nothing seeds a header width here: the layout pass floors every
-// column at its own header, so a second copy of the titles would only
-// rot. recompute calls this once per row change rather than the
-// renderer calling it once per frame.
-func (p *Page) measureLabelColumns() []int {
-	if len(p.shownCols) == 0 {
-		return nil
-	}
-	out := make([]int, len(p.shownCols))
-	for i, c := range p.shownCols {
-		if c.Width > 0 {
-			continue
-		}
-		content := 0
-		for j := range p.view {
-			if w := lipgloss.Width(labelCellAt(&p.view[j], c.Index)); w > content {
-				content = w
-			}
-		}
-		out[i] = content
-	}
-	return out
-}
-
-// labelColumns turns the measured widths into the user-declared
-// block. A measured column flexes rather than reserving its full
-// width: label values run long, and a weight-0 request that wide
-// pushes the allocator into its proportional shrink, which takes the
-// built-in columns below their own floors. Flexing reserves only the
-// floor and grows into what is left alongside INSTANCE. A configured
-// width pins the cells; the layout pass still floors the column at
-// its own header (ADR 0048).
-func (p *Page) labelColumns() []table.Column {
-	out := make([]table.Column, 0, len(p.shownCols))
-	for i, c := range p.shownCols {
-		col := table.Column{Key: c.Key, Title: c.Title, Sortable: c.Hotkey != 0, Clip: table.ClipEllipsis}
-		if c.Width > 0 {
-			col.Min, col.Content = c.Width, c.Width
-		} else {
-			w := 0
-			if i < len(p.labelWidths) {
-				w = p.labelWidths[i]
-			}
-			col.Min, col.Content, col.Weight = min(labelColumnWidthFloor, w), w, 1
-		}
-		out = append(out, col)
-	}
-	return out
-}
-
-// labelColumnWidthFloor is the smallest a measured user column asks
-// for, before its own header floor is applied, when the allocator
-// starts taking cells from the built-ins.
-const labelColumnWidthFloor = 6
-
 func (p *Page) renderRows(l table.Layout, width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
 		return ""
@@ -322,7 +263,7 @@ func (p *Page) columns() []table.Column {
 			Min: instanceMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipMiddle,
 		},
 	)
-	out = append(out, p.labelColumns()...)
+	out = append(out, table.LabelColumns(p.shownCols, p.labelWidths)...)
 	return append(out,
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: max(stateMin, stateContent)},
 		table.Column{Key: sortKeyAge, Title: "AGE", Sortable: true, Min: ageMin, Content: ageMin},

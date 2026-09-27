@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/wilfriedroset/a10r/internal/config"
 )
 
@@ -82,6 +84,62 @@ func HasWide(cols []LabelColumn) bool {
 		}
 	}
 	return false
+}
+
+// labelWidthFloor is the narrowest a measured label column asks for
+// before its own header floor is applied. Below this a value is an
+// ellipsis and a character or two, which says less than an empty cell
+// would.
+const labelWidthFloor = 6
+
+// MeasureLabels measures each column over all rows, so a vertical
+// scroll never shifts a width. cell returns row r's value for the
+// column at config index i. A column with a configured Width needs no
+// measuring and is left at zero, because LabelColumns pins it before
+// it reads the slice. The scan is O(rows x columns), so a page calls
+// this once per row change rather than once per frame.
+func MeasureLabels(cols []LabelColumn, rows int, cell func(r, i int) string) []int {
+	if len(cols) == 0 {
+		return nil
+	}
+	out := make([]int, len(cols))
+	for i, c := range cols {
+		if c.Width > 0 {
+			continue
+		}
+		for r := range rows {
+			out[i] = max(out[i], lipgloss.Width(cell(r, c.Index)))
+		}
+	}
+	return out
+}
+
+// LabelColumns turns the measured widths into the user-declared
+// block. A measured column flexes rather than reserving its full
+// width: label values run long (a pod name, an instance URL), and a
+// weight-0 request that wide pushes the allocator into its
+// proportional shrink, which takes the built-in columns below their
+// own floors. Flexing reserves only the floor and grows into what is
+// left alongside the page's flex column, so a long value ellipsizes
+// instead of collapsing the row. A configured width pins the cells;
+// the layout pass still floors the column at its own header
+// (ADR 0048).
+func LabelColumns(cols []LabelColumn, widths []int) []Column {
+	out := make([]Column, 0, len(cols))
+	for i, c := range cols {
+		col := Column{Key: c.Key, Title: c.Title, Sortable: c.Hotkey != 0, Clip: ClipEllipsis}
+		if c.Width > 0 {
+			col.Min, col.Content = c.Width, c.Width
+		} else {
+			w := 0
+			if i < len(widths) {
+				w = widths[i]
+			}
+			col.Min, col.Content, col.Weight = min(labelWidthFloor, w), w, 1
+		}
+		out = append(out, col)
+	}
+	return out
 }
 
 // RollupMarker is the cell a page renders when the rows behind one
