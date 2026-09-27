@@ -79,9 +79,9 @@ agent skill.
 a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
 ```
 
-`a10r snapshot` never notifies. The render path builds no notifier at
-all, so a screenshot run on a machine with `tui.notify` on rings no
-bell and starts no subprocess.
+`a10r snapshot` never notifies. The render path builds a disabled
+notifier whatever the configuration says, so a screenshot run on a
+machine with `tui.notify` on rings no bell and starts no subprocess.
 
 `a10r snapshot` also ignores `tui.remember`. It renders the configured
 default scope and the built-in sort, and it never writes `ui-state.yaml`.

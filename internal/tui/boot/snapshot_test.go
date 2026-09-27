@@ -185,8 +185,8 @@ func TestSnapshot_DeadlineRendersAnyway(t *testing.T) {
 	require.Less(t, time.Since(start), 3*time.Second, "the wait must cap the render")
 	require.Contains(t, frame, "loading alerts", "a starved poll still renders the cold-start body")
 
-	// Spec item 9: the partial frame is still the answer, but the
-	// operator hears about it on stderr, never on stdout.
+	// The partial frame is still the answer, but the operator hears
+	// about it on stderr, never on stdout.
 	warnings, ok := res.stderr.(*bytes.Buffer)
 	require.True(t, ok)
 	require.Contains(t, warnings.String(), "prod/alerts",
@@ -376,11 +376,11 @@ func drain(cmd tea.Cmd) []tea.Msg {
 	return out
 }
 
-// TestBuild_HeadlessSkipsTheNotifier pins spec 15 item 12: a
-// headless command never notifies, whatever the config says. A
-// screenshot run on a machine with tui.notify on must not ring the
-// bell or spawn the configured program.
-func TestBuild_HeadlessSkipsTheNotifier(t *testing.T) {
+// TestBuild_HeadlessDisablesTheNotifier pins that a headless command
+// never notifies, whatever the config says. A screenshot run on a
+// machine with tui.notify on must not ring the bell or spawn the
+// configured program.
+func TestBuild_HeadlessDisablesTheNotifier(t *testing.T) {
 	t.Parallel()
 	a := notifyingResult(t, headlessBoot).App()
 

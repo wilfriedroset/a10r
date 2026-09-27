@@ -309,7 +309,7 @@ func TestRunDryRun_LinesEscapeWhatTheStructuredModesKeepRaw(t *testing.T) {
 	require.Contains(t, out.String(), "(skip: gone [2J)")
 }
 
-// TestRunDryRun_ExitMatchesTheRealRun pins spec item 8: a dry run exits
+// TestRunDryRun_ExitMatchesTheRealRun pins that a dry run exits
 // with the code the real run's pre-mutation phase would produce, which
 // is 1 for a read-only refusal and 6 for a guardrail one.
 func TestRunDryRun_ExitMatchesTheRealRun(t *testing.T) {

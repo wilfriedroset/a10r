@@ -2510,9 +2510,9 @@ func TestGuardrail_DeniedKeyFlashesTheRefusal(t *testing.T) {
 	require.Equal(t, "silence.expire denied on prod: use the change ticket", msg.Text)
 }
 
-// TestGuardrail_ReadOnlyOutranksTheRule pins spec item 11: the
-// read-only gate runs first, so a page that is both read-only and
-// denied reports read-only and never quotes the rule.
+// TestGuardrail_ReadOnlyOutranksTheRule pins that the read-only gate
+// runs first, so a page that is both read-only and denied reports
+// read-only and never quotes the rule.
 func TestGuardrail_ReadOnlyOutranksTheRule(t *testing.T) {
 	t.Parallel()
 
@@ -2728,8 +2728,8 @@ func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
 	require.Len(t, p.pendingExpire.ids, 2)
 }
 
-// TestGuardrail_ATypedRuleReplacesTheYesNoModal pins spec item 6 on the
-// cursor row: the rule strengthens the prompt the verb already has, and
+// TestGuardrail_ATypedRuleReplacesTheYesNoModal pins that, on the
+// cursor row, the rule strengthens the prompt the verb already has, and
 // the prompt asks for the tenant the write lands in.
 func TestGuardrail_ATypedRuleReplacesTheYesNoModal(t *testing.T) {
 	t.Parallel()
@@ -2747,7 +2747,7 @@ func TestGuardrail_ATypedRuleReplacesTheYesNoModal(t *testing.T) {
 }
 
 // TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone
-// keeps the per-tenant contract of spec item 6 on the bulk expire
+// keeps the typed prompt per tenant on the bulk expire
 // path: a run over two backends asks only for the restricted one.
 func TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone(t *testing.T) {
 	t.Parallel()
@@ -2827,9 +2827,9 @@ func TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant(t *testing.T) {
 	require.NotContains(t, m.View(70, 14), "tenant 1 of 2", "one backend is one question")
 }
 
-// TestGuardrail_TheNewSilenceFormCarriesThePolicy pins spec item 13 on
-// the create path: the form, not the key press, is the gate, because
-// the user picks the target tenant on the form itself.
+// TestGuardrail_TheNewSilenceFormCarriesThePolicy pins that, on the
+// create path, the form, not the key press, is the gate, because the
+// user picks the target tenant on the form itself.
 func TestGuardrail_TheNewSilenceFormCarriesThePolicy(t *testing.T) {
 	t.Parallel()
 

@@ -188,9 +188,8 @@ func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 // runWriteAction is the read-only and write-policy gate applied to
 // every Dangerous keypress on the page. Read-only is checked first and
 // always wins, so a rule is never quoted on a backend that cannot be
-// written to at all (guardrails spec item 11). Centralised here so both
-// contracts have one touch-point and a stray new write verb cannot
-// bypass them. name is a guardrail.ActionSilence* constant, never a
+// written to at all. Centralised here so both contracts have one
+// touch-point and a stray new write verb cannot bypass them. name is a guardrail.ActionSilence* constant, never a
 // hand-written string: a name no rule can match would fail open.
 func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
 	if p.session.ReadOnly() {

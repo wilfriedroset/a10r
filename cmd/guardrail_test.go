@@ -234,7 +234,7 @@ func TestEnsureGuardrailsAllow(t *testing.T) {
 	})
 }
 
-// TestRunDryRun_Guardrail pins spec item 10: the plan line carries the
+// TestRunDryRun_Guardrail pins that the plan line carries the
 // refusal in a bracket, and a dry run that would be refused exits with
 // the same code the real run would.
 func TestRunDryRun_Guardrail(t *testing.T) {
@@ -318,9 +318,9 @@ func TestRunDryRun_GuardrailStructuredField(t *testing.T) {
 	require.Equal(t, "denied", got[0].Guardrail)
 }
 
-// TestSilenceExpire_GuardrailRefusesBeforeAnyWrite pins spec item 9:
-// the refusal lands after target resolution and before the first
-// mutation, and it refuses the whole command.
+// TestSilenceExpire_GuardrailRefusesBeforeAnyWrite pins that the
+// refusal lands after target resolution and before the first mutation,
+// and it refuses the whole command.
 func TestSilenceExpire_GuardrailRefusesBeforeAnyWrite(t *testing.T) {
 	t.Parallel()
 
@@ -364,9 +364,10 @@ func TestSilenceCreate_ConfirmTenantSatisfiesTheTypedRule(t *testing.T) {
 	require.NotNil(t, client.created)
 }
 
-// TestSilenceExpire_ReadOnlyOutranksTheGuardrail pins spec item 11 on
-// the real write path: a backend that is both read-only and denied by
-// a rule reports read-only, because that gate runs first.
+// TestSilenceExpire_ReadOnlyOutranksTheGuardrail pins that read-only
+// outranks a rule on the real write path: a backend that is both
+// read-only and denied by a rule reports read-only, because that gate
+// runs first.
 func TestSilenceExpire_ReadOnlyOutranksTheGuardrail(t *testing.T) {
 	t.Parallel()
 

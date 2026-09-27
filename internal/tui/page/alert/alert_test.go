@@ -1250,9 +1250,9 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 	require.Equal(t, []string{"sil-1", "sil-2"}, opts.RestrictIDs)
 }
 
-// TestGuardrail_TheSilenceFormCarriesThePolicy pins spec item 13: a
-// single write is gated on the form, because the form owns the target
-// tenant, so a typed rule prompts on submit and not on the key press.
+// TestGuardrail_TheSilenceFormCarriesThePolicy pins that a single write
+// is gated on the form, because the form owns the target tenant, so a
+// typed rule prompts on submit and not on the key press.
 func TestGuardrail_TheSilenceFormCarriesThePolicy(t *testing.T) {
 	t.Parallel()
 

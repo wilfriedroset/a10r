@@ -442,9 +442,9 @@ func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *th
 }
 
 // notifierFor answers a disabled notifier on the headless path
-// whatever the config says. The rule is the boot path, not the config:
-// spec 15 item 12. A headless render never receives a `:reload`, which
-// is the only other thing that hands the notifier its settings.
+// whatever the config says. The rule is the boot path, not the config.
+// A headless render never receives a `:reload`, which is the only
+// other thing that hands the notifier its settings.
 func notifierFor(headless bool, cfg config.Notify) *notify.Notifier {
 	if headless {
 		return notify.New(config.Notify{})

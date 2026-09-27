@@ -47,7 +47,7 @@ func guardedForm(t *testing.T, client Client, rules guardrail.Set, opts Options)
 	return New(opts)
 }
 
-// TestGuardrail_ADenyRefusesTheSubmit pins spec item 13: a form submit
+// TestGuardrail_ADenyRefusesTheSubmit pins that a form submit
 // is a write, so policy refuses it with the sentence every other
 // surface prints.
 func TestGuardrail_ADenyRefusesTheSubmit(t *testing.T) {
@@ -109,7 +109,7 @@ func TestGuardrail_AnEditSubmitReadsTheUpdateVerb(t *testing.T) {
 	require.Equal(t, 0, client.calls())
 }
 
-// TestGuardrail_ATypedRulePromptsOnSubmit pins spec item 13: the form
+// TestGuardrail_ATypedRulePromptsOnSubmit pins that the form
 // has no confirmation today, so the rule adds one at the submit.
 func TestGuardrail_ATypedRulePromptsOnSubmit(t *testing.T) {
 	t.Parallel()

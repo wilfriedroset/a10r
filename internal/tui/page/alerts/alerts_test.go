@@ -1335,8 +1335,8 @@ func guardedKeys(p *Page) []string {
 	return out
 }
 
-// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6
-// on the bulk silence path of this page.
+// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins the stronger
+// prompt on the bulk silence path of this page.
 func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 	t.Parallel()
 
@@ -1366,8 +1366,8 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
 }
 
-// TestGuardrail_ATypedRuleReplacesTheSilenceAllModal pins spec item 6
-// on the cursor silence-all of a group with several instances.
+// TestGuardrail_ATypedRuleReplacesTheSilenceAllModal pins the stronger
+// prompt on the cursor silence-all of a group with several instances.
 func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
 	t.Parallel()
 
@@ -1393,7 +1393,7 @@ func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
 	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
 }
 
-// TestGuardrail_TheSilenceAllFormCarriesThePolicy pins spec item 13 on
+// TestGuardrail_TheSilenceAllFormCarriesThePolicy pins the form gate on
 // the silence-all path of a group with one instance, which skips the
 // blast-radius modal and pushes the form straight away.
 func TestGuardrail_TheSilenceAllFormCarriesThePolicy(t *testing.T) {

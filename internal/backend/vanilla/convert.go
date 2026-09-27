@@ -17,7 +17,8 @@ import (
 // that still knows the string came off the wire. Tab and newline go
 // too, because a table cell is one line by contract.
 //
-// The substitution is lossy on purpose (spec 25 rules escaping out).
+// The substitution is lossy on purpose: a cell renders one line, so a
+// preserved escape has nothing to render into.
 // A matcher built from a mangled label value therefore matches no
 // alert, so a silence over such an alert is created and does nothing.
 // That trade buys a terminal a remote backend cannot drive.

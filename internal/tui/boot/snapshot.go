@@ -130,9 +130,9 @@ func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, er
 	case <-gate.ready:
 	case <-deadline.C:
 		// Stderr, not slog: the default logger writes to the log
-		// file, and spec item 9 wants the "this frame is partial"
-		// caveat where the operator running the command will see
-		// it. stdout stays frame-only per ADR 0045.
+		// file, and the "this frame is partial" caveat belongs where
+		// the operator running the command will see it. stdout stays
+		// frame-only per ADR 0045.
 		fmt.Fprintf(r.stderr, "warning: %s frame rendered after %s without a report from %s\n",
 			opts.Page, wait, strings.Join(gate.pending(), ", "))
 	case <-done:

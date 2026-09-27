@@ -14,21 +14,22 @@ on a backend that was already read-only. A denied verb follows the
 Dangerous hiding rule of ADR 0043.
 
 In the TUI that precedence is implemented rather than duplicated: the
-boot stage compiles each per-backend `read_only: true` into a deny
-rule and prepends it to the configured list, because a list page
-unions rows from several tenants and a page-wide switch cannot say
-"prod is frozen, staging is not". Prepending is what makes the
-refusal quote `backend is read_only` rather than a user rule. The
-headless path in `cmd/` keeps its own check.
+session compiles each per-backend `read_only: true` into a deny rule
+and prepends it to the configured list, because a list page unions
+rows from several tenants and a page-wide switch cannot say "prod is
+frozen, staging is not". The deny alone decides the outcome, and
+prepending decides only the quoted reason, so a refusal quotes
+`backend is read_only` rather than a user rule. The headless path in
+`cmd/` keeps its own check.
 
 Every write surface asks the policy through one adapter,
 `Set.Decide`, which takes the verb and the targets of one press and
 returns the deny, the bulk cap, or the confirmation still owed, so a
-new surface cannot invent a fifth reading of the same rule.
+new surface cannot invent another reading of the same rule.
 
 ## Consequences
 
-- **Rule order carries no meaning.** Any `deny` wins, the smallest
+- **Rule order never changes the outcome.** Any `deny` wins, the smallest
   `max_bulk` wins, the strongest `confirmation` wins. Order decides
   only which of several reasons a refusal quotes. A first-match-wins
   fold would make a `config.d` fragment's position load-bearing, and

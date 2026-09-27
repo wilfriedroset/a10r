@@ -265,8 +265,8 @@ func guardedKeys(p *Page) []string {
 	return out
 }
 
-// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins spec item 6
-// on this page: the rule strengthens the prompt the verb already has.
+// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins that, on
+// this page, the rule strengthens the prompt the verb already has.
 func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 	t.Parallel()
 
@@ -300,9 +300,9 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 	require.Contains(t, m.View(70, 14), `type "`+tenant+`" to confirm`)
 }
 
-// TestGuardrail_TheSilenceOneFormCarriesThePolicy pins spec item 13 on
-// this page: the unmarked `s` pushes the form, and the form asks the
-// write policy when it submits.
+// TestGuardrail_TheSilenceOneFormCarriesThePolicy pins that, on this
+// page, the unmarked `s` pushes the form, and the form asks the write
+// policy when it submits.
 func TestGuardrail_TheSilenceOneFormCarriesThePolicy(t *testing.T) {
 	t.Parallel()
 

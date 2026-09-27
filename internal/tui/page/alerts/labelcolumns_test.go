@@ -225,7 +225,7 @@ func TestLabelColumn_MultiTenantKeepsColumnOrder(t *testing.T) {
 	require.Contains(t, rowContaining(t, out, "staging"), "us-1")
 }
 
-// Spec item 9: a vertical scroll must never change a column width.
+// A vertical scroll must never change a column width.
 // The widths are measured over the whole filtered view, not the
 // visible window, and this pins that.
 func TestLabelColumn_ScrollKeepsWidthsStable(t *testing.T) {

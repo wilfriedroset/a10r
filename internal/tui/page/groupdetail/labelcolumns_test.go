@@ -221,7 +221,7 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	}
 }
 
-// Spec item 9: a vertical scroll must never change a column width.
+// A vertical scroll must never change a column width.
 // The only row carrying the wide value sits outside the 10-row
 // viewport whichever way recompute leaves it, so a window-local
 // measure would miss it.
