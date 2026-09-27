@@ -99,34 +99,16 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleMotion(m) {
 		return p, nil
 	}
-	if p.handleScroll(m) {
+	// Scroll runs before handleSort, which binds Left/Right as aliases
+	// of the h/l sort walk on every other table page: this page takes
+	// the two arrows for the view window, and h/l keep the sort walk.
+	if p.scroll.HandleKey(m.String()) {
 		return p, nil
 	}
 	if p.handleSort(m) {
 		return p, nil
 	}
 	return p.handleAction(m)
-}
-
-// handleScroll banks one column of horizontal intent. It runs before
-// handleSort, which binds Left/Right as aliases of the h/l sort walk
-// on every other table page: this page takes the two arrows for the
-// view window instead, and h/l keep the sort walk here as well.
-// Returns true when the key was an arrow, so the key is consumed even
-// on a row that already fits and the sort walk never sees it. No width
-// reaches the page at key time, so whether the move is legal is the
-// next frame's question, not this one's.
-func (p *Page) handleScroll(m tea.KeyPressMsg) bool {
-	key := m.String()
-	if key != "left" && key != "right" {
-		return false
-	}
-	if key == "left" {
-		p.scroll.Step(-1)
-	} else {
-		p.scroll.Step(1)
-	}
-	return true
 }
 
 // handleMotion processes cursor-walk keys. Returns true when the

@@ -18,12 +18,29 @@ type Scroll struct {
 	// pending is the net column intent banked since the last layout.
 	// No width reaches a page at key time, so a press cannot tell
 	// whether the move is legal and Layout decides instead.
-	pending int
+	pending  int
 	lastCols int
 }
 
 // Step banks one column of intent: -1 for left, +1 for right.
 func (s *Scroll) Step(d int) { s.pending += d }
+
+// HandleKey banks the intent of a Left or Right arrow and reports
+// whether key was one. An arrow is consumed even on a row that
+// already fits, so a page that binds Left/Right elsewhere never sees
+// it. No width reaches the page at key time, so whether the move is
+// legal is the next frame's question, not this one's.
+func (s *Scroll) HandleKey(key string) bool {
+	switch key {
+	case "left":
+		s.Step(-1)
+	case "right":
+		s.Step(1)
+	default:
+		return false
+	}
+	return true
+}
 
 // resolve drops an offset that was measured against a different
 // column set, then applies the banked intent one column at a time,

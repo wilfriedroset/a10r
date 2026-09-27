@@ -315,3 +315,29 @@ func TestScroll_AColumnCountChangeResetsTheOffset(t *testing.T) {
 	_ = s.Layout(four, 20)
 	require.Zero(t, s.Offset, "a set that grows drops it too")
 }
+
+// The two arrows are the only scroll keys, and each is consumed even
+// on a row that fits, so the sort walk never sees it.
+func TestScroll_HandleKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		key     string
+		handled bool
+		offset  int
+	}{
+		{key: "right", handled: true, offset: 1},
+		{key: "left", handled: true, offset: 0},
+		{key: "l", handled: false, offset: 0},
+		{key: "shift+right", handled: false, offset: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			t.Parallel()
+			var s table.Scroll
+			require.Equal(t, tt.handled, s.HandleKey(tt.key))
+			s.Layout(threeCols(), 20)
+			require.Equal(t, tt.offset, s.Offset)
+		})
+	}
+}
