@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -173,17 +172,11 @@ type Page struct {
 	// cancelBulk: Close() calls it so a page pop short-circuits not-yet-started workers.
 	cancelBulk context.CancelFunc
 
-	// mu guards cancelEditorUpdate. The editor-driven UpdateSilence
-	// goroutine sets/clears the cancel while Close() (running on the
-	// bubbletea Update goroutine) reads it.
-	mu sync.Mutex
 	// cancelEditorUpdate cancels the in-flight editor-driven
-	// UpdateSilence call. Populated by handleEditorFinished when the
-	// async write Cmd is built; cleared by the goroutine's defer.
-	// Close() calls it so a page-pop while a slow tenant is writing
-	// aborts the request instead of letting the goroutine survive
-	// until app shutdown. Mirrors the per-write cancel pattern used
-	// by the silence form and tenantconfig.
+	// UpdateSilence call. Set by dispatchEditorUpdate. Close() calls
+	// it so a page-pop while a slow tenant is writing aborts the
+	// request instead of letting the goroutine survive until app
+	// shutdown.
 	cancelEditorUpdate context.CancelFunc
 
 	// restrictIDs is the frozen set of silence IDs the page is
@@ -332,11 +325,8 @@ func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 // same per-write cancel contract as the silence form and
 // tenantconfig.
 func (p *Page) Close() tea.Cmd {
-	p.mu.Lock()
-	cancelEdit := p.cancelEditorUpdate
-	p.mu.Unlock()
-	if cancelEdit != nil {
-		cancelEdit()
+	if p.cancelEditorUpdate != nil {
+		p.cancelEditorUpdate()
 	}
 	if p.cancelBulk != nil {
 		p.cancelBulk()

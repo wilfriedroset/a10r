@@ -769,6 +769,38 @@ func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
 	}
 }
 
+// The superseded round's goroutine returns after the newer round
+// stored its cancel, so its cleanup must not drop that newer cancel.
+func TestPage_CloseCancelsTheNewerEditorUpdate(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: pagetest.Styles(t), Session: testutil.Session()})
+	older := &ctxBlockingSilenceClient{started: make(chan struct{})}
+	newer := &ctxBlockingSilenceClient{started: make(chan struct{})}
+
+	olderCmd := p.dispatchEditorUpdate(older, "sil-a", backend.SilenceSpec{}, pendingEdit{}, "")
+	olderDone := make(chan tea.Msg, 1)
+	go func() { olderDone <- olderCmd() }()
+	<-older.started
+
+	newerCmd := p.dispatchEditorUpdate(newer, "sil-a", backend.SilenceSpec{}, pendingEdit{}, "")
+	select {
+	case <-olderDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the newer round did not cancel the older one")
+	}
+
+	newerDone := make(chan tea.Msg, 1)
+	go func() { newerDone <- newerCmd() }()
+	<-newer.started
+	p.Close()
+
+	select {
+	case <-newerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not cancel the newer in-flight UpdateSilence")
+	}
+}
+
 func TestPage_CursorPreservedByID(t *testing.T) {
 	t.Parallel()
 

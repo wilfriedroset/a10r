@@ -599,8 +599,8 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 }
 
 // dispatchEditorUpdate runs UpdateSilence asynchronously so a slow
-// backend doesn't block Update. The mu-guarded cancel handle lets
-// Close() abort the in-flight write; editorCtx propagates app-level
+// backend doesn't block Update. The cancel handle lets Close() abort
+// the in-flight write; editorCtx propagates app-level
 // shutdown when set. pending is threaded through so a failed write
 // can reopen the editor with the user's content preserved.
 func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec backend.SilenceSpec, pending pendingEdit, content string) tea.Cmd {
@@ -609,22 +609,16 @@ func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec b
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	p.mu.Lock()
 	if p.cancelEditorUpdate != nil {
 		// A second Ctrl+E saved while the earlier write was still in
 		// flight; cancel it so we don't have two writes racing.
 		p.cancelEditorUpdate()
 	}
 	p.cancelEditorUpdate = cancel
-	p.mu.Unlock()
-	clearCancel := func() {
-		p.mu.Lock()
-		p.cancelEditorUpdate = nil
-		p.mu.Unlock()
-		cancel()
-	}
 	return func() tea.Msg {
-		defer clearCancel()
+		// The slot keeps this cancel: a newer round can own it by the
+		// time this returns, and a spent cancel is a no-op.
+		defer cancel()
 		err := client.UpdateSilence(ctx, id, spec)
 		return editorUpdateResultMsg{
 			id:      id,
