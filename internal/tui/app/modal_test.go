@@ -75,6 +75,7 @@ func TestModal_SubmitTranslatesPickerToScopeChanged(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)

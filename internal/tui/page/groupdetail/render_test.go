@@ -72,6 +72,7 @@ func TestRender_FiringInstanceLabelsColored(t *testing.T) {
 			instance("fp-0", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst0}),
 			instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
 		},
+		Session: testutil.Session(),
 	})
 	raw := p.View(120, 20)
 	// Both the name and the value are coloured (the full k=v tokenizer),
@@ -101,6 +102,7 @@ func TestRender_NonActiveInstancesDimmedNotColored(t *testing.T) {
 			instance("fp-1", "warning", backend.AlertStateSuppressed, map[string]string{sortKeyInstance: webInst1}),
 			instance("fp-2", "warning", backend.AlertStateUnprocessed, map[string]string{sortKeyInstance: webInst2}),
 		},
+		Session: testutil.Session(),
 	})
 	raw := p.View(120, 20)
 	require.NotContains(t, raw, styles.YAML.Key.Render(sortKeyInstance),

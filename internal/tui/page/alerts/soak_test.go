@@ -23,7 +23,7 @@ func TestSoak_AlertsHeapStable(t *testing.T) {
 	}
 
 	styles := testutil.LoadStyles(t)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 
 	const cycles = 5_000
 	const alertsPerCycle = 500

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -37,6 +38,7 @@ func newAutoThemeApp(t *testing.T, load func(string) (*theme.Styles, error)) (*A
 		Dispatcher: keys.New(nil),
 		AutoTheme:  true,
 		LoadStyles: load,
+		Session:    testutil.Session(),
 	})
 	return a, styles
 }
@@ -141,6 +143,7 @@ func TestApp_BackgroundColorIgnoredWithExplicitTheme(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		LoadStyles: func(string) (*theme.Styles, error) { called = true; return markerStyles(), nil },
+		Session:    testutil.Session(),
 	})
 
 	a.Update(tea.BackgroundColorMsg{Color: lipgloss.Color("#ffffff")})

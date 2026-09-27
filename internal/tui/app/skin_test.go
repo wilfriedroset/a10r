@@ -11,6 +11,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -27,6 +28,7 @@ func newSkinApp(t *testing.T, load func(string) (*theme.Styles, error)) (*App, *
 		LoadStyles: load,
 		SkinNames:  func() []string { return []string{"nord", theme.DefaultSkinName} },
 		SkinName:   theme.DefaultSkinName,
+		Session:    testutil.Session(),
 	})
 	return a, styles
 }
@@ -165,6 +167,7 @@ func TestApp_OpenSkinPickerRefusesWithoutALoader(t *testing.T) {
 		Dispatcher: keys.New(nil),
 		SkinNames:  func() []string { return []string{"nord"} },
 		SkinName:   theme.DefaultSkinName,
+		Session:    testutil.Session(),
 	})
 
 	_, cmd := a.Update(OpenSkinPickerMsg{})

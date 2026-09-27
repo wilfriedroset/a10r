@@ -41,8 +41,9 @@ var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 }
 
@@ -96,6 +97,7 @@ func TestAggregate_SameAlertnameDistinctTenantsDoNotMerge(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod", "stg"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp-prod", time.Minute, nil),
@@ -470,7 +472,7 @@ func TestStateFormat_ChangedMsgFlipsDensity(t *testing.T) {
 func TestStateFormat_ZeroValueOptionDefaultsFull(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: testutil.Session()})
 	require.Equal(t, stateformat.Full, p.stateFormat, "zero-value Options opens in Full")
 }
 
@@ -541,7 +543,7 @@ func TestSilenceAll_ConfirmGateFiresOnlyForCountGreaterThanOne(t *testing.T) {
 
 	t.Run("count==1 pushes form directly", func(t *testing.T) {
 		t.Parallel()
-		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients})
+		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients, Session: testutil.Session()})
 		_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 			mkAlert("Solo", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 		}})
@@ -555,7 +557,7 @@ func TestSilenceAll_ConfirmGateFiresOnlyForCountGreaterThanOne(t *testing.T) {
 
 	t.Run("count>1 opens confirm modal", func(t *testing.T) {
 		t.Parallel()
-		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients})
+		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients, Session: testutil.Session()})
 		_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 			mkAlert("Multi", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 			mkAlert("Multi", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
@@ -630,6 +632,7 @@ func TestBulkSilenceAll_FansOutOneAlertnameSilencePerMarkedGroup(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": client},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "c1", time.Minute, map[string]string{"instance": "a"}),
@@ -679,6 +682,7 @@ func TestBulkSilenceAll_OneMarkPushesFormDirectly(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "c1", time.Minute, nil),
@@ -730,6 +734,7 @@ func TestBulkSilenceAll_RetainsMarksOnFailureAndFlashes(t *testing.T) {
 			Styles:  pagetest.Styles(t),
 			Now:     func() time.Time { return fixedNow },
 			Clients: map[string]silenceform.Client{"prod": client},
+			Session: testutil.Session(),
 		})
 		markBoth(t, p)
 		diskKey := "prod\x00DiskFull"
@@ -755,6 +760,7 @@ func TestBulkSilenceAll_RetainsMarksOnFailureAndFlashes(t *testing.T) {
 			Styles:  pagetest.Styles(t),
 			Now:     func() time.Time { return fixedNow },
 			Clients: map[string]silenceform.Client{"prod": client},
+			Session: testutil.Session(),
 		})
 		markBoth(t, p)
 
@@ -796,6 +802,7 @@ func TestPage_CloseCancelsInFlightBulkFanout(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	cancelled := false
 	p.cancelBulk = func() { cancelled = true }
@@ -1049,6 +1056,7 @@ func TestInfra_DropsDataMsgFromUnknownTenant(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod"},
+		Session: testutil.Session(),
 	})
 	p.SetScope("prod")
 	_, _ = p.Update(poll.DataMsg{Tenant: "stg", Resource: []backend.Alert{
@@ -1065,6 +1073,7 @@ func TestInfra_TenantColumnAppearsForMultiBackendScope(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Scope:   "all",
 		Tenants: []string{"prod", "stg"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "p1", time.Minute, nil),
@@ -1081,6 +1090,7 @@ func TestInfra_TenantColumnHiddenForSingleBackend(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "p1", time.Minute, nil),
@@ -1143,6 +1153,7 @@ func TestInfra_InitialFilterPreseeds(t *testing.T) {
 		Styles:        pagetest.Styles(t),
 		Now:           func() time.Time { return fixedNow },
 		InitialFilter: "disk",
+		Session:       testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("HighCPU", "critical", backend.AlertStateActive, "f1", time.Minute, nil),
@@ -1159,6 +1170,7 @@ func TestInfra_InitialStateFilterPreseeds(t *testing.T) {
 		Styles:             pagetest.Styles(t),
 		Now:                func() time.Time { return fixedNow },
 		InitialStateFilter: "suppressed",
+		Session:            testutil.Session(),
 	})
 	require.Equal(t, "suppressed", p.stateFilter, "constructor seeds the state filter")
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{

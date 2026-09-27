@@ -232,7 +232,7 @@ type Options struct {
 	Logger *slog.Logger
 	// Session is the live configuration the page reads its write
 	// policy and bulk pool size from at the point of use, so a reload
-	// reaches the page while it is open. Nil reads as an empty config.
+	// reaches the page while it is open. Must not be nil.
 	Session *session.Session
 	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
 	// inherits. Cancelling kills the editor so a parent shutdown
@@ -298,7 +298,7 @@ func New(opts Options) *Page {
 		marks:         map[string]struct{}{},
 		sorter:        tablesort.New(silenceSortColumns(), sortKeyEndsAt),
 		logger:        opts.Logger,
-		session:       session.OrEmpty(opts.Session),
+		session:       session.Must(opts.Session),
 		editorCtx:     opts.EditorCtx,
 		bulkCtx:       opts.BulkCtx,
 		submitCtx:     opts.SubmitCtx,

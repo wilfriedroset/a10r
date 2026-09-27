@@ -30,6 +30,7 @@ func newReloadApp(t *testing.T, reload func() tea.Cmd) *App {
 		Styles:     &styles,
 		Dispatcher: keys.New(nil),
 		Reload:     reload,
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	return updated.(*App)

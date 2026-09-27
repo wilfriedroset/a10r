@@ -61,6 +61,7 @@ func newPage(t *testing.T, instances ...backend.Alert) *Page {
 		Tenant:    tenant,
 		AlertName: alertName,
 		Instances: instances,
+		Session:   testutil.Session(),
 	})
 }
 
@@ -463,6 +464,7 @@ func TestBindings_MarkIsShared(t *testing.T) {
 		Now:       func() time.Time { return fixedNow },
 		Tenant:    tenant,
 		AlertName: alertName,
+		Session:   testutil.Session(),
 	})
 	var found bool
 	for _, b := range p.Bindings() {

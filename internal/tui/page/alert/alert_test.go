@@ -102,6 +102,7 @@ func TestPage_OpensInPushTimeFormat(t *testing.T) {
 		Styles:     pagetest.Styles(t),
 		Now:        func() time.Time { return fixedNow },
 		TimeFormat: timerender.Absolute,
+		Session:    testutil.Session(),
 	})
 	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "started:",
@@ -114,10 +115,11 @@ func TestPage_TimeFormatToggleSwitchesAgeLine(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Alert:  sample(),
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	out := testutil.StripStyle(p.View(120, 30))
 	require.Contains(t, out, "5m ago")
@@ -136,10 +138,11 @@ func TestPage_RenderAppliesYAMLKeyAndValueStyles(t *testing.T) {
 
 	styles := pagetest.Styles(t)
 	p := New(Options{
-		Alert:  sample(),
-		Tenant: "prod",
-		Styles: styles,
-		Now:    func() time.Time { return fixedNow },
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  styles,
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	raw := p.View(120, 30)
 
@@ -162,10 +165,11 @@ func TestPage_RenderShowsAllSections(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Alert:  sample(),
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	out := testutil.StripStyle(p.View(120, 30))
 	for _, want := range []string{
@@ -181,9 +185,10 @@ func TestPage_HeaderContentIsEmpty(t *testing.T) {
 	t.Parallel()
 
 	p := New(Options{
-		Alert:  sample(),
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
+		Alert:   sample(),
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Session: testutil.Session(),
 	})
 	require.Empty(t, p.HeaderContent(),
 		"title shows <tenant>/<alertname> and the summary surfaces state + "+
@@ -198,6 +203,7 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 		Alert:     sample(),
 		Styles:    pagetest.Styles(t),
 		Clipboard: clip,
+		Session:   testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	msg := flashFrom(t, cmd)
@@ -211,7 +217,7 @@ func TestPage_CopyFingerprintSuccess(t *testing.T) {
 func TestPage_DefaultsClipboardAndBrowser(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: testutil.Session()})
 	require.NotNil(t, p.clip, "nil Clipboard must default to a real impl, not stay nil")
 	require.NotNil(t, p.browser, "nil Browser must default to a real impl, not stay nil")
 }
@@ -220,7 +226,7 @@ func TestPage_OpenURLSuccess(t *testing.T) {
 	t.Parallel()
 
 	br := &fakeBrowser{}
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br, Session: testutil.Session()})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashSuccess, msg.Level)
@@ -234,7 +240,7 @@ func TestPage_OpenURLMissingIsInfoNoBrowserCall(t *testing.T) {
 	a := sample()
 	a.GeneratorURL = ""
 	br := &fakeBrowser{}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br, Session: testutil.Session()})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashInfo, msg.Level,
@@ -247,7 +253,7 @@ func TestPage_OpenURLErrorFlashesError(t *testing.T) {
 	t.Parallel()
 
 	br := &fakeBrowser{wantErr: errors.New("no display server")}
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Browser: br, Session: testutil.Session()})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashError, msg.Level)
@@ -278,7 +284,7 @@ func TestPage_OpenURLRejectsNonHTTPSchemes(t *testing.T) {
 			a := sample()
 			a.GeneratorURL = tc.url
 			br := &fakeBrowser{}
-			p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br})
+			p := New(Options{Alert: a, Styles: pagetest.Styles(t), Browser: br, Session: testutil.Session()})
 			_, cmd := p.Update(tea.KeyPressMsg{Code: 'o', Text: "o"})
 			msg := cmd().(footer.FlashShowMsg)
 			require.Equal(t, footer.FlashError, msg.Level,
@@ -292,7 +298,7 @@ func TestPage_OpenURLRejectsNonHTTPSchemes(t *testing.T) {
 func TestPage_SilenceWithoutClientsFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Alert: sample(), Tenant: "prod", Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: sample(), Tenant: "prod", Styles: pagetest.Styles(t), Session: testutil.Session()})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	msg := cmd().(footer.FlashShowMsg)
 	require.Contains(t, msg.Text, "no writeable backend",
@@ -307,6 +313,7 @@ func TestPage_SilencePushesFormWhenClientsAreConfigured(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.NotNil(t, cmd, "`s` must produce a Cmd that pushes the form")
@@ -324,6 +331,7 @@ func TestPage_SilenceTenantNotInClientsFlashesHint(t *testing.T) {
 		Tenant:  "ghost",
 		Styles:  pagetest.Styles(t),
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -363,7 +371,7 @@ func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	a := sample()
 	long := strings.Repeat("X", 500)
 	a.Annotations = map[string]string{"description": long}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 
 	done := make(chan string, 1)
 	go func() { done <- p.View(80, 30) }()
@@ -384,7 +392,7 @@ func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {
 		// contains a literal newline between the two facts.
 		"description": "VALUE = 0\nLABELS = map[__name__:up cluster:EU]",
 	}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 	out := testutil.StripStyle(p.View(120, 50))
 	lines := strings.Split(out, "\n")
 
@@ -419,7 +427,7 @@ func TestPage_ScrollsViewport(t *testing.T) {
 	for i := range 20 {
 		a.Annotations["k"+string(rune('a'+i))] = "v" + string(rune('a'+i))
 	}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 	// Render at a tiny height that won't show the full body.
 	out := testutil.StripStyle(p.View(80, 10))
 	require.NotContains(t, out, "kt: vt",
@@ -439,7 +447,7 @@ func TestPage_RenderHandlesEmptyOptionalFields(t *testing.T) {
 		Labels: map[string]string{"alertname": "Bare"},
 		State:  backend.AlertStateActive,
 	}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 	out := testutil.StripStyle(p.View(80, 20))
 	require.Contains(t, out, "Bare")
 	require.Contains(t, out, "(none)",
@@ -460,7 +468,7 @@ func suppressedSample(silencedBy, inhibitedBy, mutedBy []string) backend.Alert {
 
 func renderSuppressed(t *testing.T, a backend.Alert, width int) string {
 	t.Helper()
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: testutil.Session()})
 	return testutil.StripStyle(p.View(width, 30))
 }
 
@@ -555,10 +563,11 @@ func TestPage_SilencedByEnrichedFromCache(t *testing.T) {
 	// last column so a quick scan lands on the human reason.
 	a := suppressedSample([]string{"sil-1"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",
@@ -582,10 +591,11 @@ func TestPage_SilencedByOnlyTenantTrustedFromCache(t *testing.T) {
 	// a stranger tenant's snapshot would surface incorrect details.
 	a := suppressedSample([]string{"sil-1"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	// Same ID, but ingested under a different tenant tag.
 	_, _ = p.Update(silenceDataMsg("staging", []backend.Silence{{
@@ -605,10 +615,11 @@ func TestPage_SilencedByDegradedRowOnCacheMiss(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"missing-id"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	// Ingest a snapshot that doesn't contain the alert's silenced-by
 	// ID — represents a cold start, recently-expired silence still
@@ -626,10 +637,11 @@ func TestPage_SilencedByCommentClippedNoWrap(t *testing.T) {
 	// design explicitly avoids.
 	a := suppressedSample([]string{"sil-long"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-long",
@@ -670,10 +682,11 @@ func TestPage_SilencedByCommentTruncatedAtFirstNewline(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"sil-multi"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-multi",
@@ -697,6 +710,7 @@ func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
 		Styles:     pagetest.Styles(t),
 		Now:        func() time.Time { return fixedNow },
 		TimeFormat: timerender.Absolute,
+		Session:    testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",
@@ -715,14 +729,14 @@ func TestPage_PollResourcesIncludesSilences(t *testing.T) {
 	t.Parallel()
 	// The page must opt in to the silences feed so the App's cache
 	// replay hydrates a freshly-pushed detail view immediately.
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: testutil.Session()})
 	require.Equal(t, []string{"silences"}, p.PollResources())
 }
 
 func TestPage_OpenSilenceFlashesWhenNoSilencedBy(t *testing.T) {
 	t.Parallel()
 	// Active alert with no silenced-by IDs: `S` is a soft no-op.
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: testutil.Session()})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
 	require.NotNil(t, cmd)
 	msg := cmd().(footer.FlashShowMsg)
@@ -734,10 +748,11 @@ func TestPage_OpenSilenceN1PushesDetail(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"sil-1"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",
@@ -759,10 +774,11 @@ func TestPage_OpenSilenceCacheMissFlashesInfo(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"missing-id"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	// No DataMsg ingested — cache miss.
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'S', Text: "S"})
@@ -784,10 +800,11 @@ func TestPage_OpenSilenceN2PushesRestrictedSilencesPage(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"sil-1", "sil-2"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{
 		{ID: "sil-1", EndsAt: fixedNow.Add(time.Hour), CreatedBy: "alice"},
@@ -809,10 +826,11 @@ func TestPage_SilencedByNarrowWidthDropsEmDashSeparator(t *testing.T) {
 	// rendering bug.
 	a := suppressedSample([]string{"sil-1"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",
@@ -838,10 +856,11 @@ func TestPage_SilencedByDedupesDuplicateIDs(t *testing.T) {
 	// degrades to the single-silence direct-push path.
 	a := suppressedSample([]string{"sil-1", "sil-1"}, nil, nil)
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
 		ID:        "sil-1",
@@ -900,9 +919,10 @@ func TestPage_ExpiryField_PastCaseLabel(t *testing.T) {
 	now := fixedNow
 	newPageAt := func() *Page {
 		return New(Options{
-			Alert:  sample(),
-			Styles: pagetest.Styles(t),
-			Now:    func() time.Time { return now },
+			Alert:   sample(),
+			Styles:  pagetest.Styles(t),
+			Now:     func() time.Time { return now },
+			Session: testutil.Session(),
 		})
 	}
 
@@ -932,10 +952,11 @@ func TestPage_RawYAMLToggleSwapsBody(t *testing.T) {
 	a.SilencedBy = []string{"sil-A", "sil-B", "sil-A"}
 	a.InhibitedBy = []string{"fp-1"}
 	p := New(Options{
-		Alert:  a,
-		Tenant: "prod",
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 
 	// Default render is the structured view: section headers and
@@ -990,7 +1011,7 @@ func TestPage_RawYAMLToggleResetsScroll(t *testing.T) {
 	for i := range 50 {
 		a.Annotations[fmt.Sprintf("k%02d", i)] = fmt.Sprintf("v%02d", i)
 	}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 	// G pins past the end; the next View clamps it to a positive offset.
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
 	_ = p.View(80, 15)
@@ -1014,7 +1035,7 @@ func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {
 		Labels: map[string]string{"alertname": "Bare"},
 		State:  backend.AlertStateActive,
 	}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	out := testutil.StripStyle(p.View(80, 30))
 
@@ -1042,7 +1063,7 @@ func TestPage_RawYAMLOmitsEmptyOptionalCollections(t *testing.T) {
 // second toggle.
 func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: testutil.Session()})
 
 	require.NotContains(t, p.Title(), "[raw yaml]",
 		"structured mode must not carry the raw indicator")
@@ -1062,7 +1083,7 @@ func TestPage_CopyFieldsOrder(t *testing.T) {
 	a := sample()
 	a.Labels["zone"] = "eu-1"
 	a.Annotations["runbook"] = ""
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t)})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
 
 	fields := p.copyFields()
 	got := make([]string, 0, len(fields))
@@ -1098,7 +1119,7 @@ func TestPage_CopyFieldPickerCopiesTheFullValue(t *testing.T) {
 	a := sample()
 	a.Annotations["summary"] = long
 	clip := &testutil.FakeClipboard{}
-	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Clipboard: clip})
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Clipboard: clip, Session: testutil.Session()})
 
 	fields := p.copyFields()
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
@@ -1123,7 +1144,7 @@ func TestPage_CopyFieldPickerIgnoresAForeignOrigin(t *testing.T) {
 	t.Parallel()
 
 	clip := &testutil.FakeClipboard{}
-	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Clipboard: clip})
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Clipboard: clip, Session: testutil.Session()})
 	_, cmd := p.Update(modal.PickerSubmittedMsg{Origin: "scope", Indexes: []int{0}})
 	require.Nil(t, cmd)
 	require.Zero(t, clip.Calls, "another page's picker must not drive a copy here")

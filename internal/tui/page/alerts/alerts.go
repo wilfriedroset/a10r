@@ -235,7 +235,7 @@ type Options struct {
 	// policy, bulk pool size and `tui.poll_delta` from at the point of
 	// use, so a reload reaches the page while it is open. The label
 	// columns are the one exception, re-derived on a reload instead.
-	// Nil reads as an empty config.
+	// Must not be nil.
 	Session *session.Session
 	// BulkCtx is the parent ctx the bulk-silence fanout inherits.
 	// Cancelling cancels every in-flight worker — important for
@@ -529,7 +529,7 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	sess := session.OrEmpty(opts.Session)
+	sess := session.Must(opts.Session)
 	labelCols := table.Resolve(sess.AlertColumns())
 	p := &Page{
 		Scope:          opts.Scope,

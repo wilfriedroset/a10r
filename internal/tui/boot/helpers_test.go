@@ -549,6 +549,7 @@ func newTestAppForFilter(t *testing.T) *app.App {
 	return app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
+		Session:    testutil.Session(),
 	})
 }
 

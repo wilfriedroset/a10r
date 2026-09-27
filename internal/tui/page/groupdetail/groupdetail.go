@@ -213,7 +213,7 @@ type Options struct {
 	// policy and bulk pool size from at the point of use, so a reload
 	// reaches the page while it is open. The label columns, rendered
 	// between INSTANCE and STATE (ADR 0048), are re-derived on a
-	// reload instead. Nil reads as an empty config.
+	// reload instead. Must not be nil.
 	Session *session.Session
 	// Creator seeds the silence form's CreatedBy field; empty falls
 	// back to "a10r" in the form factory.
@@ -358,7 +358,7 @@ func New(opts Options) *Page {
 		now = time.Now
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
-	sess := session.OrEmpty(opts.Session)
+	sess := session.Must(opts.Session)
 	labelCols := table.Resolve(sess.GroupDetailColumns())
 	p := &Page{
 		Scope:          opts.Tenant,

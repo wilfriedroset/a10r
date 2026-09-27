@@ -60,8 +60,9 @@ func newAuditLogBuf(t *testing.T) *strings.Builder {
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 }
 
@@ -422,6 +423,7 @@ func TestPage_FinishedMsgIDMismatchRefusesAndReopensEditor(t *testing.T) {
 				}
 			},
 		},
+		Session: testutil.Session(),
 	})
 	// Wrap the Edit method by intercepting via a stub option pattern.
 	// Since edit.Resolver is a value, we instead capture by
@@ -517,6 +519,7 @@ func TestPage_FinishedMsgBackendErrorPreservesContentAndReopens(t *testing.T) {
 			DefaultEditor: "true",
 			ExecRunner:    runner,
 		},
+		Session: testutil.Session(),
 	})
 	silenceList := []backend.Silence{
 		{
@@ -584,6 +587,7 @@ func twoTenantEditorPage(t *testing.T, prod, staging silenceform.Client) (page *
 				return nil
 			},
 		},
+		Session: testutil.Session(),
 	})
 	for i, tenant := range []string{"prod", "staging"} {
 		_, _ = page.Update(poll.DataMsg{Tenant: tenant, Resource: []backend.Silence{{
@@ -718,6 +722,7 @@ func TestPage_CloseCancelsInflightEditorUpdate(t *testing.T) {
 				return func() tea.Msg { return edit.FinishedMsg{ResourceID: "sil-a"} }
 			},
 		},
+		Session: testutil.Session(),
 	})
 	silenceList := []backend.Silence{
 		{
@@ -1043,8 +1048,9 @@ func TestPage_ExpiredSilenceIsDimmed(t *testing.T) {
 	// stays at full contrast so the comparison is obvious.
 	styles := pagetest.Styles(t)
 	p := New(Options{
-		Styles: styles,
-		Now:    func() time.Time { return fixedNow },
+		Styles:  styles,
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Silence{
@@ -1464,6 +1470,7 @@ func TestPage_NewKeyPushesFormWhenClientsAreConfigured(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	require.NotNil(t, cmd, "n must produce a Cmd that pushes the form")
@@ -1485,6 +1492,7 @@ func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	silences := make([]backend.Silence, 0, count)
 	for i := range count {
@@ -1510,6 +1518,7 @@ func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -1541,6 +1550,7 @@ func TestPage_RecreateKeyOnEmptyViewFlashesHint(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl})
 	require.NotNil(t, cmd)
@@ -1582,6 +1592,7 @@ func TestPage_RecreateKeyOnExpiredPushesForm(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{
 		Resource: []backend.Silence{pagetest.Silence(pagetest.SilenceOptions{ID: "sil-expired", CreatedBy: "alice", State: backend.SilenceStateExpired, EndsIn: -time.Hour})},
@@ -1619,6 +1630,7 @@ func TestPage_RecreateFormOptionsPrefilledFromExpiredRow(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": fake},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{source}, Tenant: "prod"})
 
@@ -1655,6 +1667,7 @@ func TestPage_ExpireKeyOnEmptyViewFlashesHint(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
 	msg := cmd().(footer.FlashShowMsg)
@@ -2228,6 +2241,7 @@ func TestPage_RestrictIDsFiltersView(t *testing.T) {
 		Styles:      pagetest.Styles(t),
 		Now:         func() time.Time { return fixedNow },
 		RestrictIDs: []string{"sil-b", "sil-c"},
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2248,6 +2262,7 @@ func TestPage_RestrictIDsComposedWithFilter(t *testing.T) {
 		Styles:      pagetest.Styles(t),
 		Now:         func() time.Time { return fixedNow },
 		RestrictIDs: []string{"sil-b", "sil-c"},
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2272,6 +2287,7 @@ func TestPage_RestrictIDsTotalSilences(t *testing.T) {
 		Styles:      pagetest.Styles(t),
 		Now:         func() time.Time { return fixedNow },
 		RestrictIDs: []string{"sil-b"},
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2290,6 +2306,7 @@ func TestPage_AlertNameSubstitutesInTitle(t *testing.T) {
 		Now:         func() time.Time { return fixedNow },
 		RestrictIDs: []string{"sil-a"},
 		AlertName:   "HighCPU",
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2308,6 +2325,7 @@ func TestPage_AlertNameTitleWithFilter(t *testing.T) {
 		Now:         func() time.Time { return fixedNow },
 		RestrictIDs: []string{"sil-a", "sil-b"},
 		AlertName:   "HighCPU",
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2331,6 +2349,7 @@ func TestPage_OpenNewSilenceFormPrefillsMatchersFromAlertLabels(t *testing.T) {
 		Creator:     "wilfried",
 		RestrictIDs: []string{"sil-a"},
 		AlertLabels: map[string]string{"alertname": "HighCPU", "severity": "critical"},
+		Session:     testutil.Session(),
 	})
 	silences := []backend.Silence{
 		pagetest.Silence(pagetest.SilenceOptions{ID: "sil-a", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: time.Hour}),
@@ -2363,7 +2382,7 @@ func TestPage_RestrictIDsNilPreservesPriorBehaviour(t *testing.T) {
 // RESOURCE. Forgetting the flag silently regresses the column layout.
 func TestBindings_MarkIsShared(t *testing.T) {
 	t.Parallel()
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: testutil.Session()})
 	var found bool
 	for _, b := range p.Bindings() {
 		if b.Key == "Space" {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 // exprInstance builds an instance with an explicit start time so the
@@ -116,6 +117,7 @@ func TestExpr_AgeReEvaluatesAgainstTheClock(t *testing.T) {
 		Instances: []backend.Alert{
 			exprInstance("fp-1", "critical", backend.AlertStateActive, fixedNow.Add(-30*time.Minute)),
 		},
+		Session: testutil.Session(),
 	})
 
 	require.True(t, p.SetFilter("age<1h"))

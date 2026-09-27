@@ -122,7 +122,7 @@ func TestExpr_AgeReEvaluatesAgainstTheClock(t *testing.T) {
 	t.Parallel()
 
 	now := fixedNow
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return now }})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return now }, Session: testutil.Session()})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp-c1", 30*time.Minute, nil),
 	}})

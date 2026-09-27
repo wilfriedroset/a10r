@@ -27,6 +27,7 @@ func notifyApp(t *testing.T, scope string) *App {
 		Tenants:    []string{"prod", "staging"},
 		Scope:      scope,
 		Notify:     notify.New(config.Notify{Enabled: true}),
+		Session:    testutil.Session(),
 	})
 }
 

@@ -277,3 +277,26 @@ func TestTenantConfig_KeyedByBackendName(t *testing.T) {
 	_, ok = s.TenantConfig("dev")
 	require.False(t, ok)
 }
+
+func TestMust(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		in        *session.Session
+		wantPanic bool
+	}{
+		"nil panics":                 {wantPanic: true},
+		"a given session comes back": {in: session.New(config.Config{})},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.wantPanic {
+				require.Panics(t, func() { session.Must(tt.in) })
+				return
+			}
+			require.Same(t, tt.in, session.Must(tt.in))
+		})
+	}
+}

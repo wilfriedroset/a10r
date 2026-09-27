@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/session"
+	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
 func newDeltaPage(t *testing.T, tenants []string) *Page {
@@ -134,7 +135,7 @@ func TestPollDelta_SingleTenantOmitsThePrefix(t *testing.T) {
 func TestPollDelta_SilentWhenDisabled(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: testutil.Session()})
 	_, _ = p.Update(poll.DataMsg{Resource: deltaAlerts()})
 	_, cmd := p.Update(poll.DataMsg{Resource: deltaAlerts("HighCPU")})
 	require.Nil(t, cmd, "tui.poll_delta off must flash nothing")

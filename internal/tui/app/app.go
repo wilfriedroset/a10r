@@ -45,8 +45,8 @@ type Options struct {
 	Refresh func(resource, scope string)
 	// Session is the live configuration. The App reads the read-only
 	// switch from it for the chrome it composes on demand: the help
-	// overlay on every `?` and the window title on every frame. Nil
-	// reads as an empty config.
+	// overlay on every `?` and the window title on every frame. Must
+	// not be nil.
 	Session *session.Session
 	// HistoryDir is `$XDG_STATE_HOME/a10r/`; empty keeps history in-memory.
 	HistoryDir string
@@ -226,7 +226,7 @@ func NewApp(opts Options) *App {
 		cmdbar:     resolver,
 		tenants:    opts.Tenants,
 		refresh:    opts.Refresh,
-		session:    session.OrEmpty(opts.Session),
+		session:    session.Must(opts.Session),
 		scope:      opts.Scope,
 		saveScope:  opts.SaveScope,
 		notify:     opts.Notify,

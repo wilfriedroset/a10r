@@ -55,7 +55,7 @@ type Options struct {
 	Styles *theme.Styles
 	// Session is the live configuration the page reads its write
 	// policy from at the point of use, so a reload reaches the page
-	// while it is open. Nil reads as an empty config.
+	// while it is open. Must not be nil.
 	Session *session.Session
 	// Clipboard handles `c` (copy fingerprint) and `Y` (copy any
 	// field); nil defaults to OSC52.
@@ -158,7 +158,7 @@ func New(opts Options) *Page {
 		creator:        opts.Creator,
 		timeFormat:     opts.TimeFormat,
 		silences:       map[string]backend.Silence{},
-		session:        session.OrEmpty(opts.Session),
+		session:        session.Must(opts.Session),
 		editorResolver: opts.EditorResolver,
 		editorCtx:      opts.EditorCtx,
 		logger:         opts.Logger,

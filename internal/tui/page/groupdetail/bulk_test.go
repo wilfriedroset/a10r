@@ -33,6 +33,7 @@ func newWritablePage(t *testing.T, instances ...backend.Alert) *Page {
 		AlertName: alertName,
 		Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
 		Instances: instances,
+		Session:   testutil.Session(),
 	})
 }
 

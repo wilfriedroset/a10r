@@ -28,6 +28,7 @@ func newTestApp(t *testing.T) *App {
 	return NewApp(Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
+		Session:    testutil.Session(),
 	})
 }
 
@@ -56,6 +57,7 @@ func TestApp_InitSchedulesHintBarTickWhenEnabled(t *testing.T) {
 			Enabled:  true,
 			Interval: 50 * time.Millisecond,
 		}),
+		Session: testutil.Session(),
 	})
 	require.NotNil(t, a.Init(),
 		"enabled hint bar must schedule the first rotation tick from Init")
@@ -110,6 +112,7 @@ func TestApp_RefreshRequestedRoutesToHandler(t *testing.T) {
 		Refresh: func(resource, scope string) {
 			got = append(got, call{resource, scope})
 		},
+		Session: testutil.Session(),
 	})
 
 	_, cmd := a.Update(RefreshRequestedMsg{Resource: "silences", Scope: "prod"})
@@ -232,6 +235,7 @@ func TestApp_CtrlTOpensTenantPicker(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging", "dev"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	a = updated.(*App)
@@ -276,6 +280,7 @@ func TestApp_ScopeChangeReachesSaveScope(t *testing.T) {
 		Styles:     testutil.LoadStyles(t),
 		Dispatcher: keys.New(nil),
 		SaveScope:  func(scope string) { saved = append(saved, scope) },
+		Session:    testutil.Session(),
 	})
 	a.Update(ScopeChangedMsg{Scope: "prod"})
 	a.Update(ScopeChangedMsg{Scope: "all"})
@@ -288,7 +293,7 @@ func TestApp_ScopeChangeReachesSaveScope(t *testing.T) {
 func TestApp_NilSaveScopeIsNoOp(t *testing.T) {
 	t.Parallel()
 
-	a := NewApp(Options{Styles: testutil.LoadStyles(t), Dispatcher: keys.New(nil)})
+	a := NewApp(Options{Styles: testutil.LoadStyles(t), Dispatcher: keys.New(nil), Session: testutil.Session()})
 	require.NotPanics(t, func() { a.Update(ScopeChangedMsg{Scope: "prod"}) })
 	require.Equal(t, "prod", a.scope)
 }
@@ -301,6 +306,7 @@ func TestApp_TenantKeysEmitScopeChangedMsg(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
@@ -335,6 +341,7 @@ func TestApp_InputCapturePageBypassesGlobalBindings(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
@@ -386,6 +393,7 @@ func TestApp_NonCapturingPageStillHonoursGlobals(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)

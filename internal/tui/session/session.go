@@ -30,11 +30,10 @@ func New(cfg config.Config) *Session {
 	return s
 }
 
-// OrEmpty returns s, or a Session over the zero config when s is nil,
-// so a page built without one reads as writable with no guardrails.
-func OrEmpty(s *Session) *Session {
+// Must panics on nil so a missing Session never reads as writable with no guardrails.
+func Must(s *Session) *Session {
 	if s == nil {
-		return New(config.Config{})
+		panic("session: nil Session")
 	}
 	return s
 }

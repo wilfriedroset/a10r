@@ -47,7 +47,7 @@ func benchAlerts(n, tenants int) map[string][]backend.Alert {
 // (flat assembly + filter + sort) on a 1k-alert × 4-tenant set.
 func BenchmarkAlertsRecompute_1000(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchAlerts(1000, 4)
 
 	b.ReportAllocs()
@@ -61,7 +61,7 @@ func BenchmarkAlertsRecompute_1000(b *testing.B) {
 // scale: 5k alerts × 10 tenants.
 func BenchmarkAlertsRecompute_5000(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchAlerts(5000, 10)
 
 	b.ReportAllocs()
@@ -77,7 +77,7 @@ func BenchmarkAlertsRecompute_5000(b *testing.B) {
 // optimisation; any regression there surfaces here first.
 func BenchmarkAlertsFilterTyping(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchAlerts(2000, 10)
 	queries := []string{"a", "al", "ale", "alert", "alert4", "alert42"}
 
@@ -96,7 +96,7 @@ func BenchmarkAlertsFilterTyping(b *testing.B) {
 // surfaces here first.
 func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchAlerts(1000, 4)
 	p.recompute()
 	p.SetViewport(40, len(p.groups))
@@ -114,7 +114,7 @@ func BenchmarkAlertsRenderRows_1000(b *testing.B) {
 // = 40 ingests/min steady-state pressure on a busy fleet.
 func BenchmarkAlertsDataMsgIngest(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	payload := benchAlerts(500, 1)["t0"]
 
 	b.ReportAllocs()
@@ -145,7 +145,7 @@ func BenchmarkAlertsRenderRowsFiltered(b *testing.B) {
 		{"expr", "count>=1 && severity=~.+"},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			p := New(Options{Styles: styles, Now: time.Now})
+			p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 			p.byTenant = benchAlerts(1000, 4)
 			p.SetFilter(tc.filter)
 			p.recompute()
@@ -175,7 +175,7 @@ func BenchmarkAlertsRecomputeExpr10k(b *testing.B) {
 		{"expr", "severity=nope || count>=1 && age>1m"},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			p := New(Options{Styles: styles, Now: time.Now})
+			p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 			p.byTenant = benchAlerts(10000, 10)
 			p.SetFilter(tc.filter)
 
