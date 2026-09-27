@@ -643,7 +643,7 @@ a10r validate -c ~/.config/a10r/a10r.yaml
 
 Exits 0 on success, non-zero with a line:column diagnostic
 otherwise. A warning — a `guardrails:` tenant glob that matches no
-configured backend — is printed but leaves the exit code at 0.
+configured backend — goes to stderr and leaves the exit code at 0.
 
 ## Inspecting the resolved config
 

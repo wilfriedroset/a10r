@@ -51,8 +51,8 @@ to [Semantic Versioning][semver].
   denied on prod-eu: use the change ticket`, and names the verb when
   the cursor row alone is the target. `a10r validate` refuses a rule
   that names an unknown verb, an unknown level, or a `max_bulk` below
-  `1`. `a10r validate` and `a10r info` both list any rule whose
-  tenants match no backend, and the TUI logs the same warnings at
+  `1`. `a10r validate` (on stderr) and `a10r info` both list any rule
+  whose tenants match no backend, and the TUI logs the same warnings at
   startup so `:config` shows them. `a10r info` also lists the rules in
   force. See ADR 0049.
 

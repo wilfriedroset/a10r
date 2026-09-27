@@ -28,18 +28,18 @@ func newValidateCmd(flags *GlobalFlags) *cobra.Command {
 		GroupID: groupDiag,
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runValidate(cmd.OutOrStdout(), flags, args)
+			return runValidate(cmd.OutOrStdout(), cmd.ErrOrStderr(), flags, args)
 		},
 	}
 }
 
 // runValidate is split out of the cobra closure so tests can drive it
-// against a captured writer without invoking cobra's machinery.
+// against captured writers without invoking cobra's machinery.
 //
 // Config errors return an ExitConfigInvalid-coded error so CI
 // wrappers can branch on exit code 2 to surface "the config file
 // is broken" without parsing stderr — see ADR 0009.
-func runValidate(out io.Writer, flags *GlobalFlags, args []string) error {
+func runValidate(out, errOut io.Writer, flags *GlobalFlags, args []string) error {
 	opts := loadOptsFromArgs(flags, args)
 	cfg, err := config.Load(opts)
 	if err != nil {
@@ -48,20 +48,20 @@ func runValidate(out io.Writer, flags *GlobalFlags, args []string) error {
 	if _, err := fmt.Fprintf(out, "config valid: %d backend(s) configured\n", len(cfg.Backends)); err != nil {
 		return fmt.Errorf("write validate output: %w", err)
 	}
-	return writeUnmatchedTenantWarnings(out, cfg)
+	return writeUnmatchedTenantWarnings(errOut, cfg)
 }
 
 // writeUnmatchedTenantWarnings reports every `guardrails:` tenant glob
 // that names no configured backend. Non-fatal per ADR 0049 — one
 // config.d fragment is shared across machines that do not all have
 // every tenant — so validate still exits 0 and a pipeline keeps going.
-func writeUnmatchedTenantWarnings(out io.Writer, cfg *config.Config) error {
+func writeUnmatchedTenantWarnings(errOut io.Writer, cfg *config.Config) error {
 	names := make([]string, len(cfg.Backends))
 	for i, be := range cfg.Backends {
 		names[i] = be.Name
 	}
 	for _, glob := range cfg.Guardrails.UnmatchedTenants(names) {
-		if _, err := fmt.Fprintf(out, "warning: %s\n", guardrail.UnmatchedTenantWarning(glob)); err != nil {
+		if _, err := fmt.Fprintf(errOut, "warning: %s\n", guardrail.UnmatchedTenantWarning(glob)); err != nil {
 			return fmt.Errorf("write validate warning: %w", err)
 		}
 	}

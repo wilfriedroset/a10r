@@ -18,7 +18,8 @@ inspect alerts and receivers, and to manage silences.
    it). It lists the backends (tenants). Confirm config and connectivity before acting:
    - `a10r info` — the *resolved* config path (use this to find the actual file)
      and the backends it found.
-   - `a10r validate` — config parses and every backend is usable.
+   - `a10r validate` — config parses and every backend is usable. A `guardrails:`
+     tenant glob that matches no backend prints a warning on stderr and still exits `0`.
    - `a10r doctor` — live reachability/auth/version-floor checks per backend.
 
 `validate` and `info` are text-only diagnostics with no `--output` flag — branch

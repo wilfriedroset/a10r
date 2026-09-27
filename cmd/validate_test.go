@@ -29,7 +29,7 @@ func TestRunValidate_GoodConfig(t *testing.T) {
 
 	var buf bytes.Buffer
 	flags := &GlobalFlags{ConfigDir: dir}
-	err := runValidate(&buf, flags, nil)
+	err := runValidate(&buf, io.Discard, flags, nil)
 	require.NoError(t, err)
 	require.Contains(t, buf.String(), "config valid")
 	require.Contains(t, buf.String(), "1 backend(s) configured")
@@ -46,7 +46,7 @@ func TestRunValidate_PositionalPathOverridesConfigDir(t *testing.T) {
 
 	var buf bytes.Buffer
 	flags := &GlobalFlags{ConfigDir: emptyDir}
-	err := runValidate(&buf, flags, []string{target})
+	err := runValidate(&buf, io.Discard, flags, []string{target})
 	require.NoError(t, err)
 	require.Contains(t, buf.String(), "1 backend(s)")
 }
@@ -56,7 +56,7 @@ func TestRunValidate_MissingFileReturnsError(t *testing.T) {
 
 	dir := t.TempDir()
 	flags := &GlobalFlags{ConfigDir: dir}
-	err := runValidate(io.Discard, flags, nil)
+	err := runValidate(io.Discard, io.Discard, flags, nil)
 	require.Error(t, err)
 	require.ErrorIs(t, err, config.ErrNotFound,
 		"validate must surface ErrNotFound — pipelines treat exit-non-zero as failure")
@@ -73,7 +73,7 @@ func TestRunValidate_ParseError(t *testing.T) {
 	writeYAML(t, dir, "a10r.yaml", "backends:\n  - name: x\n    url: http://x\n    pollInterval: 30s\n")
 
 	flags := &GlobalFlags{ConfigDir: dir}
-	err := runValidate(io.Discard, flags, nil)
+	err := runValidate(io.Discard, io.Discard, flags, nil)
 	require.Error(t, err, "strict-mode rejects unknown fields")
 	require.NotErrorIs(t, err, config.ErrNotFound)
 	// Same exit code as missing file — both are config-side failures.
@@ -128,9 +128,10 @@ func TestRunValidate_WarnsOnUnmatchedTenantGlob(t *testing.T) {
 	writeYAML(t, dir, "a10r.yaml",
 		"backends:\n  - name: ok\n    url: http://x\nguardrails:\n  - tenants: [\"lab-*\"]\n    deny: true\n")
 
-	var buf bytes.Buffer
-	err := runValidate(&buf, &GlobalFlags{ConfigDir: dir}, nil)
+	var stdout, stderr bytes.Buffer
+	err := runValidate(&stdout, &stderr, &GlobalFlags{ConfigDir: dir}, nil)
 	require.NoError(t, err, "an unmatched glob is a warning, so validate still exits 0")
-	require.Contains(t, buf.String(), `warning: tenant glob "lab-*" matches no configured backend`)
-	require.Contains(t, buf.String(), "config valid")
+	require.Contains(t, stderr.String(), `warning: tenant glob "lab-*" matches no configured backend`)
+	require.NotContains(t, stdout.String(), "warning", "stdout carries the result only, warnings are narration")
+	require.Contains(t, stdout.String(), "config valid")
 }
