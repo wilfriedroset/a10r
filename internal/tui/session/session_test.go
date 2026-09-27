@@ -246,9 +246,9 @@ func TestGuardrails_KeepsTheConfiguredRules(t *testing.T) {
 }
 
 // A backend name is free-form while a rule's tenant list is a glob.
-// An unescaped name carrying pattern syntax would compile to a
-// pattern that never matches its own backend, and the deny would
-// fail open on exactly the backend the user froze.
+// An unescaped name carrying pattern syntax would match other
+// backends or miss its own, and the deny would fail open on exactly
+// the backend the user froze.
 func TestGuardrails_DeniesABackendNamedWithGlobSyntax(t *testing.T) {
 	t.Parallel()
 

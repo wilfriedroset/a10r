@@ -10,8 +10,6 @@
 package session
 
 import (
-	"strings"
-
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
@@ -102,22 +100,13 @@ func writePolicy(cfg *config.Config) guardrail.Set {
 	for _, be := range cfg.Backends {
 		if be.ReadOnly {
 			out = append(out, guardrail.Rule{
-				Tenants: []string{globQuote(be.Name)},
+				Tenants: []string{guardrail.Literal(be.Name)},
 				Deny:    true,
 				Reason:  "backend is read_only",
 			})
 		}
 	}
 	return append(out, cfg.Guardrails...)
-}
-
-// globQuote escapes the pattern syntax path.Match reads. A rule's
-// tenant list is a glob while a backend name is free-form, so an
-// unquoted `prod[1]` would compile to a pattern matching anything but
-// its own backend and the deny would fail open on the very backend
-// the user froze.
-func globQuote(name string) string {
-	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(name)
 }
 
 // sessionReadOnly reports whether the session has nothing writable at

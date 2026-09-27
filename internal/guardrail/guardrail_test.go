@@ -26,12 +26,35 @@ func TestMatch(t *testing.T) {
 		{name: "bare star", patterns: []string{"*"}, value: "anything", want: true},
 		{name: "star matches empty run", patterns: []string{"prod*"}, value: "prod", want: true},
 		{name: "second pattern hits", patterns: []string{"dev-*", "prod-*"}, value: "prod-eu", want: true},
+		{name: "star crosses slash", patterns: []string{"eu*"}, value: "eu/prod", want: true},
+		{name: "bare star crosses slash", patterns: []string{"*"}, value: "eu/prod", want: true},
+		{name: "inner star crosses slash", patterns: []string{"eu*prod"}, value: "eu/x/prod", want: true},
+		{name: "star keeps suffix anchored", patterns: []string{"*-eu"}, value: "prod-eu/x", want: false},
+		{name: "consecutive stars", patterns: []string{"a**b"}, value: "ab", want: true},
+		{name: "bare star matches empty value", patterns: []string{"*"}, value: "", want: true},
+		{name: "literal prefix misses empty value", patterns: []string{"a*"}, value: "", want: false},
+		{name: "leading and inner star", patterns: []string{"*b*"}, value: "abc", want: true},
+		{name: "prefix and suffix must not overlap", patterns: []string{"ab*ba"}, value: "aba", want: false},
+		{name: "two stars in order", patterns: []string{"a*b*c"}, value: "a/c/b", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tt.want, match(tt.patterns, tt.value))
+		})
+	}
+}
+
+func TestLiteral(t *testing.T) {
+	t.Parallel()
+
+	names := []string{"prod", "prod*", `prod\x`, "prod?", "prod[1]", `*\*`}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			require.True(t, matchOne(Literal(name), name))
+			require.False(t, matchOne(Literal(name), name+"-other"))
 		})
 	}
 }
@@ -73,6 +96,13 @@ func TestSetEvaluate(t *testing.T) {
 			tenant: "staging-eu",
 			action: ActionSilenceExpire,
 			want:   Verdict{},
+		},
+		{
+			name:   "deny on a star glob covers a tenant with a slash",
+			set:    Set{{Tenants: []string{"eu*"}, Deny: true}},
+			tenant: "eu/prod",
+			action: ActionSilenceExpire,
+			want:   Verdict{Denied: true},
 		},
 		{
 			name:   "absent tenants and actions match everything",

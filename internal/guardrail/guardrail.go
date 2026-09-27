@@ -20,7 +20,6 @@ package guardrail
 
 import (
 	"fmt"
-	"path"
 	"slices"
 	"strings"
 )
@@ -156,11 +155,6 @@ func (v Verdict) denyMessage(action, tenant string) string {
 // the outcome; it decides only which of several reasons a multi-deny
 // verdict quotes, and the order Validate and UnmatchedTenants report
 // in.
-//
-// evaluate assumes Validate already passed. On an unvalidated glob it
-// fails open — a pattern path.Match cannot compile matches nothing,
-// so a deny rule would quietly stop denying. The config loader is the
-// one place that gate lives.
 type Set []Rule
 
 // evaluate folds every rule matching tenant and action into one
@@ -226,15 +220,8 @@ func (r Rule) validate(i int) error {
 	return nil
 }
 
-// validateGlobs enforces the "star and literals only" syntax. The
-// three rejected characters are the rest of path.Match's grammar:
-// keeping them out means a pattern can never fail to compile, so
-// match never has an error to swallow.
-//
-// One path.Match trait survives: `*` stops at a `/`, so a backend
-// literally named `eu/prod` needs a glob that spells the separator.
-// Backend names are identifiers in practice, which is why this is a
-// note rather than a hand-written matcher.
+// validateGlobs enforces the "star and literals only" syntax. `?` and
+// `[` are wildcards elsewhere, and `\` is reserved for Literal.
 func validateGlobs(field string, globs []string) error {
 	for i, g := range globs {
 		if strings.TrimSpace(g) == "" {
@@ -283,9 +270,51 @@ func match(globs []string, value string) bool {
 	return slices.ContainsFunc(globs, func(g string) bool { return matchOne(g, value) })
 }
 
-// matchOne ignores path.Match's error because validateGlobs rejects
-// every pattern that could produce one.
+// Literal quotes a free-form name into a glob that matches only that
+// name. It is the one producer of `\`, which validateGlobs keeps out
+// of user globs, so a generated rule cannot be spelled in config.
+func Literal(name string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`).Replace(name)
+}
+
+// matchOne is hand-written because path.Match stops `*` at a `/`, so
+// a deny rule on `eu*` would fail open on a backend named `eu/prod`.
 func matchOne(glob, value string) bool {
-	ok, _ := path.Match(glob, value)
-	return ok
+	parts := splitGlob(glob)
+	if len(parts) == 1 {
+		return parts[0] == value
+	}
+	first, last := parts[0], parts[len(parts)-1]
+	if len(value) < len(first)+len(last) || !strings.HasPrefix(value, first) || !strings.HasSuffix(value, last) {
+		return false
+	}
+	rest := value[len(first) : len(value)-len(last)]
+	for _, p := range parts[1 : len(parts)-1] {
+		i := strings.Index(rest, p)
+		if i < 0 {
+			return false
+		}
+		rest = rest[i+len(p):]
+	}
+	return true
+}
+
+// splitGlob cuts glob at every unescaped `*` and drops the `\` that
+// Literal adds, so each part is plain text to search for.
+func splitGlob(glob string) []string {
+	var parts []string
+	var cur strings.Builder
+	for i := 0; i < len(glob); i++ {
+		switch {
+		case glob[i] == '\\' && i+1 < len(glob):
+			i++
+			cur.WriteByte(glob[i])
+		case glob[i] == '*':
+			parts = append(parts, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(glob[i])
+		}
+	}
+	return append(parts, cur.String())
 }
