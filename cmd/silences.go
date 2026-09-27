@@ -380,17 +380,15 @@ func silenceTableRows(rows []silenceRow) [][]string {
 	return out
 }
 
-// summariseMatchers renders a matcher slice as a comma-separated
-// `name<op>"value"` summary. Mirrors the Prom convention so a
-// rendered cell can be pasted back into --matcher round-trip.
+// summariseMatchers quotes each value so a `"` or `,` in it cannot fake a
+// second matcher in the comma-joined cell.
 func summariseMatchers(ms []matcherRow) string {
 	if len(ms) == 0 {
 		return ""
 	}
 	parts := make([]string, 0, len(ms))
 	for _, m := range ms {
-		op := matcher.Op(backend.Matcher{IsRegex: m.IsRegex, IsEqual: m.IsEqual})
-		parts = append(parts, m.Name+op+`"`+m.Value+`"`)
+		parts = append(parts, matcher.Quote(backend.Matcher{Name: m.Name, Value: m.Value, IsRegex: m.IsRegex, IsEqual: m.IsEqual}))
 	}
 	return strings.Join(parts, ",")
 }

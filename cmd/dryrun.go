@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
@@ -34,6 +35,9 @@ type plannedWrite struct {
 	// read-only tenant never carries one: ADR 0049 answers read-only
 	// first, so only one reason is ever named.
 	Guardrail string `json:"guardrail,omitempty" yaml:"guardrail,omitempty"`
+	// rawMatchers stays unescaped: lines mode quotes it, while the
+	// structured modes keep the --matcher form.
+	rawMatchers []backend.Matcher
 }
 
 // runDryRun renders the resolved write plan and returns without calling
@@ -156,7 +160,8 @@ func plannedWriteFrom(t writeTarget, action string, readOnly bool) plannedWrite 
 		p.Skip = t.skip.Error()
 	}
 	if len(t.spec.Matchers) > 0 {
-		p.Matchers = renderMatchers(t.spec.Matchers)
+		p.Matchers = renderMatchers(t.spec.Matchers, matcher.Format)
+		p.rawMatchers = t.spec.Matchers
 		if !t.spec.StartsAt.IsZero() {
 			p.StartsAt = t.spec.StartsAt.UTC().Format(time.RFC3339)
 		}
@@ -169,13 +174,10 @@ func plannedWriteFrom(t writeTarget, action string, readOnly bool) plannedWrite 
 	return p
 }
 
-// renderMatchers prints each matcher as a Prometheus-style expr with the
-// value quoted, matching the --matcher input syntax so the preview reads
-// back as something the operator could retype.
-func renderMatchers(ms []backend.Matcher) []string {
+func renderMatchers(ms []backend.Matcher, render func(backend.Matcher) string) []string {
 	out := make([]string, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, matcher.Format(m))
+		out = append(out, render(m))
 	}
 	return out
 }
@@ -204,12 +206,12 @@ const dryRunReadOnlyRefused = "apply would be refused"
 
 func dryRunLine(p plannedWrite) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "would %s %s", p.Action, p.Tenant)
+	fmt.Fprintf(&b, "would %s %s", p.Action, lineSafe(p.Tenant))
 	if p.ID != "" {
-		fmt.Fprintf(&b, " %s", p.ID)
+		fmt.Fprintf(&b, " %s", lineSafe(p.ID))
 	}
-	if len(p.Matchers) > 0 {
-		fmt.Fprintf(&b, ": %s", strings.Join(p.Matchers, ", "))
+	if len(p.rawMatchers) > 0 {
+		fmt.Fprintf(&b, ": %s", strings.Join(renderMatchers(p.rawMatchers, quoteForLine), ", "))
 		if p.StartsAt != "" {
 			fmt.Fprintf(&b, " from %s", p.StartsAt)
 		}
@@ -218,13 +220,29 @@ func dryRunLine(p plannedWrite) string {
 		}
 	}
 	if p.Skip != "" {
-		fmt.Fprintf(&b, " (skip: %s)", p.Skip)
+		fmt.Fprintf(&b, " (skip: %s)", lineSafe(p.Skip))
 	}
 	if p.ReadOnly {
 		b.WriteString(" [read-only: " + dryRunReadOnlyRefused + "]")
 	}
 	if p.Guardrail != "" {
-		b.WriteString(" [guardrail: " + p.Guardrail + "]")
+		b.WriteString(" [guardrail: " + lineSafe(p.Guardrail) + "]")
 	}
 	return b.String()
+}
+
+// quoteForLine also cleans the name: ParseOne only trims it.
+func quoteForLine(m backend.Matcher) string {
+	return lineSafe(matcher.Quote(m))
+}
+
+// lineSafe replaces control runes with a space, as the backend edge does.
+// Argv and config text never passes that edge.
+func lineSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }

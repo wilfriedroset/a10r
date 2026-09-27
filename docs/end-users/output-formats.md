@@ -103,6 +103,10 @@ $ a10r silences expire sil-1 --dry-run -o json
 ]
 ```
 
+The lines mode and the `silences list` table backslash-escape each
+matcher value, so a regex `\d` prints as `\\d`. The `json` and `yaml`
+plans keep the `--matcher` form.
+
 A create/recreate plan carries the resolved `matchers`, `starts_at`,
 `ends_at`, `comment`, and `created_by` (but no `id` — that is minted at
 apply); a skipped target carries a `skip` reason; a target in a

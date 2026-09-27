@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
@@ -266,6 +267,46 @@ func TestRunDryRun_SpecRendersMatchersAndTimes(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "severity")
 	require.Contains(t, out.String(), testNow.Add(2*time.Hour).UTC().Format(time.RFC3339))
+}
+
+func TestRunDryRun_LinesEscapeWhatTheStructuredModesKeepRaw(t *testing.T) {
+	t.Parallel()
+
+	cfg := cfgWith(config.Backend{Name: "prod"})
+	targets := []writeTarget{{tenant: "prod", id: "sil\x1b]0;x\a", spec: backend.SilenceSpec{
+		Matchers: []backend.Matcher{
+			{Name: "m\x1bsg", Value: "x\", b=\"\x1b[2J", IsEqual: true},
+			{Name: "pod", Value: `\d+`, IsRegex: true, IsEqual: true},
+		},
+		EndsAt: testNow,
+	}}}
+
+	var out, errOut bytes.Buffer
+	require.NoError(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceUpdate, targets, false, nil))
+	require.NotContains(t, out.String(), "\x1b", "no raw escape byte reaches the terminal")
+	require.NotContains(t, out.String(), "\a")
+	require.Contains(t, out.String(), "would update prod sil ]0;x : ")
+	require.Contains(t, out.String(), `m sg="x\", b=\"\x1b[2J", pod=~"\\d+"`)
+
+	want := []string{"m\x1bsg=\"x\", b=\"\x1b[2J\"", `pod=~"\d+"`}
+	for _, tc := range []struct {
+		format    output.Format
+		unmarshal func([]byte, any) error
+	}{
+		{output.FormatJSON, json.Unmarshal},
+		{output.FormatYAML, yaml.Unmarshal},
+	} {
+		out.Reset()
+		require.NoError(t, runDryRun(&out, &errOut, cfg, tc.format, guardrail.ActionSilenceUpdate, targets, false, nil))
+		var got []plannedWrite
+		require.NoError(t, tc.unmarshal(out.Bytes(), &got))
+		require.Equal(t, want, got[0].Matchers, "%s: the encoder already escapes, so it keeps the --matcher form", tc.format)
+	}
+
+	out.Reset()
+	skipped := []writeTarget{{tenant: "prod", id: "sil-2", skip: errors.New("gone\x1b[2J")}}
+	require.Error(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, skipped, false, nil))
+	require.Contains(t, out.String(), "(skip: gone [2J)")
 }
 
 // TestRunDryRun_ExitMatchesTheRealRun pins spec item 8: a dry run exits

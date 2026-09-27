@@ -259,3 +259,10 @@ func errLineWrap(line int, err error) error {
 func Format(m backend.Matcher) string {
 	return m.Name + Op(m) + `"` + m.Value + `"`
 }
+
+// Quote renders a matcher for a terminal. Unlike Format it escapes the
+// value, so a quote or control byte cannot break the line, and so it
+// does not read back through ParseOne.
+func Quote(m backend.Matcher) string {
+	return m.Name + Op(m) + strconv.Quote(m.Value)
+}

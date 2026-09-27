@@ -277,3 +277,25 @@ func TestFormat_RoundTripsThroughParseOne(t *testing.T) {
 		})
 	}
 }
+
+func TestQuote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   backend.Matcher
+		want string
+	}{
+		{name: "plain value", in: backend.Matcher{Name: "a", Value: "b", IsEqual: true}, want: `a="b"`},
+		{name: "embedded quote", in: backend.Matcher{Name: "a", Value: `x", b="y`, IsEqual: true}, want: `a="x\", b=\"y"`},
+		{name: "newline", in: backend.Matcher{Name: "a", Value: "x\ny"}, want: `a!="x\ny"`},
+		{name: "terminal escape", in: backend.Matcher{Name: "a", Value: "\x1b[2J", IsEqual: true}, want: `a="\x1b[2J"`},
+		{name: "regex backslash doubles", in: backend.Matcher{Name: "a", Value: `\d+`, IsRegex: true, IsEqual: true}, want: `a=~"\\d+"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, matcher.Quote(tc.in))
+		})
+	}
+}
