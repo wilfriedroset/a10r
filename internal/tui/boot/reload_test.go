@@ -404,12 +404,28 @@ func TestBuildInfoReport_FollowsAReloadedAliasCount(t *testing.T) {
 		deps:       testDeps(t).resolved(),
 		cfg:        env.Session.Config(),
 		aliasCount: func() int { return len(resolver.UserAliases()) },
+		skinName:   func() string { return "" },
 	})
 	require.Zero(t, render().AliasCount)
 
 	require.NoError(t, resolver.ReplaceUser(map[string]string{"eu": "tenant eu"}))
 
 	require.Equal(t, 1, render().AliasCount)
+}
+
+// `:skin` is session-local and never writes the config, so a report
+// that read the config would name the boot skin for the rest of the
+// session.
+func TestBuild_InfoReportFollowsTheAppliedSkin(t *testing.T) {
+	t.Parallel()
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, testDeps(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Close() })
+
+	_, _ = res.app.Update(app.ApplySkinMsg{Name: "catppuccin-latte"})
+
+	require.Equal(t, "catppuccin-latte", res.env.InfoReport().Theme)
 }
 
 // The predicate and the registry are each covered on their own; this

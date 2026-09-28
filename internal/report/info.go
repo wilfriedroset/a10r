@@ -37,7 +37,8 @@ type InfoInput struct {
 	// remembered. Sort entries are not listed: open the file for those.
 	RememberedScope string
 	// Theme is the skin name after CLI-over-file precedence, so
-	// `a10r info --theme X` reports the skin the TUI would use.
+	// `a10r info --theme X` reports the skin the TUI would use. The
+	// TUI passes the skin in force instead, never the auto sentinel.
 	Theme string
 }
 

@@ -199,6 +199,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		// Asked of the resolver rather than counted at boot, because
 		// `:reload` swaps the whole user-alias set.
 		aliasCount: func() int { return len(resolver.UserAliases()) },
+		skinName:   func() string { return a.SkinName() },
 		found:      configFound,
 		store:      store,
 	})

@@ -267,6 +267,10 @@ func (a *App) TimeFormat() timerender.Format { return a.timeFormat }
 // at push time so a page opened after a `Shift+T` toggle stays consistent.
 func (a *App) StateFormat() stateformat.Format { return a.stateFormat }
 
+// SkinName returns the skin in force, which `:skin` and auto-detection
+// move without touching the config.
+func (a *App) SkinName() string { return a.skinName }
+
 // Quitting reports whether the App authorised a clean quit. The wiring
 // layer's bubbletea filter consults it to let an App-driven tea.QuitMsg
 // through, versus rewriting a raw SIGTERM/SIGINT QuitMsg into

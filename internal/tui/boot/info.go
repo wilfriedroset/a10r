@@ -21,8 +21,11 @@ type infoInputs struct {
 	// and a count captured at boot would contradict what the command
 	// bar resolves once it has.
 	aliasCount func() int
-	found      bool
-	store      *uistate.Store
+	// A func for the same reason: `:skin` switches the skin without
+	// writing the config.
+	skinName func() string
+	found    bool
+	store    *uistate.Store
 }
 
 // buildInfoReport returns the renderer the `:info` page calls on
@@ -52,7 +55,7 @@ func buildInfoReport(in infoInputs) func() report.InfoInput {
 			AliasCount:      in.aliasCount(),
 			StateDir:        stateDir,
 			RememberedScope: report.RememberedScope(in.cfg, in.store),
-			Theme:           in.cfg.Theme.Name,
+			Theme:           in.skinName(),
 		}
 	}
 }
