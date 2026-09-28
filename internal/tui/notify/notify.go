@@ -165,8 +165,8 @@ func formatBody(tenant string, names []string, worst int) string {
 }
 
 // emit fans the body out to the flash strip, the terminal and the
-// subprocess. The flash fires even when every transport is off, so
-// the in-app signal always exists.
+// subprocess. The flash is weak: a keystroke flash younger than
+// footer.WeakFlashGuard suppresses it, even when every transport is off.
 func (n *Notifier) emit(body string) tea.Cmd {
 	cmds := []tea.Cmd{footer.ShowWeakFlash(footer.FlashWarn, body)}
 	raw := desktopSequence(n.desktop, body)

@@ -315,8 +315,10 @@ three, stays below every floor and never notifies. No value of
 `min_severity` notifies on everything.
 
 The notification also writes one line to the flash strip, so the
-in-app signal reaches you when every transport is off. The strip holds
-one line at a time. With `tui.poll_delta` on as well, a poll that
+in-app signal reaches you when every transport is off. There is one
+exception. When a key press put a line in the strip less than one
+second before, a10r keeps that line and drops the notification line.
+The strip holds one line at a time. With `tui.poll_delta` on as well, a poll that
 brings a new alert raises two lines and you see only one of them, and
 which one is not fixed. Turn `tui.poll_delta` off when you want the
 notification line every time.
