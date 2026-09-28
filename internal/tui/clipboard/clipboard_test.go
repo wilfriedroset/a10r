@@ -122,8 +122,7 @@ func TestPickerSubmitIndexesMatchTheFieldSlice(t *testing.T) {
 		{Name: "comment", Value: long},
 		{Name: "state", Value: "active"},
 	}
-	p := modal.NewPicker("Copy field", Items(fields), modal.PickerSingle).
-		WithOrigin(PickerOrigin)
+	p := newPicker(fields)
 	// Filter first: on the unfiltered list the picker's match index
 	// equals the item index, so only a narrowed list can catch a
 	// matches-versus-items mix-up on the way back.
@@ -140,4 +139,22 @@ func TestPickerSubmitIndexesMatchTheFieldSlice(t *testing.T) {
 	require.Equal(t, "copied comment", msg.Text,
 		"the query leaves one row at match index 0, whose item index is 1")
 	require.Equal(t, long, f.Last)
+}
+
+func TestPickerSearchesPastTheDisplayCut(t *testing.T) {
+	t.Parallel()
+
+	fields := []Field{
+		{Name: "id", Value: "sil-1"},
+		{Name: "comment", Value: strings.Repeat("x", pickerValueWidth+20) + " ticket-42"},
+	}
+	p := newPicker(fields)
+	for _, r := range "ticket-42" {
+		_, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	submitted, ok := cmd().(modal.PickerSubmittedMsg)
+	require.True(t, ok)
+	require.Equal(t, []int{1}, submitted.Indexes)
 }

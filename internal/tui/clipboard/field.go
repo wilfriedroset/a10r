@@ -19,9 +19,8 @@ import (
 // cannot drive a copy.
 const PickerOrigin = "copyfield"
 
-// pickerValueWidth caps the value half of a picker row. The row is
-// also the picker's search corpus, so a query reaches only this far
-// into a value; Copy still emits the value in full.
+// pickerValueWidth caps the value half of a picker row for display.
+// The search corpus and Copy both use the value in full.
 const pickerValueWidth = 60
 
 // Field is one copyable value and the name the user searches for.
@@ -31,12 +30,15 @@ type Field struct {
 }
 
 // Items renders the picker rows as "<name>: <value>" so one query
-// narrows on the name or on the head of the value.
+// narrows on the name or on the value.
 func Items(fields []Field) []string {
+	return rows(fields, func(v string) string { return format.Ellipsize(v, pickerValueWidth) })
+}
+
+func rows(fields []Field, shape func(string) string) []string {
 	out := make([]string, len(fields))
 	for i, f := range fields {
-		flat := strings.ReplaceAll(f.Value, "\n", " ")
-		out[i] = f.Name + ": " + format.Ellipsize(flat, pickerValueWidth)
+		out[i] = f.Name + ": " + shape(strings.ReplaceAll(f.Value, "\n", " "))
 	}
 	return out
 }
@@ -44,11 +46,13 @@ func Items(fields []Field) []string {
 // OpenPicker returns a Cmd that asks the App to push the single-select
 // field picker over fields.
 func OpenPicker(fields []Field) tea.Cmd {
-	items := Items(fields)
-	return app.OpenModal(func() modal.Modal {
-		return modal.NewPicker("Copy field", items, modal.PickerSingle).
-			WithOrigin(PickerOrigin)
-	})
+	return app.OpenModal(func() modal.Modal { return newPicker(fields) })
+}
+
+func newPicker(fields []Field) *modal.Picker {
+	return modal.NewPicker("Copy field", Items(fields), modal.PickerSingle).
+		WithSearch(rows(fields, func(v string) string { return v })).
+		WithOrigin(PickerOrigin)
 }
 
 // CopySelected resolves a field-picker submit into the copy plus its flash.

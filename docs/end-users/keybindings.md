@@ -153,7 +153,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `S` | Open the silences suppressing this instance. |
 | `y` | Toggle raw alert payload as YAML (k9s-style escape hatch). The title appends ` [raw yaml]` while raw mode is active so the two views are visually distinguishable at a glance. |
 | `c` | Copy fingerprint to clipboard |
-| `Y` | Copy any field. Opens a picker over the fingerprint, the `generatorURL`, every label, and every annotation. Type to narrow on the field name or on the start of its value, `Enter` copies. The picker cuts a long value to fit its row, and searches only the part it shows; the clipboard always gets the value in full. |
+| `Y` | Copy any field. Opens a picker over the fingerprint, the `generatorURL`, every label, and every annotation. Type to narrow on the field name or on its value, `Enter` copies. The picker cuts a long value to fit its row, but the search and the clipboard always use the value in full. |
 | `o` | Open `generatorURL` in the default browser |
 | `Esc` | Back |
 
@@ -178,7 +178,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | Key | What |
 | --- | --- |
 | `y` | Toggle raw silence payload as YAML (k9s-style escape hatch); structured curated view by default. The title appends ` [raw yaml]` while raw mode is active so the two YAML views are visually distinguishable at a glance. |
-| `Y` | Copy any field. Opens a picker over the ID, creator, comment, the whole matcher selector, each matcher on its own, both timestamps, and the state. Type to narrow on the field name or on the start of its value, `Enter` copies. Timestamps copy as RFC 3339. A single matcher copies as `name="value"`, the syntax `--matcher` takes. The combined `matchers` row copies one matcher per line, the syntax the silence form's matcher box reads back. |
+| `Y` | Copy any field. Opens a picker over the ID, creator, comment, the whole matcher selector, each matcher on its own, both timestamps, and the state. Type to narrow on the field name or on its value, `Enter` copies. Timestamps copy as RFC 3339. A single matcher copies as `name="value"`, the syntax `--matcher` takes. The combined `matchers` row copies one matcher per line, the syntax the silence form's matcher box reads back. |
 | `j` / `k` | Scroll down / up one line |
 | `Ctrl+D` / `Ctrl+U` | Half-page down / up |
 | `Ctrl+F` / `Ctrl+B` | Full-page down / up |

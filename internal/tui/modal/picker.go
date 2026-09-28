@@ -63,6 +63,7 @@ type Picker struct {
 	origin string
 
 	items   []string
+	search  []string // nil searches items
 	query   string
 	cursor  int
 	marks   map[int]struct{} // selected item indexes; multi mode
@@ -88,6 +89,17 @@ func NewPicker(title string, items []string, mode PickerMode) *Picker {
 // the namespace (e.g. "scope", "silence-form-tenant").
 func (p *Picker) WithOrigin(origin string) *Picker {
 	p.origin = origin
+	return p
+}
+
+// WithSearch makes the query match against corpus instead of the shown
+// items, so a row cut for display stays searchable in full. corpus must
+// be parallel to items.
+func (p *Picker) WithSearch(corpus []string) *Picker {
+	if len(corpus) != len(p.items) {
+		panic("modal: search corpus length differs from items")
+	}
+	p.search = corpus
 	return p
 }
 
@@ -226,7 +238,11 @@ func (p *Picker) refilter() {
 			p.matches = append(p.matches, i)
 		}
 	} else {
-		hits := fuzzy.Find(p.query, p.items)
+		corpus := p.items
+		if p.search != nil {
+			corpus = p.search
+		}
+		hits := fuzzy.Find(p.query, corpus)
 		p.matches = p.matches[:0]
 		for _, m := range hits {
 			p.matches = append(p.matches, m.Index)

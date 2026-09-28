@@ -66,6 +66,24 @@ func TestPicker_QueryFiltersFuzzy(t *testing.T) {
 		"fuzzy match must put the best-fit row at the cursor")
 }
 
+func TestPicker_WithSearchFiltersOnTheCorpusAndShowsTheItems(t *testing.T) {
+	t.Parallel()
+
+	p := NewPicker("fields", []string{"a: short…", "b: other"}, PickerSingle).
+		WithSearch([]string{"a: short tail", "b: other"})
+	for _, r := range "tail" {
+		p, _ = updateAs(p, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	require.Equal(t, []int{0}, p.matches, "the query must reach past the displayed cut")
+	require.Contains(t, p.View(40, 10), "a: short…")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(PickerSubmittedMsg)
+	require.True(t, ok)
+	require.Equal(t, []int{0}, msg.Indexes)
+}
+
 // TestPicker_ShiftedLetterReachesTheQuery pins the terminal contract for
 // the shared rune helper: a capital arrives with ModShift set and must
 // still filter, or an item with an uppercase name is unreachable.
