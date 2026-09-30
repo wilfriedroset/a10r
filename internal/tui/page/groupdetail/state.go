@@ -18,7 +18,7 @@ func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
 	p.view = p.applyFilter(flat)
-	p.labelWidths = table.MeasureLabels(p.shownCols, len(p.view), func(r, i int) string { return labelCellAt(&p.view[r], i) })
+	p.labelWidths = table.MeasureLabels(p.labels.Shown(), len(p.view), func(r, i int) string { return labelCellAt(&p.view[r], i) })
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))
@@ -45,11 +45,12 @@ func (p *Page) buildEntries() []instanceEntry {
 // Returns nil when none is configured, so a page without them
 // allocates nothing per entry.
 func (p *Page) labelCellsFor(a backend.Alert) []string {
-	if len(p.labelCols) == 0 {
+	cols := p.labels.All()
+	if len(cols) == 0 {
 		return nil
 	}
-	out := make([]string, len(p.labelCols))
-	for i, c := range p.labelCols {
+	out := make([]string, len(cols))
+	for i, c := range cols {
 		out[i] = a.Labels[c.Label]
 	}
 	return out

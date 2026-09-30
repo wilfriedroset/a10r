@@ -30,30 +30,56 @@ func TestLabelColumn_ResolveMaterialisesTheConfiguredColumns(t *testing.T) {
 // The surviving columns keep their Index, which is what the cell
 // slices and the sorter are keyed by, so hiding one cannot shift a
 // row's cells under the remaining headers.
-func TestLabelColumn_VisibleDropsWideColumnsUntilTheWideTier(t *testing.T) {
+func TestLabelSet_ShownDropsWideColumnsUntilTheWideTier(t *testing.T) {
 	t.Parallel()
 
-	cols := table.Resolve([]config.Column{
+	s := table.NewLabelSet([]config.Column{
 		{Label: "cluster"},
 		{Label: "pod", Wide: true},
 		{Label: "team"},
 	})
 
-	narrow := table.Visible(cols, false)
-	require.Equal(t, []string{"cluster", "team"}, labelsOf(narrow))
-	require.Equal(t, []int{0, 2}, indicesOf(narrow))
-	require.Equal(t, cols, table.Visible(cols, true))
+	require.Equal(t, []string{"cluster", "team"}, labelsOf(s.Shown()))
+	require.Equal(t, []int{0, 2}, indicesOf(s.Shown()))
+	require.True(t, s.HiddenSortKey("label:pod"))
+	require.False(t, s.HiddenSortKey("label:cluster"))
+	require.False(t, s.HiddenSortKey("severity"))
+
+	require.True(t, s.ToggleWide())
+	require.Equal(t, s.All(), s.Shown())
+	require.False(t, s.HiddenSortKey("label:pod"))
 }
 
 // HasWide gates the Shift+W binding and its hint chip: a key that
 // changes nothing must not be advertised.
-func TestLabelColumn_HasWideGatesTheWideBinding(t *testing.T) {
+func TestLabelSet_HasWideGatesTheWideBinding(t *testing.T) {
 	t.Parallel()
 
-	plain := table.Resolve([]config.Column{{Label: "cluster"}})
-	require.False(t, table.HasWide(plain))
-	require.False(t, table.HasWide(nil))
-	require.True(t, table.HasWide(table.Resolve([]config.Column{{Label: "pod", Wide: true}})))
+	plain := table.NewLabelSet([]config.Column{{Label: "cluster"}})
+	require.False(t, plain.HasWide())
+	require.False(t, plain.ToggleWide())
+	empty := table.NewLabelSet(nil)
+	require.False(t, empty.HasWide())
+	wide := table.NewLabelSet([]config.Column{{Label: "pod", Wide: true}})
+	require.True(t, wide.HasWide())
+}
+
+// A reload keeps the wide tier while a wide column survives it, and
+// switches the tier off once none does. Otherwise a later reload that
+// adds one back would open it already shown, with no Shift+W press.
+func TestLabelSet_ReconfigureKeepsTheWideTierOnlyWithAWideColumn(t *testing.T) {
+	t.Parallel()
+
+	wide := config.Column{Label: "pod", Wide: true}
+	s := table.NewLabelSet([]config.Column{wide})
+	require.True(t, s.ToggleWide())
+
+	s.Reconfigure([]config.Column{wide, {Label: "team"}})
+	require.Equal(t, []string{"pod", "team"}, labelsOf(s.Shown()))
+
+	s.Reconfigure(nil)
+	s.Reconfigure([]config.Column{wide})
+	require.Empty(t, s.Shown())
 }
 
 func labelsOf(cols []table.LabelColumn) []string {

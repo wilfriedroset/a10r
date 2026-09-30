@@ -58,32 +58,87 @@ func Resolve(cols []config.Column) []LabelColumn {
 	return out
 }
 
-// Visible returns the columns a page renders at the current tier. A
-// wide column stays out of view until the operator presses Shift+W,
-// which is the answer to a terminal too narrow for every column the
-// operator wants available (ADR 0048).
-func Visible(cols []LabelColumn, wide bool) []LabelColumn {
-	if wide || !HasWide(cols) {
-		return cols
-	}
-	out := make([]LabelColumn, 0, len(cols))
-	for _, c := range cols {
-		if !c.Wide {
-			out = append(out, c)
-		}
-	}
-	return out
+// LabelSet is a page's user-declared label columns together with the
+// display tier. A wide column stays out of view until the operator
+// presses Shift+W, which is the answer to a terminal too narrow for
+// every column the operator wants available (ADR 0048).
+type LabelSet struct {
+	all   []LabelColumn
+	shown []LabelColumn
+	wide  bool
 }
+
+// NewLabelSet resolves cols and starts at the narrow tier.
+func NewLabelSet(cols []config.Column) LabelSet {
+	var s LabelSet
+	s.Reconfigure(cols)
+	return s
+}
+
+// Reconfigure re-resolves the columns after a reload. The wide tier
+// survives only while a wide column does, so a later reload that adds
+// one back opens it hidden.
+func (s *LabelSet) Reconfigure(cols []config.Column) {
+	s.all = Resolve(cols)
+	if !s.HasWide() {
+		s.wide = false
+	}
+	s.shown = s.visible()
+}
+
+// ToggleWide flips the display tier. It reports false when no column
+// is wide, which spares the caller a recompute that would paint an
+// identical frame.
+func (s *LabelSet) ToggleWide() bool {
+	if !s.HasWide() {
+		return false
+	}
+	s.wide = !s.wide
+	s.shown = s.visible()
+	return true
+}
+
+// All returns every declared column, in config order. Row cell slices
+// are built from it, so a tier change never rebuilds them.
+func (s *LabelSet) All() []LabelColumn { return s.all }
+
+// Shown hides the wide columns until Shift+W.
+func (s *LabelSet) Shown() []LabelColumn { return s.shown }
 
 // HasWide reports whether any column is wide. A page with none must
 // not advertise Shift+W, because the key would change nothing.
-func HasWide(cols []LabelColumn) bool {
-	for _, c := range cols {
+func (s *LabelSet) HasWide() bool {
+	for _, c := range s.all {
 		if c.Wide {
 			return true
 		}
 	}
 	return false
+}
+
+// HiddenSortKey reports a sort key the operator cannot see right
+// now, which is a wide column outside the wide tier. Pages install it
+// on the sorter so h/l steps over the axis and its hotkey stays dead.
+func (s *LabelSet) HiddenSortKey(key string) bool {
+	for _, c := range s.all {
+		if c.Key == key {
+			return c.Wide && !s.wide
+		}
+	}
+	return false
+}
+
+func (s *LabelSet) visible() []LabelColumn {
+	if s.wide || !s.HasWide() {
+		return s.all
+	}
+	out := make([]LabelColumn, 0, len(s.all))
+	for _, c := range s.all {
+		if !c.Wide {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // labelWidthFloor is the narrowest a measured label column asks for

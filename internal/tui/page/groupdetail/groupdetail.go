@@ -146,30 +146,6 @@ func labelSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEntry
 	return out
 }
 
-// isHiddenSortKey reports a sort axis the operator cannot see right
-// now, which is a wide column outside the wide tier. Installed on the
-// sorter so h/l steps over it and its hotkey stays dead.
-func (p *Page) isHiddenSortKey(key string) bool {
-	for _, c := range p.labelCols {
-		if c.Key == key {
-			return c.Wide && !p.wide
-		}
-	}
-	return false
-}
-
-// toggleWide flips the display tier. It reports false when the page
-// declares no wide column, which spares the caller a recompute that
-// would paint an identical frame.
-func (p *Page) toggleWide() bool {
-	if !table.HasWide(p.labelCols) {
-		return false
-	}
-	p.wide = !p.wide
-	p.shownCols = table.Visible(p.labelCols, p.wide)
-	return true
-}
-
 // labelCellAt reads an entry's cell for user column i. buildEntries
 // fills one cell per column for every entry, so the guard only
 // catches an entry built before the column set was resolved.
@@ -318,19 +294,11 @@ type Page struct {
 	logger             *slog.Logger
 	cancelBulk         context.CancelFunc
 
-	// labelCols are the resolved user-declared columns. shownCols is
-	// the subset the current display tier renders, and wide is that
-	// tier: false hides every `wide: true` column until the operator
-	// presses Shift+W. A row's cells and the sorter's axes stay keyed
-	// by labelCols order through table.LabelColumn.Index, so toggling
-	// the tier moves no cell.
-	//
-	// labelWidths are the measured cell widths of shownCols,
-	// refreshed by recompute so the renderer never scans the rows
-	// itself.
-	labelCols   []table.LabelColumn
-	shownCols   []table.LabelColumn
-	wide        bool
+	labels table.LabelSet
+
+	// labelWidths are the measured cell widths of the shown label
+	// columns, refreshed by recompute so the renderer never scans the
+	// rows itself.
 	labelWidths []int
 
 	scroll table.Scroll
@@ -359,7 +327,7 @@ func New(opts Options) *Page {
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	sess := session.Must(opts.Session)
-	labelCols := table.Resolve(sess.GroupDetailColumns())
+	labels := table.NewLabelSet(sess.GroupDetailColumns())
 	p := &Page{
 		Scope:          opts.Tenant,
 		BackendHealth:  map[string]listpage.BackendHealth{},
@@ -377,8 +345,7 @@ func New(opts Options) *Page {
 		alertName:      opts.AlertName,
 		instances:      append([]backend.Alert(nil), opts.Instances...),
 		common:         map[string]string{},
-		labelCols:      labelCols,
-		shownCols:      table.Visible(labelCols, false),
+		labels:         labels,
 		marks:          map[string]struct{}{},
 		logger:         opts.Logger,
 		session:        sess,
@@ -386,10 +353,10 @@ func New(opts Options) *Page {
 		submitCtx:      opts.SubmitCtx,
 		editorResolver: opts.EditorResolver,
 		editorCtx:      opts.EditorCtx,
-		sorter:         tablesort.New(instanceSortColumns(labelCols), sortKeySeverity),
+		sorter:         tablesort.New(instanceSortColumns(labels.All()), sortKeySeverity),
 	}
 	p.sorter.Bind(opts.SortMemory, ViewName)
-	p.sorter.SetHidden(p.isHiddenSortKey)
+	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
 	p.Grammar = filterexpr.AlertGrammar
 	p.RowCount = func() int { return len(p.view) }
@@ -406,12 +373,8 @@ func New(opts Options) *Page {
 // same reason as the alerts list: they key the sorter and the header
 // geometry. A sort on a removed column falls back to the default.
 func (p *Page) reconfigure() {
-	p.labelCols = table.Resolve(p.session.GroupDetailColumns())
-	if !table.HasWide(p.labelCols) {
-		p.wide = false
-	}
-	p.shownCols = table.Visible(p.labelCols, p.wide)
-	p.sorter.SetColumns(instanceSortColumns(p.labelCols))
+	p.labels.Reconfigure(p.session.GroupDetailColumns())
+	p.sorter.SetColumns(instanceSortColumns(p.labels.All()))
 	p.recompute()
 }
 
@@ -505,7 +468,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "Shift+F", Description: "state filter", View: ViewName},
 		action.Action{Key: "Shift+C", Description: "common labels", View: ViewName},
 	)
-	if table.HasWide(p.labelCols) {
+	if p.labels.HasWide() {
 		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: ViewName})
 	}
 	out = append(out, sortBindings...)

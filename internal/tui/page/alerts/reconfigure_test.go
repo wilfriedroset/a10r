@@ -61,7 +61,7 @@ func TestConfigReloadedResetsTheWideTier(t *testing.T) {
 
 	wide := config.Column{Label: "cluster", Wide: true}
 	p, sess := reloadablePage(t, wide)
-	require.True(t, p.toggleWide())
+	require.True(t, p.labels.ToggleWide())
 
 	sess.Apply(config.Config{})
 	_, _ = p.Update(app.ConfigReloadedMsg{})

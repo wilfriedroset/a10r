@@ -152,30 +152,6 @@ func labelSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 	return out
 }
 
-// isHiddenSortKey reports a sort axis the operator cannot see right
-// now, which is a wide column outside the wide tier. Installed on the
-// sorter so h/l steps over it and its hotkey stays dead.
-func (p *Page) isHiddenSortKey(key string) bool {
-	for _, c := range p.labelCols {
-		if c.Key == key {
-			return c.Wide && !p.wide
-		}
-	}
-	return false
-}
-
-// toggleWide flips the display tier. It reports false when the page
-// declares no wide column, which spares the caller a recompute that
-// would paint an identical frame.
-func (p *Page) toggleWide() bool {
-	if !table.HasWide(p.labelCols) {
-		return false
-	}
-	p.wide = !p.wide
-	p.shownCols = table.Visible(p.labelCols, p.wide)
-	return true
-}
-
 // labelCellAt reads a group's cell for user column i. aggregate fills
 // one cell per column for every group, so the guard is there for
 // hand-built alertGroup literals in tests.
@@ -475,18 +451,9 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
-	// labelCols are the user-declared label columns, resolved at
-	// construction and again by reconfigure. shownCols is the subset
-	// the current display tier renders, and wide is that tier: false
-	// hides every `wide: true` column until the operator presses
-	// Shift+W. A row's cells and the sorter's axes stay keyed by
-	// labelCols order through table.LabelColumn.Index, so toggling the
-	// tier moves no cell.
-	labelCols []table.LabelColumn
-	shownCols []table.LabelColumn
-	wide      bool
+	labels table.LabelSet
 
-	// labelWidths is the measured cell width of each shownCols entry
+	// labelWidths is the measured cell width of each shown label column
 	// over the whole filtered view, refreshed by recompute so the
 	// renderer never re-scans the rows per frame.
 	labelWidths []int
@@ -530,7 +497,7 @@ func New(opts Options) *Page {
 	}
 	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	sess := session.Must(opts.Session)
-	labelCols := table.Resolve(sess.AlertColumns())
+	labels := table.NewLabelSet(sess.AlertColumns())
 	p := &Page{
 		Scope:          opts.Scope,
 		BackendHealth:  map[string]listpage.BackendHealth{},
@@ -545,9 +512,8 @@ func New(opts Options) *Page {
 		timeFormat:     opts.TimeFormat,
 		stateFormat:    opts.StateFormat,
 		byTenant:       map[string][]backend.Alert{},
-		labelCols:      labelCols,
-		shownCols:      table.Visible(labelCols, false),
-		sorter:         tablesort.New(alertSortColumns(labelCols), sortKeySeverity),
+		labels:         labels,
+		sorter:         tablesort.New(alertSortColumns(labels.All()), sortKeySeverity),
 		marks:          map[string]struct{}{},
 		logger:         opts.Logger,
 		session:        sess,
@@ -559,7 +525,7 @@ func New(opts Options) *Page {
 		sortMemory:     opts.SortMemory,
 	}
 	p.sorter.Bind(opts.SortMemory, resourceAlerts)
-	p.sorter.SetHidden(p.isHiddenSortKey)
+	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
 	p.Grammar = filterexpr.AlertGrammar
 	p.SetFilter(opts.InitialFilter)
@@ -577,12 +543,8 @@ func New(opts Options) *Page {
 // cannot be read at the point of use. A sort on a column the reload
 // removed falls back to the page default.
 func (p *Page) reconfigure() {
-	p.labelCols = table.Resolve(p.session.AlertColumns())
-	if !table.HasWide(p.labelCols) {
-		p.wide = false
-	}
-	p.shownCols = table.Visible(p.labelCols, p.wide)
-	p.sorter.SetColumns(alertSortColumns(p.labelCols))
+	p.labels.Reconfigure(p.session.AlertColumns())
+	p.sorter.SetColumns(alertSortColumns(p.labels.All()))
 	p.recompute()
 }
 
@@ -665,7 +627,7 @@ func (p *Page) Bindings() []action.Action {
 		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
 		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
 	)
-	if table.HasWide(p.labelCols) {
+	if p.labels.HasWide() {
 		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: resourceAlerts})
 	}
 	out = append(out, sortBindings...)

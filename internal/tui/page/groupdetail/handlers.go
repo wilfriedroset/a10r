@@ -145,7 +145,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.commonCollapsed = !p.commonCollapsed
 		return p, nil
 	case "W":
-		if p.toggleWide() {
+		if p.labels.ToggleWide() {
 			p.recompute()
 		}
 	case "T":

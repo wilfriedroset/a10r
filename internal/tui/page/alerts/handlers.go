@@ -168,7 +168,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "W":
-		if p.toggleWide() {
+		if p.labels.ToggleWide() {
 			p.recompute()
 		}
 	case "T":

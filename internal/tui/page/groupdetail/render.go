@@ -165,15 +165,15 @@ func (p *Page) row(i int, previewed bool) table.Row {
 	isActive := a.State == backend.AlertStateActive
 
 	sev := table.Cell{Text: severityOf(a)}
-	labels := table.Cell{Text: entry.distinguishSummary}
+	summary := table.Cell{Text: entry.distinguishSummary}
 	if isActive && !isCursor && !marked {
 		tint := p.styles.Severity.ForLabel(a.Labels["severity"])
 		sev.Paint = func(shown string) string { return tint.Render(shown) }
-		labels.Paint = p.styleDistinguish
+		summary.Paint = p.styleDistinguish
 	}
-	cells := make([]table.Cell, 0, 4+len(p.shownCols))
-	cells = append(cells, sev, labels)
-	for _, c := range p.shownCols {
+	cells := make([]table.Cell, 0, 4+len(p.labels.Shown()))
+	cells = append(cells, sev, summary)
+	for _, c := range p.labels.Shown() {
 		cells = append(cells, table.Cell{Text: labelCellAt(&entry, c.Index)})
 	}
 	cells = append(cells,
@@ -252,7 +252,7 @@ func (p *Page) columns() []table.Column {
 		stateContent = max(stateContent, lipgloss.Width(stateToken(e.a.State, p.stateFormat)))
 	}
 
-	out := make([]table.Column, 0, 4+len(p.shownCols))
+	out := make([]table.Column, 0, 4+len(p.labels.Shown()))
 	out = append(out,
 		table.Column{Key: sortKeySeverity, Title: "SEVERITY", Sortable: true, Min: sevMin, Content: max(sevMin, sevContent)},
 		// INSTANCE is the unbounded flex column: FlexUnbounded stops the
@@ -263,7 +263,7 @@ func (p *Page) columns() []table.Column {
 			Min: instanceMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipMiddle,
 		},
 	)
-	out = append(out, table.LabelColumns(p.shownCols, p.labelWidths)...)
+	out = append(out, table.LabelColumns(p.labels.Shown(), p.labelWidths)...)
 	return append(out,
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: max(stateMin, stateContent)},
 		table.Column{Key: sortKeyAge, Title: "AGE", Sortable: true, Min: ageMin, Content: ageMin},

@@ -145,7 +145,7 @@ func (p *Page) row(i int, g alertGroup, ctx rowCtx) table.Row {
 	if !rowStyled {
 		sevCell = hl.Cell(sevLabel, p.styles.Severity.ForLabel(sevLabel))
 	}
-	cells := make([]table.Cell, 0, 6+len(p.shownCols))
+	cells := make([]table.Cell, 0, 6+len(p.labels.Shown()))
 	if ctx.showTenant {
 		cells = append(cells, table.Cell{Text: g.tenant, Paint: paint})
 	}
@@ -153,7 +153,7 @@ func (p *Page) row(i int, g alertGroup, ctx rowCtx) table.Row {
 		table.Cell{Text: sevCell, Paint: paint},
 		table.Cell{Text: alertNameCell(g), Paint: paint},
 	)
-	for _, c := range p.shownCols {
+	for _, c := range p.labels.Shown() {
 		cells = append(cells, table.Cell{Text: labelCellAt(&g, c.Index), Paint: paint})
 	}
 	cells = append(cells,
@@ -268,7 +268,7 @@ func (p *Page) columns() []table.Column {
 	}
 	m := p.measure()
 
-	out := make([]table.Column, 0, 6+len(p.shownCols))
+	out := make([]table.Column, 0, 6+len(p.labels.Shown()))
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		out = append(out, table.Column{Key: sortKeyTenant, Title: "TENANT", Min: tenantMin, Content: m.tenant})
 	}
@@ -284,7 +284,7 @@ func (p *Page) columns() []table.Column {
 			Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipEllipsis,
 		},
 	)
-	out = append(out, table.LabelColumns(p.shownCols, m.label)...)
+	out = append(out, table.LabelColumns(p.labels.Shown(), m.label)...)
 	return append(out,
 		table.Column{Key: sortKeyCount, Title: "COUNT", Sortable: true, Min: countMin, Content: m.count},
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: min(stateContentCap, max(stateMin, m.state))},
