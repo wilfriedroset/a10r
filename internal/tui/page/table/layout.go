@@ -76,13 +76,6 @@ func window(sp []format.Column, budget, offset int) (win format.Window, inner in
 	return win, inner
 }
 
-// Shown is how many columns the frame paints. WidthOf answers 0 for
-// a column out of view, which a caller cannot tell from a column
-// allocated nothing; this says where the window ends.
-func (l Layout) Shown() int {
-	return len(l.win.Cols)
-}
-
 // WidthOf returns the cells the column named key was given, or 0 when
 // the horizontal window has scrolled it out of view. A page that must
 // clip a cell itself asks here rather than counting positions.

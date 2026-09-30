@@ -9,12 +9,14 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -313,20 +315,46 @@ func TestLabelColumn_TooNarrowScrollsInsteadOfShrinking(t *testing.T) {
 	cols := p.columns()
 	l := p.scroll.Layout(cols, 80)
 	require.Zero(t, p.scroll.Offset)
-	require.Positive(t, l.Shown())
-	require.Less(t, l.Shown(), len(cols), "a row this narrow must drop columns")
 	// Nothing has scrolled, so the window is a contiguous run from the
-	// first column and the painted ones are the first Shown() of the set. One allocated
-	// nothing is the shrink this test forbids.
-	widths := make([]int, 0, l.Shown())
-	for i, c := range cols[:l.Shown()] {
+	// first column. WidthOf answers 0 both past the window edge and for
+	// a column shrunk to nothing, so the first zero must be a column
+	// whose claim cannot fit beside the claims before it.
+	budget := 80 - format.RowPrefixCols - 1
+	widths := make([]int, 0, len(cols))
+	claimed := 0
+	for _, c := range cols {
 		w := l.WidthOf(c.Key)
-		require.Positive(t, w, "column %d collapsed to nothing", i)
+		if w == 0 {
+			require.Greater(t, claimed+len(widths)+claimOf(c), budget, "column %s fits but got no width", c.Key)
+			break
+		}
+		require.GreaterOrEqual(t, w, floorOf(c), "column %s fell below its floor", c.Key)
 		widths = append(widths, w)
+		claimed += claimOf(c)
 	}
+	require.NotEmpty(t, widths)
+	require.Less(t, len(widths), len(cols), "a row this narrow must drop columns")
 	require.Contains(t, rowContaining(t, testutil.StripStyle(p.View(80, 24)), "SEVERITY"), ">")
 	// One cell of the budget goes to the ">" marker.
-	require.LessOrEqual(t, sum(widths)+len(widths)-1, 80-format.RowPrefixCols-1)
+	require.LessOrEqual(t, sum(widths)+len(widths)-1, budget)
+}
+
+// floorOf and claimOf mirror table.specs and format.colWidth: the
+// floor is what a painted column keeps, the claim is what the window
+// reserves for it.
+func floorOf(c table.Column) int {
+	w := lipgloss.Width(c.Title)
+	if c.Sortable {
+		w += 2
+	}
+	return max(c.Min, w)
+}
+
+func claimOf(c table.Column) int {
+	if c.Weight > 0 {
+		return floorOf(c)
+	}
+	return max(floorOf(c), c.Content)
 }
 
 func sum(in []int) int {

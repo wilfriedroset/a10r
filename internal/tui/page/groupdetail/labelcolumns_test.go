@@ -215,7 +215,6 @@ func TestLabelColumn_NarrowTerminalKeepsBuiltInFloors(t *testing.T) {
 	cols := p.columns()
 	l := p.scroll.Layout(cols, 80)
 	require.Len(t, cols, len(floors))
-	require.Equal(t, len(floors), l.Shown(), "every column must fit at this width")
 	for i, floor := range floors {
 		require.GreaterOrEqual(t, l.WidthOf(cols[i].Key), floor, "column %d fell below its floor", i)
 	}
