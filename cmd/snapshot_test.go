@@ -103,7 +103,7 @@ func TestSnapshotCmd_RequiresExactlyOnePage(t *testing.T) {
 func TestSnapshotCmd_FlagDefaults(t *testing.T) {
 	t.Parallel()
 	var flags GlobalFlags
-	cmd := newSnapshotCmd(&flags)
+	cmd := newSnapshotCmd(&flags, runSnapshot)
 	require.True(t, cmd.Hidden, "snapshot is a maintainer tool, not a user surface")
 
 	f := cmd.Flags()
@@ -137,7 +137,7 @@ func TestSnapshotCmd_AbsentFromHelp(t *testing.T) {
 func TestSnapshotCmd_UsesTheDefaultWaitWhenUnset(t *testing.T) {
 	t.Parallel()
 	var flags GlobalFlags
-	cmd := newSnapshotCmd(&flags)
+	cmd := newSnapshotCmd(&flags, runSnapshot)
 
 	var names []string
 	cmd.Flags().VisitAll(func(f *pflag.Flag) { names = append(names, f.Name) })

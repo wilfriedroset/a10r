@@ -54,16 +54,25 @@ type Notifier struct {
 	// only membership is read back.
 	seen map[string]map[string]int
 
-	run func(ctx context.Context, name string, args ...string) error
+	run Runner
 	// commandFailed is atomic because two of these tea.Cmds can race
 	// each other: one poll per tenant is in flight at a time, and each
 	// runs the subprocess on its own goroutine.
 	commandFailed atomic.Bool
 }
 
+// Runner is the subprocess seam. RunCommand is the production one.
+type Runner func(ctx context.Context, name string, args ...string) error
+
 // New returns a notifier under cfg. A disabled one announces nothing.
 func New(cfg config.Notify) *Notifier {
-	n := &Notifier{run: runCommand, seen: map[string]map[string]int{}}
+	return NewWithRunner(cfg, RunCommand)
+}
+
+// NewWithRunner is New with the subprocess swapped, so a caller
+// outside this package can prove which runs spawn nothing.
+func NewWithRunner(cfg config.Notify, run Runner) *Notifier {
+	n := &Notifier{run: run, seen: map[string]map[string]int{}}
 	n.Apply(cfg)
 	return n
 }
@@ -245,9 +254,9 @@ func (n *Notifier) commandCmd(body string) tea.Cmd {
 	}
 }
 
-// runCommand discards stdout and stderr: the program is a notifier,
+// RunCommand discards stdout and stderr: the program is a notifier,
 // and its output belongs on the user's desktop, not in the frame.
-func runCommand(ctx context.Context, name string, args ...string) error {
+func RunCommand(ctx context.Context, name string, args ...string) error {
 	// #nosec G204 -- the argv is the user's own config, and it runs
 	// without a shell, so there is nothing to inject into.
 	if err := exec.CommandContext(ctx, name, args...).Run(); err != nil {

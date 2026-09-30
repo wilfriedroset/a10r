@@ -20,7 +20,10 @@ const snapshotUse = "snapshot"
 // Hidden from `--help` on purpose. It exists for the screenshot
 // pipeline and for CI, not for on-callers, and every page it can
 // render is one keystroke away inside the TUI itself.
-func newSnapshotCmd(flags *GlobalFlags) *cobra.Command {
+//
+// run is runSnapshot in production. Tests pass a recorder to read the
+// options the flags produce.
+func newSnapshotCmd(flags *GlobalFlags, run func(*cobra.Command, *GlobalFlags, boot.SnapshotOptions) error) *cobra.Command {
 	var opts boot.SnapshotOptions
 	cmd := &cobra.Command{
 		Use:   snapshotUse + " <page>",
@@ -42,7 +45,7 @@ Pages: ` + strings.Join(boot.SnapshotPages(), ", "),
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Page = args[0]
-			return runSnapshot(cmd, flags, opts)
+			return run(cmd, flags, opts)
 		},
 	}
 	f := cmd.Flags()

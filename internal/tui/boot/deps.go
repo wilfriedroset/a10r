@@ -13,6 +13,7 @@ import (
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -83,6 +84,11 @@ type Deps struct {
 	// Tests override to return t.TempDir() or empty (in-memory rings).
 	HistoryDir func() (string, error)
 
+	// NotifyRunner starts the tui.notify command. Production default:
+	// notify.RunCommand. Tests count the calls to prove that a
+	// headless render spawns nothing.
+	NotifyRunner notify.Runner
+
 	// Now is the time source the page renderers read for their
 	// relative columns (AGE, ENDS IN). Production default:
 	// time.Now. Tests freeze it so a rendered frame is byte-stable.
@@ -143,6 +149,9 @@ func (d Deps) resolved() Deps {
 	}
 	if out.HistoryDir == nil {
 		out.HistoryDir = footer.DefaultHistoryDir
+	}
+	if out.NotifyRunner == nil {
+		out.NotifyRunner = notify.RunCommand
 	}
 	if out.Now == nil {
 		out.Now = time.Now
