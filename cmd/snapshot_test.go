@@ -143,4 +143,13 @@ func TestSnapshotCmd_UsesTheDefaultWaitWhenUnset(t *testing.T) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) { names = append(names, f.Name) })
 	require.ElementsMatch(t, []string{"width", "height", "color"}, names,
 		"a knob of any name over the wait would make boot.DefaultSnapshotWait stop applying")
+
+	var got boot.SnapshotOptions
+	cmd = newSnapshotCmd(&flags, func(_ *cobra.Command, _ *GlobalFlags, opts boot.SnapshotOptions) error {
+		got = opts
+		return nil
+	})
+	cmd.SetArgs([]string{"alerts"})
+	require.NoError(t, cmd.Execute())
+	require.Zero(t, got.Wait, "a zero is what makes the renderer fall back to boot.DefaultSnapshotWait")
 }

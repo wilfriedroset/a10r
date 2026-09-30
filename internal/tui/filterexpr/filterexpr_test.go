@@ -484,6 +484,19 @@ func TestLabelRegexTerms(t *testing.T) {
 	require.False(t, mustParse(t, "severity!~crit.*").Match(baseRow()))
 }
 
+// TestInWordBangIsAnOperator pins that only a leading `!` negates:
+// read as `severity` AND NOT `=info`, the critical row would miss.
+func TestInWordBangIsAnOperator(t *testing.T) {
+	t.Parallel()
+
+	e := mustParse(t, "severity!=info")
+	require.True(t, e.Match(baseRow()))
+
+	info := baseRow()
+	info.Labels = map[string]string{"severity": "info"}
+	require.False(t, e.Match(info))
+}
+
 // TestUncompilableRegexReachesTheUser pins that a broken `=~` value
 // is reported rather than silently demoted to a text search.
 func TestUncompilableRegexReachesTheUser(t *testing.T) {

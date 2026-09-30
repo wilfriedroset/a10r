@@ -317,22 +317,28 @@ const (
 	interactiveBoot = false
 )
 
-// notifyingResult boots the graph with tui.notify on, so the only
-// difference between the two cases is the headless flag.
-func notifyingResult(t *testing.T, headless bool) *Result {
+// notifyingResult boots the graph with tui.notify on and a command
+// set, so the only difference between the two cases is the headless
+// flag.
+func notifyingResult(t *testing.T, headless bool) (res *Result, runs *int) {
 	t.Helper()
+	runs = new(int)
 	deps := testDeps(t)
 	deps.Headless = headless
+	deps.NotifyRunner = func(context.Context, string, ...string) error {
+		*runs++
+		return nil
+	}
 	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
 		return &config.Config{
 			Backends: []config.Backend{{Name: "prod", URL: "https://am-prod.internal"}},
-			TUI:      config.TUI{Notify: config.Notify{Enabled: true}},
+			TUI:      config.TUI{Notify: config.Notify{Enabled: true, Command: []string{"notify-send"}}},
 		}, nil
 	}
 	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, res.Close()) })
-	return res
+	return res, runs
 }
 
 func firingPoll(alertname string) poll.DataMsg {
@@ -382,11 +388,13 @@ func drain(cmd tea.Cmd) []tea.Msg {
 // configured program.
 func TestBuild_HeadlessDisablesTheNotifier(t *testing.T) {
 	t.Parallel()
-	a := notifyingResult(t, headlessBoot).App()
+	res, runs := notifyingResult(t, headlessBoot)
+	a := res.App()
 
 	require.False(t, notifyFlashed(a, firingPoll("HighCPU")), "the first poll only warms up")
 	require.False(t, notifyFlashed(a, firingPoll("DiskFull")),
 		"a headless render must stay silent on a new firing alert")
+	require.Zero(t, *runs, "a headless render must not spawn the notify command")
 }
 
 // TestBuild_InteractiveKeepsTheNotifier is the companion: the same
@@ -394,11 +402,13 @@ func TestBuild_HeadlessDisablesTheNotifier(t *testing.T) {
 // path rather than the config.
 func TestBuild_InteractiveKeepsTheNotifier(t *testing.T) {
 	t.Parallel()
-	a := notifyingResult(t, interactiveBoot).App()
+	res, runs := notifyingResult(t, interactiveBoot)
+	a := res.App()
 
 	require.False(t, notifyFlashed(a, firingPoll("HighCPU")), "the first poll only warms up")
 	require.True(t, notifyFlashed(a, firingPoll("DiskFull")),
 		"the interactive path must still announce a new firing alert")
+	require.Equal(t, 1, *runs, "the interactive path must still run the notify command")
 }
 
 // TestSnapshot_NamesABackendWithNoClient pins the frame a
