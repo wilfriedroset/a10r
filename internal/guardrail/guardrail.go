@@ -1,21 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package guardrail evaluates the per-tenant write policy declared
-// under `guardrails:` in a10r.yaml. It is the single evaluator the
-// TUI and the headless CLI both import, so a rule cannot mean one
-// thing on a key press and another on a command line.
-//
-// The package is pure: it answers "what does policy say about this
-// run" and never performs or blocks a write itself. Set.Decide owns
-// the counting rule — one Request.Tenants entry per resolved target
-// — so no surface can count bulk for itself. Callers own only the
-// enforcement: hiding a binding, flashing a warning, refusing a
-// command.
-//
-// Evaluation is per tenant. A run that spans several backends asks
-// once per backend and enforces each answer separately, because a
-// cap counts the targets landing in one tenant rather than the size
-// of the whole run.
+// Package guardrail evaluates the `guardrails:` write policy. The TUI and
+// the CLI share it so a rule means the same on a key press and a command line.
+// It never blocks a write: callers own the enforcement.
 package guardrail
 
 import (

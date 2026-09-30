@@ -614,7 +614,6 @@ func (p *Page) Footer() string {
 // PollResources implements app.PollAwarePage.
 func (*Page) PollResources() []string { return []string{resourceAlerts} }
 
-// When read-only, Dangerous entries ('s') are stripped before returning.
 func (p *Page) Bindings() []action.Action {
 	guarded := p.guarded()
 	sortBindings := p.sorter.Bindings(resourceAlerts)

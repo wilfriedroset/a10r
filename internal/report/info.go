@@ -221,15 +221,8 @@ func renderBackend(w *writer, b config.Backend) {
 	}
 }
 
-// authLabel summarises the configured auth as a single word for the
-// info report. Returns empty string when no auth is configured —
-// the caller skips the line entirely. The schema's "at most one of
-// basic_auth, authorization, bearer_token" rule (config.Backend.
-// Validate) means at most one branch fires per backend.
-//
-// The url branch is last on purpose. The url line above is redacted,
-// so without it a backend that authenticates through userinfo would
-// read as one that does not authenticate at all.
+// The url branch is last because the report's url line is redacted: without it,
+// userinfo auth would read as no auth.
 func authLabel(b config.Backend) string {
 	switch {
 	case b.BasicAuth != nil:

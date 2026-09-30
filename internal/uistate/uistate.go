@@ -75,15 +75,8 @@ type Store struct {
 	disabled bool
 }
 
-// Open loads `<dir>/ui-state.yaml` and returns a usable Store. An
-// empty dir disables the store entirely: reads answer zero values
-// and writes are dropped, which is how an unresolvable state dir
-// (or `tui.remember: false`) turns the feature off. A missing file
-// is the first-run case. A malformed file logs once at warn and
-// disables the store for the rest of the run, so the file is never
-// deleted or rewritten: a hand-edited file with a typo is worth more
-// to its author than a clean slate, and an empty state would
-// otherwise flush over it on the first keypress.
+// Open loads `<dir>/ui-state.yaml`. An empty dir disables the store. A
+// malformed file also disables it, so a hand-edited typo is never flushed over.
 func Open(dir string) *Store {
 	if dir == "" {
 		return &Store{}

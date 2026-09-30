@@ -61,20 +61,9 @@ type SnapshotOptions struct {
 	Wait time.Duration
 }
 
-// Snapshot renders one settled frame of the requested page and
-// returns it. It drives the same bubbletea program the TUI runs,
-// with the renderer and the input disabled, so the frame is the
-// assembled article — top panel, body, footer — rather than a
-// page's View in isolation.
-//
-// The render waits for the first poll of every backend (see
-// pollGate) up to opts.Wait, then quits the program and reads the
-// final model's View. Reading after Run returns keeps the frame
-// race-free: quitWithCleanup closes the pages but leaves the stack
-// standing, so the settled view is still there to render.
-//
-// Callers own the Result lifecycle exactly as cmd/tui.go does:
-// Build, defer Close, then Snapshot.
+// Snapshot renders one settled frame of the requested page. The View is
+// read after Run returns to stay race-free: quitWithCleanup closes the
+// pages but leaves the stack standing. Callers Build, defer Close, then Snapshot.
 func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, error) {
 	push, err := r.resolveSnapshotPage(opts.Page)
 	if err != nil {
@@ -154,15 +143,8 @@ func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, er
 	return frame, nil
 }
 
-// snapshotProgram builds the headless bubbletea program a snapshot
-// drives: no renderer, no input, no output, and a window size that
-// comes from the flags rather than from a terminal.
-//
-// tea.WithContext is set here although cmd/tui.go deliberately omits
-// it: there a cancelled ctx would skip the page-stack Close cascade
-// on SIGTERM. A snapshot wants exactly that abort, because a
-// cancelled render has no frame to hand back and the process exits
-// straight after. Close still runs from the caller's defer.
+// Unlike cmd/tui.go, this sets tea.WithContext: a cancelled snapshot has
+// no frame to return, and Close still runs from the caller's defer.
 func (r *Result) snapshotProgram(ctx context.Context, width, height int) *tea.Program {
 	return tea.NewProgram(r.app,
 		tea.WithContext(ctx),
@@ -252,15 +234,8 @@ func newPollGate(cfg *config.Config, clients map[string]backend.Client) *pollGat
 	return g
 }
 
-// observe records one poller report. A DataMsg settles its own
-// (tenant, resource) pair. An unreachable BackendStatusMsg settles
-// the whole tenant instead: the message carries no resource label,
-// and a backend nothing can reach will only repeat the failure
-// until the deadline, so the degraded band it produces is already
-// the frame the user sees. ConnDegraded is deliberately not a
-// shortcut — poll.stateFromErr raises it for a single failing
-// endpoint, and the other resources on that tenant are still worth
-// waiting for.
+// Unreachable carries no resource label and only repeats until the deadline,
+// so it settles the whole tenant. ConnDegraded is per endpoint, so it does not.
 func (g *pollGate) observe(msg tea.Msg) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
