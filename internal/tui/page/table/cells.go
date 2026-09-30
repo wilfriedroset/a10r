@@ -63,9 +63,10 @@ func Resolve(cols []config.Column) []LabelColumn {
 // presses Shift+W, which is the answer to a terminal too narrow for
 // every column the operator wants available (ADR 0048).
 type LabelSet struct {
-	all   []LabelColumn
-	shown []LabelColumn
-	wide  bool
+	all    []LabelColumn
+	shown  []LabelColumn
+	widths []int
+	wide   bool
 }
 
 // NewLabelSet resolves cols and starts at the narrow tier.
@@ -127,6 +128,29 @@ func (s *LabelSet) HiddenSortKey(key string) bool {
 	}
 	return false
 }
+
+// Cells reads one value per declared column, in config order. It
+// returns nil when none is declared, so a page without columns
+// allocates nothing per row.
+func (s *LabelSet) Cells(value func(label string) string) []string {
+	if len(s.all) == 0 {
+		return nil
+	}
+	out := make([]string, len(s.all))
+	for i, c := range s.all {
+		out[i] = value(c.Label)
+	}
+	return out
+}
+
+// Measure refreshes the widths Columns reads. A page calls it after
+// every row or tier change, never per frame (see MeasureLabels).
+func (s *LabelSet) Measure(rows int, cell func(r, i int) string) {
+	s.widths = MeasureLabels(s.shown, rows, cell)
+}
+
+// Columns is the shown block at the last measured widths.
+func (s *LabelSet) Columns() []Column { return LabelColumns(s.shown, s.widths) }
 
 func (s *LabelSet) visible() []LabelColumn {
 	if s.wide || !s.HasWide() {

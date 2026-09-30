@@ -82,6 +82,44 @@ func TestLabelSet_ReconfigureKeepsTheWideTierOnlyWithAWideColumn(t *testing.T) {
 	require.Empty(t, s.Shown())
 }
 
+// Cells keys the slice by config order over every column, shown or
+// not, so a tier change never rebuilds a row.
+func TestLabelSet_CellsReadsOneValuePerDeclaredColumn(t *testing.T) {
+	t.Parallel()
+
+	s := table.NewLabelSet([]config.Column{{Label: "cluster"}, {Label: "pod", Wide: true}})
+	labels := map[string]string{"cluster": "eu", "pod": "web-1"}
+	require.Equal(t, []string{"eu", "web-1"}, s.Cells(func(l string) string { return labels[l] }))
+
+	empty := table.NewLabelSet(nil)
+	require.Nil(t, empty.Cells(func(string) string { return "x" }))
+}
+
+// Measure covers the shown columns only, so the widths line up with
+// the block Columns returns after a tier change.
+func TestLabelSet_MeasureFeedsColumns(t *testing.T) {
+	t.Parallel()
+
+	s := table.NewLabelSet([]config.Column{{Label: "cluster"}, {Label: "pod", Wide: true}})
+	rows := [][]string{{"eu", "a-long-pod"}, {"us-east", "p"}}
+	cell := func(r, i int) string { return rows[r][i] }
+
+	s.Measure(len(rows), cell)
+	require.Equal(t, []int{7}, contentsOf(s.Columns()))
+
+	require.True(t, s.ToggleWide())
+	s.Measure(len(rows), cell)
+	require.Equal(t, []int{7, 10}, contentsOf(s.Columns()))
+}
+
+func contentsOf(cols []table.Column) []int {
+	out := make([]int, 0, len(cols))
+	for _, c := range cols {
+		out = append(out, c.Content)
+	}
+	return out
+}
+
 func labelsOf(cols []table.LabelColumn) []string {
 	out := make([]string, 0, len(cols))
 	for _, c := range cols {

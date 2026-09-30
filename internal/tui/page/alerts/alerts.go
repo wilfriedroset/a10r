@@ -453,11 +453,6 @@ type Page struct {
 
 	labels table.LabelSet
 
-	// labelWidths is the measured cell width of each shown label column
-	// over the whole filtered view, refreshed by recompute so the
-	// renderer never re-scans the rows per frame.
-	labelWidths []int
-
 	scroll table.Scroll
 
 	// sorter: comparators from alertSortColumns.

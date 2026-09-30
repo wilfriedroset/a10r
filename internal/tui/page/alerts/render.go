@@ -284,7 +284,7 @@ func (p *Page) columns() []table.Column {
 			Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipEllipsis,
 		},
 	)
-	out = append(out, table.LabelColumns(p.labels.Shown(), m.label)...)
+	out = append(out, p.labels.Columns()...)
 	return append(out,
 		table.Column{Key: sortKeyCount, Title: "COUNT", Sortable: true, Min: countMin, Content: m.count},
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: min(stateContentCap, max(stateMin, m.state))},
@@ -295,7 +295,6 @@ func (p *Page) columns() []table.Column {
 // measured is the widest cell each measured column holds in the
 // current view.
 type measured struct {
-	label                     []int
 	tenant, sev, count, state int
 }
 
@@ -306,7 +305,7 @@ type measured struct {
 // header width here: the layout pass floors every column at its own
 // header, so a second copy of the titles would only rot.
 func (p *Page) measure() measured {
-	m := measured{label: p.labelWidths}
+	var m measured
 	for i := range p.groups {
 		g := &p.groups[i]
 		m.tenant = max(m.tenant, lipgloss.Width(g.tenant))

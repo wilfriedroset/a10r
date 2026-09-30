@@ -116,8 +116,8 @@ func (p *Page) recompute() {
 	total, knownKey := p.scanScope()
 	flat := p.flatten(total)
 	survivors := p.applyFilter(flat)
-	p.groups = aggregate(survivors, p.labels.All())
-	p.labelWidths = table.MeasureLabels(p.labels.Shown(), len(p.groups), func(r, i int) string { return labelCellAt(&p.groups[r], i) })
+	p.groups = aggregate(survivors, &p.labels)
+	p.labels.Measure(len(p.groups), func(r, i int) string { return labelCellAt(&p.groups[r], i) })
 	p.sorter.Apply(p.groups)
 	p.resolveFocus(knownKey)
 	p.Clamp(len(p.groups))
@@ -176,7 +176,7 @@ func (p *Page) flatten(total int) []alertEntry {
 // rows. A missing alertname (Labels["alertname"]=="") groups under
 // the synthetic empty-name key; the renderer surfaces it as
 // "(no alertname)".
-func aggregate(in []alertEntry, cols []table.LabelColumn) []alertGroup {
+func aggregate(in []alertEntry, labels *table.LabelSet) []alertGroup {
 	byKey := map[string]*alertGroup{}
 	order := make([]string, 0)
 	for _, e := range in {
@@ -211,21 +211,8 @@ func aggregate(in []alertEntry, cols []table.LabelColumn) []alertGroup {
 		sort.Slice(g.instances, func(i, j int) bool {
 			return g.instances[i].Fingerprint < g.instances[j].Fingerprint
 		})
-		g.labelCells = rollupCells(g.instances, cols)
+		g.labelCells = labels.Cells(func(l string) string { return aggregateCell(g.instances, l) })
 		out = append(out, *g)
-	}
-	return out
-}
-
-// rollupCells returns nil when no columns are configured, so a page
-// without them allocates nothing per group.
-func rollupCells(instances []backend.Alert, cols []table.LabelColumn) []string {
-	if len(cols) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(cols))
-	for _, c := range cols {
-		out = append(out, aggregateCell(instances, c.Label))
 	}
 	return out
 }

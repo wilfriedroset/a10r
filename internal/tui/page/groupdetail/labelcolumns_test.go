@@ -243,7 +243,8 @@ func TestLabelColumn_ScrollDoesNotChangeMeasuredWidth(t *testing.T) {
 	require.Greater(t, p.TopRow(), 20, "the scroll must move the window past the wide row")
 
 	p.recompute()
-	require.Equal(t, []int{lipgloss.Width("a-much-longer-pod-name")}, p.labelWidths)
+	require.Len(t, p.labels.Columns(), 1)
+	require.Equal(t, lipgloss.Width("a-much-longer-pod-name"), p.labels.Columns()[0].Content)
 }
 
 // A configured width may bound the cells; it may not cut the header.

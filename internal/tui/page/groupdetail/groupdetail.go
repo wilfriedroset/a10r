@@ -296,11 +296,6 @@ type Page struct {
 
 	labels table.LabelSet
 
-	// labelWidths are the measured cell widths of the shown label
-	// columns, refreshed by recompute so the renderer never scans the
-	// rows itself.
-	labelWidths []int
-
 	scroll table.Scroll
 
 	sorter      *tablesort.Sorter[instanceEntry]

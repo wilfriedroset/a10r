@@ -8,7 +8,6 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
-	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 )
 
 // recompute rebuilds common, the entry slice, and the sorted/filtered
@@ -18,7 +17,7 @@ func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
 	p.view = p.applyFilter(flat)
-	p.labelWidths = table.MeasureLabels(p.labels.Shown(), len(p.view), func(r, i int) string { return labelCellAt(&p.view[r], i) })
+	p.labels.Measure(len(p.view), func(r, i int) string { return labelCellAt(&p.view[r], i) })
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))
@@ -35,23 +34,8 @@ func (p *Page) buildEntries() []instanceEntry {
 			a:                  a,
 			lowerComposite:     lowerComposite(a),
 			distinguishSummary: distinguishingSummary(a, p.common),
-			labelCells:         p.labelCellsFor(a),
+			labelCells:         p.labels.Cells(func(l string) string { return a.Labels[l] }),
 		})
-	}
-	return out
-}
-
-// labelCellsFor reads one raw label value per user-declared column.
-// Returns nil when none is configured, so a page without them
-// allocates nothing per entry.
-func (p *Page) labelCellsFor(a backend.Alert) []string {
-	cols := p.labels.All()
-	if len(cols) == 0 {
-		return nil
-	}
-	out := make([]string, len(cols))
-	for i, c := range cols {
-		out[i] = a.Labels[c.Label]
 	}
 	return out
 }

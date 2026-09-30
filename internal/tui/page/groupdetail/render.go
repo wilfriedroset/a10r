@@ -263,7 +263,7 @@ func (p *Page) columns() []table.Column {
 			Min: instanceMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipMiddle,
 		},
 	)
-	out = append(out, table.LabelColumns(p.labels.Shown(), p.labelWidths)...)
+	out = append(out, p.labels.Columns()...)
 	return append(out,
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: max(stateMin, stateContent)},
 		table.Column{Key: sortKeyAge, Title: "AGE", Sortable: true, Min: ageMin, Content: ageMin},
