@@ -57,8 +57,11 @@ nothing else, because the digits are the only part a user
 overlay can already break.
 
 **Namespace discipline.** On a page whose body is a table, sort
-claims the column-letter namespace first: if a column starts with
-that letter, `Shift+<letter>` sorts by it and does nothing else.
+claims the column-letter namespace first. Each sortable column
+claims its hotkey letter, and `Shift+<letter>` sorts by it and does
+nothing else. A column that does not sort, such as TENANT on the
+alerts list, claims no letter, so `Shift+T` stays a view verb on
+that page.
 Remaining letters go to non-destructive view verbs (`Shift+F`
 cycles the state filter). A detail page has no columns to sort, so
 every letter is free there, the reserved motions aside, on the
