@@ -180,6 +180,8 @@ A new key binding:
   the key becomes load-bearing
 - the user-override reject list in `internal/config/keys.go` when the
   key must not be rebound
+- `reserved` in `internal/config/columns.go` when the key is an
+  uppercase letter on the alerts or group detail page
 
 A new config field:
 
@@ -226,6 +228,19 @@ A new page:
 - `sortResources` in `internal/tui/boot/boot.go` when the page
   remembers a sort column -- the key there must match the one the
   page passes to `Sorter.Bind`
+
+A new built-in column on the alerts or group detail page:
+
+- the page's `columns()` in its `render.go`, and its sort column set
+  when the column sorts
+- `titles` in `internal/config/columns.go`, and `reserved` when the
+  column has a `Shift+<letter>` sort -- each page's
+  `TestColumnRules_ConfigMatchesThePage` fails when config misses one
+- the page's table in `docs/end-users/keybindings.md` when the column
+  sorts
+- the user-column placement in `docs/end-users/configuration.md` and
+  `docs/adr/0048-user-label-columns.md` when the column lands next to
+  the user block
 
 A new `/` filter mode or sigil:
 

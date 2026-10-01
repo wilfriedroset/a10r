@@ -59,7 +59,9 @@ type columnPage struct {
 // binding sets are page-local and free to diverge. G is in the set
 // although no page binds it as a sort: it is the jump-to-bottom
 // motion, which the cursor consumes before the sorter ever sees the
-// key, so a user column on G would be silently dead.
+// key, so a user column on G would be silently dead. config cannot
+// import the pages, so pagetest.RequireColumnRulesMatchPage pins
+// these copies against them.
 var (
 	pageAlerts = columnPage{
 		path:     "pages.alerts",
