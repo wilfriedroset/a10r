@@ -23,7 +23,7 @@ type Highlighter struct {
 }
 
 // HighlighterFor builds the painter for one row, the single place
-// the three list pages agree on what a match looks like. A plain row
+// the list pages agree on what a match looks like. A plain row
 // takes the filter colour on the matched characters. A row the page
 // wraps in one style takes an underline instead, so the row colour
 // and the cursor background are left alone.

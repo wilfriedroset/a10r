@@ -127,10 +127,11 @@ func (p *Page) renderRows(l table.Layout, width, maxRows int) string {
 	// An open range previews as marked rows; the keys only reach
 	// p.marks on commit, so the span is resolved per frame.
 	visual := listpage.VisualPreview(&p.Base, p.view, markKey)
+	spans := p.FilterSpans()
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(l.Row(p.row(i, visual.Covers(i)), width))
+		b.WriteString(l.Row(p.row(i, visual.Covers(i), spans), width))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -147,8 +148,8 @@ func (p *Page) renderRows(l table.Layout, width, maxRows int) string {
 // the TUI. Suppressed and unprocessed instances recede: the whole row
 // dims, so the firing ones the operator can still act on stand out.
 // The cursor and marked rows keep their row-level wrap (nested ANSI
-// inside it is fragile), so their labels stay plain under the wrap.
-func (p *Page) row(i int, previewed bool) table.Row {
+// inside it is fragile), so their labels keep no palette of their own.
+func (p *Page) row(i int, previewed bool, spans func(string) [][2]int) table.Row {
 	entry := p.view[i]
 	a := entry.a
 	ageLabel := p.formatTime(a.StartsAt)
@@ -163,22 +164,26 @@ func (p *Page) row(i int, previewed bool) table.Row {
 	}
 	isCursor := i == p.Index()
 	isActive := a.State == backend.AlertStateActive
+	rowStyled := isCursor || marked || !isActive
+	hl := format.HighlighterFor(spans, p.styles.Table.MatchFg, rowStyled)
+	// Bound once: a method value per cell escapes to the heap.
+	paint := hl.Text
 
-	sev := table.Cell{Text: severityOf(a)}
-	summary := table.Cell{Text: entry.distinguishSummary}
-	if isActive && !isCursor && !marked {
+	sev := table.Cell{Text: severityOf(a), Paint: paint}
+	summary := table.Cell{Text: entry.distinguishSummary, Paint: paint}
+	if !rowStyled {
 		tint := p.styles.Severity.ForLabel(a.Labels["severity"])
-		sev.Paint = func(shown string) string { return tint.Render(shown) }
-		summary.Paint = p.styleDistinguish
+		sev.Paint = func(shown string) string { return hl.Cell(shown, tint) }
+		summary.Paint = func(shown string) string { return p.styleDistinguish(shown, hl) }
 	}
 	cells := make([]table.Cell, 0, 4+len(p.labels.Shown()))
 	cells = append(cells, sev, summary)
 	for _, c := range p.labels.Shown() {
-		cells = append(cells, table.Cell{Text: labelCellAt(&entry, c.Index)})
+		cells = append(cells, table.Cell{Text: labelCellAt(&entry, c.Index), Paint: paint})
 	}
 	cells = append(cells,
-		table.Cell{Text: stateToken(a.State, p.stateFormat)},
-		table.Cell{Text: ageLabel},
+		table.Cell{Text: stateToken(a.State, p.stateFormat), Paint: paint},
+		table.Cell{Text: ageLabel, Paint: paint},
 	)
 	prefix := "  "
 	if isCursor {
@@ -209,8 +214,9 @@ func (p *Page) rowStyle(a backend.Alert, isCursor, marked bool) lipgloss.Style {
 // the plain string, so the ellipsis stays correct and colouring never
 // changes the cell's width — layout is unaffected. A fragment the clip
 // left without an `=` (a rare middle-cut artefact) renders in the value
-// colour.
-func (p *Page) styleDistinguish(clipped string) string {
+// colour. hl paints each piece on its own, so a filter match that
+// crosses a key, `=` and value boundary paints nothing.
+func (p *Page) styleDistinguish(clipped string, hl format.Highlighter) string {
 	if clipped == "" {
 		return clipped
 	}
@@ -218,12 +224,12 @@ func (p *Page) styleDistinguish(clipped string) string {
 	for i, pair := range pairs {
 		name, val, ok := strings.Cut(pair, "=")
 		if !ok {
-			pairs[i] = p.styles.YAML.Value.Render(pair)
+			pairs[i] = hl.Cell(pair, p.styles.YAML.Value)
 			continue
 		}
-		pairs[i] = p.styles.YAML.Key.Render(name) +
+		pairs[i] = hl.Cell(name, p.styles.YAML.Key) +
 			p.styles.YAML.Punct.Render("=") +
-			p.styles.YAML.Value.Render(val)
+			hl.Cell(val, p.styles.YAML.Value)
 	}
 	return strings.Join(pairs, p.styles.YAML.Punct.Render(" · "))
 }
