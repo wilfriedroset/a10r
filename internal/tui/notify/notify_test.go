@@ -507,6 +507,7 @@ func TestCommandFailureFlashesOncePerSession(t *testing.T) {
 		var out []string
 		for _, msg := range resolve(n.Observe("prod-eu", []backend.Alert{alert(alertname, "critical", backend.AlertStateActive)})) {
 			if f, ok := msg.(footer.FlashShowMsg); ok && strings.Contains(f.Text, "not found") {
+				require.False(t, f.Weak, "the one failure flash must not yield to a keypress flash")
 				out = append(out, f.Text)
 			}
 		}

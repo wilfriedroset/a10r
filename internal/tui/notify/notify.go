@@ -240,7 +240,8 @@ func substituteMessage(argv []string, body string) []string {
 
 // commandCmd runs the configured program off the event loop. A
 // failure flashes once per session, so a missing notify-send does not
-// flash on every poll.
+// flash on every poll. The flash is not weak: a keypress must not hide
+// the only notice.
 func (n *Notifier) commandCmd(body string) tea.Cmd {
 	argv := substituteMessage(n.command, body)
 	return func() tea.Msg {
@@ -250,7 +251,7 @@ func (n *Notifier) commandCmd(body string) tea.Cmd {
 		if err == nil || !n.commandFailed.CompareAndSwap(false, true) {
 			return nil
 		}
-		return footer.FlashShowMsg{Level: footer.FlashWarn, Text: "notify command: " + err.Error(), Weak: true}
+		return footer.FlashShowMsg{Level: footer.FlashWarn, Text: "notify command: " + err.Error()}
 	}
 }
 
