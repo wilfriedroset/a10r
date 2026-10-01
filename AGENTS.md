@@ -183,6 +183,16 @@ A new key binding:
 - `reserved` in `internal/config/columns.go` when the key is an
   uppercase letter on the alerts or group detail page
 
+A new guardrail action:
+
+- the constant and `knownActions` in `internal/guardrail/guardrail.go`
+- the verb list in the Guardrails section of
+  `docs/end-users/configuration.md`
+- the `Guarded` tag (`internal/tui/action/action.go`) that each page's
+  `Bindings()` sets on a binding that runs the verb
+- the `ensureGuardrailsAllow` and `runDryRun` calls in the `cmd/`
+  command that runs the verb
+
 A new config field:
 
 - the struct and its validation in `internal/config/types.go`
