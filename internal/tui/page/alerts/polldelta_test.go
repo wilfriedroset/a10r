@@ -93,8 +93,8 @@ func TestPollDelta_CountsAggregateKeys(t *testing.T) {
 	}
 }
 
-// A count change inside one aggregate is not a delta: the spec
-// reports appearing and disappearing alertnames only.
+// A count change inside one aggregate is not a delta: only appearing
+// and disappearing alertnames are.
 func TestPollDelta_CountChangeInsideAnAggregateIsSilent(t *testing.T) {
 	t.Parallel()
 

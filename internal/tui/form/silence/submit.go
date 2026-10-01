@@ -210,9 +210,8 @@ func (f *Form) submitNow() tea.Cmd {
 
 // guardrailGate is the last policy check before a single write leaves
 // the form. A read-only session never reaches it, because the key that
-// opens the form is filtered before the form exists, which is how spec
-// item 11 holds here: policy is never quoted on a backend a10r cannot
-// write to at all.
+// opens the form is filtered before the form exists. Policy is never
+// quoted on a backend a10r cannot write to at all.
 //
 // A rule that asks for any confirmation opens the prompt and stops
 // here. The answer arrives as a ConfirmResultMsg and re-enters
