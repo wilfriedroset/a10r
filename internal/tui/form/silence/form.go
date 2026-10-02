@@ -121,7 +121,7 @@ type Form struct {
 	guardrails guardrail.Set
 	// action names the verb a submit performs, so a rule that restricts
 	// only silence.update reaches the edit form and nothing else.
-	action string
+	action guardrail.Action
 	// awaitingConfirm records that a guardrail prompt is open for this
 	// form. A ConfirmResultMsg with no prompt pending starts a write
 	// nobody asked for, so the form answers only its own question.
@@ -190,9 +190,9 @@ type Options struct {
 	// against. Zero value means no policy, the shape every test and
 	// every read-only-free deployment sees.
 	Guardrails guardrail.Set
-	// Action names the verb the submit performs: one of the
-	// guardrail.ActionSilence* names. Empty means silence.create.
-	Action string
+	// Action names the verb the submit performs. Empty means
+	// silence.create.
+	Action guardrail.Action
 	// Confirmed names the backends whose guardrail confirmation the
 	// pushing page already collected, so a page that asked before it
 	// pushed the form does not make the user answer twice for one write.
@@ -285,23 +285,23 @@ func New(opts Options) *Form {
 	}
 
 	f := &Form{
-		clients:         opts.Clients,
-		tenant:          opts.Tenant,
-		styles:          opts.Styles,
-		now:             now,
-		matchers:        matchers,
-		starts:          starts,
-		ends:            ends,
-		creator:         creator,
-		comment:         comment,
-		editID:          opts.EditID,
-		guardrails:      opts.Guardrails,
-		action:          verb,
-		confirmed:       opts.Confirmed,
-		bulk:            opts.Bulk,
-		bulkBanner:      opts.BulkBanner,
-		scopeNote:       opts.ScopeNote,
-		submit:          submitter{parent: opts.SubmitCtx},
+		clients:    opts.Clients,
+		tenant:     opts.Tenant,
+		styles:     opts.Styles,
+		now:        now,
+		matchers:   matchers,
+		starts:     starts,
+		ends:       ends,
+		creator:    creator,
+		comment:    comment,
+		editID:     opts.EditID,
+		guardrails: opts.Guardrails,
+		action:     verb,
+		confirmed:  opts.Confirmed,
+		bulk:       opts.Bulk,
+		bulkBanner: opts.BulkBanner,
+		scopeNote:  opts.ScopeNote,
+		submit:     submitter{parent: opts.SubmitCtx},
 	}
 	// Default focus is fieldMatchers (the iota+1 slot). Tenant is
 	// the visual first row but not the keyboard-first row: the user

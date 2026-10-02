@@ -11,24 +11,27 @@ import (
 	"strings"
 )
 
-// The write verbs a rule can name. Bulk is not a separate action: a
-// rule matches a bulk run through the same name as its single form,
-// and only MaxBulk reads the target count.
+// Action is a write verb a rule can name. Pass an Action* constant: an
+// untyped literal still converts, and a name no rule matches fails open.
+type Action string
+
+// Bulk is not a separate action: a rule matches a bulk run through the
+// same name as its single form, and only MaxBulk reads the target count.
 const (
-	ActionSilenceCreate   = "silence.create"
-	ActionSilenceUpdate   = "silence.update"
-	ActionSilenceExpire   = "silence.expire"
-	ActionSilenceRecreate = "silence.recreate"
+	ActionSilenceCreate   Action = "silence.create"
+	ActionSilenceUpdate   Action = "silence.update"
+	ActionSilenceExpire   Action = "silence.expire"
+	ActionSilenceRecreate Action = "silence.recreate"
 )
 
 // knownActions is the closed set a rule's `actions` globs must hit at
 // least one of. Order is the one the validation error prints, which
 // matches the lifecycle a reader expects rather than the alphabet.
 var knownActions = []string{
-	ActionSilenceCreate,
-	ActionSilenceUpdate,
-	ActionSilenceExpire,
-	ActionSilenceRecreate,
+	string(ActionSilenceCreate),
+	string(ActionSilenceUpdate),
+	string(ActionSilenceExpire),
+	string(ActionSilenceRecreate),
 }
 
 // Confirmation is how hard a10r makes the user work before a write
@@ -148,10 +151,10 @@ type Set []Rule
 // verdict: any deny wins, the smallest cap wins, the strongest
 // confirmation wins. It stays unexported so Decide is the only way in
 // and a new write verb cannot forget the check.
-func (s Set) evaluate(tenant, action string) Verdict {
+func (s Set) evaluate(tenant string, action Action) Verdict {
 	var v Verdict
 	for _, r := range s {
-		if !match(r.Tenants, tenant) || !match(r.Actions, action) {
+		if !match(r.Tenants, tenant) || !match(r.Actions, string(action)) {
 			continue
 		}
 		if r.Deny {

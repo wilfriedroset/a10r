@@ -32,7 +32,7 @@ func TestNewSilencesPage_CarriesTheGuardrails(t *testing.T) {
 	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
 		return &config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
-			Actions: []string{guardrail.ActionSilenceExpire},
+			Actions: []string{"silence.expire"},
 			Deny:    true,
 		}}}, nil
 	}

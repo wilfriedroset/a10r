@@ -7,11 +7,9 @@ import (
 	"slices"
 )
 
-// Request is one write the policy is asked about. Action is an
-// ActionSilence* constant, never a hand-written string: a name no rule
-// can match would fail open.
+// Request is one write the policy is asked about.
 type Request struct {
-	Action string
+	Action Action
 	// Tenants carries one entry per resolved target, so duplicates are
 	// the per-tenant count max_bulk compares against. It is built
 	// before any read-only or client-availability filtering, because a
@@ -67,7 +65,7 @@ func (s Set) Decide(req Request) Decision {
 	}
 	lead := req.Lead
 	if lead == "" {
-		lead = req.Action
+		lead = string(req.Action)
 	}
 
 	var d Decision

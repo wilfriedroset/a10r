@@ -2472,7 +2472,7 @@ func TestGuardrail_DenyMarksOnlyTheDeniedVerb(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		action string
+		action guardrail.Action
 		want   []string
 	}{
 		{guardrail.ActionSilenceCreate, []string{"n"}},
@@ -2480,12 +2480,12 @@ func TestGuardrail_DenyMarksOnlyTheDeniedVerb(t *testing.T) {
 		{guardrail.ActionSilenceExpire, []string{"x"}},
 		{guardrail.ActionSilenceRecreate, []string{"Ctrl+N"}},
 	} {
-		t.Run(tc.action, func(t *testing.T) {
+		t.Run(string(tc.action), func(t *testing.T) {
 			t.Parallel()
 
 			p := guardedRowsPage(t, guardrail.Set{{
 				Tenants: []string{"prod"},
-				Actions: []string{tc.action},
+				Actions: []string{string(tc.action)},
 				Deny:    true,
 			}})
 			require.Equal(t, tc.want, guardedKeys(p))
@@ -2498,7 +2498,7 @@ func TestGuardrail_DeniedKeyFlashesTheRefusal(t *testing.T) {
 
 	p := guardedRowsPage(t, guardrail.Set{{
 		Tenants: []string{"prod"},
-		Actions: []string{guardrail.ActionSilenceExpire},
+		Actions: []string{"silence.expire"},
 		Deny:    true,
 		Reason:  "use the change ticket",
 	}})
@@ -2551,7 +2551,7 @@ func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
-			Actions: []string{guardrail.ActionSilenceExpire},
+			Actions: []string{"silence.expire"},
 			Deny:    true,
 			Reason:  "use the change ticket",
 		}}}),
@@ -2589,7 +2589,7 @@ func TestGuardrail_AFilteredMarkOnADeniedTenantStopsThePress(t *testing.T) {
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
-			Actions: []string{guardrail.ActionSilenceExpire},
+			Actions: []string{"silence.expire"},
 			Deny:    true,
 			Reason:  "use the change ticket",
 		}}}),
@@ -2626,7 +2626,7 @@ func cappedMarksPage(t *testing.T) *Page {
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{"prod"},
-			Actions: []string{guardrail.ActionSilenceExpire},
+			Actions: []string{"silence.expire"},
 			MaxBulk: new(2),
 		}}}),
 	})
@@ -2706,7 +2706,7 @@ func TestGuardrail_TheCapCountsOneTenantAtATime(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
-			Actions: []string{guardrail.ActionSilenceExpire},
+			Actions: []string{"silence.expire"},
 			MaxBulk: new(1),
 		}}}),
 	})
@@ -2736,7 +2736,7 @@ func TestGuardrail_ATypedRuleReplacesTheYesNoModal(t *testing.T) {
 
 	p := guardedRowsPage(t, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceExpire},
+		Actions:      []string{"silence.expire"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 
@@ -2758,7 +2758,7 @@ func TestGuardrail_ATypedRuleLeavesTheUnrestrictedTenantOfABulkRunAlone(t *testi
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "staging": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
-			Actions:      []string{guardrail.ActionSilenceExpire},
+			Actions:      []string{"silence.expire"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})
@@ -2808,7 +2808,7 @@ func TestGuardrail_ATypedRuleAsksOncePerRestrictedTenant(t *testing.T) {
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
-			Actions:      []string{guardrail.ActionSilenceExpire},
+			Actions:      []string{"silence.expire"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})
@@ -2835,7 +2835,7 @@ func TestGuardrail_TheNewSilenceFormCarriesThePolicy(t *testing.T) {
 
 	p := guardedRowsPage(t, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceCreate},
+		Actions:      []string{"silence.create"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 
@@ -2850,7 +2850,7 @@ func TestGuardrail_TheEditFormReadsTheUpdateVerb(t *testing.T) {
 
 	p := guardedRowsPage(t, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Actions:      []string{"silence.update"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 
@@ -2872,7 +2872,7 @@ func TestGuardrail_TheRecreateFormReadsTheRecreateVerb(t *testing.T) {
 		Creator: "wilfried",
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{"prod"},
-			Actions:      []string{guardrail.ActionSilenceRecreate},
+			Actions:      []string{"silence.recreate"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})
@@ -2903,7 +2903,7 @@ func TestGuardrail_ATypedRuleAsksBeforeTheEditorOpens(t *testing.T) {
 
 	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Actions:      []string{"silence.update"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 
@@ -2925,7 +2925,7 @@ func TestGuardrail_ACancelledEditorPromptOpensNothing(t *testing.T) {
 
 	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Actions:      []string{"silence.update"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
@@ -2943,7 +2943,7 @@ func TestGuardrail_APlainRuleAsksBeforeTheEditorOpens(t *testing.T) {
 
 	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Actions:      []string{"silence.update"},
 		Confirmation: guardrail.ConfirmationPlain,
 	}})
 
@@ -2961,7 +2961,7 @@ func TestGuardrail_TheEditorPromptKeepsItsOwnRow(t *testing.T) {
 
 	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceUpdate},
+		Actions:      []string{"silence.update"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
@@ -2998,7 +2998,7 @@ func TestGuardrail_AFinishedEditWithNoTenantWritesNothing(t *testing.T) {
 			name: "a typed rule",
 			rules: guardrail.Set{{
 				Tenants:      []string{"prod"},
-				Actions:      []string{guardrail.ActionSilenceUpdate},
+				Actions:      []string{"silence.update"},
 				Confirmation: guardrail.ConfirmationTypeTenantName,
 			}},
 		},
@@ -3006,7 +3006,7 @@ func TestGuardrail_AFinishedEditWithNoTenantWritesNothing(t *testing.T) {
 			name: "a deny rule",
 			rules: guardrail.Set{{
 				Tenants: []string{"prod"},
-				Actions: []string{guardrail.ActionSilenceUpdate},
+				Actions: []string{"silence.update"},
 				Deny:    true,
 				Reason:  "frozen",
 			}},

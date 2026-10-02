@@ -13,7 +13,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/session"
 )
 
-func decide(s *session.Session, tenant, action string) guardrail.Decision {
+func decide(s *session.Session, tenant string, action guardrail.Action) guardrail.Decision {
 	return s.Guardrails().Decide(guardrail.Request{Action: action, Tenants: []string{tenant}})
 }
 
@@ -185,13 +185,13 @@ func TestGuardrails_DeniesEveryWriteVerbOnAReadOnlyBackend(t *testing.T) {
 		{Name: "staging"},
 	}})
 
-	for _, action := range []string{
+	for _, action := range []guardrail.Action{
 		guardrail.ActionSilenceCreate,
 		guardrail.ActionSilenceUpdate,
 		guardrail.ActionSilenceExpire,
 		guardrail.ActionSilenceRecreate,
 	} {
-		t.Run(action, func(t *testing.T) {
+		t.Run(string(action), func(t *testing.T) {
 			t.Parallel()
 
 			d := decide(s, "prod", action)

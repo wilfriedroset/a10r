@@ -233,7 +233,7 @@ func (f *Form) guardrailGate() (tea.Cmd, bool) {
 	if d.Confirm == "" || slices.Contains(f.confirmed, f.tenant) {
 		return nil, false
 	}
-	question := "submit " + f.action + " on " + f.tenant + "?"
+	question := "submit " + string(f.action) + " on " + f.tenant + "?"
 	f.awaitingConfirm = true
 	return app.OpenModal(func() modal.Modal {
 		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, d.Typed)

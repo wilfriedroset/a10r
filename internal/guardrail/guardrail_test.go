@@ -66,7 +66,7 @@ func TestSetEvaluate(t *testing.T) {
 		name   string
 		set    Set
 		tenant string
-		action string
+		action Action
 		want   Verdict
 	}{
 		{
@@ -78,14 +78,14 @@ func TestSetEvaluate(t *testing.T) {
 		},
 		{
 			name:   "deny on a matching tenant and action",
-			set:    Set{{Tenants: []string{"prod-*"}, Actions: []string{ActionSilenceExpire}, Deny: true, Reason: "use the change ticket"}},
+			set:    Set{{Tenants: []string{"prod-*"}, Actions: []string{"silence.expire"}, Deny: true, Reason: "use the change ticket"}},
 			tenant: "prod-eu",
 			action: ActionSilenceExpire,
 			want:   Verdict{Denied: true, Reason: "use the change ticket"},
 		},
 		{
 			name:   "deny skipped on a non-matching action",
-			set:    Set{{Tenants: []string{"prod-*"}, Actions: []string{ActionSilenceExpire}, Deny: true}},
+			set:    Set{{Tenants: []string{"prod-*"}, Actions: []string{"silence.expire"}, Deny: true}},
 			tenant: "prod-eu",
 			action: ActionSilenceCreate,
 			want:   Verdict{},
@@ -267,7 +267,7 @@ func TestSetValidate(t *testing.T) {
 			name: "a fully populated rule is accepted",
 			set: Set{{
 				Tenants:      []string{"prod-*"},
-				Actions:      []string{ActionSilenceExpire},
+				Actions:      []string{"silence.expire"},
 				Deny:         true,
 				Confirmation: ConfirmationTypeTenantName,
 				MaxBulk:      new(20),
@@ -428,7 +428,7 @@ func TestVerdict_DenyMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.verdict.denyMessage(ActionSilenceExpire, "prod-eu"))
+			require.Equal(t, tt.want, tt.verdict.denyMessage(string(ActionSilenceExpire), "prod-eu"))
 		})
 	}
 }
@@ -453,7 +453,7 @@ func TestVerdict_BulkMessage(t *testing.T) {
 		{
 			name:    "the headless surface leads with the action name",
 			verdict: Verdict{MaxBulk: 20},
-			lead:    ActionSilenceExpire,
+			lead:    string(ActionSilenceExpire),
 			count:   25,
 			want:    "silence.expire on prod-eu: 25 targets exceed max_bulk 20",
 		},

@@ -11,6 +11,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -41,19 +42,19 @@ type plannedWrite struct {
 }
 
 // runDryRun renders the resolved write plan and returns without calling
-// the mutating op (ADR 0046: the command minus its mutation). action is
-// a guardrail.ActionSilence* constant; the plan's display verb is
-// derived from it so the rendered word and the evaluated rule name can
-// never drift apart. It runs after target-building and instead of
-// runWrites, so every refusal lands on the plan before it lands on the
-// exit code. The exit code is faithful: the plan exits with whatever
-// the real run's pre-mutation phase would give it, and a target
-// carrying a skip exits non-zero exactly as the real run would.
+// the mutating op (ADR 0046: the command minus its mutation). The
+// plan's display verb is derived from action so the rendered word and
+// the evaluated rule name can never drift apart. It runs after
+// target-building and instead of runWrites, so every refusal lands on
+// the plan before it lands on the exit code. The exit code is
+// faithful: the plan exits with whatever the real run's pre-mutation
+// phase would give it, and a target carrying a skip exits non-zero
+// exactly as the real run would.
 func runDryRun(
 	out, errOut io.Writer,
 	cfg *config.Config,
 	format output.Format,
-	action string,
+	action guardrail.Action,
 	targets []writeTarget,
 	globalReadOnly bool,
 	confirmTenants []string,
@@ -65,7 +66,7 @@ func runDryRun(
 
 	notes := guardrailNotes(cfg, action, targets, readOnly, globalReadOnly, confirmTenants)
 
-	verb := strings.TrimPrefix(action, "silence.")
+	verb := strings.TrimPrefix(string(action), "silence.")
 	plans := make([]plannedWrite, 0, len(targets))
 	results := make([]writeResult, 0, len(targets))
 	for _, t := range targets {
@@ -119,7 +120,7 @@ func runDryRun(
 // rule on a backend that was already refused for another reason.
 func guardrailNotes(
 	cfg *config.Config,
-	action string,
+	action guardrail.Action,
 	targets []writeTarget,
 	readOnly map[string]bool,
 	globalReadOnly bool,

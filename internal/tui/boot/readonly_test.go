@@ -20,7 +20,7 @@ import (
 
 // decide asks the policy about one target on one backend, the shape
 // every read-only assertion here needs.
-func decide(set guardrail.Set, tenant, action string) guardrail.Decision {
+func decide(set guardrail.Set, tenant string, action guardrail.Action) guardrail.Decision {
 	return set.Decide(guardrail.Request{Action: action, Tenants: []string{tenant}})
 }
 

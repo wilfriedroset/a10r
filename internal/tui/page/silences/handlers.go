@@ -189,9 +189,8 @@ func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 // every Dangerous keypress on the page. Read-only is checked first and
 // always wins, so a rule is never quoted on a backend that cannot be
 // written to at all. Centralised here so both contracts have one
-// touch-point and a stray new write verb cannot bypass them. name is a guardrail.ActionSilence* constant, never a
-// hand-written string: a name no rule can match would fail open.
-func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
+// touch-point and a stray new write verb cannot bypass them.
+func (p *Page) runWriteAction(name guardrail.Action, action func() tea.Cmd) tea.Cmd {
 	if p.session.ReadOnly() {
 		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
 	}
@@ -212,7 +211,7 @@ func (p *Page) runWriteAction(name string, action func() tea.Cmd) tea.Cmd {
 
 // writeRequest asks about the run a press would really fire, so the
 // duplicate tenants are the per-tenant count the cap compares against.
-func (p *Page) writeRequest(name string) guardrail.Request {
+func (p *Page) writeRequest(name guardrail.Action) guardrail.Request {
 	return p.request(name, p.markedTargets)
 }
 
@@ -221,7 +220,7 @@ func (p *Page) writeRequest(name string) guardrail.Request {
 // happen to breach must not strike the key off the hint strip.
 // Bindings() runs on the render path and again on every key press, so
 // an unconfigured policy pays for no walk at all.
-func (p *Page) guarded(name string) bool {
+func (p *Page) guarded(name guardrail.Action) bool {
 	rules := p.session.Guardrails()
 	if len(rules) == 0 {
 		return false
@@ -235,7 +234,7 @@ func (p *Page) guarded(name string) bool {
 // Lead follows the press rather than the rule, so the sentence names
 // the key the user pressed. A bulk expire is the only press this page
 // has a name for; every other one reads back as the rule to edit.
-func (p *Page) request(name string, marked func() []string) guardrail.Request {
+func (p *Page) request(name guardrail.Action, marked func() []string) guardrail.Request {
 	switch {
 	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
 		return guardrail.Request{Action: name, Tenants: marked(), Lead: "bulk expire"}

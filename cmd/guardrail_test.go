@@ -22,7 +22,7 @@ func TestGuardrailRefusals(t *testing.T) {
 	tests := []struct {
 		name      string
 		rules     guardrail.Set
-		action    string
+		action    guardrail.Action
 		targets   []writeTarget
 		confirmed []string
 		want      []guardrail.Refusal
@@ -326,7 +326,7 @@ func TestSilenceExpire_GuardrailRefusesBeforeAnyWrite(t *testing.T) {
 
 	client := &silenceExpireClient{silences: []backend.Silence{activeS("sil-1")}}
 	cfg := cfgWith(config.Backend{Name: "prod-eu"})
-	cfg.Guardrails = guardrail.Set{{Actions: []string{guardrail.ActionSilenceExpire}, Deny: true, Reason: "frozen"}}
+	cfg.Guardrails = guardrail.Set{{Actions: []string{"silence.expire"}, Deny: true, Reason: "frozen"}}
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer

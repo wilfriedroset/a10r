@@ -485,7 +485,7 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 
 	rules := guardrail.Set{{
 		Tenants: []string{tenant},
-		Actions: []string{guardrail.ActionSilenceExpire},
+		Actions: []string{"silence.expire"},
 		Deny:    true,
 	}}
 	p := guardedPage(t, rules)

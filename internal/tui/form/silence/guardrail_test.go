@@ -56,7 +56,7 @@ func TestGuardrail_ADenyRefusesTheSubmit(t *testing.T) {
 	client := &fakeClient{}
 	f := guardedForm(t, client, guardrail.Set{{
 		Tenants: []string{defaultTenant},
-		Actions: []string{guardrail.ActionSilenceCreate},
+		Actions: []string{"silence.create"},
 		Deny:    true,
 		Reason:  "use the change ticket",
 	}}, Options{})
@@ -78,7 +78,7 @@ func TestGuardrail_ADenyOnAnotherVerbLeavesTheSubmitAlone(t *testing.T) {
 	client := &fakeClient{wantID: "sil-1"}
 	f := guardedForm(t, client, guardrail.Set{{
 		Tenants: []string{defaultTenant},
-		Actions: []string{guardrail.ActionSilenceExpire},
+		Actions: []string{"silence.expire"},
 		Deny:    true,
 	}}, Options{})
 
@@ -97,7 +97,7 @@ func TestGuardrail_AnEditSubmitReadsTheUpdateVerb(t *testing.T) {
 	client := &fakeClient{}
 	f := guardedForm(t, client, guardrail.Set{{
 		Tenants: []string{defaultTenant},
-		Actions: []string{guardrail.ActionSilenceUpdate},
+		Actions: []string{"silence.update"},
 		Deny:    true,
 	}}, Options{EditID: "sil-7", Action: guardrail.ActionSilenceUpdate})
 

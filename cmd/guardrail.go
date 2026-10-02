@@ -23,7 +23,7 @@ const guardrailPrefix = "guardrail: "
 // first name each tenant, so stderr reads in the same order as the plan
 // the user asked for rather than grouping every deny ahead of every
 // confirmation.
-func guardrailRefusals(rules guardrail.Set, action string, targets []writeTarget, confirmed []string) []guardrail.Refusal {
+func guardrailRefusals(rules guardrail.Set, action guardrail.Action, targets []writeTarget, confirmed []string) []guardrail.Refusal {
 	tenants := make([]string, len(targets))
 	for i, t := range targets {
 		tenants[i] = t.tenant
@@ -52,7 +52,7 @@ func guardrailRefusals(rules guardrail.Set, action string, targets []writeTarget
 // runs after ensureWritableTargets and before the first mutation. It
 // names every refused tenant at once so a narrowed retry needs one
 // round trip, not one per tenant.
-func ensureGuardrailsAllow(rules guardrail.Set, action string, targets []writeTarget, confirmed []string) error {
+func ensureGuardrailsAllow(rules guardrail.Set, action guardrail.Action, targets []writeTarget, confirmed []string) error {
 	refusals := guardrailRefusals(rules, action, targets, confirmed)
 	if len(refusals) == 0 {
 		return nil

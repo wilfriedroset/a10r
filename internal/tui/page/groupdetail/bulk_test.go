@@ -191,7 +191,7 @@ func cappedPage(t *testing.T) *Page {
 		Instances: insts,
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants: []string{tenant},
-			Actions: []string{guardrail.ActionSilenceCreate},
+			Actions: []string{"silence.create"},
 			MaxBulk: new(2),
 		}}}),
 	})
@@ -284,7 +284,7 @@ func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
 		Instances: insts,
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
-			Actions:      []string{guardrail.ActionSilenceCreate},
+			Actions:      []string{"silence.create"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})
@@ -317,7 +317,7 @@ func TestGuardrail_TheSilenceOneFormCarriesThePolicy(t *testing.T) {
 		},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
-			Actions:      []string{guardrail.ActionSilenceCreate},
+			Actions:      []string{"silence.create"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})
@@ -342,7 +342,7 @@ func TestGuardrail_APlainRuleAsksOnASingleMarkedInstance(t *testing.T) {
 		},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
-			Actions:      []string{guardrail.ActionSilenceCreate},
+			Actions:      []string{"silence.create"},
 			Confirmation: guardrail.ConfirmationPlain,
 		}}}),
 	})
@@ -372,7 +372,7 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedInstance(t *testing.T) {
 		},
 		Session: session.New(config.Config{Guardrails: guardrail.Set{{
 			Tenants:      []string{tenant},
-			Actions:      []string{guardrail.ActionSilenceCreate},
+			Actions:      []string{"silence.create"},
 			Confirmation: guardrail.ConfirmationTypeTenantName,
 		}}}),
 	})

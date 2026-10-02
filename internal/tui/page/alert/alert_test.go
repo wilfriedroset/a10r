@@ -1181,7 +1181,7 @@ func TestGuardrail_DenyKeepsTheBindingButMarksIt(t *testing.T) {
 
 	p := guardedPage(t, guardrail.Set{{
 		Tenants: []string{"prod"},
-		Actions: []string{guardrail.ActionSilenceCreate},
+		Actions: []string{"silence.create"},
 		Deny:    true,
 	}})
 
@@ -1199,7 +1199,7 @@ func TestGuardrail_SilenceKeyFlashesTheDeny(t *testing.T) {
 
 	p := guardedPage(t, guardrail.Set{{
 		Tenants: []string{"prod"},
-		Actions: []string{guardrail.ActionSilenceCreate},
+		Actions: []string{"silence.create"},
 		Deny:    true,
 		Reason:  "use the change ticket",
 	}})
@@ -1233,7 +1233,7 @@ func TestGuardrail_TheSilencesPagePushedByBigSInheritsThePolicy(t *testing.T) {
 
 	rules := guardrail.Set{{
 		Tenants: []string{"prod"},
-		Actions: []string{guardrail.ActionSilenceExpire},
+		Actions: []string{"silence.expire"},
 		Deny:    true,
 	}}
 	sess := session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}, Guardrails: rules})
@@ -1258,7 +1258,7 @@ func TestGuardrail_TheSilenceFormCarriesThePolicy(t *testing.T) {
 
 	p := guardedPage(t, guardrail.Set{{
 		Tenants:      []string{"prod"},
-		Actions:      []string{guardrail.ActionSilenceCreate},
+		Actions:      []string{"silence.create"},
 		Confirmation: guardrail.ConfirmationTypeTenantName,
 	}})
 
