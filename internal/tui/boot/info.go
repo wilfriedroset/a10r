@@ -41,7 +41,7 @@ func buildInfoReport(in infoInputs) func() report.InfoInput {
 		slog.Debug("no state dir for the info report", slog.Any("err", err))
 		stateDir = ""
 	}
-	logPath := resolvedLogPath(in.cfg.Log.Path)
+	logPath := a10rlog.ReportPath(in.cfg.Log.Path)
 
 	return func() report.InfoInput {
 		return report.InfoInput{
@@ -58,21 +58,4 @@ func buildInfoReport(in infoInputs) func() report.InfoInput {
 			Theme:           in.skinName(),
 		}
 	}
-}
-
-// resolvedLogPath names the file the sink actually opens, so the
-// report cannot print an empty path for the defaulted case. A host
-// where even the default does not resolve reports the sentinel
-// instead: `a10r info` fails loudly there, but the TUI is already
-// running and a bare `log path:` label answers nothing.
-func resolvedLogPath(configured string) string {
-	if configured != "" {
-		return configured
-	}
-	path, err := a10rlog.DefaultPath()
-	if err != nil {
-		slog.Debug("no default log path for the info report", slog.Any("err", err))
-		return "(unresolved)"
-	}
-	return path
 }

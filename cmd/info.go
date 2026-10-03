@@ -60,15 +60,6 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("resolve config: %w", err)
 	}
 
-	logPath := eff.Config.Log.Path
-	if logPath == "" {
-		resolved, perr := log.DefaultPath()
-		if perr != nil {
-			return fmt.Errorf("resolve log path: %w", perr)
-		}
-		logPath = resolved
-	}
-
 	// Aliases are an optional overlay; a missing file is fine and
 	// reports as zero. A malformed file is loud — the operator sees
 	// the parse error here rather than at TUI startup.
@@ -85,7 +76,7 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		Commit:     commit,
 		Date:       date,
 		ConfigDir:  configDir,
-		LogPath:    logPath,
+		LogPath:    log.ReportPath(eff.Config.Log.Path),
 		Config:     cfg,
 		NotFound:   errors.Is(loadErr, config.ErrNotFound),
 		AliasCount: len(aliases),

@@ -133,3 +133,27 @@ func TestDefaultPath_HostOSReturnsNonEmpty(t *testing.T) {
 	require.Contains(t, path, "a10r")
 	require.True(t, filepath.IsAbs(path), "default path must be absolute, got %q", path)
 }
+
+func TestReportPathFor(t *testing.T) {
+	t.Parallel()
+
+	resolves := func() (string, error) { return fakeXDGState, nil }
+	fails := func() (string, error) { return "", errors.New("no home") }
+
+	cases := []struct {
+		name       string
+		configured string
+		def        func() (string, error)
+		want       string
+	}{
+		{"configured wins", fakeHome, fails, fakeHome},
+		{"empty takes the default", "", resolves, fakeXDGState},
+		{"unresolvable default reports the sentinel", "", fails, "(unresolved)"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, reportPathFor(tc.configured, tc.def))
+		})
+	}
+}
