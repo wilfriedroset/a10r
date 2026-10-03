@@ -276,18 +276,3 @@ func TestDecisionReporting(t *testing.T) {
 		})
 	}
 }
-
-func TestDecisionTypedRefusals(t *testing.T) {
-	t.Parallel()
-
-	require.Empty(t, Decision{}.TypedRefusals())
-
-	d := Decision{
-		Refusals: []Refusal{{Tenant: "prod-eu", Note: "denied", Message: "silence.expire denied on prod-eu"}},
-		Typed:    []string{"prod-eu", "prod-us"},
-		Confirm:  ConfirmationTypeTenantName,
-	}
-	require.Equal(t, []Refusal{
-		{Tenant: "prod-us", Note: "needs --confirm-tenant prod-us", Message: "prod-us requires --confirm-tenant prod-us"},
-	}, d.TypedRefusals(), "a tenant already denied is named once, by the stronger refusal")
-}

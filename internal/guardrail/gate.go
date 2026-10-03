@@ -109,30 +109,6 @@ func refusal(v Verdict, lead, tenant string, count int) (Refusal, bool) {
 	return Refusal{}, false
 }
 
-// TypedRefusals is what a surface with no modal owes the user for
-// every tenant in Typed. A surface that can prompt ignores it. Only
-// the typed level appears: a plain confirmation has no headless form,
-// because typing the id on the command line already is the deliberate
-// act the modal asks for.
-//
-// A tenant already in Refusals is left out, so appending these to
-// Refusals keeps the strength order: a deny leaves nothing to say
-// about a confirmation, and one tenant is named once.
-func (d Decision) TypedRefusals() []Refusal {
-	out := make([]Refusal, 0, len(d.Typed))
-	for _, tenant := range d.Typed {
-		if slices.ContainsFunc(d.Refusals, func(r Refusal) bool { return r.Tenant == tenant }) {
-			continue
-		}
-		out = append(out, Refusal{
-			Tenant:  tenant,
-			Note:    "needs --confirm-tenant " + tenant,
-			Message: fmt.Sprintf("%s requires --confirm-tenant %s", tenant, tenant),
-		})
-	}
-	return out
-}
-
 func (d Decision) Refused() bool { return len(d.Refusals) > 0 }
 
 // Flash is the sentence for the first refused tenant, because one

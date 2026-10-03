@@ -4,7 +4,7 @@ package cmd
 
 import (
 	"errors"
-	"slices"
+	"fmt"
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/guardrail"
@@ -31,7 +31,15 @@ func guardrailRefusals(rules guardrail.Set, action guardrail.Action, targets []w
 	d := rules.Decide(guardrail.Request{Action: action, Tenants: tenants, Confirmed: confirmed})
 
 	byTenant := make(map[string]guardrail.Refusal, len(d.Refusals)+len(d.Typed))
-	for _, r := range append(slices.Clone(d.Refusals), d.TypedRefusals()...) {
+	for _, tenant := range d.Typed {
+		byTenant[tenant] = guardrail.Refusal{
+			Tenant:  tenant,
+			Note:    "needs --confirm-tenant " + tenant,
+			Message: fmt.Sprintf("%s requires --confirm-tenant %s", tenant, tenant),
+		}
+	}
+	// A deny or a cap outranks the confirmation, so it names the tenant.
+	for _, r := range d.Refusals {
 		byTenant[r.Tenant] = r
 	}
 	var out []guardrail.Refusal
