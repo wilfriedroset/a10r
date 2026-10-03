@@ -43,11 +43,12 @@ type Decision struct {
 	// that stops on Refused is fail-closed before it ever prompts.
 	Refusals []Refusal
 	// Typed lists the tenants still owed a typed prompt, in
-	// first-appearance order.
+	// first-appearance order. A refused tenant is never owed one, so
+	// Typed and Refusals never name the same tenant.
 	Typed []string
 	// Confirm is the strongest level any tenant in the request demands,
-	// not the level still owed: Request.Confirmed clears Typed, never
-	// this.
+	// not the level still owed: Request.Confirmed and a refusal clear
+	// Typed, never this, so a caller checks Refused first.
 	Confirm Confirmation
 }
 
@@ -81,12 +82,12 @@ func (s Set) Decide(req Request) Decision {
 
 		v := s.evaluate(tenant, req.Action)
 		d.Confirm = d.Confirm.Stronger(v.Confirmation)
-		typed := v.Confirmation.rank() >= ConfirmationTypeTenantName.rank() && !slices.Contains(req.Confirmed, tenant)
-		if typed {
-			d.Typed = append(d.Typed, tenant)
-		}
 		if r, ok := refusal(v, lead, tenant, counts[tenant]); ok {
 			d.Refusals = append(d.Refusals, r)
+			continue
+		}
+		if v.Confirmation.rank() >= ConfirmationTypeTenantName.rank() && !slices.Contains(req.Confirmed, tenant) {
+			d.Typed = append(d.Typed, tenant)
 		}
 	}
 	return d

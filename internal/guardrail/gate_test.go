@@ -121,7 +121,7 @@ func TestSetDecide(t *testing.T) {
 			}}},
 		},
 		{
-			name: "a breached cap beats an owed confirmation",
+			name: "a breached cap leaves no confirmation owed",
 			set: Set{
 				{Tenants: []string{"prod-*"}, MaxBulk: new(1)},
 				{Tenants: []string{"prod-*"}, Confirmation: ConfirmationTypeTenantName},
@@ -133,7 +133,6 @@ func TestSetDecide(t *testing.T) {
 					Note:    "max_bulk 1 exceeded",
 					Message: "silence.expire on prod-eu: 2 targets exceed max_bulk 1",
 				}},
-				Typed:   []string{"prod-eu"},
 				Confirm: ConfirmationTypeTenantName,
 			},
 		},
@@ -161,19 +160,19 @@ func TestSetDecide(t *testing.T) {
 			},
 		},
 		{
-			name: "a denied tenant owed a typed prompt lands in both",
+			name: "a denied tenant owes no typed prompt, its neighbour still does",
 			set: Set{
-				{Tenants: []string{"prod-*"}, Deny: true, Reason: "frozen"},
+				{Tenants: []string{"prod-eu"}, Deny: true, Reason: "frozen"},
 				{Tenants: []string{"prod-*"}, Confirmation: ConfirmationTypeTenantName},
 			},
-			req: Request{Action: ActionSilenceExpire, Tenants: []string{"prod-eu"}},
+			req: Request{Action: ActionSilenceExpire, Tenants: []string{"prod-eu", "prod-us"}},
 			want: Decision{
 				Refusals: []Refusal{{
 					Tenant:  "prod-eu",
 					Note:    "denied",
 					Message: "silence.expire denied on prod-eu: frozen",
 				}},
-				Typed:   []string{"prod-eu"},
+				Typed:   []string{"prod-us"},
 				Confirm: ConfirmationTypeTenantName,
 			},
 		},

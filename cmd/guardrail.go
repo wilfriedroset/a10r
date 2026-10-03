@@ -38,7 +38,6 @@ func guardrailRefusals(rules guardrail.Set, action guardrail.Action, targets []w
 			Message: fmt.Sprintf("%s requires --confirm-tenant %s", tenant, tenant),
 		}
 	}
-	// A deny or a cap outranks the confirmation, so it names the tenant.
 	for _, r := range d.Refusals {
 		byTenant[r.Tenant] = r
 	}
