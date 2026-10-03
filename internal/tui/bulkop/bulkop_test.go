@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 )
 
@@ -95,4 +96,18 @@ func TestOp_GenericKeyTypes(t *testing.T) {
 	sidDone := bulkop.DoneMsg[silenceID]{Results: []bulkop.Result[silenceID]{{Op: sidOp}}}
 	require.Equal(t, []alertFP{"fp-a"}, fpDone.Successes())
 	require.Equal(t, []silenceID{"sil-a"}, sidDone.Successes())
+}
+
+func TestSilenceRequest(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, guardrail.Request{
+		Action:  guardrail.ActionSilenceCreate,
+		Tenants: []string{"prod-eu", "prod-eu"},
+		Lead:    "bulk silence",
+	}, bulkop.SilenceRequest(true, "prod-eu", "prod-eu"))
+	require.Equal(t, guardrail.Request{
+		Action:  guardrail.ActionSilenceCreate,
+		Tenants: []string{"prod-eu"},
+	}, bulkop.SilenceRequest(false, "prod-eu"), "a cursor press reads back as the rule to edit")
 }

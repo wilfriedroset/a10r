@@ -51,6 +51,9 @@ type Decision struct {
 	Confirm Confirmation
 }
 
+// Refuses serves the callers that need only the verdict, not the sentence.
+func (s Set) Refuses(req Request) bool { return s.Decide(req).Refused() }
+
 // Decide answers one Request: it walks the distinct tenants in
 // first-appearance order and folds each verdict in strength order, so
 // a deny leaves nothing to say about a cap and a cap leaves nothing to

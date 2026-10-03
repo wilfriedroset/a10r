@@ -333,16 +333,7 @@ func (p *Page) request() guardrail.Request {
 	return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.tenant}}
 }
 
-// guarded answers the [guarded] suffix. Bindings() runs on the render
-// path and again on every key press, so an unconfigured policy pays
-// for no request at all.
-func (p *Page) guarded() bool {
-	rules := p.session.Guardrails()
-	if len(rules) == 0 {
-		return false
-	}
-	return rules.Decide(p.request()).Refused()
-}
+func (p *Page) guarded() bool { return p.session.Guardrails().Refuses(p.request()) }
 
 func (p *Page) copyFingerprint() tea.Cmd {
 	if p.a.Fingerprint == "" {

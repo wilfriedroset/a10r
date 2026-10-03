@@ -38,6 +38,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -487,24 +488,15 @@ func (p *Page) Bindings() []action.Action {
 // run, so a cap the marks happen to breach must not strike `s` off the
 // hint strip.
 func (p *Page) guarded() bool {
-	rules := p.session.Guardrails()
-	if len(rules) == 0 {
-		return false
-	}
-	return rules.Decide(guardrail.Request{
-		Action:  guardrail.ActionSilenceCreate,
-		Tenants: []string{p.tenant},
-	}).Refused()
+	return p.session.Guardrails().Refuses(bulkop.SilenceRequest(false, p.tenant))
 }
 
-// writeRequest asks about the run the press would really fire. Lead
-// follows the press rather than the rule, so only the marked fan-out
-// has a name of its own; a cursor press reads back as the rule to edit.
+// writeRequest asks about the run the press would really fire.
 func (p *Page) writeRequest() guardrail.Request {
 	if len(p.marks) > 0 {
-		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: p.markedTargets(), Lead: "bulk silence"}
+		return bulkop.SilenceRequest(true, p.markedTargets()...)
 	}
-	return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.tenant}}
+	return bulkop.SilenceRequest(false, p.tenant)
 }
 
 // markedTargets names this page's tenant once per instance the fan-out

@@ -45,6 +45,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -327,31 +328,21 @@ func (p *Page) silenceRequest() guardrail.Request {
 
 // guarded answers the [guarded] suffix. It counts each marked tenant
 // once: a binding outlives any one run, so a cap the current marks
-// happen to breach must not strike `s` off the hint strip. Bindings()
-// runs on the render path and again on every key press, so an
-// unconfigured policy pays for no walk at all.
+// happen to breach must not strike `s` off the hint strip.
 func (p *Page) guarded() bool {
-	rules := p.session.Guardrails()
-	if len(rules) == 0 {
-		return false
-	}
-	return rules.Decide(p.request(p.markedTenants)).Refused()
+	return p.session.Guardrails().Refuses(p.request(p.markedTenants))
 }
 
 // request turns the press into its targets; marked resolves the bulk
 // fan-out, the one case the callers count differently.
-//
-// Lead follows the press rather than the rule, so the sentence names
-// the key the user pressed. Only the marked fan-out has a name of its
-// own; a cursor press reads back as the rule to edit.
 func (p *Page) request(marked func() []string) guardrail.Request {
 	switch {
 	case len(p.marks) > 0:
-		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: marked(), Lead: "bulk silence"}
+		return bulkop.SilenceRequest(true, marked()...)
 	case p.Index() < len(p.groups):
-		return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.groups[p.Index()].tenant}}
+		return bulkop.SilenceRequest(false, p.groups[p.Index()].tenant)
 	}
-	return guardrail.Request{Action: guardrail.ActionSilenceCreate}
+	return bulkop.SilenceRequest(false)
 }
 
 // markedTargets names the tenant of every marked group, once per group

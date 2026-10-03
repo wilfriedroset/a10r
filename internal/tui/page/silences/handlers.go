@@ -218,14 +218,8 @@ func (p *Page) writeRequest(name guardrail.Action) guardrail.Request {
 // guarded answers the [guarded] suffix. It counts each marked tenant
 // once: a binding outlives any one run, so a cap the current marks
 // happen to breach must not strike the key off the hint strip.
-// Bindings() runs on the render path and again on every key press, so
-// an unconfigured policy pays for no walk at all.
 func (p *Page) guarded(name guardrail.Action) bool {
-	rules := p.session.Guardrails()
-	if len(rules) == 0 {
-		return false
-	}
-	return rules.Decide(p.request(name, p.markedTenants)).Refused()
+	return p.session.Guardrails().Refuses(p.request(name, p.markedTenants))
 }
 
 // request turns the press into its targets; marked resolves the bulk
