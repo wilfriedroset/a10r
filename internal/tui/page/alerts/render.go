@@ -155,7 +155,7 @@ func (p *Page) row(i int, g alertGroup, ctx rowCtx) table.Row {
 		table.Cell{Text: alertNameCell(g), Paint: paint},
 	)
 	for _, c := range p.labels.Shown() {
-		cells = append(cells, table.Cell{Text: labelCellAt(&g, c.Index), Paint: paint})
+		cells = append(cells, table.Cell{Text: table.LabelCell(g.labelCells, c.Index), Paint: paint})
 	}
 	cells = append(cells,
 		table.Cell{Text: countCell(g), Paint: paint},

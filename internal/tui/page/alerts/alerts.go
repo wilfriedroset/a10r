@@ -116,44 +116,7 @@ func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 			}),
 		},
 	}
-	return append(cols, labelSortColumns(user)...)
-}
-
-// labelSortColumns turns each user-declared column into a sortable
-// axis over the pre-computed labelCells slice. Cells compare
-// byte-wise with rollup markers ranked last, and an empty cell is
-// pinned to the tail in both directions (ADR 0048).
-func labelSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
-	out := make([]tablesort.Column[alertGroup], 0, len(user))
-	for _, c := range user {
-		idx := c.Index
-		// A column with no sort_key is not a sort axis at all, not
-		// merely one without a shortcut: tablesort's h/l walk visits
-		// zero-hotkey columns, so registering it would make a column
-		// the operator declared unsortable the active sort and
-		// persist it to the sort-memory file.
-		if c.Hotkey == 0 {
-			continue
-		}
-		out = append(out, tablesort.Column[alertGroup]{
-			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
-			Less: tieBreakGroup(func(a, b *alertGroup) bool {
-				return table.CellLess(labelCellAt(a, idx), labelCellAt(b, idx))
-			}),
-			Tail: func(g *alertGroup) bool { return table.CellEmpty(labelCellAt(g, idx)) },
-		})
-	}
-	return out
-}
-
-// labelCellAt reads a group's cell for user column i. aggregate fills
-// one cell per column for every group, so the guard is there for
-// hand-built alertGroup literals in tests.
-func labelCellAt(g *alertGroup, i int) string {
-	if i >= len(g.labelCells) {
-		return ""
-	}
-	return g.labelCells[i]
+	return append(cols, table.LabelSortColumns(user, func(g *alertGroup) []string { return g.labelCells }, tieBreakGroup)...)
 }
 
 // tieBreakGroup wraps a comparator so equal-by-primary groups fall

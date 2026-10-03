@@ -179,6 +179,8 @@ Pages and shared page bases (`internal/tui/page`):
   [ADR 0013](docs/adr/0013-list-page-shared-base.md). `Base` owns the
   wire-to-domain seam for sideband messages and `DataMsg`
   ([ADR 0018](docs/adr/0018-listpage-wire-to-domain-seam.md)).
+  `OpenBulkForm` is the guardrail-gated bulk silence opener that
+  alerts and group detail share.
 - `page/detailpage` -- the shared 1D-scroll base for the read-only
   detail pages, embedded the same explicit way
   ([ADR 0022](docs/adr/0022-detailpage-shared-base.md)).

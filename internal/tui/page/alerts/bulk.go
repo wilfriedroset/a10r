@@ -163,17 +163,9 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	// tenant whose client vanished still counts for the cap, but has no
 	// name worth asking the user to type.
 	d := p.session.Guardrails().Decide(p.request(func() []string { return tenants }))
-	// A single target skips the blast-radius question, but not a
-	// guardrail one: the bulk form leaves policy to this page, so
-	// nothing downstream would ask on its behalf.
-	if len(targets) == 1 && d.Confirm == "" {
-		return p.pushBulkSilenceForm()
-	}
 	question := fmt.Sprintf("silence %d %s? (tenant %s)",
 		len(targets), alertNoun(len(targets)), formatTenantBreakdownAlerts(targets))
-	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, d.Typed)
-	})
+	return listpage.OpenBulkForm(len(targets), d, question, p.pushBulkSilenceForm)
 }
 
 // resolveBulkSilenceTargets walks the current groups so a marked group

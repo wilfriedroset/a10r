@@ -110,46 +110,7 @@ func instanceSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEn
 			}),
 		},
 	}
-	return append(cols, labelSortColumns(user)...)
-}
-
-// labelSortColumns turns each user-declared column into a sortable
-// axis over the pre-computed labelCells slice. Cells compare
-// byte-wise and an empty cell is pinned to the tail in both
-// directions (ADR 0048). There is no rollup marker on this page, so
-// the marker rank never applies.
-func labelSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEntry] {
-	out := make([]tablesort.Column[instanceEntry], 0, len(user))
-	for _, c := range user {
-		idx := c.Index
-		// A column with no sort_key is not a sort axis at all, not
-		// merely one without a shortcut: this page's h/l walk visits
-		// zero-hotkey columns on purpose (SEVERITY is one), so
-		// registering it would make a column the operator declared
-		// unsortable the active sort and persist it to the
-		// sort-memory file.
-		if c.Hotkey == 0 {
-			continue
-		}
-		out = append(out, tablesort.Column[instanceEntry]{
-			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
-			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
-				return table.CellLess(labelCellAt(a, idx), labelCellAt(b, idx))
-			}),
-			Tail: func(e *instanceEntry) bool { return table.CellEmpty(labelCellAt(e, idx)) },
-		})
-	}
-	return out
-}
-
-// labelCellAt reads an entry's cell for user column i. buildEntries
-// fills one cell per column for every entry, so the guard only
-// catches an entry built before the column set was resolved.
-func labelCellAt(e *instanceEntry, i int) string {
-	if i >= len(e.labelCells) {
-		return ""
-	}
-	return e.labelCells[i]
+	return append(cols, table.LabelSortColumns(user, func(e *instanceEntry) []string { return e.labelCells }, tieBreakFingerprint)...)
 }
 
 // tieBreakFingerprint wraps a comparator so equal-by-primary entries

@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 )
 
 // LabelColumn is one config.Column resolved for rendering: the parts
@@ -163,6 +164,44 @@ func (s *LabelSet) visible() []LabelColumn {
 		}
 	}
 	return out
+}
+
+// LabelSortColumns turns each user column into a sort axis over the
+// row's cell slice, ranked by CellLess with empty cells at the tail
+// (ADR 0048). tieBreak is the page's total order on equal cells.
+func LabelSortColumns[R any](
+	user []LabelColumn,
+	cells func(*R) []string,
+	tieBreak func(primary func(a, b *R) bool) func(a, b *R) bool,
+) []tablesort.Column[R] {
+	out := make([]tablesort.Column[R], 0, len(user))
+	for _, c := range user {
+		idx := c.Index
+		// A column with no sort_key is not a sort axis at all: the h/l
+		// walk visits zero-hotkey columns, so registering it would make
+		// a column the operator declared unsortable the active sort and
+		// persist it to the sort-memory file.
+		if c.Hotkey == 0 {
+			continue
+		}
+		out = append(out, tablesort.Column[R]{
+			Key: c.Key, Title: c.Title, Hotkey: c.Hotkey, DefaultAsc: true,
+			Less: tieBreak(func(a, b *R) bool {
+				return CellLess(LabelCell(cells(a), idx), LabelCell(cells(b), idx))
+			}),
+			Tail: func(r *R) bool { return CellEmpty(LabelCell(cells(r), idx)) },
+		})
+	}
+	return out
+}
+
+// LabelCell reads the cell for user column i. The bound guards a row
+// built before the column set was resolved.
+func LabelCell(cells []string, i int) string {
+	if i >= len(cells) {
+		return ""
+	}
+	return cells[i]
 }
 
 // labelWidthFloor is the narrowest a measured label column asks for

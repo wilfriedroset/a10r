@@ -59,16 +59,7 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets}
 	d := p.session.Guardrails().Decide(p.writeRequest())
-	// A single target skips the blast-radius question, but not a
-	// guardrail one: the bulk form leaves policy to this page, so
-	// nothing downstream would ask on its behalf.
-	if len(targets) == 1 && d.Confirm == "" {
-		return p.pushBulkSilenceForm()
-	}
-	question := bulkSilenceQuestion(len(targets), p.tenant)
-	return app.OpenModal(func() modal.Modal {
-		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultYes, d.Typed)
-	})
+	return listpage.OpenBulkForm(len(targets), d, bulkSilenceQuestion(len(targets), p.tenant), p.pushBulkSilenceForm)
 }
 
 func instanceNoun(n int) string {

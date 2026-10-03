@@ -255,3 +255,75 @@ func TestLabelColumns(t *testing.T) {
 		})
 	}
 }
+
+func TestLabelCell(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		cells []string
+		i     int
+		want  string
+	}{
+		{name: "in range", cells: []string{"a", "b"}, i: 1, want: "b"},
+		{name: "past the end reads empty", cells: []string{"a"}, i: 1, want: ""},
+		{name: "nil reads empty", i: 0, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, table.LabelCell(tt.cells, tt.i))
+		})
+	}
+}
+
+type sortRow struct {
+	id    int
+	cells []string
+}
+
+func TestLabelSortColumns(t *testing.T) {
+	t.Parallel()
+
+	byID := func(primary func(a, b *sortRow) bool) func(a, b *sortRow) bool {
+		return func(a, b *sortRow) bool {
+			if primary(a, b) {
+				return true
+			}
+			if primary(b, a) {
+				return false
+			}
+			return a.id < b.id
+		}
+	}
+	cols := table.LabelSortColumns([]table.LabelColumn{
+		{Key: "label:env", Title: "ENV", Index: 0},
+		{Key: "label:pod", Title: "POD", Hotkey: 'P', Index: 1},
+	}, func(r *sortRow) []string { return r.cells }, byID)
+
+	require.Len(t, cols, 1, "a column without a hotkey is not a sort axis")
+	c := cols[0]
+	require.Equal(t, "label:pod", c.Key)
+	require.Equal(t, "POD", c.Title)
+	require.Equal(t, 'P', c.Hotkey)
+	require.True(t, c.DefaultAsc)
+
+	tests := []struct {
+		name string
+		a, b sortRow
+		want bool
+	}{
+		{name: "reads the column's own cell", a: sortRow{cells: []string{"z", "a"}}, b: sortRow{cells: []string{"a", "b"}}, want: true},
+		{name: "marker ranks after a plain value", a: sortRow{cells: []string{"", table.RollupMarker(2)}}, b: sortRow{cells: []string{"", "z"}}, want: false},
+		{name: "equal cells fall to the tie-break", a: sortRow{id: 1, cells: []string{"", "a"}}, b: sortRow{id: 2, cells: []string{"", "a"}}, want: true},
+		{name: "tie-break is not symmetric", a: sortRow{id: 2, cells: []string{"", "a"}}, b: sortRow{id: 1, cells: []string{"", "a"}}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, c.Less(&tt.a, &tt.b))
+		})
+	}
+	require.True(t, c.Tail(&sortRow{cells: []string{"x"}}), "a missing cell pins to the tail")
+	require.False(t, c.Tail(&sortRow{cells: []string{"x", "y"}}))
+}

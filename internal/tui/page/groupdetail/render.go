@@ -180,7 +180,7 @@ func (p *Page) row(i int, previewed bool, spans func(string) [][2]int) table.Row
 	cells := make([]table.Cell, 0, 4+len(p.labels.Shown()))
 	cells = append(cells, sev, summary)
 	for _, c := range p.labels.Shown() {
-		cells = append(cells, table.Cell{Text: labelCellAt(&entry, c.Index), Paint: paint})
+		cells = append(cells, table.Cell{Text: table.LabelCell(entry.labelCells, c.Index), Paint: paint})
 	}
 	cells = append(cells,
 		table.Cell{Text: stateToken(a.State, p.stateFormat), Paint: paint},

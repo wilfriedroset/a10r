@@ -117,7 +117,7 @@ func (p *Page) recompute() {
 	flat := p.flatten(total)
 	survivors := p.applyFilter(flat)
 	p.groups = aggregate(survivors, &p.labels)
-	p.labels.Measure(len(p.groups), func(r, i int) string { return labelCellAt(&p.groups[r], i) })
+	p.labels.Measure(len(p.groups), func(r, i int) string { return table.LabelCell(p.groups[r].labelCells, i) })
 	p.sorter.Apply(p.groups)
 	p.resolveFocus(knownKey)
 	p.Clamp(len(p.groups))
