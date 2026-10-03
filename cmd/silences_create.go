@@ -149,13 +149,7 @@ func silenceCreate(
 	if err != nil {
 		return err
 	}
-	if opts.DryRun {
-		return runDryRun(out, errOut, cfg, format, guardrail.ActionSilenceCreate, targets, globalReadOnly, opts.ConfirmTenants)
-	}
-	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
-		return err
-	}
-	if err := ensureGuardrailsAllow(cfg.Guardrails, guardrail.ActionSilenceCreate, targets, opts.ConfirmTenants); err != nil {
+	if proceed, err := gateWrite(out, errOut, cfg, format, guardrail.ActionSilenceCreate, targets, globalReadOnly, opts.DryRun, opts.ConfirmTenants); !proceed {
 		return err
 	}
 	return runWrites(ctx, out, errOut, cfg, build, format, writeStatusCreated, targets, createdHint,

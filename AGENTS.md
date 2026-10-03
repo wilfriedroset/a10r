@@ -190,7 +190,7 @@ A new guardrail action:
   `docs/end-users/configuration.md`
 - the `Guarded` tag (`internal/tui/action/action.go`) that each page's
   `Bindings()` sets on a binding that runs the verb
-- the `ensureGuardrailsAllow` and `runDryRun` calls in the `cmd/`
+- the `gateWrite` call (defined in `cmd/guardrail.go`) in the `cmd/`
   command that runs the verb
 
 A new config field:

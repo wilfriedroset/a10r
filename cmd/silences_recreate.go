@@ -137,13 +137,7 @@ func silenceRecreate(
 		}})
 	}
 
-	if opts.DryRun {
-		return runDryRun(out, errOut, cfg, format, guardrail.ActionSilenceRecreate, targets, globalReadOnly, opts.ConfirmTenants)
-	}
-	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
-		return err
-	}
-	if err := ensureGuardrailsAllow(cfg.Guardrails, guardrail.ActionSilenceRecreate, targets, opts.ConfirmTenants); err != nil {
+	if proceed, err := gateWrite(out, errOut, cfg, format, guardrail.ActionSilenceRecreate, targets, globalReadOnly, opts.DryRun, opts.ConfirmTenants); !proceed {
 		return err
 	}
 	return runWrites(ctx, out, errOut, cfg, build, format, "recreated", targets, createdHint,

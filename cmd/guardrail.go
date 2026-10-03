@@ -5,9 +5,12 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
+	"github.com/wilfriedroset/a10r/internal/output"
 )
 
 // guardrailPrefix tags every refusal sentence so a lines-mode reader
@@ -70,4 +73,29 @@ func ensureGuardrailsAllow(rules guardrail.Set, action guardrail.Action, targets
 	}
 	msgs = append(msgs, "no silence was written")
 	return NewExitError(ExitGuardrailRefused, errors.New(strings.Join(msgs, "; ")))
+}
+
+// gateWrite is the one gate every write verb passes before runWrites:
+// a dry run renders the plan and stops, otherwise the read-only and
+// guardrail checks refuse the whole command before the first mutation.
+// proceed is true only when the caller should go on and write.
+func gateWrite(
+	out, errOut io.Writer,
+	cfg *config.Config,
+	format output.Format,
+	action guardrail.Action,
+	targets []writeTarget,
+	globalReadOnly, dryRun bool,
+	confirmTenants []string,
+) (proceed bool, err error) {
+	if dryRun {
+		return false, runDryRun(out, errOut, cfg, format, action, targets, globalReadOnly, confirmTenants)
+	}
+	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
+		return false, err
+	}
+	if err := ensureGuardrailsAllow(cfg.Guardrails, action, targets, confirmTenants); err != nil {
+		return false, err
+	}
+	return true, nil
 }

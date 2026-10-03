@@ -131,13 +131,7 @@ func silenceExpire(
 		return NewExitError(ExitNotFound,
 			fmt.Errorf("silence(s) %s not found in scope", strings.Join(ids, ", ")))
 	}
-	if dryRun {
-		return runDryRun(out, errOut, cfg, format, guardrail.ActionSilenceExpire, targets, globalReadOnly, confirmTenants)
-	}
-	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
-		return err
-	}
-	if err := ensureGuardrailsAllow(cfg.Guardrails, guardrail.ActionSilenceExpire, targets, confirmTenants); err != nil {
+	if proceed, err := gateWrite(out, errOut, cfg, format, guardrail.ActionSilenceExpire, targets, globalReadOnly, dryRun, confirmTenants); !proceed {
 		return err
 	}
 	return runWrites(ctx, out, errOut, cfg, build, format, "expired", targets, expiredHint,
