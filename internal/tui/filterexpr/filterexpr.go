@@ -55,9 +55,8 @@ func (e *Expr) Match(r Row) bool { return e.root(r) == triTrue }
 
 // compileExpr returns the expression to run for s, or a nil Expr and
 // a nil error when the five-mode path owns the buffer. An `&&` or `,`
-// chain alone stays on the old path so today's buffers keep their
-// meaning, and a leading `\` forces literal mode over the whole
-// buffer.
+// chain alone is not an expression, and a leading `\` forces literal
+// mode over the whole buffer.
 //
 // Only Compile calls it. A caller outside the package reads Compiled
 // instead, so the ladder runs in one place.

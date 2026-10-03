@@ -129,6 +129,12 @@ func TestCompile_ErrorText(t *testing.T) {
 			wantMsg: `expr: bad duration "2x"`,
 		},
 		{
+			name:    "broken expression that is also a valid selector reports the expr kind",
+			buffer:  "age=2x",
+			grammar: filterexpr.AlertGrammar,
+			wantMsg: `expr: bad duration "2x"`,
+		},
+		{
 			name:    "unbalanced group with an and reports the expr kind",
 			buffer:  "(a=1 && b=2",
 			grammar: filterexpr.AlertGrammar,
@@ -162,9 +168,8 @@ func TestCompile_ErrorText(t *testing.T) {
 
 // TestCompile_RejectedBufferStaysUsable pins what a refusal leaves
 // behind, for each of the three grammars that can refuse: the buffer
-// comes back as the text term it would have been, which is the
-// fallback today's ladder reaches when a grammar declines. The rows
-// stay live while the user types, and the chrome reports the error
+// comes back as the text term it would have been. The rows stay
+// live while the user types, and the chrome reports the error
 // separately.
 func TestCompile_RejectedBufferStaysUsable(t *testing.T) {
 	t.Parallel()
@@ -194,12 +199,9 @@ func TestCompile_RejectedBufferStaysUsable(t *testing.T) {
 			want:    [][2]int{{0, 16}},
 		},
 		{
-			// The old ladder judged this one as a selector, because
-			// LabelPredicate reads it as the name `(a` with the value
-			// `1 && b=2`. The expression refusal now stops the walk
-			// before that rung. The prompt refuses the buffer either
-			// way, so the reading only decides what a caller that
-			// ignores the error sees.
+			// LabelPredicate reads this as the name `(a` with the value
+			// `1 && b=2`, but the expression refusal stops the ladder
+			// first.
 			name:    "a broken expression that a selector could still read",
 			buffer:  "(a=1 && b=2",
 			grammar: filterexpr.AlertGrammar,

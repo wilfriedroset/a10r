@@ -50,11 +50,9 @@ type Compiled struct {
 // the title tag, the Enter flash and the `:alerts --filter`
 // rejection all read the same. A rejected buffer still comes back
 // as the text term it would have been, so a caller that applies it
-// keeps the rows live while the user types. A refusal skips the
-// rungs below it, which for `expr:` drops the selector rung the
-// old ladder would still have tried: the two readings part only
-// on a buffer that is both a broken expression and a parseable
-// selector, and the prompt refuses that buffer either way.
+// keeps the rows live while the user types. A refusal stops the
+// ladder, so a broken expression is refused with `expr:` even when
+// it would parse as a selector.
 func Compile(buffer string, g Grammar) (Compiled, error) {
 	text, regexErr := filter.NewMatcher(buffer)
 	mode, body := filter.TrimSearchPrefix(buffer)
