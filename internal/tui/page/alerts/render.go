@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
@@ -229,7 +230,17 @@ func countCell(g alertGroup) string {
 // ALERTNAME. The compact form (`9ac 3su 1un`) stays well under the cap.
 const stateContentCap = 24
 
-// columns is the rendered column order, declared once. It is the only
+func (p *Page) columns() []table.Column { return p.columnsWith(p.labels.Columns()) }
+
+// sortAxes takes its order from every declared label column, not the
+// shown tier, so Shift+W never reorders the walk; SetHidden steps over
+// the wide ones instead.
+func (p *Page) sortAxes() []tablesort.Column[alertGroup] {
+	all := p.labels.All()
+	return table.SortAxes(p.columnsWith(table.LabelColumns(all, nil)), alertSortColumns(all))
+}
+
+// columnsWith is the rendered column order, declared once. It is the only
 // place on this page that knows where the user-declared block splices
 // into the built-ins, so appending a built-in after AGE cannot
 // silently break a lookup elsewhere.
@@ -240,7 +251,7 @@ const stateContentCap = 24
 // on a narrow one rather than burning fixed cells. Header labels need
 // no measuring here — the layout pass floors every column at its own
 // header.
-func (p *Page) columns() []table.Column {
+func (p *Page) columnsWith(labels []table.Column) []table.Column {
 	const (
 		// SEVERITY values are short ("critical", "warning", "info");
 		// 12 keeps the column readable at the minimum and matches the
@@ -268,7 +279,7 @@ func (p *Page) columns() []table.Column {
 	}
 	m := p.measure()
 
-	out := make([]table.Column, 0, 6+len(p.labels.Shown()))
+	out := make([]table.Column, 0, 6+len(labels))
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		out = append(out, table.Column{Key: sortKeyTenant, Title: "TENANT", Min: tenantMin, Content: m.tenant})
 	}
@@ -284,7 +295,7 @@ func (p *Page) columns() []table.Column {
 			Min: alertNameMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipEllipsis,
 		},
 	)
-	out = append(out, p.labels.Columns()...)
+	out = append(out, labels...)
 	return append(out,
 		table.Column{Key: sortKeyCount, Title: "COUNT", Sortable: true, Min: countMin, Content: m.count},
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: min(stateContentCap, max(stateMin, m.state))},

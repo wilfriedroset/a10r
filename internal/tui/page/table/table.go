@@ -13,7 +13,11 @@
 // direction, and the arrow is the whole direction contract (ADR 0048).
 package table
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/lipgloss/v2"
+
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
+)
 
 // Column is one table column: its identity, its header, and how it
 // claims width from the allocator. Min, Content and Weight carry the
@@ -102,4 +106,21 @@ func (s Sort) isActive(key string) bool {
 type Chrome struct {
 	Fg       lipgloss.Style
 	ActiveFg lipgloss.Style
+}
+
+// SortAxes orders axes as cols renders them and keeps only the
+// sortable columns, so the sorter's h/l walk is the header read left
+// to right. An axis with no sortable column is dropped.
+func SortAxes[T any](cols []Column, axes []tablesort.Column[T]) []tablesort.Column[T] {
+	byKey := make(map[string]tablesort.Column[T], len(axes))
+	for _, a := range axes {
+		byKey[a.Key] = a
+	}
+	out := make([]tablesort.Column[T], 0, len(axes))
+	for _, c := range cols {
+		if a, ok := byKey[c.Key]; ok && c.Sortable {
+			out = append(out, a)
+		}
+	}
+	return out
 }

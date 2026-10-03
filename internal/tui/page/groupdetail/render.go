@@ -14,6 +14,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
@@ -234,13 +235,23 @@ func (p *Page) styleDistinguish(clipped string, hl format.Highlighter) string {
 	return strings.Join(pairs, p.styles.YAML.Punct.Render(" · "))
 }
 
-// columns is the rendered column order, declared once. It is the only
+func (p *Page) columns() []table.Column { return p.columnsWith(p.labels.Columns()) }
+
+// sortAxes takes its order from every declared label column, not the
+// shown tier, so Shift+W never reorders the walk; SetHidden steps over
+// the wide ones instead.
+func (p *Page) sortAxes() []tablesort.Column[instanceEntry] {
+	all := p.labels.All()
+	return table.SortAxes(p.columnsWith(table.LabelColumns(all, nil)), instanceSortColumns(all))
+}
+
+// columnsWith is the rendered column order, declared once. It is the only
 // place on this page that knows where the user-declared block splices
 // into the built-ins. Content widths come from the filtered view, so
 // the layout reacts to the data the operator is looking at. Header
 // labels need no measuring — the layout pass floors every column at
 // its own header.
-func (p *Page) columns() []table.Column {
+func (p *Page) columnsWith(labels []table.Column) []table.Column {
 	const (
 		sevMin      = 12
 		stateMin    = 8
@@ -258,7 +269,7 @@ func (p *Page) columns() []table.Column {
 		stateContent = max(stateContent, lipgloss.Width(stateToken(e.a.State, p.stateFormat)))
 	}
 
-	out := make([]table.Column, 0, 4+len(p.labels.Shown()))
+	out := make([]table.Column, 0, 4+len(labels))
 	out = append(out,
 		table.Column{Key: sortKeySeverity, Title: "SEVERITY", Sortable: true, Min: sevMin, Content: max(sevMin, sevContent)},
 		// INSTANCE is the unbounded flex column: FlexUnbounded stops the
@@ -269,7 +280,7 @@ func (p *Page) columns() []table.Column {
 			Min: instanceMin, Content: format.FlexUnbounded, Weight: 1, Clip: table.ClipMiddle,
 		},
 	)
-	out = append(out, p.labels.Columns()...)
+	out = append(out, labels...)
 	return append(out,
 		table.Column{Key: sortKeyState, Title: "STATE", Min: stateMin, Content: max(stateMin, stateContent)},
 		table.Column{Key: sortKeyAge, Title: "AGE", Sortable: true, Min: ageMin, Content: ageMin},

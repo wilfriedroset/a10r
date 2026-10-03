@@ -79,8 +79,8 @@ const (
 // silently re-target label lookups.
 const labelAlertname = "alertname"
 
-// alertSortColumns returns the page's sortable column set, now keyed
-// on the alertname aggregate. Severity and count default DESC (worst /
+// alertSortColumns returns the page's sortable column set, keyed on
+// the alertname aggregate. Severity and count default DESC (worst /
 // largest first); alertname and age read naturally ascending. Every
 // comparator falls back to alertName ASC then tenant ASC so the order
 // is total and deterministic across re-sorts / poll ticks regardless
@@ -103,14 +103,6 @@ func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 				return a.alertName < b.alertName
 			}),
 		},
-	}
-	// The user block goes between ALERTNAME and COUNT, not after AGE,
-	// because the h/l walk steps this slice and it has to match what
-	// columns() renders. STATE renders but is not an axis, and a
-	// column with no sort_key renders but is skipped below, so the
-	// walk is the rendered order minus those two.
-	cols = append(cols, labelSortColumns(user)...)
-	return append(cols, []tablesort.Column[alertGroup]{
 		{
 			Key: sortKeyCount, Title: "COUNT", Hotkey: 'C', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -123,7 +115,8 @@ func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 				return a.oldestStart.Before(b.oldestStart)
 			}),
 		},
-	}...)
+	}
+	return append(cols, labelSortColumns(user)...)
 }
 
 // labelSortColumns turns each user-declared column into a sortable
@@ -446,7 +439,6 @@ type Page struct {
 
 	scroll table.Scroll
 
-	// sorter: comparators from alertSortColumns.
 	sorter *tablesort.Sorter[alertGroup]
 
 	// sortMemory is held only to hand down to the L2 group-detail
@@ -499,7 +491,6 @@ func New(opts Options) *Page {
 		stateFormat:    opts.StateFormat,
 		byTenant:       map[string][]backend.Alert{},
 		labels:         labels,
-		sorter:         tablesort.New(alertSortColumns(labels.All()), sortKeySeverity),
 		marks:          map[string]struct{}{},
 		logger:         opts.Logger,
 		session:        sess,
@@ -510,6 +501,7 @@ func New(opts Options) *Page {
 		editorCtx:      opts.EditorCtx,
 		sortMemory:     opts.SortMemory,
 	}
+	p.sorter = tablesort.New(p.sortAxes(), sortKeySeverity)
 	p.sorter.Bind(opts.SortMemory, resourceAlerts)
 	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
@@ -530,7 +522,7 @@ func New(opts Options) *Page {
 // removed falls back to the page default.
 func (p *Page) reconfigure() {
 	p.labels.Reconfigure(p.session.AlertColumns())
-	p.sorter.SetColumns(alertSortColumns(p.labels.All()))
+	p.sorter.SetColumns(p.sortAxes())
 	p.recompute()
 }
 

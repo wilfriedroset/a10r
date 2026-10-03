@@ -102,20 +102,15 @@ func instanceSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEn
 				return a.distinguishSummary < b.distinguishSummary
 			}),
 		},
+		{
+			Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
+			Description: "sort by age",
+			Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
+				return a.a.StartsAt.Before(b.a.StartsAt)
+			}),
+		},
 	}
-	// The user block goes before AGE, not after it, because the h/l
-	// walk steps this slice and it has to match what columns()
-	// renders. STATE renders but is not an axis, and a column with no
-	// sort_key renders but is skipped below, so the walk is the
-	// rendered order minus those two.
-	cols = append(cols, labelSortColumns(user)...)
-	return append(cols, tablesort.Column[instanceEntry]{
-		Key: sortKeyAge, Title: "AGE", Hotkey: 'A', DefaultAsc: true,
-		Description: "sort by age",
-		Less: tieBreakFingerprint(func(a, b *instanceEntry) bool {
-			return a.a.StartsAt.Before(b.a.StartsAt)
-		}),
-	})
+	return append(cols, labelSortColumns(user)...)
 }
 
 // labelSortColumns turns each user-declared column into a sortable
@@ -349,8 +344,8 @@ func New(opts Options) *Page {
 		submitCtx:      opts.SubmitCtx,
 		editorResolver: opts.EditorResolver,
 		editorCtx:      opts.EditorCtx,
-		sorter:         tablesort.New(instanceSortColumns(labels.All()), sortKeySeverity),
 	}
+	p.sorter = tablesort.New(p.sortAxes(), sortKeySeverity)
 	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
@@ -370,7 +365,7 @@ func New(opts Options) *Page {
 // geometry. A sort on a removed column falls back to the default.
 func (p *Page) reconfigure() {
 	p.labels.Reconfigure(p.session.GroupDetailColumns())
-	p.sorter.SetColumns(instanceSortColumns(p.labels.All()))
+	p.sorter.SetColumns(p.sortAxes())
 	p.recompute()
 }
 
