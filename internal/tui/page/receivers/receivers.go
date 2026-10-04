@@ -45,7 +45,10 @@ type DrillRequestMsg struct {
 // idiom.
 const sortKeyName = "name"
 
-const resourceReceivers = "receivers"
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "receivers"
 
 // receiverSortColumns returns the page's single sortable axis. The
 // helper still applies the same "press the active column to flip
@@ -151,7 +154,7 @@ func New(opts Options) *Page {
 		byTenant:      map[string][]string{},
 		sorter:        tablesort.New(receiverSortColumns(), sortKeyName),
 	}
-	p.sorter.Bind(opts.SortMemory, resourceReceivers)
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
@@ -162,7 +165,7 @@ func (*Page) Init() tea.Cmd { return nil }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return resourceReceivers }
+func (*Page) Crumb() string { return ViewName }
 
 // Title implements app.Page. Mirrors the alerts shape:
 // `receivers(<scope>)[<count>]` or `receivers(<scope>)[F/T]`
@@ -237,18 +240,18 @@ func (p *Page) Footer() string {
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
 // page on push.
-func (*Page) PollResources() []string { return []string{resourceReceivers} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
 // Bindings implements app.Page. Sort shortcut comes from the
 // tablesort helper; the helper's single-column setup emits exactly
 // one Shift+N entry so the help overlay's RESOURCE column picks it
 // up identically to the multi-axis pages.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings(resourceReceivers)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 2+len(sortBindings))
-	out = append(out, action.Action{Key: "Enter", Description: "drill", View: resourceReceivers})
+	out = append(out, action.Action{Key: "Enter", Description: "drill", View: ViewName})
 	out = append(out, sortBindings...)
-	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: resourceReceivers})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: ViewName})
 	return out
 }
 

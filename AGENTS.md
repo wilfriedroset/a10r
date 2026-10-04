@@ -236,8 +236,9 @@ A new page:
 - the alias collision list in `docs/end-users/configuration.md` when the
   page adds a built-in alias
 - `sortResources` in `internal/tui/boot/boot.go` when the page
-  remembers a sort column -- the key there must match the one the
-  page passes to `Sorter.Bind`
+  remembers a sort column -- list the page's exported `ViewName`, the
+  key it passes to `Sorter.Bind`, and build the page in
+  `TestSortResources_CoverEveryPageSortKey`
 
 A new built-in column on the alerts or group detail page:
 

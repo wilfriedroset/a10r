@@ -303,7 +303,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, resourceSilences)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, ViewName)
 }
 
 // handleClearMarks drops every mark on the page in response to

@@ -65,12 +65,16 @@ const (
 	sortKeyAge      = "age"
 )
 
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "alerts"
+
+// wordAlert / wordAlerts are operator-facing prose, so ViewName must
+// not double as a noun.
 const (
-	// resourceAlerts is the page's resource id. wordAlert / wordAlerts
-	// are operator-facing prose, so the id must not double as a noun.
-	resourceAlerts = "alerts"
-	wordAlert      = "alert"
-	wordAlerts     = "alerts"
+	wordAlert  = "alert"
+	wordAlerts = "alerts"
 )
 
 // labelAlertname is the Alertmanager wire-format label key. Distinct
@@ -465,7 +469,7 @@ func New(opts Options) *Page {
 		sortMemory:     opts.SortMemory,
 	}
 	p.sorter = tablesort.New(p.sortAxes(), sortKeySeverity)
-	p.sorter.Bind(opts.SortMemory, resourceAlerts)
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
 	p.Grammar = filterexpr.AlertGrammar
@@ -509,11 +513,11 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return resourceAlerts }
+func (*Page) Crumb() string { return ViewName }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(resourceAlerts, p.styles.Header.Accent)
+		return p.LoadingTitle(ViewName, p.styles.Header.Accent)
 	}
 	scope := p.Scope
 	if scope == "" {
@@ -553,33 +557,33 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{resourceAlerts} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
 func (p *Page) Bindings() []action.Action {
 	guarded := p.guarded()
-	sortBindings := p.sorter.Bindings(resourceAlerts)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: resourceAlerts},
-		action.Action{Key: "Space", Description: "mark", View: resourceAlerts, Shared: true},
-		action.Action{Key: "Shift+V", Description: "mark range", View: resourceAlerts, Shared: true},
-		action.Action{Key: "s", Description: "silence", View: resourceAlerts, Dangerous: true, Guarded: guarded},
-		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
-		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
+		action.Action{Key: "Enter", Description: "detail", View: ViewName},
+		action.Action{Key: "Space", Description: "mark", View: ViewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: ViewName, Shared: true},
+		action.Action{Key: "s", Description: "silence", View: ViewName, Dangerous: true, Guarded: guarded},
+		action.Action{Key: "/", Description: "filter", View: ViewName},
+		action.Action{Key: "Shift+F", Description: "state filter", View: ViewName},
 	)
 	if p.labels.HasWide() {
-		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: resourceAlerts})
+		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: ViewName})
 	}
 	out = append(out, sortBindings...)
 	// 'r' is global; surface it here for discoverability.
 	out = append(out,
-		action.Action{Key: "Shift+T", Description: "state format", View: resourceAlerts},
-		action.Action{Key: "r", Description: "refresh", View: resourceAlerts},
-		action.Action{Key: "w", Description: "toggle watch", View: resourceAlerts},
+		action.Action{Key: "Shift+T", Description: "state format", View: ViewName},
+		action.Action{Key: "r", Description: "refresh", View: ViewName},
+		action.Action{Key: "w", Description: "toggle watch", View: ViewName},
 		// Last on purpose: the keys do nothing on a terminal wide
 		// enough for every column, and the fixed-size hint strip drops
 		// the tail first.
-		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: resourceAlerts},
+		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: ViewName},
 	)
 	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)

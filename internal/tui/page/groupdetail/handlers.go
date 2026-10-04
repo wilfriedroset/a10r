@@ -165,7 +165,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "alerts")
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, pollResource)
 }
 
 func (p *Page) handleClearMarks() tea.Cmd {

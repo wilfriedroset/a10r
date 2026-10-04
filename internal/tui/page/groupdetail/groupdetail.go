@@ -68,6 +68,11 @@ const (
 // in the keep-list it prunes the remembered sort keys against.
 const ViewName = "instances"
 
+// pollResource is the alerts page's poll label. This package cannot
+// import that page (it drills into this one), so the alerts tests pin
+// the two against each other.
+const pollResource = "alerts"
+
 // instanceSortColumns returns the page's sortable column set.
 // Severity defaults DESC (critical first); the rest read naturally
 // ascending. Every comparator falls back to fingerprint ASC so the
@@ -399,8 +404,8 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage so the App-level
-// snapshot cache replays "alerts" payloads into this page on push.
-func (*Page) PollResources() []string { return []string{"alerts"} }
+// snapshot cache replays the alerts payloads into this page on push.
+func (*Page) PollResources() []string { return []string{pollResource} }
 
 // Bindings returns the per-view hint-strip / help-overlay actions.
 // Sort shortcuts come from the tablesort helper; h/l column walk

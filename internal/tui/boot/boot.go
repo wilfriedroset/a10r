@@ -42,7 +42,10 @@ import (
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/notify"
+	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
+	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
+	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
@@ -264,7 +267,7 @@ func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
 // under. It is not the `:` alias set: the instances page binds the
 // view name it shows in the crumb, and the status page has no
 // sortable table at all.
-var sortResources = []string{resourceAlerts, resourceSilences, resourceReceivers, pageTenant, groupdetail.ViewName}
+var sortResources = []string{alerts.ViewName, silences.ViewName, receivers.ViewName, tenant.ViewName, groupdetail.ViewName}
 
 // bootScope resolves the one tenant scope both the page env and the
 // App boot on. The --tenant flag beats a remembered scope for this run

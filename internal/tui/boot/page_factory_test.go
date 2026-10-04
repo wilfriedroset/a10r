@@ -15,6 +15,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/report"
+	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -207,4 +208,35 @@ func TestNewConfigPage_AnchorsReachTheirSections(t *testing.T) {
 			require.Contains(t, testutil.StripStyle(page.View(120, 2)), tc.want)
 		})
 	}
+}
+
+type sortKeyRecorder struct{ keys []string }
+
+func (r *sortKeyRecorder) Sort(resource string) string {
+	r.keys = append(r.keys, resource)
+	return ""
+}
+
+func (*sortKeyRecorder) SetSort(string, string) {}
+
+// TestSortResources_CoverEveryPageSortKey pins the keep-list PruneSort
+// reads against the keys the pages bind: a key missing from it gets
+// its remembered sort wiped on every start, silently.
+func TestSortResources_CoverEveryPageSortKey(t *testing.T) {
+	t.Parallel()
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, testDeps(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	rec := &sortKeyRecorder{}
+	env := *res.env
+	env.SortMemory = rec
+	newAlertsPage(&env, "", "")
+	newSilencesPage(&env)
+	newReceiversPage(&env)
+	newTenantPage(&env, nil)
+	groupdetail.New(groupdetail.Options{Styles: env.Styles, Session: env.Session, SortMemory: rec})
+
+	require.ElementsMatch(t, rec.keys, sortResources)
 }

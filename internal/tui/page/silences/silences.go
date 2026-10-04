@@ -51,7 +51,10 @@ const (
 	colHeaderState  = "STATE"
 )
 
-const resourceSilences = "silences"
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "silences"
 
 const editorExtensionYAML = "yaml"
 
@@ -304,7 +307,7 @@ func New(opts Options) *Page {
 			p.restrictIDs[id] = struct{}{}
 		}
 	}
-	p.sorter.Bind(opts.SortMemory, resourceSilences)
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
@@ -335,11 +338,11 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return resourceSilences }
+func (*Page) Crumb() string { return ViewName }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(resourceSilences, p.styles.Header.Accent)
+		return p.LoadingTitle(ViewName, p.styles.Header.Accent)
 	}
 	scope := p.alertName
 	if scope == "" {
@@ -380,30 +383,30 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{resourceSilences} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
 // When read-only, Dangerous entries are stripped before returning.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings(resourceSilences)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	create := p.guarded(guardrail.ActionSilenceCreate)
 	update := p.guarded(guardrail.ActionSilenceUpdate)
 	expire := p.guarded(guardrail.ActionSilenceExpire)
 	recreate := p.guarded(guardrail.ActionSilenceRecreate)
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: resourceSilences},
-		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true, Guarded: create},
-		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true, Guarded: update},
-		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true, Guarded: expire},
-		action.Action{Key: "Space", Description: "mark", View: resourceSilences, Shared: true},
-		action.Action{Key: "Shift+V", Description: "mark range", View: resourceSilences, Shared: true},
-		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true, Guarded: update},
-		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true, Guarded: recreate},
+		action.Action{Key: "Enter", Description: "detail", View: ViewName},
+		action.Action{Key: "n", Description: "new", View: ViewName, Dangerous: true, Guarded: create},
+		action.Action{Key: "e", Description: "edit", View: ViewName, Dangerous: true, Guarded: update},
+		action.Action{Key: "x", Description: "expire (cursor / marks)", View: ViewName, Dangerous: true, Guarded: expire},
+		action.Action{Key: "Space", Description: "mark", View: ViewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: ViewName, Shared: true},
+		action.Action{Key: "Ctrl+E", Description: "editor", View: ViewName, Dangerous: true, Guarded: update},
+		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: ViewName, Dangerous: true, Guarded: recreate},
 	)
 	out = append(out, sortBindings...)
 	out = append(out,
-		action.Action{Key: "r", Description: "refresh", View: resourceSilences},
-		action.Action{Key: "w", Description: "toggle watch", View: resourceSilences},
+		action.Action{Key: "r", Description: "refresh", View: ViewName},
+		action.Action{Key: "w", Description: "toggle watch", View: ViewName},
 	)
 	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)

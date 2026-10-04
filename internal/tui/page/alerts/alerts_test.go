@@ -1574,3 +1574,13 @@ func TestGuardrailAppliesAfterApply(t *testing.T) {
 		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on prod-eu: change freeze"},
 		cmd())
 }
+
+// TestGroupDetail_PollsTheAlertsResource pins the poll label the
+// group detail page shares with this one. groupdetail cannot import
+// this package (the drill runs the other way), so it keeps its own
+// copy; a drift would leave the drilled page without data.
+func TestGroupDetail_PollsTheAlertsResource(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, (*Page)(nil).PollResources(), (*groupdetail.Page)(nil).PollResources())
+}
