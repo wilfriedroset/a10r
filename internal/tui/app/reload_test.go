@@ -3,6 +3,8 @@
 package app
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +23,11 @@ import (
 // ran, so a test can tell "refused" from "ran and said no".
 func newReloadApp(t *testing.T, reload func() tea.Cmd) *App {
 	t.Helper()
+	return newReloadAppOn(t, reload, testutil.Session())
+}
+
+func newReloadAppOn(t *testing.T, reload func() tea.Cmd, sess *session.Session) *App {
+	t.Helper()
 	// A private copy: testutil.LoadStyles caches one *theme.Styles
 	// for the whole process, and applySkin writes through the
 	// pointer. Sharing it would let a reload test repaint every
@@ -30,7 +37,7 @@ func newReloadApp(t *testing.T, reload func() tea.Cmd) *App {
 		Styles:     &styles,
 		Dispatcher: keys.New(nil),
 		Reload:     reload,
-		Session:    testutil.Session(),
+		Session:    sess,
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	return updated.(*App)
@@ -229,6 +236,71 @@ func TestApplyReloadedSwitchesTheSkin(t *testing.T) {
 	cmd := reloadWith(a, config.Config{Theme: config.Theme{Name: "nord"}})
 
 	require.Equal(t, "nord", a.skinName)
+	require.Equal(t,
+		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded"}},
+		drainFlashes(t, cmd))
+}
+
+// A `:skin` pick lasts the session, so only a theme.name the file
+// changed since the last config may override it on reload. A plain
+// step is a reload; a step prefixed with ':' is a `:skin` pick. boot
+// is the theme.name the session starts with.
+func TestApplyReloadedKeepsTheSessionSkinUntilTheFileChangesIt(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		boot  string
+		steps []string
+		want  string
+	}{
+		{name: "unchanged boot name keeps the pick", boot: "nord", steps: []string{":dracula", "nord"}, want: "dracula"},
+		{name: "unchanged name keeps the pick", steps: []string{"nord", ":dracula", "nord"}, want: "dracula"},
+		{name: "changed name overrides the pick", steps: []string{"nord", ":dracula", "nord", "monokai"}, want: "monokai"},
+		{name: "auto never overrides", steps: []string{theme.AutoSkinName, ":dracula", "nord", theme.AutoSkinName}, want: "nord"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := newReloadAppOn(t, nil, session.New(config.Config{Theme: config.Theme{Name: tc.boot}}))
+			a.skinNames = func() []string { return []string{"nord", "dracula", "monokai"} }
+			a.loadStyles = func(string) (*theme.Styles, error) { return &theme.Styles{}, nil }
+			for _, step := range tc.steps {
+				if pick, ok := strings.CutPrefix(step, ":"); ok {
+					_, _ = a.Update(ApplySkinMsg{Name: pick})
+					continue
+				}
+				reloadWith(a, config.Config{Theme: config.Theme{Name: step}})
+			}
+
+			require.Equal(t, tc.want, a.skinName)
+		})
+	}
+}
+
+// A refused switch is not handled: once the user fixes the skin file,
+// reloading the same theme.name must retry it.
+func TestApplyReloadedRetriesARefusedSkin(t *testing.T) {
+	t.Parallel()
+
+	a := newReloadApp(t, nil)
+	a.skinNames = func() []string { return []string{"foo"} }
+	broken := true
+	a.loadStyles = func(string) (*theme.Styles, error) {
+		if broken {
+			return nil, errors.New("broken")
+		}
+		return &theme.Styles{}, nil
+	}
+	cfg := config.Config{Theme: config.Theme{Name: "foo"}}
+	reloadWith(a, cfg)
+	require.NotEqual(t, "foo", a.skinName)
+
+	broken = false
+	cmd := reloadWith(a, cfg)
+
+	require.Equal(t, "foo", a.skinName)
 	require.Equal(t,
 		[]footer.FlashShowMsg{{Level: footer.FlashInfo, Text: "reloaded"}},
 		drainFlashes(t, cmd))

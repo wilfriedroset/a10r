@@ -65,9 +65,11 @@ func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
 		// is the refusal and a success flash batched beside it would
 		// take the one flash slot that refusal needs.
 		if refused := a.applySkin(skin); refused != nil {
+			// configSkin stays put, so the next reload retries.
 			return tea.Batch(applied, refused)
 		}
 	}
+	a.configSkin = cfg.Theme.Name
 	if len(m.Restart) > 0 {
 		return tea.Batch(applied, showFlash(footer.FlashInfo, "reloaded, restart a10r to apply "+strings.Join(m.Restart, ", ")))
 	}
@@ -75,13 +77,14 @@ func (a *App) applyReloaded(m ReloadedMsg) tea.Cmd {
 }
 
 // reloadedSkin returns the skin a reload must switch to, or empty
-// when it must leave the skin alone.
+// when it must leave the skin alone. Only a theme.name the file
+// changed counts, because a `:skin` pick lasts the session.
 //
 // The auto sentinel is left alone on purpose: the terminal answered
 // the background question once at startup, and re-running detection
 // would need a fresh round trip whose answer cannot change.
 func (a *App) reloadedSkin(themeName string) string {
-	if themeName == "" || themeName == theme.AutoSkinName || themeName == a.skinName {
+	if themeName == "" || themeName == theme.AutoSkinName || themeName == a.configSkin || themeName == a.skinName {
 		return ""
 	}
 	return themeName

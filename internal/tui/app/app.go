@@ -115,6 +115,9 @@ type App struct {
 	// `:skin` agree on what is in force.
 	skinNames func() []string
 	skinName  string
+	// configSkin is the theme.name of the config last applied, so a
+	// reload can tell a file edit from a `:skin` pick it must keep.
+	configSkin string
 
 	// reload backs `:reload`; see Options.Reload.
 	reload func() tea.Cmd
@@ -247,6 +250,7 @@ func NewApp(opts Options) *App {
 		},
 		histories: newAppHistories(opts.HistoryDir),
 	}
+	a.configSkin = a.session.Config().Theme.Name
 	if a.notify == nil {
 		a.notify = notify.New(config.Notify{})
 	}
