@@ -276,6 +276,30 @@ func TestObserveHonoursMinSeverity(t *testing.T) {
 	require.Equal(t, "prod-eu: PageMe (critical)", flashText(t, cmd))
 }
 
+func TestObserveUnrankedSeverityNotifiesOnlyAtTheInfoFloor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		floor    string
+		severity string
+		want     string
+	}{
+		{floor: "info", severity: "error", want: "prod-eu: Unranked (—)"},
+		{floor: "info", severity: "", want: "prod-eu: Unranked (—)"},
+		{floor: "warning", severity: "error", want: ""},
+		{floor: "", severity: "page", want: ""},
+		{floor: "critical", severity: "high", want: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.floor+"/"+tc.severity, func(t *testing.T) {
+			t.Parallel()
+			n := New(config.Notify{Enabled: true, MinSeverity: tc.floor})
+			require.Nil(t, n.Observe("prod-eu", nil))
+			cmd := n.Observe("prod-eu", []backend.Alert{alert("Unranked", tc.severity, backend.AlertStateActive)})
+			require.Equal(t, tc.want, flashText(t, cmd))
+		})
+	}
+}
+
 func TestScope(t *testing.T) {
 	firing := []backend.Alert{alert("HighLatency", "critical", backend.AlertStateActive)}
 

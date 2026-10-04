@@ -30,7 +30,8 @@ to [Semantic Versioning][semver].
   firing alerts, worst critical` when the poll brings several. One
   poll raises one notification and one bell, whatever the number of
   new alerts. `desktop` picks the escape sequence (`osc777`, `osc9`,
-  `both`, `off`) and `min_severity` sets the floor a group must reach.
+  `both`, `off`) and `min_severity` sets the floor a group must reach;
+  `info` notifies on every firing alert, one with no known severity too.
   `command` runs a program such as `notify-send` instead of, or beside,
   the escape sequence, and it runs without a shell: a10r replaces each
   `$MESSAGE` element of the argv with the text as one argument. The

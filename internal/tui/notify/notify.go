@@ -87,7 +87,13 @@ func (n *Notifier) Apply(cfg config.Notify) {
 		n.seen = map[string]map[string]int{}
 	}
 	n.enabled = cfg.Enabled
-	n.minRank = backend.SeverityRank(map[string]string{"severity": cfg.MinSeverityOrDefault()})
+	floor := cfg.MinSeverityOrDefault()
+	n.minRank = backend.SeverityRank(map[string]string{"severity": floor})
+	// info is the lowest floor, so it means everything: an alert with
+	// no rank notifies there and stays out at the higher floors.
+	if floor == "info" {
+		n.minRank = 0
+	}
 	n.bell = cfg.BellOrDefault()
 	n.desktop = cfg.DesktopOrDefault()
 	n.command = cfg.Command

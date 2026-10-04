@@ -301,7 +301,7 @@ tui:
 | `enabled` | bool | `false` | Turn the whole feature on. |
 | `bell` | bool | `true` | Ring the terminal bell. One ring per poll, whatever the number of new alerts. |
 | `desktop` | string | `osc777`, or `off` when `command` is set | The escape sequence a10r writes. One of `osc777`, `osc9`, `both`, `off`. |
-| `min_severity` | string | `warning` | The floor a group must reach to notify. One of `critical`, `warning`, `info`. |
+| `min_severity` | string | `warning` | The floor a group must reach to notify. One of `critical`, `warning`, `info`. `info` notifies on every firing alert. |
 | `command` | list of strings | empty | Argv of a program to run instead of, or beside, the escape sequence. The first element names the program, so it must be neither empty nor `$MESSAGE`. |
 
 a10r rejects the configuration at startup when `desktop` is not one
@@ -311,8 +311,11 @@ severities, or when the first element of `command` is empty or is
 
 a10r ranks three severities: `critical`, `warning` and `info`. An
 alert with no `severity` label, or with a value that is none of the
-three, stays below every floor and never notifies. No value of
-`min_severity` notifies on everything.
+three, such as `error` or `page`, has no rank. Such an alert notifies
+when `min_severity` is `info`, because `info` is the lowest floor and
+means every firing alert. At `warning` and `critical`, and so at the
+default, it never notifies, because a10r cannot tell whether it
+reaches the floor.
 
 The notification also writes one line to the flash strip, so the
 in-app signal reaches you when every transport is off. There is one
