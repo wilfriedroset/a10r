@@ -41,6 +41,22 @@ func TestYAML_RoundTrip(t *testing.T) {
 	require.Equal(t, in.Matchers, spec.Matchers)
 }
 
+func TestYAML_EditorFileEscapesTerminalControlBytes(t *testing.T) {
+	t.Parallel()
+	in := sampleSilence()
+	in.Comment = "line one\n\x1b]0;pwned\x07line two\u009b2J"
+	in.CreatedBy = "al\x1b[5Aice"
+	in.Matchers = []backend.Matcher{{Name: "te\x1bam", Value: "a\x07b", IsEqual: true}}
+	body, err := silenceToYAML(in)
+	require.NoError(t, err)
+	require.False(t, strings.ContainsFunc(string(body), func(r rune) bool {
+		return r == 0x1b || r == 0x07 || (r >= 0x80 && r <= 0x9f)
+	}), "the $EDITOR file must not carry ESC, BEL or C1 bytes: %q", body)
+	_, spec, err := silenceFromYAML(body)
+	require.NoError(t, err)
+	require.Equal(t, in.Comment, spec.Comment, "the escape must round-trip to the original text")
+}
+
 func TestYAML_FromYAML_RejectsEmpty(t *testing.T) {
 	t.Parallel()
 	_, _, err := silenceFromYAML([]byte("   \n  "))

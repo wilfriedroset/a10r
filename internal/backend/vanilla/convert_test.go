@@ -117,31 +117,21 @@ func TestToStatus_SanitisesRenderedText(t *testing.T) {
 		"the backend config is a document the status page splits on newlines")
 }
 
-func TestToSilence_SanitisesRemoteText(t *testing.T) {
+func TestToSilence_KeepsRemoteTextVerbatim(t *testing.T) {
 	t.Parallel()
 
 	got := toSilence(wireSilence{
-		ID:        "id\x1b42",
+		ID:        "id42",
 		CreatedBy: "al\x1bice",
 		Comment:   "on\ncall\twindow",
 		Status:    wireSilenceState{State: "active"},
-		Matchers:  []wireMatcher{{Name: "clus\x00ter", Value: "eu\x1b[0m-1"}},
+		Matchers:  []wireMatcher{{Name: "clus\x00ter", Value: "eu\t1"}},
 	})
 
-	require.Equal(t, "al ice", got.CreatedBy)
-	require.Equal(t, "on call window", got.Comment)
-	require.Equal(t, "id\x1b42", got.ID,
-		"the silence id addresses the API, never only the screen")
+	require.Equal(t, "al\x1bice", got.CreatedBy)
+	require.Equal(t, "on\ncall\twindow", got.Comment)
 	require.Len(t, got.Matchers, 1)
-	require.Equal(t, "clus ter", got.Matchers[0].Name)
-	require.Equal(t, "eu [0m-1", got.Matchers[0].Value)
-}
-
-func TestToMatcher_SanitisesNameAndValue(t *testing.T) {
-	t.Parallel()
-
-	got := toMatcher(wireMatcher{Name: "se\x1bverity", Value: "crit\nical"})
-	require.Equal(t, "se verity", got.Name)
-	require.Equal(t, "crit ical", got.Value)
-	require.True(t, got.IsEqual, "a nil isEqual still defaults to the positive form")
+	require.Equal(t, "clus\x00ter", got.Matchers[0].Name)
+	require.Equal(t, "eu\t1", got.Matchers[0].Value)
+	require.True(t, got.Matchers[0].IsEqual, "a nil isEqual still defaults to the positive form")
 }

@@ -701,6 +701,28 @@ func TestPage_SilencedByCommentTruncatedAtFirstNewline(t *testing.T) {
 		"second-line content must NOT appear in the row")
 }
 
+func TestPage_SilencedByRowNeutralisesControlBytes(t *testing.T) {
+	t.Parallel()
+	a := suppressedSample([]string{"sil-esc"}, nil, nil)
+	p := New(Options{
+		Alert:   a,
+		Tenant:  "prod",
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
+	})
+	_, _ = p.Update(silenceDataMsg("prod", []backend.Silence{{
+		ID:        "sil-esc",
+		EndsAt:    fixedNow.Add(time.Hour),
+		CreatedBy: "al\x1b[5Aice",
+		Comment:   "x\x1b]0;pwn\a",
+	}}))
+	out := p.View(160, 30)
+	require.NotContains(t, out, "\x1b[5A")
+	require.NotContains(t, out, "\a")
+	require.Contains(t, testutil.StripStyle(out), "by al [5Aice")
+}
+
 func TestPage_SilencedByExpiryFlipsLabelInAbsoluteMode(t *testing.T) {
 	t.Parallel()
 	a := suppressedSample([]string{"sil-1"}, nil, nil)

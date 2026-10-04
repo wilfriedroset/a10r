@@ -388,7 +388,7 @@ func summariseMatchers(ms []matcherRow) string {
 	}
 	parts := make([]string, 0, len(ms))
 	for _, m := range ms {
-		parts = append(parts, matcher.Quote(backend.Matcher{Name: m.Name, Value: m.Value, IsRegex: m.IsRegex, IsEqual: m.IsEqual}))
+		parts = append(parts, quoteForLine(backend.Matcher{Name: m.Name, Value: m.Value, IsRegex: m.IsRegex, IsEqual: m.IsEqual}))
 	}
 	return strings.Join(parts, ",")
 }

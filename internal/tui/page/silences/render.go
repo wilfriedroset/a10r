@@ -153,8 +153,8 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark, previewed b
 	}
 	row = append(row,
 		clipSilenceID(e.s.ID),
-		e.s.CreatedBy,
-		singleLine(e.s.Comment),
+		format.SingleLine(e.s.CreatedBy),
+		format.SingleLine(e.s.Comment),
 		p.formatTime(e.s.StartsAt),
 		p.formatTime(e.s.EndsAt),
 		string(e.s.State),
@@ -267,29 +267,6 @@ func clipSilenceID(id string) string {
 		return id
 	}
 	return id[:8]
-}
-
-// singleLine flattens whitespace and strips control bytes from
-// user-provided content (silence Comment, CreatedBy, matcher
-// values) so a multi-line value can't break the table row alignment
-// and a crafted value can't smuggle terminal escape sequences into
-// the rendered output. Operators routinely paste URLs or runbook
-// excerpts on their own line; the C0 / C1 strip closes audit-style
-// findings where a comment like "\x1b[31m..." would repaint adjacent
-// cells. Replacement is space so word boundaries survive.
-func singleLine(s string) string {
-	return strings.Map(func(r rune) rune {
-		// C0 (incl. \n \r \t \x1b BEL etc.) and DEL collapse to space.
-		if r < 0x20 || r == 0x7F {
-			return ' '
-		}
-		// C1 controls (0x80–0x9F): some terminals still treat 0x9B
-		// as a single-byte CSI introducer. Strip the whole band.
-		if r >= 0x80 && r <= 0x9F {
-			return ' '
-		}
-		return r
-	}, s)
 }
 
 // silenceStateColor returns the foreground color associated with a

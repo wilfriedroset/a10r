@@ -3,6 +3,7 @@
 package silence
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -289,6 +290,27 @@ func TestMarshalSilence_IncludesUpdatedAtWhenSet(t *testing.T) {
 	body, err := marshalSilence(s)
 	require.NoError(t, err)
 	require.Contains(t, body, `updatedAt: "2026-04-25T12:00:00Z"`)
+}
+
+func TestMarshal_EscapesTerminalControlBytes(t *testing.T) {
+	t.Parallel()
+	s := sample()
+	s.Comment = "line one\n\x1b]0;pwned\x07line two\u009b2J"
+	s.CreatedBy = "al\x1b[5Aice"
+	s.Matchers = []backend.Matcher{{Name: "te\x1bam", Value: "a\x07b", IsEqual: true}}
+	for name, marshal := range map[string]func(backend.Silence) (string, error){
+		"curated": marshalSilence,
+		"raw":     marshalRawSilence,
+	} {
+		body, err := marshal(s)
+		require.NoError(t, err)
+		require.False(t, strings.ContainsFunc(body, isTerminalControl),
+			"%s body painted into the detail view must not carry ESC, BEL or C1 bytes: %q", name, body)
+	}
+}
+
+func isTerminalControl(r rune) bool {
+	return r == 0x1b || r == 0x07 || (r >= 0x80 && r <= 0x9f)
 }
 
 func TestPage_CopyFieldsOrderAndValues(t *testing.T) {

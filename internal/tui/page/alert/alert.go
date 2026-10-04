@@ -548,7 +548,7 @@ func (p *Page) silencedByRow(id string, width int) string {
 	if !ok {
 		return silenceRowIndent + id + "  (silence not in snapshot)"
 	}
-	prefix := silenceRowIndent + id + "  " + p.expiryField(s.EndsAt) + "  by " + s.CreatedBy
+	prefix := silenceRowIndent + id + "  " + p.expiryField(s.EndsAt) + "  by " + format.SingleLine(s.CreatedBy)
 	comment := strings.TrimSpace(s.Comment)
 	if comment == "" {
 		return prefix
@@ -585,7 +585,7 @@ func clipComment(s string, budget int) string {
 		return ""
 	}
 	first, _, multiline := strings.Cut(s, "\n")
-	s = first
+	s = format.SingleLine(first)
 	width := lipgloss.Width(s)
 	needsEllipsis := multiline || width > budget
 	if !needsEllipsis {

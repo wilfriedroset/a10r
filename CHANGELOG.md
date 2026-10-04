@@ -208,14 +208,19 @@ to [Semantic Versioning][semver].
   a10r
   replaces every control character with a space at the point where a
   wire response becomes a domain value. This covers labels,
-  annotations, generator URLs, silence authors, silence comments,
-  matchers, receiver names, cluster peers and the version block. An
-  alert whose label carries an ANSI escape sequence therefore renders
-  as text in every list, every detail page and every notification.
-  Two kinds of value stay as sent. The backend configuration the
-  `:status` page shows is a document rather than a cell. Alert
-  fingerprints and silence IDs address the API, so a substitution
-  there would break the lookups that use them.
+  annotations, generator URLs, receiver names, cluster peers and the
+  version block. An alert whose label carries an ANSI escape sequence
+  therefore renders as text in every list, every detail page and
+  every notification. Some values stay as sent. The backend
+  configuration the `:status` page shows is a document rather than a
+  cell. Alert fingerprints and silence IDs address the API, so a
+  substitution there would break the lookups that use them. Silence
+  authors, comments and matchers are written back by `silences
+  update`, `silences recreate` and the editor flow, so they stay as
+  sent and are cleaned where a10r draws them instead. `json` and
+  `yaml` output carries them unchanged. One known gap remains: the
+  TUI edit and recreate form still flattens comment newlines and
+  splits or drops control characters in matchers.
 
 ## [v0.1.0] — 2026-06-03
 

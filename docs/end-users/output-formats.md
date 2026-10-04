@@ -172,6 +172,12 @@ release.
 - HTML escaping is disabled: URLs in alert annotations / labels
   retain literal `&`, `<`, `>` so jq pipelines see human-readable
   values rather than `&`-style escapes.
+- A silence's comment, author and matchers come out exactly as the
+  backend stored them, newlines and tabs included, so a script can
+  write them back unchanged. The `table` and lines modes and the TUI
+  replace each control character with a space for display. Alert
+  labels, annotations and receiver names are cleaned before any
+  output, so `json` and `yaml` show them with that substitution.
 - YAML output uses 2-space indent (matching the file-side `a10r.yaml`
   convention) and yaml.v3's default key ordering, so it reads and
   diffs cleanly. It is a view of the resource, not the config schema —

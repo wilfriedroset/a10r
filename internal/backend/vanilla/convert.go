@@ -18,10 +18,14 @@ import (
 // too, because a table cell is one line by contract.
 //
 // The substitution is lossy on purpose: a cell renders one line, so a
-// preserved escape has nothing to render into.
-// A matcher built from a mangled label value therefore matches no
-// alert, so a silence over such an alert is created and does nothing.
-// That trade buys a terminal a remote backend cannot drive.
+// preserved escape has nothing to render into. A matcher built from a
+// mangled label value therefore matches no alert, so a silence over
+// such an alert is created and does nothing. That trade buys a
+// terminal a remote backend cannot drive.
+//
+// Silence text is the exception: update, recreate and the $EDITOR
+// flow write it back, so toSilence keeps it verbatim and every
+// renderer neutralises it instead.
 func sanitize(s string) string {
 	if !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
@@ -107,8 +111,8 @@ func toSilence(w wireSilence) backend.Silence {
 		ID:        w.ID,
 		StartsAt:  w.StartsAt,
 		EndsAt:    w.EndsAt,
-		CreatedBy: sanitize(w.CreatedBy),
-		Comment:   sanitize(w.Comment),
+		CreatedBy: w.CreatedBy,
+		Comment:   w.Comment,
 		State:     backend.SilenceState(w.Status.State),
 		UpdatedAt: w.UpdatedAt,
 	}
@@ -130,8 +134,8 @@ func toMatcher(w wireMatcher) backend.Matcher {
 		isEqual = *w.IsEqual
 	}
 	return backend.Matcher{
-		Name:    sanitize(w.Name),
-		Value:   sanitize(w.Value),
+		Name:    w.Name,
+		Value:   w.Value,
 		IsRegex: w.IsRegex,
 		IsEqual: isEqual,
 	}

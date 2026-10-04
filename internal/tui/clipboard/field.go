@@ -4,6 +4,7 @@ package clipboard
 
 import (
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -38,7 +39,7 @@ func Items(fields []Field) []string {
 func rows(fields []Field, shape func(string) string) []string {
 	out := make([]string, len(fields))
 	for i, f := range fields {
-		out[i] = f.Name + ": " + shape(strings.ReplaceAll(f.Value, "\n", " "))
+		out[i] = format.SingleLine(f.Name) + ": " + shape(format.SingleLine(f.Value))
 	}
 	return out
 }
@@ -68,7 +69,19 @@ func CopySelected(clip Clipboard, fields []Field, m modal.PickerSubmittedMsg) te
 		return nil
 	}
 	return tea.Batch(
-		clip.Copy(fields[i].Value),
-		footer.ShowFlash(footer.FlashInfo, "copied "+fields[i].Name),
+		clip.Copy(pasteSafe(fields[i].Value)),
+		footer.ShowFlash(footer.FlashInfo, "copied "+format.SingleLine(fields[i].Name)),
 	)
+}
+
+// pasteSafe maps control runes to a space so a pasted value cannot end
+// bracketed paste (ESC [201~) and run the rest as typed input. Newline
+// and tab stay: the matchers block is newline-joined.
+func pasteSafe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
 }

@@ -48,6 +48,11 @@ func TestItems(t *testing.T) {
 			want:   []string{"annotation summary: first second"},
 		},
 		{
+			name:   "control bytes are neutralised",
+			fields: []Field{{Name: "matcher te\x1b[5Aam", Value: "a\tb\a"}},
+			want:   []string{"matcher te [5Aam: a b "},
+		},
+		{
 			name:   "long value is cut for display",
 			fields: []Field{{Name: "k", Value: long}},
 			want:   []string{"k: " + strings.Repeat("x", pickerValueWidth-1) + "…"},
@@ -74,6 +79,20 @@ func TestCopy_SendsFullValueNotTheRenderedRow(t *testing.T) {
 	require.Equal(t, "copied k", msg.Text)
 	require.Equal(t, 1, f.Calls)
 	require.Equal(t, long, f.Last, "the copied text must be the full value, never the cut row")
+}
+
+func TestCopySelected_NeutralisesRemoteControlBytes(t *testing.T) {
+	t.Parallel()
+
+	fields := []Field{{
+		Name:  "matcher te\x1b[5Aam",
+		Value: "a\x1b[201~b\r\x07\x7f\u009b\nline2\tcol",
+	}}
+	f := &testutil.FakeClipboard{}
+	msg := flashFrom(t, CopySelected(f, fields, modal.PickerSubmittedMsg{Origin: PickerOrigin, Indexes: []int{0}}))
+	require.Equal(t, "copied matcher te [5Aam", msg.Text, "a flash must not carry an escape sequence")
+	require.Equal(t, "a [201~b    \nline2\tcol", f.Last,
+		"a pasted value must not end bracketed paste; newline and tab survive for the matchers block")
 }
 
 func TestCopy_IgnoresOutOfRangeSelection(t *testing.T) {

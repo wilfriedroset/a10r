@@ -7,13 +7,13 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 )
 
 // plannedWrite is one resolved write target as a dry-run would render it
@@ -207,9 +207,9 @@ const dryRunReadOnlyRefused = "apply would be refused"
 
 func dryRunLine(p plannedWrite) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "would %s %s", p.Action, lineSafe(p.Tenant))
+	fmt.Fprintf(&b, "would %s %s", p.Action, format.SingleLine(p.Tenant))
 	if p.ID != "" {
-		fmt.Fprintf(&b, " %s", lineSafe(p.ID))
+		fmt.Fprintf(&b, " %s", format.SingleLine(p.ID))
 	}
 	if len(p.rawMatchers) > 0 {
 		fmt.Fprintf(&b, ": %s", strings.Join(renderMatchers(p.rawMatchers, quoteForLine), ", "))
@@ -221,29 +221,18 @@ func dryRunLine(p plannedWrite) string {
 		}
 	}
 	if p.Skip != "" {
-		fmt.Fprintf(&b, " (skip: %s)", lineSafe(p.Skip))
+		fmt.Fprintf(&b, " (skip: %s)", format.SingleLine(p.Skip))
 	}
 	if p.ReadOnly {
 		b.WriteString(" [read-only: " + dryRunReadOnlyRefused + "]")
 	}
 	if p.Guardrail != "" {
-		b.WriteString(" [guardrail: " + lineSafe(p.Guardrail) + "]")
+		b.WriteString(" [guardrail: " + format.SingleLine(p.Guardrail) + "]")
 	}
 	return b.String()
 }
 
 // quoteForLine also cleans the name: ParseOne only trims it.
 func quoteForLine(m backend.Matcher) string {
-	return lineSafe(matcher.Quote(m))
-}
-
-// lineSafe replaces control runes with a space, as the backend edge does.
-// Argv and config text never passes that edge.
-func lineSafe(s string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, s)
+	return format.SingleLine(matcher.Quote(m))
 }
