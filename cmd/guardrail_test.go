@@ -40,7 +40,7 @@ func TestGuardrailRefusals(t *testing.T) {
 			targets: []writeTarget{{tenant: "prod-eu"}},
 			want: []guardrail.Refusal{{
 				Tenant:  "prod-eu",
-				Note:    "denied",
+				Note:    "denied: use the change ticket",
 				Message: "guardrail: silence.expire denied on prod-eu: use the change ticket",
 			}},
 		},
@@ -119,7 +119,7 @@ func TestGuardrailRefusals(t *testing.T) {
 			want: []guardrail.Refusal{{
 				Tenant:  "prod-eu",
 				Note:    "needs --confirm-tenant prod-eu",
-				Message: "guardrail: prod-eu requires --confirm-tenant prod-eu",
+				Message: "guardrail: silence.update on prod-eu requires --confirm-tenant prod-eu",
 			}},
 		},
 		{
@@ -131,7 +131,7 @@ func TestGuardrailRefusals(t *testing.T) {
 			want: []guardrail.Refusal{{
 				Tenant:  "prod-us",
 				Note:    "needs --confirm-tenant prod-us",
-				Message: "guardrail: prod-us requires --confirm-tenant prod-us",
+				Message: "guardrail: silence.update on prod-us requires --confirm-tenant prod-us",
 			}},
 		},
 		{
@@ -151,7 +151,7 @@ func TestGuardrailRefusals(t *testing.T) {
 			targets: []writeTarget{{tenant: "prod-eu", id: "a"}, {tenant: "prod-eu", id: "b"}},
 			want: []guardrail.Refusal{{
 				Tenant:  "prod-eu",
-				Note:    "denied",
+				Note:    "denied: frozen",
 				Message: "guardrail: silence.expire denied on prod-eu: frozen",
 			}},
 		},
@@ -181,7 +181,7 @@ func TestGuardrailRefusals(t *testing.T) {
 				{tenant: "prod-eu", id: "b"},
 			},
 			want: []guardrail.Refusal{
-				{Tenant: "staging", Note: "needs --confirm-tenant staging", Message: "guardrail: staging requires --confirm-tenant staging"},
+				{Tenant: "staging", Note: "needs --confirm-tenant staging", Message: "guardrail: silence.expire on staging requires --confirm-tenant staging"},
 				{Tenant: "prod-eu", Note: "denied", Message: "guardrail: silence.expire denied on prod-eu"},
 			},
 		},
@@ -221,7 +221,7 @@ func TestEnsureGuardrailsAllow(t *testing.T) {
 		err := ensureGuardrailsAllow(rules, guardrail.ActionSilenceExpire,
 			[]writeTarget{{tenant: "staging"}, {tenant: "prod-eu"}}, nil)
 		require.EqualError(t, err,
-			"guardrail: staging requires --confirm-tenant staging; guardrail: silence.expire denied on prod-eu; no silence was written")
+			"guardrail: silence.expire on staging requires --confirm-tenant staging; guardrail: silence.expire denied on prod-eu; no silence was written")
 	})
 
 	t.Run("every blocked tenant is named at once", func(t *testing.T) {
@@ -246,7 +246,7 @@ func TestRunDryRun_Guardrail(t *testing.T) {
 
 	var out, errOut bytes.Buffer
 	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
-	require.Contains(t, out.String(), "[guardrail: denied]")
+	require.Contains(t, out.String(), "[guardrail: denied: change ticket only]")
 	require.Equal(t, ExitGuardrailRefused, exitCodeFor(err))
 }
 

@@ -31,8 +31,8 @@ type plannedWrite struct {
 	CreatedBy string   `json:"created_by,omitempty" yaml:"created_by,omitempty"`
 	Skip      string   `json:"skip,omitempty" yaml:"skip,omitempty"`
 	ReadOnly  bool     `json:"read_only,omitempty" yaml:"read_only,omitempty"`
-	// Guardrail is the short refusal note ("denied", "max_bulk 20
-	// exceeded") when the write policy would stop this tenant. A
+	// Guardrail is the short refusal note ("denied", "denied: <reason>",
+	// "max_bulk 20 exceeded") when the write policy would stop this tenant. A
 	// read-only tenant never carries one: ADR 0049 answers read-only
 	// first, so only one reason is ever named.
 	Guardrail string `json:"guardrail,omitempty" yaml:"guardrail,omitempty"`

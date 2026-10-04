@@ -418,11 +418,6 @@ func TestVerdict_DenyMessage(t *testing.T) {
 			verdict: Verdict{Denied: true},
 			want:    "silence.expire denied on prod-eu",
 		},
-		{
-			name:    "a verdict that does not deny has nothing to say",
-			verdict: Verdict{MaxBulk: 3},
-			want:    "",
-		},
 	}
 
 	for _, tt := range tests {
@@ -456,20 +451,6 @@ func TestVerdict_BulkMessage(t *testing.T) {
 			lead:    string(ActionSilenceExpire),
 			count:   25,
 			want:    "silence.expire on prod-eu: 25 targets exceed max_bulk 20",
-		},
-		{
-			name:    "a count inside the cap has nothing to say",
-			verdict: Verdict{MaxBulk: 20},
-			lead:    "bulk expire",
-			count:   20,
-			want:    "",
-		},
-		{
-			name:    "an uncapped verdict has nothing to say",
-			verdict: Verdict{},
-			lead:    "bulk expire",
-			count:   99,
-			want:    "",
 		},
 	}
 

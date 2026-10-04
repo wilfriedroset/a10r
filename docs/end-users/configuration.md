@@ -548,7 +548,7 @@ guardrails:
 | `tenants` | list of globs | Backend names the rule covers. Omitted or empty matches every backend. |
 | `actions` | list of globs | Write verbs the rule covers. Omitted or empty matches every verb. |
 | `deny` | bool | Refuse the verb. |
-| `confirmation` | `plain` or `type-tenant-name` | The confirmation the user must clear. |
+| `confirmation` | `plain` or `type-tenant-name` | The confirmation the user must clear. See the table below: `plain` does not stop a CLI write. |
 | `max_bulk` | positive int | Largest number of targets one bulk run may touch, per tenant. Omit the field to leave bulk uncapped; a value below `1`, including `0`, is rejected at load. To block bulk entirely, use `deny`. |
 | `reason` | string | Text shown on a refusal. Ignored by `confirmation` and `max_bulk`. |
 
@@ -569,6 +569,17 @@ Every rule that matches the tenant and the verb applies together:
 
 Rule order does not change the outcome. It decides only which
 `reason` a refusal quotes when two rules deny.
+
+The two `confirmation` levels act differently in the TUI and on the
+command line, because the command line has no prompt:
+
+| Level | TUI | Command line (`a10r silence ...`) |
+|---|---|---|
+| `plain` | A yes/no prompt before the write. | No effect. The write goes ahead. |
+| `type-tenant-name` | You retype the backend name. | Refused (exit `6`) unless you pass `--confirm-tenant <name>`. |
+
+So `plain` does not protect a backend from scripts. To guard a backend
+on both surfaces, use `type-tenant-name` or `deny`.
 
 A rule can only tighten. It can raise a verb's confirmation and it
 can never lower one, and a `config.d` fragment adds rules to the base

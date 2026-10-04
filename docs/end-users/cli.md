@@ -125,15 +125,21 @@ starts with `guardrail:` and names the verb and the tenant. A `deny`
 rule also quotes its `reason`. A `max_bulk` breach quotes the cap and
 the target count instead.
 
-A rule that asks for `confirmation: type-tenant-name` has no
-interactive form on the command line. Pass **`--confirm-tenant
-<name>`** (repeatable) instead. It clears the rule for the tenant it
-names and no other, so a fan-out still has to name each restricted
-tenant. Without it a10r prints `guardrail: prod-eu requires
---confirm-tenant prod-eu` and exits `6`.
+The command line has no modal, so the two `confirmation` levels act
+differently here than in the TUI:
+
+- `confirmation: plain` does nothing on the command line. The write
+  goes ahead with no prompt and no flag. To stop scripts too, use
+  `type-tenant-name` or `deny`.
+- `confirmation: type-tenant-name` needs **`--confirm-tenant <name>`**
+  (repeatable). It clears the rule for the tenant it names and no
+  other, so a fan-out still has to name each restricted tenant.
+  Without it a10r prints `guardrail: silence.expire on prod-eu
+  requires --confirm-tenant prod-eu` and exits `6`.
 
 `--dry-run` reports the same refusals rather than hiding them: the
-plan line gains `[guardrail: denied]`, `[guardrail: max_bulk 20
+plan line gains `[guardrail: denied]` (or `[guardrail: denied:
+<reason>]` when the rule has a `reason`), `[guardrail: max_bulk 20
 exceeded]`, or `[guardrail: needs --confirm-tenant prod-eu]`, and the
 dry run exits `6`. Read-only is checked first and always wins, so a
 read-only target is never reported as a guardrail refusal: the plan

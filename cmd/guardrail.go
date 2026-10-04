@@ -38,7 +38,7 @@ func guardrailRefusals(rules guardrail.Set, action guardrail.Action, targets []w
 		byTenant[tenant] = guardrail.Refusal{
 			Tenant:  tenant,
 			Note:    "needs --confirm-tenant " + tenant,
-			Message: fmt.Sprintf("%s requires --confirm-tenant %s", tenant, tenant),
+			Message: fmt.Sprintf("%s on %s requires --confirm-tenant %s", action, tenant, tenant),
 		}
 	}
 	for _, r := range d.Refusals {

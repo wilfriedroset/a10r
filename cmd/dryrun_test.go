@@ -307,6 +307,12 @@ func TestRunDryRun_LinesEscapeWhatTheStructuredModesKeepRaw(t *testing.T) {
 	skipped := []writeTarget{{tenant: "prod", id: "sil-2", skip: errors.New("gone\x1b[2J")}}
 	require.Error(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, skipped, false, nil))
 	require.Contains(t, out.String(), "(skip: gone [2J)")
+
+	out.Reset()
+	cfg.Guardrails = guardrail.Set{{Deny: true, Reason: "freeze\x1b[2J\nnow"}}
+	require.Error(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, []writeTarget{{tenant: "prod", id: "sil-3"}}, false, nil))
+	require.NotContains(t, out.String(), "\x1b", "a deny reason is user text too")
+	require.Contains(t, out.String(), "[guardrail: denied: freeze [2J now]")
 }
 
 // TestRunDryRun_ExitMatchesTheRealRun pins that a dry run exits

@@ -75,9 +75,12 @@ Before any of them:
 - **Guardrails** (`guardrails:` in `a10r.yaml`) restrict write verbs per tenant.
   A refusal writes nothing and exits `6`: the verb is denied, the run exceeds that
   tenant's `max_bulk`, or the tenant needs `--confirm-tenant <name>` (repeatable,
-  and it clears only the tenant it names). Dry-run reports the same refusal on the
-  plan line as `[guardrail: denied]`, `[guardrail: max_bulk N exceeded]`, or
-  `[guardrail: needs --confirm-tenant <name>]`, so check before you write.
+  and it clears only the tenant it names). A `confirmation: plain` rule has no
+  effect headless: the write goes ahead. Dry-run reports the same refusal on the
+  plan line as `[guardrail: denied]` (or `[guardrail: denied: <reason>]`),
+  `[guardrail: max_bulk N exceeded]`, or
+  `[guardrail: needs --confirm-tenant <name>]`, so check before you write. Match
+  a deny on the `denied` prefix, because a deny with a reason reads `denied: <reason>`.
 - After a successful write, a **next-step hint is on stderr**: `expire with: …`
   after create/recreate (the undo), `recreate with: …` after a *single* expire,
   `verify with: …` after update. Capture it to offer the user an undo or check.

@@ -113,8 +113,11 @@ apply); a skipped target carries a `skip` reason; a target in a
 read-only backend carries `read_only: true` (the plan still renders
 under read-only, but it exits `1` as the apply would); a target a
 `guardrails:` rule would refuse carries `guardrail` with the short
-reason (`denied`, `max_bulk 20 exceeded`, `needs --confirm-tenant
+reason (`denied`, or `denied: <reason>` when the rule has one,
+`max_bulk 20 exceeded`, `needs --confirm-tenant
 prod-eu`), which the lines mode prints as a trailing `[guardrail: …]`.
+Match a deny on the `denied` prefix, not the whole value, because a
+deny with a reason reads `denied: <reason>`.
 The dry-run exit code mirrors the real run's pre-mutation phase, so a
 clean dry-run is a true pre-commit gate (see
 [exit-codes.md](exit-codes.md)).

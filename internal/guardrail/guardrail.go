@@ -116,24 +116,18 @@ func (v Verdict) exceedsBulk(count int) bool {
 }
 
 // bulkMessage is the one sentence a surface prints when a target count
-// breaches the cap. Empty when the count fits. lead names the verb the
-// reader recognizes, which differs per surface: the TUI says "bulk
-// expire" because that is the key the user pressed, and the headless
-// path says "silence.expire" because that is the rule name to edit.
+// breaches the cap. lead names the verb the reader recognizes, which
+// differs per surface: the TUI says "bulk expire" because that is the
+// key the user pressed, and the headless path says "silence.expire"
+// because that is the rule name to edit.
 func (v Verdict) bulkMessage(lead, tenant string, count int) string {
-	if !v.exceedsBulk(count) {
-		return ""
-	}
 	return fmt.Sprintf("%s on %s: %d targets exceed max_bulk %d", lead, tenant, count, v.MaxBulk)
 }
 
 // denyMessage is the one sentence a surface prints when policy refuses
 // a verb. It lives here so the TUI flash and the headless stderr line
-// cannot word the same refusal differently. Empty when nothing denies.
+// cannot word the same refusal differently.
 func (v Verdict) denyMessage(action, tenant string) string {
-	if !v.Denied {
-		return ""
-	}
 	msg := action + " denied on " + tenant
 	if v.Reason != "" {
 		msg += ": " + v.Reason

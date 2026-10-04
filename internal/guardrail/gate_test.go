@@ -35,7 +35,7 @@ func TestSetDecide(t *testing.T) {
 			req:  Request{Action: ActionSilenceExpire, Tenants: []string{"prod-eu"}},
 			want: Decision{Refusals: []Refusal{{
 				Tenant:  "prod-eu",
-				Note:    "denied",
+				Note:    "denied: use the change ticket",
 				Message: "silence.expire denied on prod-eu: use the change ticket",
 			}}},
 		},
@@ -169,7 +169,7 @@ func TestSetDecide(t *testing.T) {
 			want: Decision{
 				Refusals: []Refusal{{
 					Tenant:  "prod-eu",
-					Note:    "denied",
+					Note:    "denied: frozen",
 					Message: "silence.expire denied on prod-eu: frozen",
 				}},
 				Typed:   []string{"prod-us"},
@@ -207,7 +207,7 @@ func TestSetDecide(t *testing.T) {
 				Lead:    "bulk expire",
 			},
 			want: Decision{Refusals: []Refusal{
-				{Tenant: "prod-eu", Note: "denied", Message: "bulk expire denied on prod-eu: frozen"},
+				{Tenant: "prod-eu", Note: "denied: frozen", Message: "bulk expire denied on prod-eu: frozen"},
 				{Tenant: "prod-us", Note: "max_bulk 1 exceeded", Message: "bulk expire on prod-us: 2 targets exceed max_bulk 1"},
 			}},
 		},
@@ -222,7 +222,7 @@ func TestSetDecide(t *testing.T) {
 				Tenants: []string{"prod-eu", "prod-us", "prod-us"},
 			},
 			want: Decision{Refusals: []Refusal{
-				{Tenant: "prod-eu", Note: "denied", Message: "silence.expire denied on prod-eu: frozen"},
+				{Tenant: "prod-eu", Note: "denied: frozen", Message: "silence.expire denied on prod-eu: frozen"},
 				{Tenant: "prod-us", Note: "max_bulk 1 exceeded", Message: "silence.expire on prod-us: 2 targets exceed max_bulk 1"},
 			}},
 		},
@@ -246,20 +246,13 @@ func TestDecisionReporting(t *testing.T) {
 	}}
 
 	tests := []struct {
-		name         string
-		d            Decision
-		wantRefused  bool
-		wantFlash    string
-		wantMessages []string
+		name        string
+		d           Decision
+		wantRefused bool
+		wantFlash   string
 	}{
-		{name: "empty decision", d: Decision{}, wantRefused: false, wantFlash: "", wantMessages: nil},
-		{
-			name:         "refused decision",
-			d:            refused,
-			wantRefused:  true,
-			wantFlash:    "first",
-			wantMessages: []string{"first", "second"},
-		},
+		{name: "empty decision", d: Decision{}, wantRefused: false, wantFlash: ""},
+		{name: "refused decision", d: refused, wantRefused: true, wantFlash: "first"},
 	}
 
 	for _, tt := range tests {
@@ -267,11 +260,6 @@ func TestDecisionReporting(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tt.wantRefused, tt.d.Refused())
 			require.Equal(t, tt.wantFlash, tt.d.Flash())
-			if tt.wantMessages == nil {
-				require.Empty(t, tt.d.Messages())
-				return
-			}
-			require.Equal(t, tt.wantMessages, tt.d.Messages())
 		})
 	}
 }

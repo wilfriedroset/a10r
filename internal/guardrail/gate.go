@@ -98,7 +98,11 @@ func (s Set) Decide(req Request) Decision {
 func refusal(v Verdict, lead, tenant string, count int) (Refusal, bool) {
 	switch {
 	case v.Denied:
-		return Refusal{Tenant: tenant, Note: "denied", Message: v.denyMessage(lead, tenant)}, true
+		note := "denied"
+		if v.Reason != "" {
+			note += ": " + v.Reason
+		}
+		return Refusal{Tenant: tenant, Note: note, Message: v.denyMessage(lead, tenant)}, true
 
 	case v.exceedsBulk(count):
 		return Refusal{
@@ -119,14 +123,4 @@ func (d Decision) Flash() string {
 		return ""
 	}
 	return d.Refusals[0].Message
-}
-
-// Messages names every refused tenant at once, so a narrowed retry
-// needs one round trip rather than one per tenant.
-func (d Decision) Messages() []string {
-	out := make([]string, len(d.Refusals))
-	for i, r := range d.Refusals {
-		out[i] = r.Message
-	}
-	return out
 }
