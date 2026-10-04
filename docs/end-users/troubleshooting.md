@@ -117,6 +117,8 @@ selected. `a10r info` reports that scope and the state dir holding
 `ui-state.yaml` (see [configuration](configuration.md)). Delete that file to forget the
 scope, or set `tui.remember: false` to stop a10r remembering it at
 all. The same file holds the remembered sort column for each page.
+Pass `--tenant <name>` to open on another scope for one run without
+changing the remembered one.
 
 ## `:tenant` quick-switch doesn't match my config order
 

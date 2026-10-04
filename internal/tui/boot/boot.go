@@ -29,6 +29,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -141,6 +142,9 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	if err != nil {
 		return nil, err
 	}
+	if err := config.ValidateScope(effective.Config.Backends, effective.Tenant); err != nil {
+		return nil, err //nolint:wrapcheck // the message already names the flag and the bad tenant.
+	}
 	sess := session.New(effective.Config)
 	effCfg := sess.Config()
 
@@ -172,7 +176,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 
 	store := openStateStore(d, effCfg)
 	store.PruneSort(sortResources)
-	scope := bootScope(store, effCfg)
+	scope := bootScope(store, effCfg, effective.Tenant)
 
 	dispatcher := buildDispatcher()
 
@@ -263,17 +267,24 @@ func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
 var sortResources = []string{resourceAlerts, resourceSilences, resourceReceivers, pageTenant, groupdetail.ViewName}
 
 // bootScope resolves the one tenant scope both the page env and the
-// App boot on. A remembered scope beats the built-in default, but
-// only once pruned against the backends the config still declares —
-// "all" out of PruneScope means nothing usable was remembered.
-func bootScope(store *uistate.Store, effCfg *config.Config) string {
-	pruned, dropped := uistate.PruneScope(store.Scope(), backendNames(effCfg))
+// App boot on. The --tenant flag beats a remembered scope for this run
+// without overwriting it; a remembered scope beats the built-in
+// default, but only once pruned against the backends the config still
+// declares -- "all" out of PruneScope means nothing usable was
+// remembered.
+func bootScope(store *uistate.Store, effCfg *config.Config, flagScope string) string {
+	names := backendNames(effCfg)
+	pruned, dropped := uistate.PruneScope(store.Scope(), names)
 	if len(dropped) > 0 {
 		// Write back before the fallback below, or a scope that lost
 		// every name would persist the fallback backend instead of
 		// forgetting the key. Without the write-back every later run
 		// reads the same dead name and logs the same warning again.
 		store.SetScope(pruned)
+	}
+	if strings.TrimSpace(flagScope) != "" {
+		// Build validated the flag, so only the empty elements of `prod,` drop here.
+		pruned, _ = uistate.PruneScope(flagScope, names)
 	}
 	if pruned == scopeAll {
 		pruned = scopeFor(effCfg)

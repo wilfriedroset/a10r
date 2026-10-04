@@ -83,8 +83,9 @@ a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
 notifier whatever the configuration says, so a screenshot run on a
 machine with `tui.notify` on rings no bell and starts no subprocess.
 
-`a10r snapshot` also ignores `tui.remember`. It renders the configured
-default scope and the built-in sort, and it never writes `ui-state.yaml`.
+`a10r snapshot` also ignores `tui.remember`. It renders the scope
+`--tenant` names, or the configured default scope without it, with the
+built-in sort, and it never writes `ui-state.yaml`.
 
 Coverage runs via `make cover` (Go's `go test -coverprofile=...`).
 There is no minimum-coverage gate; the standard is "every public

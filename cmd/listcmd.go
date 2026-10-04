@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -134,14 +133,8 @@ func loadWriteConfig(flags *GlobalFlags) (*config.Config, bool, error) {
 // empty-config read path stays a no-op (the write path rejects an empty
 // backend set separately in loadWriteConfig).
 func applyTenantScope(cfg *config.Config, tenant string) error {
-	if len(cfg.Backends) > 0 {
-		if unknown := config.UnknownScopeTenants(cfg.Backends, tenant); len(unknown) > 0 {
-			quoted := make([]string, len(unknown))
-			for i, u := range unknown {
-				quoted[i] = fmt.Sprintf("%q", u)
-			}
-			return fmt.Errorf("no configured backend matches --tenant %s", strings.Join(quoted, ", "))
-		}
+	if err := config.ValidateScope(cfg.Backends, tenant); err != nil {
+		return err //nolint:wrapcheck // the message already names the flag and the bad tenant.
 	}
 	cfg.Backends = config.ScopeBackends(cfg.Backends, tenant)
 	return nil

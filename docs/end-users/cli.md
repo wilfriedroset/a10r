@@ -24,6 +24,9 @@ without installing it.
 on — the same `<name>` / `all` / `a,b` syntax as the TUI's `:tenant`.
 It defaults to every backend. A `--tenant` value that names no
 configured backend is an error, not a silent empty result.
+Without a subcommand, `--tenant` picks the tenant scope the TUI
+opens on, ahead of a scope remembered by `tui.remember`, without
+replacing the remembered scope.
 
 ```
 a10r alerts list --tenant prod          # only the prod backend

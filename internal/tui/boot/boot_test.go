@@ -399,6 +399,41 @@ func TestBuild_RemembersScope(t *testing.T) {
 	}
 }
 
+// TestBuild_TenantFlagPicksTheStartScope pins the root --tenant
+// flag's TUI half: it beats a remembered scope without overwriting
+// it, and a name the config lacks fails the boot.
+func TestBuild_TenantFlagPicksTheStartScope(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		tenant  string
+		want    string
+		wantErr string
+	}{
+		{name: "flag beats the remembered scope", tenant: "prod", want: "prod"},
+		{name: "list is trimmed", tenant: " prod , staging,", want: "prod,staging"},
+		{name: "all widens past the remembered scope", tenant: "all", want: scopeAll},
+		{name: "unknown name fails", tenant: "prod,bogus", wantErr: `no configured backend matches --tenant "bogus"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			deps := depsWithState(t, true, "scope: staging\n")
+			res, err := Build(t.Context(), &config.CLIFlags{Tenant: tc.tenant}, deps)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, res.env.Scope)
+			require.NoError(t, res.Close())
+			dir, err := deps.HistoryDir()
+			require.NoError(t, err)
+			require.Equal(t, "staging", uistate.Open(dir).Scope(), "the flag must not replace the remembered scope")
+		})
+	}
+}
+
 // TestBuild_RememberOffReadsNothing is the opt-in contract: with
 // tui.remember unset the state file on disk is never consulted and
 // the sorters get a memory that answers empty.

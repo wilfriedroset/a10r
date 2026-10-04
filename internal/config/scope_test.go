@@ -62,6 +62,16 @@ func TestUnknownScopeTenants(t *testing.T) {
 	}
 }
 
+func TestValidateScope(t *testing.T) {
+	t.Parallel()
+
+	all := []Backend{{Name: "prod"}, {Name: "staging"}}
+	require.NoError(t, ValidateScope(all, "prod,"))
+	require.NoError(t, ValidateScope(nil, "bogus"), "an empty config has nothing to check against")
+	require.EqualError(t, ValidateScope(all, "bogus,prod,typo"),
+		`no configured backend matches --tenant "bogus", "typo"`)
+}
+
 func TestScopeBackends(t *testing.T) {
 	t.Parallel()
 
