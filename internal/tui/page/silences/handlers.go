@@ -185,28 +185,16 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
-// runWriteAction is the read-only and write-policy gate applied to
-// every Dangerous keypress on the page. Read-only is checked first and
-// always wins, so a rule is never quoted on a backend that cannot be
-// written to at all. Centralised here so both contracts have one
-// touch-point and a stray new write verb cannot bypass them.
+// runWriteAction routes every Dangerous keypress on the page through
+// the write gate, so a stray new write verb cannot bypass it.
 func (p *Page) runWriteAction(name guardrail.Action, action func() tea.Cmd) tea.Cmd {
-	if p.session.ReadOnly() {
-		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-	}
+	var commit func()
 	if name == guardrail.ActionSilenceExpire {
-		// Expire is the one verb that fans out over marks, and an open
-		// range is not marked until something commits it. The commit
-		// runs here so the policy sees the rows the press would really
-		// reach, and after the read-only gate so a read-only refusal
-		// leaves the range alone. A guardrail refusal keeps the marks
-		// on purpose, so the user can narrow them.
-		listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
+		// Expire is the one verb that fans out over marks.
+		commit = func() { listpage.CommitVisual(&p.Base, p.view, p.marks, markKey) }
 	}
-	if d := p.session.Guardrails().Decide(p.writeRequest(name)); d.Refused() {
-		return footer.ShowFlash(footer.FlashWarn, d.Flash())
-	}
-	return action()
+	return listpage.GateWrite(p.session, hintReadOnly, commit,
+		func() guardrail.Request { return p.writeRequest(name) }, action)
 }
 
 // writeRequest asks about the run a press would really fire, so the
@@ -306,17 +294,8 @@ func (p *Page) requestRefresh() tea.Cmd {
 	return listpage.RequestRefresh(&p.Base, &p.PollingUI, ViewName)
 }
 
-// handleClearMarks drops every mark on the page in response to
-// the global Ctrl+\ binding. Flashes "marks cleared" when the
-// pre-clear count was non-zero so the user sees confirmation;
-// silently no-ops otherwise.
 func (p *Page) handleClearMarks() tea.Cmd {
-	p.Visual.Cancel()
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // openEditSilenceForm pushes the silence form in edit mode

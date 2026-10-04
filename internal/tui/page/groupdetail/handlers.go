@@ -133,9 +133,6 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
-		if p.session.ReadOnly() {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "S":
@@ -213,14 +210,12 @@ func (p *Page) drillToDetail() tea.Cmd {
 // openSilenceForS routes `s`: no marks → silence-one form for the
 // cursor instance; with marks → the bulk silence-one fanout.
 func (p *Page) openSilenceForS() tea.Cmd {
-	// The policy is asked after the commit, not in handleAction: an
-	// open range is not marked yet, so checking earlier would count one
-	// instance and talk a capped range past the gate. Marks are
-	// additive, so a refusal here keeps them.
-	listpage.CommitVisual(&p.Base, p.view, p.marks, markKey)
-	if d := p.session.Guardrails().Decide(p.writeRequest()); d.Refused() {
-		return footer.ShowFlash(footer.FlashWarn, d.Flash())
-	}
+	return listpage.GateWrite(p.session, listpage.HintAlertsReadOnly,
+		func() { listpage.CommitVisual(&p.Base, p.view, p.marks, markKey) },
+		p.writeRequest, p.openSilence)
+}
+
+func (p *Page) openSilence() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openSilenceFormForCursor()
 	}
@@ -333,6 +328,3 @@ func (p *Page) commonLabelsCopy() map[string]string {
 	maps.Copy(out, p.common)
 	return out
 }
-
-// hintReadOnly is flashed on a Dangerous keypress in read-only mode.
-const hintReadOnly = "read-only mode — alerts cannot be silenced"

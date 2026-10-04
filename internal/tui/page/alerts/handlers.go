@@ -176,9 +176,6 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		// page's SetStateFormat hook receives the broadcast result.
 		return p, func() tea.Msg { return app.StateFormatToggleMsg{} }
 	case "s":
-		if p.session.ReadOnly() {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "r":
@@ -204,14 +201,12 @@ func (p *Page) requestRefresh() tea.Cmd {
 // the marked bulk confirm are distinct paths with separate pending
 // state — see bulk.go.
 func (p *Page) openSilenceForS() tea.Cmd {
-	// The deny check sits after the commit, not in handleAction: an
-	// open range is not marked yet, so checking earlier would read the
-	// cursor group alone and let the range carry a denied tenant
-	// through. Marks are additive, so a refusal here keeps them.
-	listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey)
-	if d := p.session.Guardrails().Decide(p.silenceRequest()); d.Refused() {
-		return footer.ShowFlash(footer.FlashWarn, d.Flash())
-	}
+	return listpage.GateWrite(p.session, listpage.HintAlertsReadOnly,
+		func() { listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey) },
+		p.silenceRequest, p.openSilence)
+}
+
+func (p *Page) openSilence() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openSilenceAllForCursor()
 	}
@@ -249,11 +244,6 @@ func (p *Page) openSilenceAllForCursor() tea.Cmd {
 	}
 	return p.pushSilenceAllForm()
 }
-
-// hintReadOnly is the flash text emitted on a Dangerous keypress
-// when the page is in read-only mode. Singular noun keeps it under
-// the 80-col footer width.
-const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
 func (p *Page) handleClearMarks() tea.Cmd {
 	return listpage.ClearMarks(&p.Base, p.marks)

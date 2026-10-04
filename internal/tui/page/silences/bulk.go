@@ -41,8 +41,8 @@ type pendingExpireID struct {
 
 // openExpireConfirmUnified routes `x` to the single-row or bulk
 // expire confirm depending on whether any silences are marked.
-// Mirror of the alerts page's openSilenceForS. runWriteAction has
-// already committed any open range, so the marks read here are final.
+// runWriteAction has already committed any open range, so the marks
+// read here are final.
 func (p *Page) openExpireConfirmUnified() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openExpireConfirm()

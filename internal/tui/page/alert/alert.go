@@ -257,13 +257,7 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		cmd := p.openGeneratorURL()
 		return p, cmd
 	case "s":
-		if p.session.ReadOnly() {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
-		if d := p.session.Guardrails().Decide(p.request()); d.Refused() {
-			return p, footer.ShowFlash(footer.FlashWarn, d.Flash())
-		}
-		cmd := p.openSilenceForm()
+		cmd := listpage.GateWrite(p.session, listpage.HintAlertsReadOnly, nil, p.request, p.openSilenceForm)
 		return p, cmd
 	case "S":
 		cmd := p.openSilencedByDetail()
@@ -323,8 +317,6 @@ func (p *Page) openSilenceForm() tea.Cmd {
 		})
 	})
 }
-
-const hintReadOnly = "read-only mode — alerts cannot be silenced"
 
 // request is the whole fan-out an `s` press can reach here: one alert
 // on one backend, so the adapter is a one-element slice and no Lead is
