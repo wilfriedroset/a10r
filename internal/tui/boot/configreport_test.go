@@ -38,10 +38,10 @@ func TestBuildConfigReport_NamesTheOverlaysTheLoaderNeverSees(t *testing.T) {
 	in := buildConfigReport(configInputs{
 		cfg: &config.Config{
 			Sources: []config.Source{{Kind: config.SourceBase, Path: base}},
-			Theme:   config.Theme{Name: "nord"},
 		},
 		configDir: dir,
 		capture:   &a10rlog.Capture{},
+		skinName:  func() string { return "nord" },
 	})()
 
 	require.Equal(t, []config.Source{
@@ -61,50 +61,31 @@ func TestBuildConfigReport_SkipsTheOverlaysThatAreAbsent(t *testing.T) {
 		cfg:       &config.Config{},
 		configDir: t.TempDir(),
 		capture:   &a10rlog.Capture{},
+		skinName:  func() string { return theme.DefaultSkinName },
 	})()
 
 	require.Empty(t, in.Sources)
 }
 
-// The auto sentinel is not a filename. The skin it resolves to is the
-// one a user file can shadow, so that is the path to stat.
-func TestBuildConfigReport_ResolvesTheAutoSkinToItsFile(t *testing.T) {
+// `:skin` switches the live skin without writing theme.name, so the
+// file shadowing what is on screen is the live skin's, not the
+// configured one's.
+func TestBuildConfigReport_NamesTheLiveSkinFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, theme.SkinsDir, theme.DefaultSkinName+".yaml"))
+	writeFile(t, filepath.Join(dir, theme.SkinsDir, "nord.yaml"))
+	writeFile(t, filepath.Join(dir, theme.SkinsDir, "gruvbox.yaml"))
 
 	in := buildConfigReport(configInputs{
-		cfg:       &config.Config{Theme: config.Theme{Name: theme.AutoSkinName}},
+		cfg:       &config.Config{Theme: config.Theme{Name: "nord"}},
 		configDir: dir,
 		capture:   &a10rlog.Capture{},
+		skinName:  func() string { return "gruvbox" },
 	})()
 
 	require.Equal(t, []config.Source{
-		{Kind: config.SourceSkin, Path: filepath.Join(dir, theme.SkinsDir, theme.DefaultSkinName+".yaml")},
-	}, in.Sources)
-}
-
-// Under the auto sentinel the App re-loads through AutoSkinFor once
-// the terminal reports its background, so a light terminal reads the
-// light skin. Naming only the dark one hides the file that is driving
-// the styles, on the page whose whole job is naming the files read.
-func TestBuildConfigReport_ListsBothAutoSkinCandidates(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, theme.SkinsDir, theme.AutoSkinFor(true)+".yaml"))
-	writeFile(t, filepath.Join(dir, theme.SkinsDir, theme.AutoSkinFor(false)+".yaml"))
-
-	in := buildConfigReport(configInputs{
-		cfg:       &config.Config{Theme: config.Theme{Name: theme.AutoSkinName}},
-		configDir: dir,
-		capture:   &a10rlog.Capture{},
-	})()
-
-	require.Equal(t, []config.Source{
-		{Kind: config.SourceSkin, Path: filepath.Join(dir, theme.SkinsDir, theme.AutoSkinFor(true)+".yaml")},
-		{Kind: config.SourceSkin, Path: filepath.Join(dir, theme.SkinsDir, theme.AutoSkinFor(false)+".yaml")},
+		{Kind: config.SourceSkin, Path: filepath.Join(dir, theme.SkinsDir, "gruvbox.yaml")},
 	}, in.Sources)
 }
 
@@ -118,6 +99,7 @@ func TestBuildConfigReport_ReadsTheWarningsAtRenderTime(t *testing.T) {
 		cfg:       &config.Config{},
 		configDir: t.TempDir(),
 		capture:   capture,
+		skinName:  func() string { return theme.DefaultSkinName },
 	})
 	require.Empty(t, report().Warnings)
 
@@ -142,13 +124,17 @@ func TestBuildConfigReport_FollowsAReload(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	cfg := &config.Config{Theme: config.Theme{Name: "nord"}}
-	render := buildConfigReport(configInputs{cfg: cfg, configDir: dir, capture: &a10rlog.Capture{}})
+	cfg := &config.Config{}
+	render := buildConfigReport(configInputs{
+		cfg:       cfg,
+		configDir: dir,
+		capture:   &a10rlog.Capture{},
+		skinName:  func() string { return "gruvbox" },
+	})
 	require.Empty(t, render().Sources)
 
 	writeFile(t, filepath.Join(dir, config.AliasesFile))
 	writeFile(t, filepath.Join(dir, theme.SkinsDir, "gruvbox.yaml"))
-	cfg.Theme.Name = "gruvbox"
 
 	require.Equal(t, []config.Source{
 		{Kind: config.SourceAliases, Path: filepath.Join(dir, config.AliasesFile)},

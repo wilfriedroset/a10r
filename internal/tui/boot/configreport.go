@@ -17,6 +17,7 @@ type configInputs struct {
 	cfg       *config.Config
 	configDir string
 	capture   *a10rlog.Capture
+	skinName  func() string
 }
 
 // buildConfigReport returns the renderer the `:config` page calls.
@@ -26,10 +27,10 @@ type configInputs struct {
 // and the operator does not care which package read them.
 //
 // Everything is computed per render, not captured: `:reload` writes
-// through in.cfg and can create an overlay or move the skin, and a
-// list frozen at boot would name the files from before the edit. The
-// cost is four os.Stat calls a frame, which is below the noise floor
-// of one render.
+// through in.cfg and can create an overlay, `:skin` moves the live
+// skin without touching theme.name, and a list frozen at boot would
+// name the files from before the change. The cost is three os.Stat
+// calls a frame, which is below the noise floor of one render.
 func buildConfigReport(in configInputs) func() report.ConfigInput {
 	return func() report.ConfigInput {
 		sources := append([]config.Source(nil), in.cfg.Sources...)
@@ -37,10 +38,8 @@ func buildConfigReport(in configInputs) func() report.ConfigInput {
 			filepath.Join(in.configDir, config.AliasesFile))
 		sources = appendIfPresent(sources, config.SourceKeys,
 			filepath.Join(in.configDir, config.KeysDir, config.DefaultKeysProfile+".yaml"))
-		for _, name := range skinFileNames(in.cfg.Theme.Name) {
-			sources = appendIfPresent(sources, config.SourceSkin,
-				filepath.Join(in.configDir, theme.SkinsDir, name))
-		}
+		sources = appendIfPresent(sources, config.SourceSkin,
+			filepath.Join(in.configDir, theme.SkinsDir, in.skinName()+".yaml"))
 		return report.ConfigInput{
 			Sources:  sources,
 			Warnings: in.capture.Messages(),
@@ -56,17 +55,4 @@ func appendIfPresent(sources []config.Source, kind config.SourceKind, path strin
 		return sources
 	}
 	return append(sources, config.Source{Kind: kind, Path: path})
-}
-
-// skinFileNames lists the user skin files a start can read for a
-// theme name, because the sentinel is not a filename and a user skin
-// shadows the resolved name, not the sentinel. Under `auto` the App
-// re-loads through theme.AutoSkinFor once the terminal reports its
-// background, so both candidates are in play and the report names
-// whichever ones exist rather than guessing the background.
-func skinFileNames(themeName string) []string {
-	if isAutoTheme(themeName) {
-		return []string{theme.AutoSkinFor(true) + ".yaml", theme.AutoSkinFor(false) + ".yaml"}
-	}
-	return []string{themeName + ".yaml"}
 }

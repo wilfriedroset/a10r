@@ -187,10 +187,12 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		_ = store.Close()
 		return nil, err
 	}
+	skinName := func() string { return a.SkinName() }
 	env.ConfigReport = buildConfigReport(configInputs{
 		cfg:       effCfg,
 		configDir: configDir,
 		capture:   capture,
+		skinName:  skinName,
 	})
 	env.InfoReport = buildInfoReport(infoInputs{
 		deps:      d,
@@ -199,7 +201,7 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		// Asked of the resolver rather than counted at boot, because
 		// `:reload` swaps the whole user-alias set.
 		aliasCount: func() int { return len(resolver.UserAliases()) },
-		skinName:   func() string { return a.SkinName() },
+		skinName:   skinName,
 		found:      configFound,
 		store:      store,
 	})
