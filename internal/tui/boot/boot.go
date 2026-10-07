@@ -137,16 +137,9 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		errOut = os.Stderr
 	}
 
-	cfg, configFound, err := loadConfigForTUI(flags, d.LoadConfig, errOut)
+	effective, configFound, err := startupConfig(flags, d.LoadConfig, errOut)
 	if err != nil {
 		return nil, err
-	}
-	effective, err := resolveEffectiveConfig(flags, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := config.ValidateScope(effective.Config.Backends, effective.Tenant); err != nil {
-		return nil, err //nolint:wrapcheck // the message already names the flag and the bad tenant.
 	}
 	sess := session.New(effective.Config)
 	effCfg := sess.Config()
@@ -181,6 +174,44 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	store.PruneSort(sortResources)
 	scope := bootScope(store, effCfg, effective.Tenant)
 
+	r := &Result{closer: closer, cfg: effCfg, clients: clients, store: store, stderr: errOut}
+	err = r.wireUI(ctx, uiInputs{
+		flags:          flags,
+		deps:           d,
+		sess:           sess,
+		styles:         styles,
+		silenceClients: silenceClients,
+		tenantRows:     tenantRows,
+		configDir:      configDir,
+		scope:          scope,
+		capture:        capture,
+		configFound:    configFound,
+	})
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+// uiInputs is what the startup stages hand the UI graph.
+type uiInputs struct {
+	flags          *config.CLIFlags
+	deps           Deps
+	sess           *session.Session
+	styles         *theme.Styles
+	silenceClients map[string]silenceform.Client
+	tenantRows     []tenant.Row
+	configDir      string
+	scope          string
+	capture        *a10rlog.Capture
+	configFound    bool
+}
+
+// wireUI builds the App, the page env, the resolver and the reloader,
+// which all hold on to each other, and stores them on r.
+func (r *Result) wireUI(ctx context.Context, in uiInputs) error {
+	d := in.deps
 	dispatcher := buildDispatcher()
 
 	// buildPageEnv → buildApp dance: pageEnv's TimeFormat closure
@@ -189,58 +220,47 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, err := buildPageEnv(ctx, sess, styles, silenceClients, tenantRows, clients, d, &a, configDir, scope, store)
+	env, resolver, err := buildPageEnv(ctx, in.sess, in.styles, in.silenceClients, in.tenantRows, r.clients, d, &a, in.configDir, in.scope, r.store)
 	if err != nil {
-		_ = store.Close()
-		return nil, err
+		return err
 	}
 	skinName := func() string { return a.SkinName() }
 	env.ConfigReport = buildConfigReport(configInputs{
-		cfg:       effCfg,
-		configDir: configDir,
-		capture:   capture,
+		cfg:       r.cfg,
+		configDir: in.configDir,
+		capture:   in.capture,
 		skinName:  skinName,
 	})
 	env.InfoReport = buildInfoReport(infoInputs{
 		deps:      d,
-		cfg:       effCfg,
-		configDir: configDir,
+		cfg:       r.cfg,
+		configDir: in.configDir,
 		// Asked of the resolver rather than counted at boot, because
 		// `:reload` swaps the whole user-alias set.
 		aliasCount: func() int { return len(resolver.UserAliases()) },
 		skinName:   skinName,
-		found:      configFound,
-		store:      store,
+		found:      in.configFound,
+		store:      r.store,
 	})
 
 	registry := &pollerRegistry{}
 	rl := &reloader{
 		deps:       d,
-		flags:      flags,
+		flags:      in.flags,
 		env:        env,
 		registry:   registry,
 		resolver:   resolver,
 		dispatcher: dispatcher,
-		configDir:  configDir,
+		configDir:  in.configDir,
 	}
-	a = buildApp(dispatcher, resolver, styles, sess, registry, d, configDir, scope, store, rl.reload)
+	a = buildApp(dispatcher, resolver, in.styles, in.sess, registry, d, in.configDir, in.scope, r.store, rl.reload)
 
-	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("user keybindings: %w", err)
+	if err := applyUserKeyOverrides(dispatcher, in.configDir, d.LoadKeys); err != nil {
+		return fmt.Errorf("user keybindings: %w", err)
 	}
 
-	return &Result{
-		app:      a,
-		closer:   closer,
-		cfg:      effCfg,
-		clients:  clients,
-		registry: registry,
-		env:      env,
-		resolver: resolver,
-		store:    store,
-		stderr:   errOut,
-	}, nil
+	r.app, r.env, r.resolver, r.registry = a, env, resolver, registry
+	return nil
 }
 
 // openStateStore opens the remembered-view-state file, or a

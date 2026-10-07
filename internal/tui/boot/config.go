@@ -28,6 +28,24 @@ func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*confi
 	return cfg, true, nil
 }
 
+// startupConfig is the config a fresh session boots on. Unlike a
+// reload, a missing file is tolerated, and the --tenant scope is
+// checked against the resolved backends before anything is built.
+func startupConfig(flags *config.CLIFlags, load func(config.LoadOpts) (*config.Config, error), errOut io.Writer) (eff config.Effective, found bool, err error) {
+	cfg, found, err := loadConfigForTUI(flags, load, errOut)
+	if err != nil {
+		return config.Effective{}, false, err
+	}
+	eff, err = resolveEffectiveConfig(flags, cfg)
+	if err != nil {
+		return config.Effective{}, false, err
+	}
+	if err := config.ValidateScope(eff.Config.Backends, eff.Tenant); err != nil {
+		return config.Effective{}, false, err //nolint:wrapcheck // the message already names the flag and the bad tenant.
+	}
+	return eff, found, nil
+}
+
 // LoadOptsFromFlags translates persistent flags into
 // config.LoadOpts. --config (a file path) splits into Dir + File
 // so the loader reads the requested file directly; --config-dir
