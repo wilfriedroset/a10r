@@ -291,23 +291,29 @@ func (p *Page) applyFilter(in []alertEntry) []alertEntry {
 	now := p.now()
 	out := make([]alertEntry, 0, len(kept))
 	for _, e := range kept {
-		row := filterexpr.Row{
-			Now:      now,
-			Labels:   e.a.Labels,
-			Text:     e.lowerComposite,
-			State:    string(e.a.State),
-			Instance: filterexpr.Present,
-		}
-		if stats != nil {
-			g := stats[groupKey(e)]
-			row.Count, row.CountAvail = g.count, filterexpr.Present
-			row.Start, row.AgeAvail = g.oldestStart, filterexpr.Present
-		}
-		if p.FilterMatch(row) {
+		if p.FilterMatch(e.filterRow(now, stats)) {
 			out = append(out, e)
 		}
 	}
 	return out
+}
+
+// filterRow is the entry as the filter sees it. COUNT and AGE are the
+// group's, so they are only present when stats were gathered.
+func (e alertEntry) filterRow(now time.Time, stats map[string]groupStat) filterexpr.Row {
+	row := filterexpr.Row{
+		Now:      now,
+		Labels:   e.a.Labels,
+		Text:     e.lowerComposite,
+		State:    string(e.a.State),
+		Instance: filterexpr.Present,
+	}
+	if stats != nil {
+		g := stats[groupKey(e)]
+		row.Count, row.CountAvail = g.count, filterexpr.Present
+		row.Start, row.AgeAvail = g.oldestStart, filterexpr.Present
+	}
+	return row
 }
 
 // groupStat carries the two group-level values an expression can
