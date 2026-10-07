@@ -159,8 +159,8 @@ func FuzzFrameResize(wIdx, hIdx byte) [FuzzFrameSize]byte {
 	return [FuzzFrameSize]byte{fuzzKindResize, wIdx, hIdx}
 }
 
-// LoadFuzzStyles returns the cached default skin. Thin wrapper kept
-// for fuzz-call-site clarity; the cache lives in styles.go.
+// LoadFuzzStyles returns a private copy of the default skin. Thin
+// wrapper kept for fuzz-call-site clarity.
 func LoadFuzzStyles(t *testing.T) *theme.Styles {
 	t.Helper()
 	return LoadStyles(t)

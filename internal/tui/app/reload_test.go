@@ -28,13 +28,8 @@ func newReloadApp(t *testing.T, reload func() tea.Cmd) *App {
 
 func newReloadAppOn(t *testing.T, reload func() tea.Cmd, sess *session.Session) *App {
 	t.Helper()
-	// A private copy: testutil.LoadStyles caches one *theme.Styles
-	// for the whole process, and applySkin writes through the
-	// pointer. Sharing it would let a reload test repaint every
-	// parallel test's App mid-render.
-	styles := *testutil.LoadStyles(t)
 	a := NewApp(Options{
-		Styles:     &styles,
+		Styles:     testutil.LoadStyles(t),
 		Dispatcher: keys.New(nil),
 		Reload:     reload,
 		Session:    sess,

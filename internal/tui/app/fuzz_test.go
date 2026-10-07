@@ -235,11 +235,7 @@ func fuzzConfig(cols []config.Column, rules guardrail.Set) config.Config {
 // random keys land on a populated table from the first iteration.
 func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 	t.Helper()
-	// Copied, not shared: LoadFuzzStyles caches one pointer for the
-	// whole test binary, and applySkin swaps by writing through
-	// Options.Styles.
-	base := *testutil.LoadFuzzStyles(t)
-	styles := &base
+	styles := testutil.LoadFuzzStyles(t)
 	// `:skin` is wired so the seeds below reach the picker's render
 	// and submit paths. The resolver is local rather than boot's: the
 	// fuzz app has no config to build the real one from.

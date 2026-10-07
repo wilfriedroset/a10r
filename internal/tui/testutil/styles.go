@@ -11,16 +11,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
-// LoadStyles returns the default theme skin, lazily parsing the
-// embedded YAML once per test binary. Safe to share across parallel
-// tests as long as nothing writes through the pointer: lipgloss.Style
-// values inside the struct are immutable from the outside (Render
-// returns new strings).
-//
-// One caller does write: App.applyAutoTheme assigns *a.styles when
-// the terminal reports its background colour. A test that wires an
-// App with AutoTheme must load its own Styles instead, or the swap
-// repaints every other parallel test.
+// LoadStyles returns a private copy of the default skin: the App writes
+// through its styles pointer, so a shared one races parallel renders.
 //
 // If the first load fails, every subsequent caller sees tb.Fatalf
 // rather than a zero-value Styles — sync.Once would otherwise let
@@ -40,7 +32,8 @@ func LoadStyles(tb testing.TB) *theme.Styles {
 	}
 	require.NotNil(tb, cachedStyles,
 		"cached styles must be populated — sync.Once initialiser failed")
-	return cachedStyles
+	styles := *cachedStyles
+	return &styles
 }
 
 var (

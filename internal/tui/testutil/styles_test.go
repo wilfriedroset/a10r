@@ -20,3 +20,12 @@ func TestLoadStyles_LoadsDefaultSkin(t *testing.T) {
 	require.NotNil(t, styles.Severity.Critical.GetForeground(),
 		"default skin must resolve the critical-severity foreground")
 }
+
+// The App writes through its styles pointer, so a shared one lets one
+// parallel test repaint another mid-render.
+func TestLoadStyles_ReturnsAPrivateCopy(t *testing.T) {
+	t.Parallel()
+
+	first, second := testutil.LoadStyles(t), testutil.LoadStyles(t)
+	require.NotSame(t, first, second)
+}
