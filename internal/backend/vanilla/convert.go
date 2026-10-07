@@ -3,10 +3,79 @@
 package vanilla
 
 import (
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 )
+
+// sanitize replaces every control rune with one space. A remote
+// Alertmanager serves any byte it likes, and a10r paints the result
+// into a terminal, where an escape sequence repaints the frame, moves
+// the cursor or sets the window title. The edge is the last place
+// that still knows the string came off the wire. Tab and newline go
+// too, because a table cell is one line by contract.
+//
+// The substitution is lossy on purpose: a cell renders one line, so a
+// preserved escape has nothing to render into. A matcher built from a
+// mangled label value therefore matches no alert, so a silence over
+// such an alert is created and does nothing. That trade buys a
+// terminal a remote backend cannot drive.
+//
+// Silence text is the exception: update, recreate and the $EDITOR
+// flow write it back, so toSilence keeps it verbatim and every
+// renderer neutralises it instead.
+func sanitize(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// sanitizeAll aliases in when nothing in it needs a substitution.
+func sanitizeAll(in []string) []string {
+	clean := true
+	for _, s := range in {
+		if strings.ContainsFunc(s, unicode.IsControl) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return in
+	}
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = sanitize(s)
+	}
+	return out
+}
+
+// sanitizeMap aliases m when nothing in it needs a substitution,
+// which is every poll of every healthy backend.
+func sanitizeMap(m map[string]string) map[string]string {
+	clean := true
+	for k, v := range m {
+		if strings.ContainsFunc(k, unicode.IsControl) || strings.ContainsFunc(v, unicode.IsControl) {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return m
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[sanitize(k)] = sanitize(v)
+	}
+	return out
+}
 
 // toAlert and its siblings are the wire-to-domain converters used by
 // every read-path Client method. Kept as plain functions (not methods)
@@ -15,20 +84,23 @@ import (
 func toAlert(w wireAlert) backend.Alert {
 	a := backend.Alert{
 		Fingerprint:  w.Fingerprint,
-		Labels:       w.Labels,
-		Annotations:  w.Annotations,
+		Labels:       sanitizeMap(w.Labels),
+		Annotations:  sanitizeMap(w.Annotations),
 		StartsAt:     w.StartsAt,
 		EndsAt:       w.EndsAt,
-		GeneratorURL: w.GeneratorURL,
+		GeneratorURL: sanitize(w.GeneratorURL),
 		State:        backend.AlertState(w.Status.State),
-		SilencedBy:   w.Status.SilencedBy,
-		InhibitedBy:  w.Status.InhibitedBy,
-		MutedBy:      w.Status.MutedBy,
+		// SilencedBy keys into the silence map the alert page builds
+		// from toSilence, whose IDs are raw. Mangling one side alone
+		// would turn every suppression row into the unknown marker.
+		SilencedBy:  w.Status.SilencedBy,
+		InhibitedBy: sanitizeAll(w.Status.InhibitedBy),
+		MutedBy:     sanitizeAll(w.Status.MutedBy),
 	}
 	if len(w.Receivers) > 0 {
 		a.Receivers = make([]string, 0, len(w.Receivers))
 		for _, r := range w.Receivers {
-			a.Receivers = append(a.Receivers, r.Name)
+			a.Receivers = append(a.Receivers, sanitize(r.Name))
 		}
 	}
 	return a
@@ -70,7 +142,7 @@ func toMatcher(w wireMatcher) backend.Matcher {
 }
 
 func toReceiver(w wireReceiver) backend.Receiver {
-	return backend.Receiver{Name: w.Name}
+	return backend.Receiver{Name: sanitize(w.Name)}
 }
 
 // toWireMatcher is the outbound conversion (domain → wire) used by
@@ -108,17 +180,20 @@ func toStatus(w wireStatus, now func() time.Time) backend.Status {
 	}
 	return backend.Status{
 		Cluster: backend.ClusterStatus{
-			Status: w.Cluster.Status,
+			Status: sanitize(w.Cluster.Status),
 			Peers:  toPeers(w.Cluster.Peers),
 		},
 		Version: backend.VersionInfo{
-			Version:   w.VersionInfo.Version,
-			Revision:  w.VersionInfo.Revision,
-			Branch:    w.VersionInfo.Branch,
-			BuildUser: w.VersionInfo.BuildUser,
-			BuildDate: w.VersionInfo.BuildDate,
-			GoVersion: w.VersionInfo.GoVersion,
+			Version:   sanitize(w.VersionInfo.Version),
+			Revision:  sanitize(w.VersionInfo.Revision),
+			Branch:    sanitize(w.VersionInfo.Branch),
+			BuildUser: sanitize(w.VersionInfo.BuildUser),
+			BuildDate: sanitize(w.VersionInfo.BuildDate),
+			GoVersion: sanitize(w.VersionInfo.GoVersion),
 		},
+		// Config is the backend's whole alertmanager.yml and the page
+		// splits it on "\n". A substitution there would flatten the
+		// document into one unreadable line.
 		Config: w.Config.Original,
 		Uptime: now().Sub(w.Uptime),
 	}
@@ -130,7 +205,7 @@ func toPeers(in []wireClusterPeer) []backend.ClusterPeer {
 	}
 	out := make([]backend.ClusterPeer, 0, len(in))
 	for _, p := range in {
-		out = append(out, backend.ClusterPeer{Name: p.Name, Address: p.Address})
+		out = append(out, backend.ClusterPeer{Name: sanitize(p.Name), Address: sanitize(p.Address)})
 	}
 	return out
 }

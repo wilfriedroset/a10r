@@ -4,6 +4,7 @@ package boot
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -34,12 +35,21 @@ const (
 // cheap reads that piggy-back. Configurable per-resource intervals
 // are deferred — overkill at the current fan-out.
 //
-// reg is published with each poller so the App's `r` refresh
-// handler can find the matching entry by (resource, tenant).
+// reg takes ownership of the resulting set, so the App's `r` refresh
+// handler can find an entry by (resource, tenant) and a `:reload`
+// can rebuild the whole matrix under a new interval.
 func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[string]backend.Client, send func(tea.Msg), reg *pollerRegistry) func() {
 	if len(clients) == 0 {
 		return func() {}
 	}
+	reg.setSpawn(func(c *config.Config) []*poll.Poller {
+		return spawnPollers(ctx, c, clients, send)
+	})
+	reg.Restart(cfg)
+	return reg.stopAll
+}
+
+func spawnPollers(ctx context.Context, cfg *config.Config, clients map[string]backend.Client, send func(tea.Msg)) []*poll.Poller {
 	pollers := make([]*poll.Poller, 0, len(clients)*4)
 	for _, be := range cfg.Backends {
 		c, ok := clients[be.Name]
@@ -57,14 +67,9 @@ func startBackendPoller(ctx context.Context, cfg *config.Config, clients map[str
 			})
 			p.Start(ctx)
 			pollers = append(pollers, p)
-			reg.Add(p)
 		}
 	}
-	return func() {
-		for _, p := range pollers {
-			p.Stop()
-		}
-	}
+	return pollers
 }
 
 // backendInterval picks the active poll interval for a backend
@@ -80,6 +85,11 @@ func backendInterval(be config.Backend, cfg *config.Config) time.Duration {
 	}
 	return time.Minute
 }
+
+// pollResources is every label backendFetchers emits, which is also
+// every key pageOverride answers for. Named so a reload can ask
+// about each tick a backend runs without building the pollers.
+var pollResources = []string{resourceAlerts, resourceSilences, resourceReceivers, resourceStatus}
 
 // pageInterval layers the per-page override (cfg.Pages.<page>) on
 // top of backendInterval. The resource argument matches the
@@ -157,24 +167,119 @@ func backendFetchers(c backend.Client) []fetcherEntry {
 }
 
 // pollerRegistry is the wiring-layer index the App's `r` refresh
-// handler walks. Membership is mutated only at startup (right
-// after each Poller is constructed) and read on every refresh —
-// a sync.RWMutex would be over-engineering for a list that
-// stops growing the moment the program enters its event loop, so
-// a plain Mutex is enough; the cost is bounded by O(pollers).
+// handler walks. Membership is mutated at startup (right after each
+// Poller is constructed) and again on a `:reload` that changed a poll
+// interval, and read on every refresh — a sync.RWMutex would be
+// over-engineering for a list that changes twice in a session, so a
+// plain Mutex is enough; the cost is bounded by O(pollers).
 type pollerRegistry struct {
 	mu      sync.Mutex
 	pollers []*poll.Poller
+	// spawn builds a fresh poller set under a config. Installed by
+	// startBackendPoller, which is the only place holding the ctx,
+	// the clients and the send func a Poller needs. Nil until then,
+	// which is what makes a Restart before the start a no-op.
+	spawn func(*config.Config) []*poll.Poller
+	// ticks is what the live set was spawned under, so Sync can tell
+	// whether a new config moves any of them.
+	ticks map[string]time.Duration
 }
 
-// Add registers a Poller. Called from startBackendPoller during
-// startup; the goroutine is still safe to grow the slice because
-// the App's Refresh handler only fires after the user can type,
-// which happens after Run starts and Add has settled.
-func (r *pollerRegistry) Add(p *poll.Poller) {
+// Restart rebuilds every poller under the new config, because
+// poll.Poller reads its interval once at construction and a session
+// that kept the old one would contradict the config the user is now
+// reading. A registry whose pollers have not started yet has nothing
+// to rebuild: Build returns before cmd/tui.go starts them.
+//
+// The outgoing set is stopped off this goroutine on purpose. A
+// reload runs inside App.Update, which is the goroutine draining
+// bubbletea's unbuffered message channel, and Poller.Stop joins a
+// goroutine that can be parked in Send waiting for exactly that
+// drain. Joining here wedges the TUI past recovery, because Ctrl+C
+// travels the same channel. Detached, Update returns, the parked
+// sends land, and the outgoing pollers wind down.
+//
+// The cost is a snapshot from the outgoing set landing after one
+// from the new set. The App's cache is last-write-wins per
+// (resource, tenant), so the next tick corrects it.
+func (r *pollerRegistry) Restart(cfg *config.Config) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.pollers = append(r.pollers, p)
+	r.restartLocked(cfg)
+}
+
+func (r *pollerRegistry) restartLocked(cfg *config.Config) {
+	if r.spawn == nil {
+		return
+	}
+	outgoing := r.pollers
+	r.pollers = r.spawn(cfg)
+	r.ticks = pollTicks(cfg)
+	go stopPollers(outgoing)
+}
+
+// Sync restarts the pollers when cfg moves any tick and does nothing
+// otherwise, because a restart drops the fetch in flight and starts
+// every cycle from zero. The registry is the part that knows what its
+// pollers run on, so it answers whether it is current.
+func (r *pollerRegistry) Sync(cfg *config.Config) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !maps.Equal(r.ticks, pollTicks(cfg)) {
+		r.restartLocked(cfg)
+	}
+}
+
+// pollTicks keys every tick a config asks for by backend and
+// resource. It reads through pageInterval, the same helper
+// spawnPollers builds with, because the tick comes from three config
+// layers: a per-page override beats the per-backend value, which
+// beats the global default.
+func pollTicks(cfg *config.Config) map[string]time.Duration {
+	out := make(map[string]time.Duration, len(cfg.Backends)*len(pollResources))
+	for _, be := range cfg.Backends {
+		for _, resource := range pollResources {
+			out[be.Name+"/"+resource] = pageInterval(be, cfg, resource)
+		}
+	}
+	return out
+}
+
+// stopAll stops every live poller and waits for them, unlike
+// Restart: this runs from cmd/tui.go after program.Run returned, so
+// the program context is done and a parked Send has already
+// unblocked. Waiting is what keeps a10r from exiting with the live
+// set still in flight. A set an earlier Restart detached is not
+// covered: it is already cancelled and winds down on its own.
+//
+// Safe to call more than once: the set is dropped under the lock, so
+// a second call has nothing to stop.
+func (r *pollerRegistry) stopAll() {
+	r.mu.Lock()
+	outgoing := r.pollers
+	r.pollers = nil
+	r.mu.Unlock()
+	stopPollers(outgoing)
+}
+
+// stopPollers winds down a set the registry no longer indexes, so
+// Refresh cannot nudge a poller that is already stopping.
+func stopPollers(pollers []*poll.Poller) {
+	for _, p := range pollers {
+		p.Stop()
+	}
+}
+
+func (r *pollerRegistry) setSpawn(f func(*config.Config) []*poll.Poller) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.spawn = f
+}
+
+func (r *pollerRegistry) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.pollers)
 }
 
 // Refresh nudges every poller matching (resource, scope) to fetch

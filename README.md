@@ -78,7 +78,8 @@ The two screens you live in: the alerts list and the silence form.
   `tea.ExecProcess` honouring `$A10R_EDITOR` / `$EDITOR`.
 - **Eight bundled catppuccin skins**: Frappe / Latte /
   Macchiato / Mocha plus each `-transparent` sibling, synced from
-  `catppuccin/k9s`. Default is `catppuccin-mocha`. Any
+  `catppuccin/k9s`. By default a10r reads the terminal background
+  at startup and picks Latte or Mocha to match. Any
   k9s skin works drop-in; user skins under `<config-dir>/skins/`
   shadow bundled by basename. See
   [ADR 0030](docs/adr/0030-in-tree-bundled-skins.md) for the
@@ -191,8 +192,8 @@ a10r -c examples/demo.yaml
 `a10r validate <path>` exits 0 when the config parses cleanly,
 with a line-precise error message otherwise.
 
-`a10r info` prints the resolved config dir, log path, and the
-backend list with capability flags.
+`a10r info` prints the resolved config dir, state dir, log path,
+active theme, and the backend list with capability flags.
 
 ## Keybindings
 

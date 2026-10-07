@@ -14,6 +14,7 @@ package cmdbar
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -307,23 +308,15 @@ func (r *Resolver) RegisterUser(short, expanded string) error {
 	if short == "" {
 		panic("cmdbar: user alias short must not be empty")
 	}
-	if r.builtins == nil {
-		r.builtins = make(map[string]struct{}, len(r.handlers))
-		for a := range r.handlers {
-			r.builtins[a] = struct{}{}
-		}
-	}
+	r.indexBuiltins()
 	if _, taken := r.handlers[short]; taken {
 		return fmt.Errorf("%w: %s", ErrUserAliasConflict, short)
 	}
+	if err := r.validateUser(short, expanded); err != nil {
+		return err
+	}
 	tokens := strings.Fields(expanded)
-	if len(tokens) == 0 {
-		return fmt.Errorf("%w: %s -> %q", ErrUserAliasUnresolved, short, expanded)
-	}
 	target, extra := tokens[0], tokens[1:]
-	if _, ok := r.builtins[target]; !ok {
-		return fmt.Errorf("%w: %s -> %s", ErrUserAliasUnresolved, short, target)
-	}
 	base := r.handlers[target]
 	r.handlers[short] = func(args []string) tea.Cmd {
 		// Pre-pend the alias's stored args so `prod` registered as
@@ -336,6 +329,75 @@ func (r *Resolver) RegisterUser(short, expanded string) error {
 	}
 	r.userAliases = append(r.userAliases, UserAlias{Short: short, Expanded: strings.TrimSpace(expanded)})
 	return nil
+}
+
+// ReplaceUser swaps the whole user-alias set for the supplied one,
+// which is what `:reload` needs: an alias dropped from the file has
+// to stop resolving, not linger until the next restart.
+//
+// Every entry is validated before any is registered, so a file with
+// one bad line leaves the session with the aliases it already had.
+// Partial application is the one outcome a reload must not produce.
+func (r *Resolver) ReplaceUser(aliases map[string]string) error {
+	r.indexBuiltins()
+	// Sorted, so a file with two bad entries names the same one every
+	// run. The flash quotes it, and a message that alternates between
+	// two names reads like a10r changing its mind.
+	shorts := slices.Sorted(maps.Keys(aliases))
+	for _, short := range shorts {
+		if err := r.validateUser(short, aliases[short]); err != nil {
+			return err
+		}
+	}
+	for _, ua := range r.userAliases {
+		delete(r.handlers, ua.Short)
+	}
+	r.userAliases = nil
+	// The error here is unreachable while nothing calls Register
+	// after indexBuiltins: the loop above cleared every user short,
+	// so the only names RegisterUser can find taken are built-ins it
+	// already rejected. Break that and the partial apply this method
+	// exists to prevent becomes reachable.
+	for _, short := range shorts {
+		if err := r.RegisterUser(short, aliases[short]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateUser reports why an alias cannot register, without
+// registering it. RegisterUser calls it too, so the two cannot drift
+// apart; only the taken-handler check stays there, because
+// ReplaceUser clears the user aliases before it registers any.
+func (r *Resolver) validateUser(short, expanded string) error {
+	if short == "" {
+		panic("cmdbar: user alias short must not be empty")
+	}
+	if _, builtin := r.builtins[short]; builtin {
+		return fmt.Errorf("%w: %s", ErrUserAliasConflict, short)
+	}
+	tokens := strings.Fields(expanded)
+	if len(tokens) == 0 {
+		return fmt.Errorf("%w: %s -> %q", ErrUserAliasUnresolved, short, expanded)
+	}
+	if _, ok := r.builtins[tokens[0]]; !ok {
+		return fmt.Errorf("%w: %s -> %s", ErrUserAliasUnresolved, short, tokens[0])
+	}
+	return nil
+}
+
+// indexBuiltins snapshots the alias set registered so far as the
+// built-in catalogue. Idempotent: the first call wins, so a user
+// alias registered later never becomes a target for another one.
+func (r *Resolver) indexBuiltins() {
+	if r.builtins != nil {
+		return
+	}
+	r.builtins = make(map[string]struct{}, len(r.handlers))
+	for a := range r.handlers {
+		r.builtins[a] = struct{}{}
+	}
 }
 
 // UserAliases returns the user-registered aliases sorted

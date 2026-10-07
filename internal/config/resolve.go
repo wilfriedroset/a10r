@@ -128,7 +128,7 @@ func Resolve(cli CLIFlags, env EnvSource, file Config) (Effective, error) {
 
 	out.Defaults.PollInterval = resolvePollInterval(cli.PollInterval, file.Defaults.PollInterval)
 
-	out.Theme.Name = resolveTheme(cli.Theme, file.Theme.Name)
+	out.Theme.Name = ResolveTheme(cli.Theme, file.Theme.Name)
 
 	return Effective{
 		Config: out,
@@ -204,8 +204,10 @@ func resolvePollInterval(cli, fileVal time.Duration) time.Duration {
 	return DefaultPollInterval
 }
 
-// resolveTheme: CLI > file > built-in default.
-func resolveTheme(cli, fileVal string) string {
+// ResolveTheme: CLI > file > built-in default. Exported because
+// `a10r info` reports the same resolved skin without building a full
+// Effective, and a second copy of the precedence would drift.
+func ResolveTheme(cli, fileVal string) string {
 	if cli != "" {
 		return cli
 	}

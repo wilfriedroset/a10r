@@ -105,3 +105,30 @@ func TestTruncate(t *testing.T) {
 		})
 	}
 }
+
+func TestSingleLine_StripsControlBytes(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"esc_sgr", "before\x1b[31mRED\x1b[0mafter", "before [31mRED [0mafter"},
+		{"csi_cursor", "x\x1b[5A y", "x [5A y"},
+		{"bel", "ring\abell", "ring bell"},
+		{"backspace", "back\bspace", "back space"},
+		{"null", "nul\x00here", "nul here"},
+		{"del", "del\x7fhere", "del here"},
+		{"c1_csi", "c1\u009bhere", "c1 here"},
+		{"c1_nel", "c1\u0085here", "c1 here"},
+		{"lone_c1_byte", "c1\x9bhere", "c1\ufffdhere"},
+		{"newline", "line1\nline2", "line1 line2"},
+		{"tab", "a\tb", "a b"},
+		{"plain_printable_untouched", "hello, plain ascii", "hello, plain ascii"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, format.SingleLine(tc.in))
+		})
+	}
+}

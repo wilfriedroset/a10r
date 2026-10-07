@@ -90,15 +90,40 @@ are defined in CONTEXT.md and used here without redefinition.
   exists).
 - `internal/matcher` -- parses Prometheus-style label matchers
   (`name<op>value`, the four operators `=` `!=` `=~` `!~`) used by
-  `--matcher` flags, silence forms, and label selectors.
+  `--matcher` flags, silence forms, and label selectors. It is one of
+  the three packages behind the `/` filter language, together with
+  `internal/tui/filter` and `internal/tui/filterexpr`.
 - `internal/output` -- generic table / json / yaml encoders for the
   read-only command results.
+- `internal/report` -- renders the diagnostic reports about a10r
+  itself: the `a10r info` text, which the TUI's `:info` page shares so
+  the two cannot drift apart, and the sources-and-warnings text behind
+  `:config`.
+- `internal/skill` -- the embedded `SKILL.md` an agent reads to drive
+  the headless commands, plus the installer that writes it out.
 - `internal/clock` -- the time-injection seam keeping tests off the
   wall clock (ADR 0031).
 - `internal/log` -- builds the project `*slog.Logger` (json / logfmt,
-  no ANSI).
-- `internal/xdg` -- env-var slot names and the Windows fallback for
+  no ANSI) and the `Capture` side-channel that buffers the warnings of
+  an open window, so `:config` can show what startup warned about
+  without the operator leaving the TUI to read the log file.
+- `internal/xdg` -- env-var slot names, the unix state-directory
+  resolver, the atomic state-file write, and the Windows fallback for
   OS-conformant path resolution.
+- `internal/uistate` -- the `ui-state.yaml` store behind
+  `tui.remember`: the last tenant scope and each page's sort column,
+  written off the update loop and forgotten when they match the
+  built-in defaults.
+- `internal/guardrail` -- the per-tenant write policy declared under
+  `guardrails:`. It is the single evaluator the TUI and the headless
+  CLI both import, so a rule cannot mean one thing on a key press and
+  another on a command line. Every write surface asks it through one
+  entry point, `Set.Decide`, which takes the verb and the targets of
+  one press and answers with the deny, the bulk cap, or the
+  confirmation still owed. It counts the targets it is handed, because
+  a cap is a count, but it never performs or blocks a write itself:
+  the caller reads the verdict and acts on it. See
+  [ADR 0049](docs/adr/0049-guardrails-only-tighten.md).
 
 ### TUI (`internal/tui`)
 
@@ -116,6 +141,25 @@ Shell and orchestration:
   skin, register key chords / aliases, build the page-environment
   resolver and the `App`. `boot.Build` reads top-to-bottom as a
   named-stage list ([ADR 0033](docs/adr/0033-boot-stage-extraction.md)).
+  `reload.go` re-runs the reloadable part of that list for `:reload`,
+  so the same package owns the startup read and the live re-read: it
+  refuses a frozen change, applies the file to the session, lets the
+  poller registry `Sync` its intervals, and names what needs a
+  restart.
+  `frame_test.go` renders whole frames headlessly against the goldens
+  in `testdata/frames/`, boot included, with no terminal and no
+  network. `snapshot.go` does the same against live backends for the
+  hidden `a10r snapshot` command: it drives the real bubbletea
+  program with the renderer and the input disabled, waits for the
+  first poll of every backend, and returns the frame as text.
+- `internal/tui/session` -- the live effective configuration and the
+  values derived from it (the read-only switch, the write policy with
+  per-backend `read_only` folded in, the bulk pool size, the label
+  columns). The App and every page hold the one `*Session` and ask it
+  at the point of use, so `:reload` reaches the pages already on the
+  stack by calling `Apply`. State derived at construction (label
+  columns) is re-derived on the payload-free `app.ConfigReloadedMsg`.
+  See [ADR 0050](docs/adr/0050-pages-read-the-live-configuration.md).
 - `internal/tui/keys` -- the keybindings dispatcher: five precedence
   layers (modal > prompt > per-view > table-context > global), first
   match wins, 500 ms chords.
@@ -135,6 +179,8 @@ Pages and shared page bases (`internal/tui/page`):
   [ADR 0013](docs/adr/0013-list-page-shared-base.md). `Base` owns the
   wire-to-domain seam for sideband messages and `DataMsg`
   ([ADR 0018](docs/adr/0018-listpage-wire-to-domain-seam.md)).
+  `OpenBulkForm` is the guardrail-gated bulk silence opener that
+  alerts and group detail share.
 - `page/detailpage` -- the shared 1D-scroll base for the read-only
   detail pages, embedded the same explicit way
   ([ADR 0022](docs/adr/0022-detailpage-shared-base.md)).
@@ -150,11 +196,27 @@ Pages and shared page bases (`internal/tui/page`):
 - `page/receivers` -- the receivers list (Enter drills to a filtered
   alerts page).
 - `page/status` -- the Alertmanager status pane.
+- `page/selfreport` -- a scrollable read-only page over a renderer the
+  caller supplies, so `:info` prints the `internal/report` text the
+  `a10r info` subcommand prints rather than a second copy of it.
+  `:config` is the same page over the sources-and-warnings renderer,
+  with `p` / `w` section anchors.
 - `page/tenant`, `page/tenantconfig` -- the configured-backend table
   and the per-tenant config inspector.
 - `page/format` -- width-aware text helpers (cell padding,
-  cell-counting truncation) shared across pages and chrome.
+  cell-counting truncation) shared across pages and chrome. Horizontal
+  scroll moved out of it into `page/table`.
+- `page/table` -- the shared list-table module: column layout under a
+  width budget, header and row painting, the horizontal window with
+  its `<` and `>` edge markers, and the configured label columns
+  (resolution, the aggregate rollup, the cell comparator). The alerts
+  and group-detail tables both paint through it.
 - `page/pagetest` -- the shared page-test harness (ADR 0026).
+- `internal/tui/testutil` -- the shared test fakes: styles, clipboard,
+  backend client, and the fuzz codec.
+- `internal/tui/form/silence/silencetest` -- drives a pushed silence
+  form from a page test. It lives outside the form package because the
+  form's own tests are in-package.
 
 Chrome, overlays, and rendering helpers:
 
@@ -176,15 +238,42 @@ Chrome, overlays, and rendering helpers:
 - `internal/tui/bulkop` -- the per-tenant fan-out shared by the
   alerts bulk-silence and silences bulk-expire flows.
 - `internal/tui/browser` -- a dumb default-browser launcher.
+- `internal/tui/notify` -- the new-firing-alert diff plus its bell,
+  OSC and subprocess transports. It hangs off the root model, not
+  the alerts page, so a user reading another page still gets the
+  signal.
+- `internal/tui/clipboard` -- the OSC52 copy seam plus the `Y`
+  field picker the two detail pages share. It sits outside the
+  pages because alert-detail already imports silence-detail to
+  push it, so hosting the seam there would close an import cycle.
 - `internal/tui/tablesort` -- the shared `Shift+<letter>` sort-state
-  machine for table pages.
+  machine for table pages. A page's column set is built at
+  construction, not at package level, because user-declared label
+  columns come from the configuration and add their own sort axes.
+- `internal/tui/filter` -- the `/` filter language below the chrome:
+  the mode classifier and the per-buffer text matcher that
+  `filterexpr.Compiled` wraps. It imports the standard library only.
+- `internal/tui/filterexpr` -- parses and evaluates the `/` prompt's
+  boolean grammar (`&&`, `||`, `!`, parentheses, and the typed keys
+  `count`, `age`, `state`). Evaluation is three-valued: a term over a
+  value the row does not carry is unknown, so neither the term nor its
+  negation matches. The package also offers `Compiled`, one
+  classified buffer: `Compile` walks the grammar ladder -- expression
+  first, then label selector, then the five-mode text path -- and the
+  value it returns answers with the predicate, the spans and the mode
+  label, so a page that compiles its buffer once cannot let the three
+  disagree. `Compile` is the only place the ladder runs: on a page
+  that compiles its buffer, the recompute predicate, the row painter
+  and the title tag are all reads of the value it returned.
 - `internal/tui/stateformat` -- the app-global full/compact
   state-breakdown toggle.
 - `internal/tui/timerender` -- the four CONTEXT.md time vocabularies
   (relative, absolute, remaining, next attempt) plus a `Duration`
   primitive (ADR 0015).
 - `internal/tui/theme` -- parses k9s-format skins into a `Styles`
-  struct consumed by role name (ADR 0030).
+  struct consumed by role name (ADR 0030), and lists the resolvable
+  names behind the `:skin` picker. `:skin` swaps the shared `Styles`
+  value in place, so every open page repaints without a rebuild.
 - `internal/tui/yamlstyle` -- applies skin YAML roles to a YAML body.
 
 ## Birth of a TUI page
@@ -221,8 +310,11 @@ the binary entry to a live page:
    the `newXxxPage` factories. `pageEnv` bundles the shared deps every
    page needs at construction time (styles, scope, clients, the
    time/state-format closures that read the live `App`, the editor
-   resolver, tenant rows, ...) so adding a future shared dep is a
-   struct-field change, not an N-arg propagation. `newAlertsPage`
+   resolver, tenant rows, the `*session.Session`, ...) so adding a
+   future shared dep is a struct-field change, not an N-arg
+   propagation. Configuration reaches a page only through the
+   session, never as a copied value, so a reload cannot leave an open
+   page behind. `newAlertsPage`
    translates the `pageEnv` into `alerts.Options` and calls
    `alerts.New`. The cmdbar resolver registers the other factories
    (`newSilencesPage`, ...) as `:command` handlers
@@ -242,7 +334,7 @@ the binary entry to a live page:
    ([ADR 0013](docs/adr/0013-list-page-shared-base.md)). `alerts.New`
    constructs the page value and initialises its `Base`, wiring the
    `Recompute`, `RowCount`, `SnapshotFocus`, `SetTimeFormat`,
-   `SetStateFormat`, and `ClearMarks` callbacks. From then on the
+   `SetStateFormat`, `Reconfigure`, and `ClearMarks` callbacks. From then on the
    App routes messages to the top page's `Update`, the page delegates
    sideband and `DataMsg` handling into `Base`
    ([ADR 0018](docs/adr/0018-listpage-wire-to-domain-seam.md)), and
@@ -254,7 +346,9 @@ the binary entry to a live page:
 The page stack is `app.App.stack`: index 0 is home, the last element
 is the active top-of-stack. `app.PopPage` / `app.ReplacePage` are the
 other two stack transitions; each runs the departing page's `Close`
-exactly once.
+exactly once. A push also calls `Suspend` on the page it covers when
+that page implements `app.Suspender`, so page-local transient state
+(the visual-mode range anchor) does not outlive the drill-down.
 
 ## Birth of a backend call
 

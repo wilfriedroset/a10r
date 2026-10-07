@@ -28,6 +28,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -39,10 +41,18 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
+	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
+	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
+	"github.com/wilfriedroset/a10r/internal/tui/page/receivers"
+	"github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
+	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
+	"github.com/wilfriedroset/a10r/internal/uistate"
 )
 
 // Result bundles the post-Build state the wiring layer (cmd/tui.go)
@@ -62,17 +72,23 @@ type Result struct {
 	clients  map[string]backend.Client
 	registry *pollerRegistry
 	env      *pageEnv
+	resolver *cmdbar.Resolver
+	store    *uistate.Store
 	stderr   io.Writer
 }
 
 // App returns the bubbletea Model that tea.NewProgram wraps.
 func (r *Result) App() *app.App { return r.app }
 
-// Close flushes the logger sink. Wired by cmd/tui.go's `defer
-// closer.Close()`. The method satisfies io.Closer; the error is
-// surfaced as a warning on stderr inside closeLogger (the program
-// is already exiting, so escalation has nothing to offer).
+// Close flushes the remembered view state, then the logger sink.
+// That order matters: the state store's last write happens while
+// the logger is still live, so a failing write still reaches the
+// audit trail. Wired by cmd/tui.go's `defer closer.Close()`. The
+// method satisfies io.Closer; the logger-close error is surfaced as
+// a warning on stderr inside closeLogger (the program is already
+// exiting, so escalation has nothing to offer).
 func (r *Result) Close() error {
+	_ = r.store.Close()
 	closeLogger(r.closer, r.stderr)
 	return nil
 }
@@ -121,32 +137,81 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 		errOut = os.Stderr
 	}
 
-	cfg, err := loadConfigForTUI(flags, d.LoadConfig, errOut)
+	effective, configFound, err := startupConfig(flags, d.LoadConfig, errOut)
 	if err != nil {
 		return nil, err
 	}
-	effective, err := resolveEffectiveConfig(flags, cfg)
-	if err != nil {
-		return nil, err
-	}
-	effCfg := effective.Config
+	sess := session.New(effective.Config)
+	effCfg := sess.Config()
 
-	logger, closer, err := initLogger(d, effCfg, effective)
+	// The capture window opens before the logger is built and closes
+	// when Build returns, so the `:config` page can show the startup
+	// warnings that otherwise only reach the log file the operator
+	// cannot read from inside the TUI. Opening it first is what
+	// catches log.New's own "log file unwritable" warning.
+	capture := &a10rlog.Capture{}
+	capture.Start()
+	defer capture.Stop()
+
+	logger, closer, err := initLogger(d, *effCfg, effective, capture)
 	if err != nil {
 		return nil, err
 	}
 	slog.SetDefault(logger)
 
 	logTransportSurprises(logger, effCfg.Backends)
+	logUnmatchedTenants(logger, effCfg)
 
-	clients, silenceClients := buildBackendClients(flags, logger, d, &effCfg, errOut)
-	tenantRows := buildTenantRows(&effCfg, fetchTenantVersions(ctx, clients))
+	clients, silenceClients := buildBackendClients(flags, logger, d, effCfg, errOut)
+	tenantRows := buildTenantRows(effCfg, fetchTenantVersions(ctx, clients))
 
 	configDir, styles, err := resolveConfigDirAndStyles(d, flags.ConfigDir, effCfg.Theme.Name)
 	if err != nil {
 		return nil, err
 	}
 
+	store := openStateStore(d, effCfg)
+	store.PruneSort(sortResources)
+	scope := bootScope(store, effCfg, effective.Tenant)
+
+	r := &Result{closer: closer, cfg: effCfg, clients: clients, store: store, stderr: errOut}
+	err = r.wireUI(ctx, uiInputs{
+		flags:          flags,
+		deps:           d,
+		sess:           sess,
+		styles:         styles,
+		silenceClients: silenceClients,
+		tenantRows:     tenantRows,
+		configDir:      configDir,
+		scope:          scope,
+		capture:        capture,
+		configFound:    configFound,
+	})
+	if err != nil {
+		_ = store.Close()
+		return nil, err
+	}
+	return r, nil
+}
+
+// uiInputs is what the startup stages hand the UI graph.
+type uiInputs struct {
+	flags          *config.CLIFlags
+	deps           Deps
+	sess           *session.Session
+	styles         *theme.Styles
+	silenceClients map[string]silenceform.Client
+	tenantRows     []tenant.Row
+	configDir      string
+	scope          string
+	capture        *a10rlog.Capture
+	configFound    bool
+}
+
+// wireUI builds the App, the page env, the resolver and the reloader,
+// which all hold on to each other, and stores them on r.
+func (r *Result) wireUI(ctx context.Context, in uiInputs) error {
+	d := in.deps
 	dispatcher := buildDispatcher()
 
 	// buildPageEnv → buildApp dance: pageEnv's TimeFormat closure
@@ -155,27 +220,105 @@ func Build(ctx context.Context, flags *config.CLIFlags, deps Deps) (*Result, err
 	// it, then assign in buildApp — closures resolve `a` at
 	// invocation time, which is after buildApp has returned.
 	var a *app.App
-	env, resolver, err := buildPageEnv(ctx, &effCfg, styles, silenceClients, tenantRows, clients, d, &a, configDir)
+	env, resolver, err := buildPageEnv(ctx, in.sess, in.styles, in.silenceClients, in.tenantRows, r.clients, d, &a, in.configDir, in.scope, r.store)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	skinName := func() string { return a.SkinName() }
+	env.ConfigReport = buildConfigReport(configInputs{
+		cfg:       r.cfg,
+		configDir: in.configDir,
+		capture:   in.capture,
+		skinName:  skinName,
+	})
+	env.InfoReport = buildInfoReport(infoInputs{
+		deps:      d,
+		cfg:       r.cfg,
+		configDir: in.configDir,
+		// Asked of the resolver rather than counted at boot, because
+		// `:reload` swaps the whole user-alias set.
+		aliasCount: func() int { return len(resolver.UserAliases()) },
+		skinName:   skinName,
+		found:      in.configFound,
+		store:      r.store,
+	})
 
 	registry := &pollerRegistry{}
-	a = buildApp(dispatcher, resolver, styles, &effCfg, registry, d)
+	rl := &reloader{
+		deps:       d,
+		flags:      in.flags,
+		env:        env,
+		registry:   registry,
+		resolver:   resolver,
+		dispatcher: dispatcher,
+		configDir:  in.configDir,
+	}
+	a = buildApp(dispatcher, resolver, in.styles, in.sess, registry, d, in.configDir, in.scope, r.store, rl.reload)
 
-	if err := applyUserKeyOverrides(dispatcher, configDir, d.LoadKeys); err != nil {
-		return nil, fmt.Errorf("user keybindings: %w", err)
+	if err := applyUserKeyOverrides(dispatcher, in.configDir, d.LoadKeys); err != nil {
+		return fmt.Errorf("user keybindings: %w", err)
 	}
 
-	return &Result{
-		app:      a,
-		closer:   closer,
-		cfg:      cfg,
-		clients:  clients,
-		registry: registry,
-		env:      env,
-		stderr:   errOut,
-	}, nil
+	r.app, r.env, r.resolver, r.registry = a, env, resolver, registry
+	return nil
+}
+
+// openStateStore opens the remembered-view-state file, or a
+// disabled store when tui.remember is off or the run is headless: a
+// snapshot must render the configured default and must not prune a
+// file the interactive session owns. Deps.HistoryDir is the
+// existing injectable seam onto the same state dir; a failure to
+// resolve it degrades to "no memory" rather than failing startup.
+func openStateStore(d Deps, effCfg *config.Config) *uistate.Store {
+	stateDir := ""
+	if effCfg.TUI.Remember && !d.Headless {
+		dir, err := d.HistoryDir()
+		if err != nil {
+			slog.Debug("no state dir, tui.remember has nothing to write to",
+				slog.Any("err", err),
+			)
+		}
+		stateDir = dir
+	}
+	return uistate.Open(stateDir)
+}
+
+// sortResources lists the keys the pages remember a sort column
+// under. It is not the `:` alias set: the instances page binds the
+// view name it shows in the crumb, and the status page has no
+// sortable table at all.
+var sortResources = []string{alerts.ViewName, silences.ViewName, receivers.ViewName, tenant.ViewName, groupdetail.ViewName}
+
+// bootScope resolves the one tenant scope both the page env and the
+// App boot on. The --tenant flag beats a remembered scope for this run
+// without overwriting it; a remembered scope beats the built-in
+// default, but only once pruned against the backends the config still
+// declares -- "all" out of PruneScope means nothing usable was
+// remembered.
+func bootScope(store *uistate.Store, effCfg *config.Config, flagScope string) string {
+	names := backendNames(effCfg)
+	pruned, dropped := uistate.PruneScope(store.Scope(), names)
+	if len(dropped) > 0 {
+		// Write back before the fallback below, or a scope that lost
+		// every name would persist the fallback backend instead of
+		// forgetting the key. Without the write-back every later run
+		// reads the same dead name and logs the same warning again.
+		store.SetScope(pruned)
+	}
+	if strings.TrimSpace(flagScope) != "" {
+		// Build validated the flag, so only the empty elements of `prod,` drop here.
+		pruned, _ = uistate.PruneScope(flagScope, names)
+	}
+	if pruned == scopeAll {
+		pruned = scopeFor(effCfg)
+	}
+	if len(dropped) > 0 {
+		slog.Warn("remembered tenant scope names backends the config no longer has",
+			slog.Any("dropped", dropped),
+			slog.String("scope", pruned),
+		)
+	}
+	return pruned
 }
 
 // resolveEffectiveConfig folds CLI > env > config > defaults into a
@@ -194,11 +337,12 @@ func resolveEffectiveConfig(flags *config.CLIFlags, cfg *config.Config) (config.
 // emit so silence write ops produce an audit trail and --log actually
 // reaches the file. The closer is returned so the caller's defer
 // Close flushes the lumberjack rotation buffer on shutdown.
-func initLogger(d Deps, effCfg config.Config, eff config.Effective) (*slog.Logger, io.Closer, error) {
+func initLogger(d Deps, effCfg config.Config, eff config.Effective, capture *a10rlog.Capture) (*slog.Logger, io.Closer, error) {
 	logger, closer, err := d.NewLogger(a10rlog.Opts{
-		Path:   effCfg.Log.Path,
-		Format: a10rlog.Format(effCfg.Defaults.LogFormat),
-		Level:  LevelFor(eff.Debug, eff.Quiet),
+		Path:    effCfg.Log.Path,
+		Format:  a10rlog.Format(effCfg.Defaults.LogFormat),
+		Level:   LevelFor(eff.Debug, eff.Quiet),
+		Capture: capture,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("init logger: %w", err)
@@ -258,7 +402,7 @@ func buildDispatcher() *keys.Dispatcher {
 // User aliases are overlaid here too; conflicts fail closed at
 // startup so the operator sees the problem before they reach for the
 // alias.
-func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir string) (*pageEnv, *cmdbar.Resolver, error) {
+func buildPageEnv(ctx context.Context, sess *session.Session, styles *theme.Styles, silenceClients map[string]silenceform.Client, tenantRows []tenant.Row, clients map[string]backend.Client, d Deps, appPtr **app.App, configDir, scope string, sortMemory tablesort.Memory) (*pageEnv, *cmdbar.Resolver, error) {
 	timeFormat := func() timerender.Format {
 		if *appPtr == nil {
 			return timerender.Relative
@@ -272,23 +416,23 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 		return (*appPtr).StateFormat()
 	}
 	env := &pageEnv{
-		EditorCtx:          ctx,
-		Styles:             styles,
-		Scope:              scopeFor(effCfg),
-		SilenceClients:     silenceClients,
-		Creator:            os.Getenv("USER"),
-		TenantRows:         tenantRows,
-		Config:             effCfg,
-		Clients:            clients,
-		TimeFormat:         timeFormat,
-		StateFormat:        stateFormat,
-		ReadOnly:           effCfg.Defaults.ReadOnly,
-		TenantNames:        backendNames(effCfg),
-		TenantConfigByName: tenantConfigIndex(effCfg),
-		EditorResolver:     d.EditorResolver(),
+		EditorCtx:      ctx,
+		Styles:         styles,
+		Scope:          scope,
+		SilenceClients: silenceClients,
+		Creator:        os.Getenv("USER"),
+		TenantRows:     tenantRows,
+		Clients:        clients,
+		TimeFormat:     timeFormat,
+		StateFormat:    stateFormat,
+		Session:        sess,
+		TenantNames:    backendNames(sess.Config()),
+		EditorResolver: d.EditorResolver(),
+		Now:            d.Now,
+		SortMemory:     sortMemory,
 	}
 	resolver := newResolver(env)
-	if _, err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
+	if err := registerUserAliases(resolver, configDir, d.LoadAliases); err != nil {
 		return nil, nil, fmt.Errorf("user aliases: %w", err)
 	}
 	return env, resolver, nil
@@ -300,21 +444,49 @@ func buildPageEnv(ctx context.Context, effCfg *config.Config, styles *theme.Styl
 // pollers once Result.StartPollers fills the registry in (the user
 // can only press `r` after Run starts, which is after StartPollers
 // has settled).
-func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, effCfg *config.Config, registry *pollerRegistry, d Deps) *app.App {
+func buildApp(dispatcher *keys.Dispatcher, resolver *cmdbar.Resolver, styles *theme.Styles, sess *session.Session, registry *pollerRegistry, d Deps, configDir, scope string, store *uistate.Store, reload func() tea.Cmd) *app.App {
 	historyDir, _ := d.HistoryDir() // best-effort; empty disables persistence per ADR.
+	effCfg := sess.Config()
 	return app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: dispatcher,
 		CmdBar:     resolver,
 		Tenants:    backendNames(effCfg),
 		Refresh:    registry.Refresh,
-		ReadOnly:   effCfg.Defaults.ReadOnly,
+		Session:    sess,
 		HistoryDir: historyDir,
+		Scope:      scope,
+		SaveScope:  store.SetScope,
+
+		AutoTheme: isAutoTheme(effCfg.Theme.Name),
+		LoadStyles: func(name string) (*theme.Styles, error) {
+			return d.LoadStyles(name, configDir)
+		},
+		// Listed per call rather than once, so a skin file dropped in
+		// during the session shows up in the picker without a restart.
+		SkinNames: func() []string {
+			return theme.Names(filepath.Join(configDir, theme.SkinsDir))
+		},
+		SkinName: startupSkinName(effCfg.Theme.Name),
+		Reload:   reload,
+
+		Notify: notifierFor(d.Headless, effCfg.TUI.Notify, d.NotifyRunner),
 		HintBar: footer.NewHintBar(footer.HintBarOptions{
 			Enabled:  effCfg.TUI.Tips,
 			Interval: effCfg.TUI.TipsInterval,
 		}),
 	})
+}
+
+// notifierFor answers a disabled notifier on the headless path
+// whatever the config says. The rule is the boot path, not the config.
+// A headless render never receives a `:reload`, which is the only
+// other thing that hands the notifier its settings.
+func notifierFor(headless bool, cfg config.Notify, run notify.Runner) *notify.Notifier {
+	if headless {
+		cfg = config.Notify{}
+	}
+	return notify.NewWithRunner(cfg, run)
 }
 
 // registerGlobalChords wires the dispatcher entries that must

@@ -1,4 +1,4 @@
-.PHONY: build test test-race cover vet prek lint lint-comments run clean tidy am-up am-down am-logs smoke skins-sync fuzz fuzz-app fuzz-form help
+.PHONY: build test test-race cover vet prek lint lint-comments run clean tidy am-up am-down am-logs smoke skins-sync screenshots fuzz fuzz-app fuzz-form help
 
 GO ?= go
 BINARY := a10r
@@ -133,6 +133,22 @@ skins-sync: ## Refresh embedded skins from pinned upstream commits
 	else \
 		echo "==> $(SKINS_DIR) unchanged."; \
 	fi
+
+# Text screenshots for the docs, one frame per page, rendered from
+# the public demo Alertmanager. Plain text rather than --color: a
+# .txt full of escapes is unreadable in a diff, and no ANSI-to-image
+# converter is wired into the docs pipeline yet. When one lands,
+# add --color here and pipe into it.
+SCREENSHOT_DIR    := docs/screenshots
+SCREENSHOT_CONFIG := examples/demo.yaml
+SCREENSHOT_PAGES  := alerts silences status receivers tenant
+screenshots: build ## Render one text screenshot per page from examples/demo.yaml
+	@mkdir -p $(SCREENSHOT_DIR)
+	@for page in $(SCREENSHOT_PAGES); do \
+		echo "==> $(SCREENSHOT_DIR)/$$page.txt"; \
+		./$(BINARY) snapshot $$page -c $(SCREENSHOT_CONFIG) \
+			> $(SCREENSHOT_DIR)/$$page.txt || exit 1; \
+	done
 
 help: ## Show this help message
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

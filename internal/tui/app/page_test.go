@@ -12,6 +12,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -131,7 +132,7 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 		if cmd == nil {
 			continue
 		}
-		msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+		msg, ok := runWithBudget(cmd)
 		if !ok || msg == nil {
 			continue
 		}
@@ -141,8 +142,10 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 	}
 }
 
+const runBudget = 50 * time.Millisecond
+
 // runWithBudget runs cmd in a goroutine and returns its message if
-// it resolves within d; otherwise reports !ok and abandons the
+// it resolves within runBudget; otherwise reports !ok and abandons the
 // goroutine to finish on its own.
 //
 // The abandoned goroutine eventually completes (tea.Tick fires its
@@ -151,13 +154,13 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 // flash TTL at 4s and ~20 cmdbar tests this peaks at ~80 parked
 // goroutines for ~4s — well under the runtime's limits and
 // invisible to -race within a normal test run.
-func runWithBudget(cmd tea.Cmd, d time.Duration) (tea.Msg, bool) {
+func runWithBudget(cmd tea.Cmd) (tea.Msg, bool) {
 	ch := make(chan tea.Msg, 1) // buffered: abandoned goroutines never block
 	go func() { ch <- cmd() }()
 	select {
 	case msg := <-ch:
 		return msg, true
-	case <-time.After(d):
+	case <-time.After(runBudget):
 		return nil, false
 	}
 }
@@ -259,6 +262,28 @@ func TestStack_HeaderContentFromTopPage(t *testing.T) {
 		"top-of-stack page's HeaderContent must surface as a body subtitle")
 	require.Contains(t, visible, "<s>",
 		"top-of-stack page's bindings must populate the panel hint column")
+}
+
+// TestStack_GuardedBindingLeavesTheHintStrip pins the other half of the
+// guarded-verb rule ADR 0043 records: the strip drops the key, and the
+// help overlay (tested in internal/tui/help) keeps its row.
+func TestStack_GuardedBindingLeavesTheHintStrip(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	a = updated.(*App)
+
+	page := newFakePage("alerts")
+	page.hints = []action.Action{
+		{Key: "s", Description: "silence", Guarded: true},
+		{Key: "r", Description: "refresh"},
+	}
+	drive(t, a, PushPage(func() Page { return page }))
+
+	visible := testutil.StripStyle(a.View().Content)
+	require.NotContains(t, visible, "<s>",
+		"the strip must not offer a key that can only answer with a refusal")
+	require.Contains(t, visible, "<r>")
 }
 
 func TestStack_CrumbsTrackStack(t *testing.T) {
@@ -747,7 +772,7 @@ func TestStack_QuitCascadesCloseOnEveryStackPage(t *testing.T) {
 	// The follow-up Cmd must ultimately emit tea.QuitMsg so
 	// bubbletea actually stops — otherwise the cleanup ran but the
 	// program would never exit.
-	msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+	msg, ok := runWithBudget(cmd)
 	require.True(t, ok, "quit Cmd must resolve within the test budget")
 	require.IsType(t, tea.QuitMsg{}, msg,
 		"the Cmd returned by QuitRequestedMsg handling must emit tea.QuitMsg so the program exits")
@@ -791,4 +816,83 @@ func TestQuitWithCleanup_FlipsQuittingFlag(t *testing.T) {
 		"quitWithCleanup must flip the quitting flag before returning "+
 			"the cleanup batch — otherwise the filter loops QuitMsg "+
 			"back into QuitRequestedMsg and the program never exits")
+}
+
+// escapingFakePage embeds fakePage and adds the EscapeConsumer
+// implementation. Defined as its own type rather than as a fakePage
+// flag because pages opt in by interface satisfaction — a
+// flag-bearing fakePage would always type-assert and the
+// fall-through path would never be exercised.
+type escapingFakePage struct {
+	*fakePage
+	consume bool
+}
+
+func (p *escapingFakePage) ConsumeEscape() bool {
+	if !p.consume {
+		return false
+	}
+	p.consume = false
+	return true
+}
+
+func TestStack_EscapeConsumerUnwindsBeforePop(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	alerts := newFakePage("alerts")
+	detail := &escapingFakePage{fakePage: newFakePage("alert-detail"), consume: true}
+	drive(t, a, PushPage(func() Page { return alerts }))
+	drive(t, a, PushPage(func() Page { return detail }))
+
+	updated, cmd := a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.Same(t, detail, a.topPage(),
+		"the first Esc unwinds the page's own state and must not pop the stack")
+
+	updated, cmd = a.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	a = updated.(*App)
+	drive(t, a, cmd)
+	require.Same(t, alerts, a.topPage(),
+		"once the page stops consuming Esc, the next press pops the stack")
+}
+
+// suspendingFakePage records Suspend calls so a test can pin the
+// "a push drops the covered page's transient state" contract.
+type suspendingFakePage struct {
+	*fakePage
+	suspends *int
+}
+
+func (p *suspendingFakePage) Suspend() { *p.suspends++ }
+
+func TestStack_PushSuspendsTheCoveredPage(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a = updated.(*App)
+
+	var suspends int
+	alerts := &suspendingFakePage{fakePage: newFakePage("alerts"), suspends: &suspends}
+	drive(t, a, PushPage(func() Page { return alerts }))
+	require.Zero(t, suspends, "pushing the page itself must not suspend it")
+
+	drive(t, a, PushPage(func() Page { return newFakePage("alert-detail") }))
+	require.Equal(t, 1, suspends,
+		"the covered page drops its transient state when a drill-down lands on top")
+}
+
+// TestPushPage_ReadableByPageTests pins the push message against the
+// page test helper that reads it by field name, the way
+// TestOpenModal_ReadableByPageTests pins the open message. The helper
+// cannot name the unexported message type, so a rename is caught here
+// rather than in the page suites.
+func TestPushPage_ReadableByPageTests(t *testing.T) {
+	t.Parallel()
+	want := newFakePage("alerts")
+	got := pagetest.PushedPage(t, PushPage(func() Page { return want }))
+	require.Same(t, want, got)
 }

@@ -18,6 +18,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
 // User-facing defaults pinned by the schema. Changing any of these
@@ -27,10 +29,19 @@ const (
 	// globally via defaults.poll_interval.
 	DefaultPollInterval = 1 * time.Minute
 
-	// DefaultThemeName is the bundled catppuccin-mocha skin. Users
-	// override with theme.name in `a10r.yaml` or the --theme CLI
-	// flag.
-	DefaultThemeName = "catppuccin-mocha"
+	// ThemeAuto is the sentinel theme name that defers the skin choice
+	// to the terminal background. Kept distinct from DefaultThemeName
+	// so a future default that names a concrete skin does not silently
+	// turn every "is this auto?" comparison into a lie. Must equal
+	// theme.AutoSkinName, which internal/tui/boot asserts.
+	ThemeAuto = "auto"
+
+	// DefaultThemeName is the auto sentinel: the terminal background
+	// decides between the light and the dark bundled skin at startup.
+	// Users override with theme.name in `a10r.yaml` or the --theme CLI
+	// flag. A fixed dark default is unreadable on a light terminal,
+	// which is why detection is the default rather than opt-in.
+	DefaultThemeName = ThemeAuto
 
 	// DefaultRemoteTimeout matches Prometheus's `remote_timeout`
 	// default (30s). Picked large enough for a slow backend with
@@ -55,13 +66,20 @@ const (
 
 // Config is the top-level shape of a10r.yaml.
 type Config struct {
-	Backends []Backend     `yaml:"backends,omitempty"`
-	Defaults Defaults      `yaml:"defaults,omitempty"`
-	Theme    Theme         `yaml:"theme,omitempty"`
-	Log      Log           `yaml:"log,omitempty"`
-	Keys     Keys          `yaml:"keys,omitempty"`
-	Pages    PageOverrides `yaml:"pages,omitempty"`
-	TUI      TUI           `yaml:"tui,omitempty"`
+	Backends []Backend `yaml:"backends,omitempty"`
+	Defaults Defaults  `yaml:"defaults,omitempty"`
+	Theme    Theme     `yaml:"theme,omitempty"`
+	Log      Log       `yaml:"log,omitempty"`
+	Keys     Keys      `yaml:"keys,omitempty"`
+	// Guardrails restricts write verbs per tenant beyond read-only.
+	Guardrails guardrail.Set `yaml:"guardrails,omitempty"`
+	Pages      PageOverrides `yaml:"pages,omitempty"`
+	TUI        TUI           `yaml:"tui,omitempty"`
+
+	// Sources lists the files the load read, in the order the merge
+	// applied them. It is a load result rather than a config key, so
+	// the strict decoder must keep rejecting a user file that names it.
+	Sources []Source `yaml:"-"`
 }
 
 // PageOverrides carries per-page runtime knobs that a user can
@@ -69,10 +87,13 @@ type Config struct {
 // page on its backend-derived default; non-zero fields override the
 // backend's value for that page only.
 type PageOverrides struct {
-	Alerts    PageConfig `yaml:"alerts,omitempty"`
-	Silences  PageConfig `yaml:"silences,omitempty"`
-	Receivers PageConfig `yaml:"receivers,omitempty"`
-	Status    PageConfig `yaml:"status,omitempty"`
+	Alerts    AlertsPageConfig `yaml:"alerts,omitempty"`
+	Silences  PageConfig       `yaml:"silences,omitempty"`
+	Receivers PageConfig       `yaml:"receivers,omitempty"`
+	Status    PageConfig       `yaml:"status,omitempty"`
+	// GroupDetail is the alerts drill-down (L2). It rides the alerts
+	// poll feed, so it carries columns and nothing else.
+	GroupDetail GroupDetailConfig `yaml:"group_detail,omitempty"`
 }
 
 // PageConfig is the per-page knob set. PollInterval, when non-zero,
@@ -81,6 +102,23 @@ type PageOverrides struct {
 // resolved default".
 type PageConfig struct {
 	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+}
+
+// AlertsPageConfig is the alerts page's knob set: a poll interval
+// plus the user-declared label columns. Columns live on their own
+// type rather than on PageConfig so strict decoding rejects
+// `columns:` under a page that has none (ADR 0048 keeps the silences
+// page out).
+type AlertsPageConfig struct {
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+	Columns      []Column      `yaml:"columns,omitempty"`
+}
+
+// GroupDetailConfig is the group-detail page's knob set. The page
+// rides the alerts poll feed, so it has no interval of its own and
+// must not advertise one.
+type GroupDetailConfig struct {
+	Columns []Column `yaml:"columns,omitempty"`
 }
 
 // Backend describes one Alertmanager (or Mimir) endpoint a10r polls.
@@ -185,6 +223,19 @@ func (c *Config) Validate() error {
 		if err := b.Validate(); err != nil {
 			return err
 		}
+	}
+	if err := validateColumns(pageAlerts, c.Pages.Alerts.Columns); err != nil {
+		return err
+	}
+	if err := validateColumns(pageGroupDetail, c.Pages.GroupDetail.Columns); err != nil {
+		return err
+	}
+	//nolint:wrapcheck // The error already names guardrails[i] and its field.
+	if err := c.Guardrails.Validate(); err != nil {
+		return err
+	}
+	if err := c.TUI.Notify.Validate(); err != nil {
+		return err
 	}
 	return c.Defaults.Validate()
 }
@@ -429,8 +480,19 @@ type Keys struct{}
 // see the rotating hint strip. TipsInterval is optional — zero
 // resolves to the footer package's DefaultHintBarInterval inside
 // the wiring layer, so a partial config (`tips: true` alone) still
-// works.
+// works. TerminalTitle is opt-in for the same reason; when it is
+// false a10r never writes a window-title escape sequence. PollDelta
+// is opt-in for the same reason; when it is false a poll never
+// flashes what changed. Remember is opt-in for the same reason;
+// when it is false a10r neither reads nor writes ui-state.yaml and
+// every run opens on the built-in scope and sort defaults. Notify is
+// opt-in for the same reason; when its own `enabled` is false a10r
+// never rings the bell nor emits a notification.
 type TUI struct {
-	Tips         bool          `yaml:"tips,omitempty"`
-	TipsInterval time.Duration `yaml:"tips_interval,omitempty"`
+	Tips          bool          `yaml:"tips,omitempty"`
+	TipsInterval  time.Duration `yaml:"tips_interval,omitempty"`
+	TerminalTitle bool          `yaml:"terminal_title,omitempty"`
+	PollDelta     bool          `yaml:"poll_delta,omitempty"`
+	Remember      bool          `yaml:"remember,omitempty"`
+	Notify        Notify        `yaml:"notify,omitempty"`
 }

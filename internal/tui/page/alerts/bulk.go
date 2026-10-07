@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -29,6 +31,10 @@ type pendingSilenceAll struct {
 	tenant    string
 	alertName string
 	scopeNote string
+	// confirmed records that the blast-radius modal already collected
+	// the answer a guardrail rule asks for, so the form it pushes does
+	// not ask the same tenant again for the same write.
+	confirmed bool
 }
 
 // alertnameMatcher returns the single equality matcher that defines a
@@ -57,13 +63,20 @@ func (p *Page) silenceAllScopeNote(g alertGroup) string {
 // comma so the note names every narrowing in play.
 func (p *Page) activeFilterDesc() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter "+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter "+p.FilterBuffer())
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state "+p.stateFilter)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func alertNoun(n int) string {
+	if n == 1 {
+		return wordAlert
+	}
+	return wordAlerts
 }
 
 // silenceAllQuestion is the blast-radius confirm prompt for a
@@ -90,16 +103,24 @@ func (p *Page) pushSilenceAllForm() tea.Cmd {
 	matchers := alertnameMatcher(pending.alertName)
 	scopeNote := pending.scopeNote
 	submitCtx := p.submitCtx
+	sess := p.session
+	var confirmed []string
+	if pending.confirmed {
+		confirmed = []string{pending.tenant}
+	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			ScopeNote: scopeNote,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			ScopeNote:  scopeNote,
+			SubmitCtx:  submitCtx,
+			Guardrails: sess.Guardrails(),
+			Action:     guardrail.ActionSilenceCreate,
+			Confirmed:  confirmed,
 		})
 	})
 }
@@ -115,7 +136,7 @@ type bulkSilenceTarget struct {
 }
 
 // pendingBulkSilence captures the resolved bulk silence-all targets
-// between the confirm modal (N≥2) / bulk-form push and its result.
+// between the confirm modal / bulk-form push and its result.
 // Empty between rounds. tenants is a stable alphabetical list of
 // distinct tenant names for the confirm question and the form banner.
 type pendingBulkSilence struct {
@@ -125,8 +146,9 @@ type pendingBulkSilence struct {
 
 // openBulkSilence resolves the marked groups into bulkSilenceTargets
 // (one `alertname=X` silence per marked group, paired with its tenant)
-// and either pushes the bulk form directly (N=1) or opens a confirm
-// modal first (N≥2). Marks that no longer correspond to any in-scope
+// and either pushes the bulk form directly or opens a confirm modal
+// first. One mark skips the modal, unless a guardrail rule asks for a
+// confirmation. Marks that no longer correspond to any in-scope
 // group are dropped silently. Empty Clients flashes the standard hint;
 // no marks left after resolution drops to a soft Info flash.
 func (p *Page) openBulkSilence() tea.Cmd {
@@ -138,13 +160,67 @@ func (p *Page) openBulkSilence() tea.Cmd {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
 	p.pendingBulkSilence = pendingBulkSilence{targets: targets, tenants: tenants}
-	if len(targets) == 1 {
-		return p.pushBulkSilenceForm()
+	// tenants is what the run resolved to, not what is marked: a marked
+	// tenant whose client vanished still counts for the cap, but has no
+	// name worth asking the user to type.
+	d := p.session.Guardrails().Decide(p.request(func() []string { return tenants }))
+	question := fmt.Sprintf("silence %d %s? (tenant %s)",
+		len(targets), alertNoun(len(targets)), formatTenantBreakdownAlerts(targets))
+	return listpage.OpenBulkForm(len(targets), d, question, p.pushBulkSilenceForm)
+}
+
+// silenceRequest asks about the run an `s` press would really fire,
+// so the duplicate tenants are the per-tenant count the cap compares
+// against.
+func (p *Page) silenceRequest() guardrail.Request {
+	return p.request(p.markedTargets)
+}
+
+// guarded answers the [guarded] suffix. It counts each marked tenant
+// once: a binding outlives any one run, so a cap the current marks
+// happen to breach must not strike `s` off the hint strip.
+func (p *Page) guarded() bool {
+	return p.session.Guardrails().Refuses(p.request(p.markedTenants))
+}
+
+// request turns the press into its targets; marked resolves the bulk
+// fan-out, the one case the callers count differently.
+func (p *Page) request(marked func() []string) guardrail.Request {
+	switch {
+	case len(p.marks) > 0:
+		return bulkop.SilenceRequest(true, marked()...)
+	case p.Index() < len(p.groups):
+		return bulkop.SilenceRequest(false, p.groups[p.Index()].tenant)
 	}
-	question := fmt.Sprintf("silence %d alerts? (tenant %s)", len(targets), formatTenantBreakdownAlerts(targets))
-	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultYes)
-	})
+	return bulkop.SilenceRequest(false)
+}
+
+// markedTargets names the tenant of every marked group, once per group
+// and in the page's own row order. It keeps a marked tenant with no
+// writeable client, which resolveBulkSilenceTargets drops: refusing a
+// press that would have flashed "no writeable backend" costs nothing,
+// and aligning the two walks would let a capped or denied tenant
+// through whenever its client is missing at that moment.
+func (p *Page) markedTargets() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked {
+			out = append(out, g.tenant)
+		}
+	}
+	return out
+}
+
+// markedTenants serves the caller that asks per backend rather than
+// per row.
+func (p *Page) markedTenants() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
+			out = append(out, g.tenant)
+		}
+	}
+	return out
 }
 
 // resolveBulkSilenceTargets walks the current groups so a marked group
@@ -201,26 +277,29 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 	if len(pending.targets) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no marked alerts remain")
 	}
+	opts := p.bulkFormOptions(pending)
+	return app.PushPage(func() app.Page { return silenceform.New(opts) })
+}
+
+// bulkFormOptions omits Guardrails and Action on purpose, which is the
+// contract silenceform.Options.Bulk records: a bulk submit returns
+// before the form's own gate, so a verb handed over here would name a
+// check nothing runs. This page cleared the run already. Whatever the
+// page adds to the form belongs in here, where the omission is pinned.
+func (p *Page) bulkFormOptions(pending pendingBulkSilence) silenceform.Options {
 	creator := p.creator
 	if creator == "" {
 		creator = "a10r"
 	}
-	styles := p.styles
-	now := p.now
-	banner := bulkSilenceBanner(pending.targets, pending.tenants)
-	clients := p.clients
-	submitCtx := p.submitCtx
-	return app.PushPage(func() app.Page {
-		return silenceform.New(silenceform.Options{
-			Clients:    clients,
-			Styles:     styles,
-			Now:        now,
-			Creator:    creator,
-			Bulk:       true,
-			BulkBanner: banner,
-			SubmitCtx:  submitCtx,
-		})
-	})
+	return silenceform.Options{
+		Clients:    p.clients,
+		Styles:     p.styles,
+		Now:        p.now,
+		Creator:    creator,
+		Bulk:       true,
+		BulkBanner: bulkSilenceBanner(pending.targets, pending.tenants),
+		SubmitCtx:  p.submitCtx,
+	}
 }
 
 // bulkSilenceBanner formats the form's banner. Single tenant reads
@@ -230,18 +309,14 @@ func (p *Page) pushBulkSilenceForm() tea.Cmd {
 // fanout (distinct from the L2 silence-one full-label fanout).
 func bulkSilenceBanner(targets []bulkSilenceTarget, tenants []string) string {
 	n := len(targets)
-	word := resourceAlerts
-	if n == 1 {
-		word = wordAlert
-	}
 	if len(tenants) == 1 {
-		return fmt.Sprintf("applies to %d %s (tenant %s) — one alertname silence each", n, word, tenants[0])
+		return fmt.Sprintf("applies to %d %s (tenant %s) — one alertname silence each", n, alertNoun(n), tenants[0])
 	}
 	return fmt.Sprintf("applies to %d alerts across %d tenants — one alertname silence each", n, len(tenants))
 }
 
 // handleConfirmResult routes a ConfirmResultMsg to whichever round is
-// pending — the single-cursor silence-all (count>1) or the ≥2-marks
+// pending — the single-cursor silence-all (count>1) or the marked
 // bulk silence-all. The two are distinct paths with separate pending
 // state; only one is ever set when a confirm result arrives.
 func (p *Page) handleConfirmResult(m modal.ConfirmResultMsg) tea.Cmd {
@@ -262,12 +337,13 @@ func (p *Page) handleSilenceAllConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		p.pendingSilenceAll = pendingSilenceAll{}
 		return nil
 	}
+	p.pendingSilenceAll.confirmed = true
 	return p.pushSilenceAllForm()
 }
 
 // handleBulkSilenceConfirm consumes a ConfirmResultMsg from the
-// pre-form bulk confirm modal (N≥2 path). Yes pushes the bulk form;
-// No / Cancelled drops the pending state silently. An incoming message
+// pre-form bulk confirm modal. Yes pushes the bulk form; No /
+// Cancelled drops the pending state silently. An incoming message
 // with no pending state is a plain no-op.
 func (p *Page) handleBulkSilenceConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 	pending := p.pendingBulkSilence
@@ -315,7 +391,7 @@ func (p *Page) handleBulkSilenceSubmit(m silenceform.BulkSubmittedMsg) tea.Cmd {
 		spec.Matchers = matchersByKey[op.Key]
 		return c.CreateSilence(ctx, spec)
 	}
-	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.session.BulkConcurrency())
 	return bulkop.RunRound(cancel, dispatch)
 }
 

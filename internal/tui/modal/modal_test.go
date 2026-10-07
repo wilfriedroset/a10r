@@ -66,6 +66,39 @@ func TestPicker_QueryFiltersFuzzy(t *testing.T) {
 		"fuzzy match must put the best-fit row at the cursor")
 }
 
+func TestPicker_WithSearchFiltersOnTheCorpusAndShowsTheItems(t *testing.T) {
+	t.Parallel()
+
+	p := NewPicker("fields", []string{"a: short…", "b: other"}, PickerSingle).
+		WithSearch([]string{"a: short tail", "b: other"})
+	for _, r := range "tail" {
+		p, _ = updateAs(p, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	require.Equal(t, []int{0}, p.matches, "the query must reach past the displayed cut")
+	require.Contains(t, p.View(40, 10), "a: short…")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(PickerSubmittedMsg)
+	require.True(t, ok)
+	require.Equal(t, []int{0}, msg.Indexes)
+}
+
+// TestPicker_ShiftedLetterReachesTheQuery pins the terminal contract for
+// the shared rune helper: a capital arrives with ModShift set and must
+// still filter, or an item with an uppercase name is unreachable.
+func TestPicker_ShiftedLetterReachesTheQuery(t *testing.T) {
+	t.Parallel()
+
+	p := NewPicker("backends", []string{"Prod-EU", "staging"}, PickerSingle)
+	p, _ = updateAs(p, tea.KeyPressMsg{Code: 'p', Text: "P", Mod: tea.ModShift})
+	require.Equal(t, "P", p.query)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg := cmd().(PickerSubmittedMsg)
+	require.Equal(t, []string{"Prod-EU"}, msg.Selections)
+}
+
 func TestPicker_AKeyTypedIntoQueryAfterAlreadyFiltering(t *testing.T) {
 	t.Parallel()
 

@@ -18,6 +18,8 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
+	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
@@ -108,6 +110,55 @@ func TestLogTransportSurprises(t *testing.T) {
 	}
 }
 
+// A guardrail naming a tenant this machine does not have is a
+// warning, not an error (ADR 0049); a glob that does match must stay
+// silent.
+func TestLogUnmatchedTenants_WarnsOncePerUnmatchedGlob(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{
+		Backends: []config.Backend{{Name: "prod"}},
+		Guardrails: guardrail.Set{
+			{Tenants: []string{"prod"}, Deny: true},
+			{Tenants: []string{"lab-*"}, Deny: true},
+		},
+	}
+
+	capture := &a10rlog.Capture{}
+	logger := captureTestLogger(capture)
+	capture.Start()
+	logUnmatchedTenants(logger, cfg)
+	capture.Stop()
+
+	require.Equal(t,
+		[]string{"guardrail tenant glob matches no configured backend (glob=lab-*)"},
+		capture.Messages(),
+		"only the glob that matches nothing is worth a warning")
+}
+
+// The warning is only useful if Build asks for it inside the capture
+// window, which is what puts it on the `:config` page. Driving Build
+// is what a helper-level test cannot do: it stays green if the call
+// site is deleted.
+func TestBuild_UnmatchedTenantGlobReachesTheConfigPage(t *testing.T) {
+	t.Parallel()
+
+	deps := testDeps(t)
+	deps.LoadConfig = func(_ config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends:   []config.Backend{{Name: "prod", URL: "http://prod.invalid"}},
+			Guardrails: guardrail.Set{{Tenants: []string{"lab-*"}, Deny: true}},
+		}, nil
+	}
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Contains(t, res.env.ConfigReport().Warnings,
+		"guardrail tenant glob matches no configured backend (glob=lab-*)")
+}
+
 // TestLevelFor pins the CLI flag fold. The debug-wins rows matter
 // because previously slog.Default() (stderr) was used regardless;
 // a plumbed --debug must reach the file logger so debug records
@@ -194,6 +245,22 @@ func TestBuildTenantRows_PicksUpVersionsByName(t *testing.T) {
 	for _, r := range rows {
 		require.NotEmpty(t, r.URL, "URL must propagate from config.Backend")
 	}
+}
+
+// TestBuildTenantRows_RedactsURLCredentials pins the tenant page's
+// URL column as a redacted surface: the column is on screen for the
+// whole session and a shoulder-surfer must not read a password off
+// it.
+func TestBuildTenantRows_RedactsURLCredentials(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Backends: []config.Backend{
+			{Name: "legacy", URL: "https://__PK_BASICAUTH_1a15d1cf67f9__@am-legacy.internal/alertmanager"},
+		},
+	}
+	rows := buildTenantRows(cfg, map[string]string{})
+	require.Len(t, rows, 1)
+	require.Equal(t, "https://am-legacy.internal/alertmanager", rows[0].URL)
 }
 
 // TestBuildTenantRows_EmptyConfig covers the cold-start
@@ -331,29 +398,12 @@ func TestFetchTenantVersions_EmptyClientMap(t *testing.T) {
 	require.Empty(t, got)
 }
 
-// TestTenantConfigIndex_KeyedByBackendName covers the small
-// helper that powers the drill factory's name→config lookup.
-func TestTenantConfigIndex_KeyedByBackendName(t *testing.T) {
-	t.Parallel()
-	cfg := &config.Config{
-		Backends: []config.Backend{
-			{Name: "prod", URL: "http://am-prod"},
-			{Name: "staging", URL: "http://am-staging"},
-		},
-	}
-	got := tenantConfigIndex(cfg)
-	require.Equal(t, "http://am-prod", got["prod"].URL)
-	require.Equal(t, "http://am-staging", got["staging"].URL)
-	_, hasMissing := got["dev"]
-	require.False(t, hasMissing)
-}
-
 func TestPageInterval_PageOverrideWins(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
 		Defaults: config.Defaults{PollInterval: 30 * time.Second},
-		Pages:    config.PageOverrides{Alerts: config.PageConfig{PollInterval: 5 * time.Second}},
+		Pages:    config.PageOverrides{Alerts: config.AlertsPageConfig{PollInterval: 5 * time.Second}},
 	}
 	be := config.Backend{Name: "prod", URL: "http://am", PollInterval: 60 * time.Second}
 
@@ -383,7 +433,7 @@ func TestPageOverride_AllResources(t *testing.T) {
 	t.Parallel()
 
 	p := config.PageOverrides{
-		Alerts:    config.PageConfig{PollInterval: 1 * time.Second},
+		Alerts:    config.AlertsPageConfig{PollInterval: 1 * time.Second},
 		Silences:  config.PageConfig{PollInterval: 2 * time.Second},
 		Receivers: config.PageConfig{PollInterval: 4 * time.Second},
 		Status:    config.PageConfig{PollInterval: 5 * time.Second},
@@ -499,6 +549,7 @@ func newTestAppForFilter(t *testing.T) *app.App {
 	return app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
+		Session:    testutil.Session(),
 	})
 }
 

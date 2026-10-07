@@ -2,7 +2,10 @@
 
 package config
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ScopeAll is the sentinel scope string that covers every backend.
 // Mirrors the `:tenant all` TUI command and the `--tenant all` CLI
@@ -51,6 +54,24 @@ func UnknownScopeTenants(backends []Backend, scope string) []string {
 		unknown = append(unknown, s)
 	}
 	return unknown
+}
+
+// ValidateScope rejects a --tenant scope that names a backend the
+// config lacks. An empty backend set has nothing to check against, so
+// the pre-wizard and empty-config paths stay usable.
+func ValidateScope(backends []Backend, scope string) error {
+	if len(backends) == 0 {
+		return nil
+	}
+	unknown := UnknownScopeTenants(backends, scope)
+	if len(unknown) == 0 {
+		return nil
+	}
+	quoted := make([]string, len(unknown))
+	for i, u := range unknown {
+		quoted[i] = fmt.Sprintf("%q", u)
+	}
+	return fmt.Errorf("no configured backend matches --tenant %s", strings.Join(quoted, ", "))
 }
 
 // ScopeBackends returns the subset of backends whose Name falls within

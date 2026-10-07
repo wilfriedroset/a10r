@@ -437,3 +437,35 @@ func TestBindingsSkipsZeroHotkeyColumns(t *testing.T) {
 		t.Fatalf("Bindings[0].Key = %q, want Shift+N", got[0].Key)
 	}
 }
+
+// A Tail column pins its flagged entries after every other row in
+// both directions — the unknown-is-not-zero rule of ADR 0048. A
+// plain Less cannot express this, because Apply flips its arguments
+// for DESC and would float the flagged entries to the top.
+func TestSorter_TailPinsEntriesInBothDirections(t *testing.T) {
+	t.Parallel()
+
+	cols := []tablesort.Column[string]{{
+		Key: "v", Title: "V", Hotkey: 'V', DefaultAsc: true,
+		Less: func(a, b *string) bool { return *a < *b },
+		Tail: func(v *string) bool { return *v == "" },
+	}}
+
+	s := tablesort.New(cols, "v")
+	in := []string{"b", "", "a", ""}
+	s.Apply(in)
+	if !slices.Equal(in, []string{"a", "b", "", ""}) {
+		t.Fatalf("asc: got %q", in)
+	}
+
+	if !s.SelectByHotkey('V') {
+		t.Fatal("SelectByHotkey('V') did not match the column")
+	}
+	if s.Asc() {
+		t.Fatal("second press must flip to DESC")
+	}
+	s.Apply(in)
+	if !slices.Equal(in, []string{"b", "a", "", ""}) {
+		t.Fatalf("desc: got %q", in)
+	}
+}

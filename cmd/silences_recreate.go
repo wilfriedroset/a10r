@@ -15,6 +15,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -26,6 +27,11 @@ type silenceRecreateOptions struct {
 	CreatedBy string
 	Output    string
 	DryRun    bool
+	// ConfirmTenants carries --confirm-tenant. It satisfies a
+	// type-tenant-name guardrail for the tenants it names, and nothing
+	// else: the typed prompt has no headless form, so the flag is the
+	// deliberate act the TUI asks for at the keyboard.
+	ConfirmTenants []string
 }
 
 // newSilencesRecreateCmd is the headless complement to the TUI silence
@@ -59,6 +65,8 @@ func newSilencesRecreateCmd(flags *GlobalFlags) *cobra.Command {
 	f.StringVar(&opts.CreatedBy, "created-by", "", "silence author (default: $USER, else a10r)")
 	f.StringVarP(&opts.Output, "output", "o", "",
 		"output format: default tab-separated tenant<TAB>id, or json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
+	f.StringArrayVar(&opts.ConfirmTenants, "confirm-tenant", nil,
+		"tenant name that clears a type-tenant-name guardrail for that tenant (repeatable)")
 	f.BoolVar(&opts.DryRun, "dry-run", false,
 		"resolve and print what would be written, without making any change")
 	return cmd
@@ -129,10 +137,7 @@ func silenceRecreate(
 		}})
 	}
 
-	if opts.DryRun {
-		return runDryRun(out, errOut, cfg, format, "recreate", targets, globalReadOnly)
-	}
-	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
+	if proceed, err := gateWrite(out, errOut, cfg, format, guardrail.ActionSilenceRecreate, targets, globalReadOnly, opts.DryRun, opts.ConfirmTenants); !proceed {
 		return err
 	}
 	return runWrites(ctx, out, errOut, cfg, build, format, "recreated", targets, createdHint,

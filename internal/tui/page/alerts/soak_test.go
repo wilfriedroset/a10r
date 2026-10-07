@@ -23,7 +23,7 @@ func TestSoak_AlertsHeapStable(t *testing.T) {
 	}
 
 	styles := testutil.LoadStyles(t)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 
 	const cycles = 5_000
 	const alertsPerCycle = 500
@@ -44,7 +44,7 @@ func TestSoak_AlertsHeapStable(t *testing.T) {
 
 	for i := range cycles {
 		_, _ = p.Update(poll.DataMsg{Resource: payload, Tenant: "t0"})
-		p.Filter = queries[i%len(queries)]
+		p.SetFilter(queries[i%len(queries)])
 		p.recompute()
 	}
 

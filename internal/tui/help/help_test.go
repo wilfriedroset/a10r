@@ -654,3 +654,19 @@ func TestChipText(t *testing.T) {
 		})
 	}
 }
+
+// TestResourceColumn_GuardedVerbKeepsItsRow pins the rule ADR 0043
+// records: a rule that denies the verb on the current tenant hides it
+// from the hint strip, but the overlay keeps it, because the verb still
+// works on the tenants the rule does not name.
+func TestResourceColumn_GuardedVerbKeepsItsRow(t *testing.T) {
+	t.Parallel()
+
+	opts := sampleOpts(t)
+	opts.PageBindings = []action.Action{
+		{Key: "s", Description: "silence", Dangerous: true, Guarded: true},
+	}
+	out := testutil.StripStyle(New(opts).View(160, 30))
+
+	require.Contains(t, out, "silence [guarded]")
+}

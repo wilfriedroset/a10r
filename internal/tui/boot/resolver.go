@@ -13,6 +13,30 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 )
 
+// pageTenant is the `:` alias of the tenant page. The other four
+// snapshot pages double as poll-resource labels and take their
+// constants from poller.go; this one has no poller, so it lives
+// next to the registration that owns the name.
+const pageTenant = "tenant"
+
+// pageInfo is the `:` alias of the self-report page. It shows what
+// `a10r info` prints, from the same renderer.
+const pageInfo = "info"
+
+// pageConfig is the `:` alias of the resolved-configuration page.
+const pageConfig = "config"
+
+// cmdSkin is the `:` verb that switches the live skin. It opens a
+// page for nothing: bare it opens the picker, and with a name it
+// applies that skin and stays where it is.
+const cmdSkin = "skin"
+
+// cmdReload is the `:` verb that re-reads the config, the aliases
+// and the keys. It shares the `re` prefix with `:receivers`, so
+// neither is reachable by two letters -- `:rel` and `:rec` are the
+// shortest unambiguous forms.
+const cmdReload = "reload"
+
 // newResolver builds the cmdbar resolver with the in-tree alias
 // catalogue. Each `:command` handler hands an env-bound page factory
 // to app.PushPage; pageEnv carries the shared deps so the resolver
@@ -41,7 +65,24 @@ func newResolver(env *pageEnv) *cmdbar.Resolver {
 	tenantFactory := func(_ []string) tea.Cmd {
 		return app.PushPage(func() app.Page { return newTenantPage(env, drill) })
 	}
-	r.RegisterGroup([]string{"tenant", "tenants"}, tenantFactory)
+	r.RegisterGroup([]string{pageTenant, "tenants"}, tenantFactory)
+	r.Register(pageInfo, func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return newInfoPage(env) })
+	})
+	r.Register(pageConfig, func(_ []string) tea.Cmd {
+		return app.PushPage(func() app.Page { return newConfigPage(env) })
+	})
+	r.Register(cmdSkin, func(args []string) tea.Cmd {
+		// Args reach a handler from strings.Fields, so a present token
+		// is never blank.
+		if len(args) > 0 {
+			return app.ApplySkin(args[0])
+		}
+		return app.OpenSkinPicker()
+	})
+	r.Register(cmdReload, func(_ []string) tea.Cmd {
+		return app.Reload()
+	})
 	// `:q` (vim-canonical) and `:quit` (spelled out) both mirror the
 	// `q` / Ctrl+C bindings — emit the quit-precursor so the App can
 	// Close() every page on the stack (cancelling in-flight bulk
@@ -73,21 +114,17 @@ func applyUserKeyOverrides(d *keys.Dispatcher, configDir string, load func(strin
 // registerUserAliases reads aliases.yaml via the Deps-configured
 // loader, validates the entries against the resolver's built-in
 // alias set, and registers every user alias on the resolver.
-// Returns the count of registered aliases so callers can surface
-// "n user aliases loaded" as a startup signal.
 //
 // Missing file is not an error per the loader contract — operators
 // who don't curate aliases see no mention of the feature and pay
 // nothing for it.
-func registerUserAliases(r *cmdbar.Resolver, configDir string, load func(string) (config.AliasMap, error)) (int, error) {
+func registerUserAliases(r *cmdbar.Resolver, configDir string, load func(string) (config.AliasMap, error)) error {
 	user, err := load(configDir)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	for short, expanded := range user {
-		if err := r.RegisterUser(short, expanded); err != nil {
-			return 0, fmt.Errorf("register %q: %w", short, err)
-		}
+	if err := r.ReplaceUser(user); err != nil {
+		return fmt.Errorf("register user aliases: %w", err)
 	}
-	return len(user), nil
+	return nil
 }

@@ -27,6 +27,11 @@ const (
 // read longer error messages without losing them to a fast tick.
 const DefaultFlashTTL = 4 * time.Second
 
+// WeakFlashGuard is how long a keystroke flash is protected from a
+// weak one. Feedback for a key the user just pressed must survive
+// long enough to be read.
+const WeakFlashGuard = time.Second
+
 // FlashShowMsg is the input the app shell sends to make a flash
 // appear. The Flash component schedules its own auto-clear tick.
 type FlashShowMsg struct {
@@ -35,6 +40,12 @@ type FlashShowMsg struct {
 	// TTL overrides DefaultFlashTTL when non-zero. Use sparingly —
 	// consistency across the TUI matters more than per-call tuning.
 	TTL time.Duration
+	// Weak marks a flash raised by a background event rather than by
+	// a keystroke. A weak flash yields to a keystroke flash younger
+	// than WeakFlashGuard, so a poll cannot stomp the feedback for a
+	// key the user just pressed. It still replaces another weak
+	// flash: the newest background news wins.
+	Weak bool
 }
 
 // ShowFlash returns the tea.Cmd that surfaces a flash with the given
@@ -43,6 +54,14 @@ type FlashShowMsg struct {
 func ShowFlash(level FlashLevel, text string) tea.Cmd {
 	return func() tea.Msg {
 		return FlashShowMsg{Level: level, Text: text}
+	}
+}
+
+// ShowWeakFlash is ShowFlash for a background event — see
+// FlashShowMsg.Weak.
+func ShowWeakFlash(level FlashLevel, text string) tea.Cmd {
+	return func() tea.Msg {
+		return FlashShowMsg{Level: level, Text: text, Weak: true}
 	}
 }
 
@@ -64,6 +83,20 @@ type Flash struct {
 	level FlashLevel
 	text  string
 	id    uint64
+	// shownAt dates the active flash so Update can age it against
+	// WeakFlashGuard. weak records how the active flash was raised,
+	// because the guard protects keystroke feedback only. now injects
+	// the wall clock for tests; nil falls back to time.Now.
+	shownAt time.Time
+	weak    bool
+	now     func() time.Time
+}
+
+func (f Flash) clock() time.Time {
+	if f.now == nil {
+		return time.Now()
+	}
+	return f.now()
 }
 
 // NewFlash constructs a closed Flash.
@@ -76,6 +109,9 @@ func NewFlash() Flash { return Flash{} }
 func (f Flash) Update(msg tea.Msg) (Flash, tea.Cmd) {
 	switch m := msg.(type) {
 	case FlashShowMsg:
+		if m.Weak && !f.weak && f.text != "" && f.clock().Sub(f.shownAt) < WeakFlashGuard {
+			return f, nil
+		}
 		ttl := m.TTL
 		if ttl <= 0 {
 			ttl = DefaultFlashTTL
@@ -83,6 +119,8 @@ func (f Flash) Update(msg tea.Msg) (Flash, tea.Cmd) {
 		f.id++
 		f.level = m.Level
 		f.text = m.Text
+		f.shownAt = f.clock()
+		f.weak = m.Weak
 		id := f.id
 		return f, tea.Tick(ttl, func(time.Time) tea.Msg {
 			return flashClearMsg{id: id}

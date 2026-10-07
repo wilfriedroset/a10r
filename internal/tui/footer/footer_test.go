@@ -3,8 +3,10 @@
 package footer
 
 import (
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -493,7 +495,7 @@ func TestPrompt_UpCyclesHistoryPrev(t *testing.T) {
 	h.Append("alerts")
 	h.Append("silences")
 
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	for _, r := range "draft" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -516,7 +518,7 @@ func TestPrompt_DownRestoresDraftAtPresent(t *testing.T) {
 	h := NewHistory("", HistoryFilter)
 	h.Append("alerts")
 
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	for _, r := range "wip" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -544,7 +546,7 @@ func TestPrompt_TabPrefersGhostOverHistory(t *testing.T) {
 	h := NewHistory("", HistoryCmd)
 	h.Append("alerts")
 
-	p := NewPrompt(sug).OpenWithHistory(PromptCommand, h)
+	p := NewPrompt(sug).OpenWithHistory(PromptCommand, h, nil)
 	p, _ = p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
 	require.Equal(t, "silences", p.Suggestion())
 
@@ -560,7 +562,7 @@ func TestPrompt_TabFallsThroughToHistoryWhenNoGhost(t *testing.T) {
 	h := NewHistory("", HistoryCmd)
 	h.Append("alerts")
 
-	p := NewPrompt(nil).OpenWithHistory(PromptCommand, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptCommand, h, nil)
 	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	require.Equal(t, "alerts", p.Value(),
 		"Tab without a ghost must fall through to history cycling")
@@ -570,7 +572,7 @@ func TestPrompt_SubmitAppendsToHistory(t *testing.T) {
 	t.Parallel()
 
 	h := NewHistory("", HistoryFilter)
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	for _, r := range "high" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -580,7 +582,7 @@ func TestPrompt_SubmitAppendsToHistory(t *testing.T) {
 		"Enter must commit the buffer to the attached history ring")
 
 	// Second prompt session: Up surfaces the last submission.
-	p = NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p = NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	p, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	require.Equal(t, "high", p.Value())
 }
@@ -589,7 +591,7 @@ func TestPrompt_EscDoesNotAppendToHistory(t *testing.T) {
 	t.Parallel()
 
 	h := NewHistory("", HistoryFilter)
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	for _, r := range "throwaway" {
 		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
@@ -602,7 +604,7 @@ func TestPrompt_SubmitEmptyDoesNotAppendToHistory(t *testing.T) {
 	t.Parallel()
 
 	h := NewHistory("", HistoryFilter)
-	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Zero(t, h.Len(),
 		"submitting an empty buffer is the user's escape hatch — must not pollute history")
@@ -636,7 +638,7 @@ func TestPrompt_OpenResetsHistoryCycle(t *testing.T) {
 	_, _ = h.Prev("")
 	require.True(t, h.Cycling())
 
-	_ = NewPrompt(nil).OpenWithHistory(PromptFilter, h)
+	_ = NewPrompt(nil).OpenWithHistory(PromptFilter, h, nil)
 	require.False(t, h.Cycling(),
 		"OpenWithHistory must Reset the ring so the cursor starts at present")
 }
@@ -714,4 +716,98 @@ func TestFlash_RenderUsesLevelStyle(t *testing.T) {
 			require.Contains(t, testutil.StripStyle(out), "msg")
 		})
 	}
+}
+
+// TestPrompt_EnterOnInvalidFilterStaysOpen pins the "malformed input
+// keeps the prompt open" contract: Enter on a buffer the validator
+// rejects must not submit, must not clear the buffer, and must warn.
+func TestPrompt_EnterOnInvalidFilterStaysOpen(t *testing.T) {
+	t.Parallel()
+
+	h := NewHistory("", HistoryFilter)
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, h, func(string) error {
+		return errors.New("regex: missing closing )")
+	})
+	for _, r := range "^web(" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.True(t, p.IsOpen(), "an invalid filter buffer keeps the prompt open for editing")
+	require.Equal(t, "^web(", p.Value(), "the rejected buffer survives so the user can fix it")
+	require.Zero(t, h.Len(), "a rejected buffer never reaches history")
+	require.NotNil(t, cmd)
+	flash, ok := cmd().(FlashShowMsg)
+	require.True(t, ok, "a rejected Enter warns instead of submitting")
+	require.Equal(t, FlashWarn, flash.Level)
+	require.Equal(t, "filter: regex: missing closing )", flash.Text)
+}
+
+// TestPrompt_EnterOnValidFilterSubmits guards the other side of the
+// validator branch: a buffer the validator accepts submits as before.
+func TestPrompt_EnterOnValidFilterSubmits(t *testing.T) {
+	t.Parallel()
+
+	p := NewPrompt(nil).OpenWithHistory(PromptFilter, nil, func(string) error { return nil })
+	for _, r := range "web" {
+		p, _ = p.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	p, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.False(t, p.IsOpen())
+	require.Equal(t, PromptSubmittedMsg{Mode: PromptFilter, Value: "web"}, cmd())
+}
+
+func TestFlash_WeakYieldsToAFreshFlash(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 5, 3, 9, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name        string
+		seed        string
+		seedWeak    bool
+		seedCleared bool
+		age         time.Duration
+		weak        bool
+		wantText    string
+		wantShown   bool
+	}{
+		{name: "weak yields to a fresh flash from a keystroke", seed: "silenced", age: 500 * time.Millisecond, weak: true, wantText: "silenced"},
+		{name: "weak replaces a flash older than the guard", seed: "silenced", age: 2 * time.Second, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "weak shows when no flash is active", seed: "", age: 0, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "strong replaces a fresh flash", seed: "silenced", age: 500 * time.Millisecond, weak: false, wantText: "+1 new", wantShown: true},
+		{name: "weak replaces a fresh weak flash", seed: "prod: +2 new", seedWeak: true, age: 100 * time.Millisecond, weak: true, wantText: "+1 new", wantShown: true},
+		{name: "weak shows once the incumbent auto-cleared", seed: "silenced", seedCleared: true, age: 100 * time.Millisecond, weak: true, wantText: "+1 new", wantShown: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := NewFlash()
+			f.now = func() time.Time { return base }
+			if tc.seed != "" {
+				f, _ = f.Update(FlashShowMsg{Level: FlashInfo, Text: tc.seed, Weak: tc.seedWeak})
+			}
+			if tc.seedCleared {
+				f, _ = f.Update(flashClearMsg{id: f.id})
+			}
+			f.now = func() time.Time { return base.Add(tc.age) }
+			f, cmd := f.Update(FlashShowMsg{Level: FlashWarn, Text: "+1 new", Weak: tc.weak})
+
+			require.Equal(t, tc.wantText, f.Text())
+			if tc.wantShown {
+				require.NotNil(t, cmd, "an accepted flash schedules its auto-clear")
+				return
+			}
+			require.Nil(t, cmd, "a dropped flash schedules nothing")
+		})
+	}
+}
+
+func TestShowWeakFlash_CarriesTheWeakBit(t *testing.T) {
+	t.Parallel()
+
+	msg, ok := ShowWeakFlash(FlashSuccess, "-2 resolved")().(FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, FlashShowMsg{Level: FlashSuccess, Text: "-2 resolved", Weak: true}, msg)
 }

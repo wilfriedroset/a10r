@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
@@ -40,7 +41,8 @@ type pendingExpireID struct {
 
 // openExpireConfirmUnified routes `x` to the single-row or bulk
 // expire confirm depending on whether any silences are marked.
-// Mirror of the alerts page's openSilenceForS.
+// runWriteAction has already committed any open range, so the marks
+// read here are final.
 func (p *Page) openExpireConfirmUnified() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openExpireConfirm()
@@ -70,8 +72,9 @@ func (p *Page) openExpireConfirm() tea.Cmd {
 		bulk: false,
 	}
 	question := "expire silence " + entry.s.ID + "?"
+	typed := p.session.Guardrails().Decide(p.writeRequest(guardrail.ActionSilenceExpire)).Typed
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
 }
 
@@ -120,8 +123,15 @@ func (p *Page) openBulkExpireConfirm() tea.Cmd {
 	} else {
 		question = fmt.Sprintf("expire %d silences? (tenant %s)", len(ids), formatTenantBreakdown(ids))
 	}
+	// markedTenants reads the same marks against the same byTenant map
+	// that built ids, so the prompt asks for the backends the run
+	// really touches, once each rather than once per row. Only the
+	// prompt is read: runWriteAction already asked the write policy
+	// about these same rows, counting them one per row as the cap
+	// needs.
+	typed := p.session.Guardrails().Decide(p.request(guardrail.ActionSilenceExpire, p.markedTenants)).Typed
 	return app.OpenModal(func() modal.Modal {
-		return modal.NewConfirm(question, modal.ConfirmDefaultNo)
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, typed)
 	})
 }
 
@@ -181,7 +191,7 @@ func (p *Page) handleExpireConfirm(m modal.ConfirmResultMsg) tea.Cmd {
 		}
 		return "", c.ExpireSilence(ctx, op.Key)
 	}
-	dispatch := bulkop.Dispatch(ctx, ops, writer, p.bulkConcurrency)
+	dispatch := bulkop.Dispatch(ctx, ops, writer, p.session.BulkConcurrency())
 	return bulkop.RunRound(cancel, func() tea.Msg {
 		done, _ := dispatch().(bulkop.DoneMsg[string])
 		return bulkExpireDoneMsg{bulk: bulk, done: done}

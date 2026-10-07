@@ -85,6 +85,14 @@ type TimeFormatChangedMsg struct {
 	Format timerender.Format
 }
 
+// ConfigReloadedMsg announces that a reload applied a new file to the
+// session. Unlike the format toggles the App delivers it to every page
+// on the stack, not just the top one: the user walks back to the pages
+// underneath with Esc. It carries nothing, because a page reads the
+// session itself; only a page with state derived from the config at
+// construction has anything to do on it.
+type ConfigReloadedMsg struct{}
+
 // StateFormatToggleMsg is a page-emitted request to flip the app-global
 // state-breakdown density. `Shift+T` is a page binding (not a global like
 // `t`), so the page can't reach the canonical value and asks the App,
@@ -138,6 +146,25 @@ func ReplacePage(factory func() Page) tea.Cmd {
 // satisfaction so an unrelated tea.Msg can't accidentally match.
 type AutoPopMsg interface {
 	IsAutoPop()
+}
+
+// EscapeConsumer is the optional interface a page implements to take
+// Esc before the global "pop the stack" binding sees it. A page that
+// holds a transient sub-state — the visual-mode range anchor — unwinds
+// that state first, so Esc reads as "back one step" rather than
+// jumping the user out of the view.
+type EscapeConsumer interface {
+	Page
+	ConsumeEscape() bool
+}
+
+// Suspender is the optional interface a page implements to drop
+// transient state when another page is pushed on top of it. A
+// visual-mode range is page-local by contract, so a drill-down ends
+// it rather than leaving a preview waiting under the new page.
+type Suspender interface {
+	Page
+	Suspend()
 }
 
 // InputCapturePage is the optional interface a page implements to route

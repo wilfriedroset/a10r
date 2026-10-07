@@ -4,6 +4,7 @@ package log
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,25 @@ const (
 //   - Windows: %LOCALAPPDATA%\a10r\Logs\a10r.log
 func DefaultPath() (string, error) {
 	return defaultPathFor(runtime.GOOS, os.Getenv, os.UserHomeDir)
+}
+
+// ReportPath names the file the sink opens. An unresolvable default
+// reports a sentinel rather than an error, like the state dir: a
+// missing HOME is what the operator runs info to find out.
+func ReportPath(configured string) string {
+	return reportPathFor(configured, DefaultPath)
+}
+
+func reportPathFor(configured string, def func() (string, error)) string {
+	if configured != "" {
+		return configured
+	}
+	path, err := def()
+	if err != nil {
+		slog.Debug("no default log path for the info report", slog.Any("err", err))
+		return "(unresolved)"
+	}
+	return path
 }
 
 // defaultPathFor is the testable core of DefaultPath; env and

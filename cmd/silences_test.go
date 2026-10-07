@@ -195,6 +195,12 @@ func TestSummariseMatchers_AllOperators(t *testing.T) {
 		{Name: "d", Value: "4", IsRegex: true},
 	})
 	require.Equal(t, `a="1",b!="2",c=~"3",d!~"4"`, got)
+
+	got = summariseMatchers([]matcherRow{{Name: "a", Value: `x",b="y`, IsEqual: true}})
+	require.Equal(t, `a="x\",b=\"y"`, got, "a quote in a value cannot fake a second matcher")
+
+	got = summariseMatchers([]matcherRow{{Name: "te\x1b[5Aam", Value: "a\tb", IsEqual: true}})
+	require.Equal(t, `te [5Aam="a\tb"`, got, "a control byte in a name cannot drive the terminal")
 }
 
 // TestRunSilencesList_FailWhenAllBackendsDown exercises the "every

@@ -27,9 +27,10 @@ func isUnsetColor(c color.Color) bool {
 // bundledNames lists every skin we ship inside the binary: eight
 // catppuccin variants synced from upstream (SOURCES.yaml.sources)
 // plus four ovhcloud variants authored in-tree (SOURCES.yaml.authored).
-// Test-local because the production code no longer exposes a
-// BundledNames() helper — SOURCES.yaml is the system-of-record for
-// what's embedded.
+// Spelled out test-side because SOURCES.yaml is the system-of-record
+// for what is embedded and it is not itself embedded. Names("") reads
+// the embed.FS at runtime for the `:skin` picker, so the two are
+// pinned against each other below.
 var bundledNames = []string{
 	"catppuccin-frappe", "catppuccin-frappe-transparent",
 	"catppuccin-latte", "catppuccin-latte-transparent",
@@ -408,4 +409,33 @@ func TestLoad_CatppuccinMochaCursorMatchesUpstream(t *testing.T) {
 func colorRGBA(c color.Color) (r, g, b uint8) {
 	r16, g16, b16, _ := c.RGBA()
 	return uint8(r16 >> 8), uint8(g16 >> 8), uint8(b16 >> 8)
+}
+
+func TestLoad_AutoSentinelIsReserved(t *testing.T) {
+	t.Parallel()
+
+	// The sentinel never names a file. Resolving it against the
+	// skins directory would let a user skin called `auto.yaml`
+	// hijack the detection path, so the loader refuses it outright
+	// rather than falling back to the default skin.
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, AutoSkinName+".yaml"), []byte("body:\n  fgColor: white\n  bgColor: black\n"), 0o600,
+	))
+
+	_, err := (&Loader{UserDir: dir}).Load(AutoSkinName)
+	require.ErrorIs(t, err, ErrInvalidSkin)
+	require.ErrorContains(t, err, `theme name "auto" is reserved`)
+}
+
+func TestAutoSkinFor(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, DefaultSkinName, AutoSkinFor(true))
+	require.Equal(t, LightSkinName, AutoSkinFor(false))
+
+	for _, name := range []string{AutoSkinFor(true), AutoSkinFor(false)} {
+		require.True(t, bundledExists(name),
+			"AutoSkinFor must name a bundled skin; %q is not embedded", name)
+	}
 }

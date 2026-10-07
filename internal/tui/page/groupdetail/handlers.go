@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
@@ -23,7 +24,16 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
 )
 
+// Update wraps the message switch so every path that rebuilds the
+// view is followed by the anchor check — a filter change, a poll
+// refresh or a state-filter cycle can drop the row an open range
+// hangs off, and the preview must not outlive it.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	next, cmd := p.handleMsg(msg)
+	return next, tea.Batch(cmd, listpage.CancelVisualOnLostAnchor(&p.Base, p.view, markKey))
+}
+
+func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
@@ -75,6 +85,12 @@ func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleMotion(m) {
 		return p, nil
 	}
+	// Scroll runs before handleSort, which binds Left/Right as aliases
+	// of the h/l sort walk on every other table page: this page takes
+	// the two arrows for the view window, and h/l keep the sort walk.
+	if p.scroll.HandleKey(m.String()) {
+		return p, nil
+	}
 	if p.handleSort(m) {
 		return p, nil
 	}
@@ -110,14 +126,13 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "space":
-		p.toggleMarkAtCursor()
+		listpage.MarkOrCommit(&p.Base, p.view, p.marks, markKey)
+	case "V":
+		listpage.StartOrCommitVisual(&p.Base, p.view, p.marks, markKey)
 	case "F":
 		p.cycleStateFilter()
 		p.recompute()
 	case "s":
-		if p.readOnly {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "S":
@@ -126,6 +141,10 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	case "C":
 		p.commonCollapsed = !p.commonCollapsed
 		return p, nil
+	case "W":
+		if p.labels.ToggleWide() {
+			p.recompute()
+		}
 	case "T":
 		// Ask the App to flip the app-global state-format density; the
 		// page's SetStateFormat hook receives the broadcast result.
@@ -143,21 +162,11 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, "alerts")
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, pollResource)
 }
 
-func (p *Page) toggleMarkAtCursor() {
-	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e instanceEntry) string { return e.a.Fingerprint })
-}
-
-// handleClearMarks drops every mark on the global Ctrl+\ binding,
-// flashing confirmation only when there was something to clear.
 func (p *Page) handleClearMarks() tea.Cmd {
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // drillToDetail pushes the L3 instance-detail page for the cursor
@@ -172,8 +181,7 @@ func (p *Page) drillToDetail() tea.Cmd {
 	clients := p.clients
 	creator := p.creator
 	tf := p.timeFormat
-	readOnly := p.readOnly
-	bulkConcurrency := p.bulkConcurrency
+	sess := p.session
 	logger := p.logger
 	bulkCtx := p.bulkCtx
 	submitCtx := p.submitCtx
@@ -182,20 +190,19 @@ func (p *Page) drillToDetail() tea.Cmd {
 	tenant := p.tenant
 	return app.PushPage(func() app.Page {
 		return alert.New(alert.Options{
-			Alert:           entry.a,
-			Tenant:          tenant,
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			TimeFormat:      tf,
-			ReadOnly:        readOnly,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			EditorResolver:  editorResolver,
-			EditorCtx:       editorCtx,
+			Alert:          entry.a,
+			Tenant:         tenant,
+			Styles:         styles,
+			Now:            now,
+			Clients:        clients,
+			Creator:        creator,
+			TimeFormat:     tf,
+			Session:        sess,
+			Logger:         logger,
+			BulkCtx:        bulkCtx,
+			SubmitCtx:      submitCtx,
+			EditorResolver: editorResolver,
+			EditorCtx:      editorCtx,
 		})
 	})
 }
@@ -203,6 +210,12 @@ func (p *Page) drillToDetail() tea.Cmd {
 // openSilenceForS routes `s`: no marks → silence-one form for the
 // cursor instance; with marks → the bulk silence-one fanout.
 func (p *Page) openSilenceForS() tea.Cmd {
+	return listpage.GateWrite(p.session, listpage.HintAlertsReadOnly,
+		func() { listpage.CommitVisual(&p.Base, p.view, p.marks, markKey) },
+		p.writeRequest, p.openSilence)
+}
+
+func (p *Page) openSilence() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openSilenceFormForCursor()
 	}
@@ -233,15 +246,18 @@ func (p *Page) openSilenceFormForCursor() tea.Cmd {
 	clients := p.clients
 	tenant := p.tenant
 	submitCtx := p.submitCtx
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			SubmitCtx:  submitCtx,
+			Guardrails: sess.Guardrails(),
+			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
 }
@@ -256,41 +272,35 @@ func (p *Page) openSilencesView() tea.Cmd {
 	if len(union) == 0 {
 		return footer.ShowFlash(footer.FlashInfo, "no silences attached to this alert")
 	}
-	styles := p.styles
-	now := p.now
-	clients := p.clients
-	creator := p.creator
-	editorResolver := p.editorResolver
-	timeFormat := p.timeFormat
-	bulkConcurrency := p.bulkConcurrency
-	logger := p.logger
-	readOnly := p.readOnly
-	editorCtx := p.editorCtx
-	bulkCtx := p.bulkCtx
-	submitCtx := p.submitCtx
-	tenant := p.tenant
-	alertName := p.alertName
-	labels := p.commonLabelsCopy()
+	// The options are built here, outside the closure, so the pushed
+	// page captures a value rather than this page.
+	opts := p.silencesPageOptions(union)
 	return app.PushPage(func() app.Page {
-		return silencespage.New(silencespage.Options{
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			EditorResolver:  editorResolver,
-			TimeFormat:      timeFormat,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			ReadOnly:        readOnly,
-			EditorCtx:       editorCtx,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			Tenants:         []string{tenant},
-			RestrictIDs:     union,
-			AlertName:       alertName,
-			AlertLabels:     labels,
-		})
+		return silencespage.New(opts)
 	})
+}
+
+// silencesPageOptions is what the restricted silences list inherits
+// from this page. The session has to travel: boot is not the only
+// construction site, and a page built without it reads as writable.
+func (p *Page) silencesPageOptions(restrictIDs []string) silencespage.Options {
+	return silencespage.Options{
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		EditorResolver: p.editorResolver,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		EditorCtx:      p.editorCtx,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		Tenants:        []string{p.tenant},
+		RestrictIDs:    restrictIDs,
+		AlertName:      p.alertName,
+		AlertLabels:    p.commonLabelsCopy(),
+	}
 }
 
 // silencedByUnion collects the distinct SilencedBy IDs across all
@@ -318,6 +328,3 @@ func (p *Page) commonLabelsCopy() map[string]string {
 	maps.Copy(out, p.common)
 	return out
 }
-
-// hintReadOnly is flashed on a Dangerous keypress in read-only mode.
-const hintReadOnly = "read-only mode — alerts cannot be silenced"

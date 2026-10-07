@@ -22,7 +22,16 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update wraps the message switch so every path that rebuilds the
+// view is followed by the anchor check — a filter change, a poll
+// refresh or a scope switch can drop the row the open range hangs
+// off, and the preview must not outlive it.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	next, cmd := p.handleMsg(msg)
+	return next, tea.Batch(cmd, listpage.CancelVisualOnLostAnchor(&p.Base, p.groups, markKey))
+}
+
+func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
@@ -31,10 +40,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 		p.HandleBackendStatusMsg(m)
 		return p, nil
 	case poll.DataMsg:
+		var cmd tea.Cmd
+		// Diffing inside the store closure is what makes a paused
+		// drop silent: ApplyDataMsg never calls store when it drops.
 		listpage.ApplyDataMsg(&p.Base, &p.PollingUI, m, func(tenant string, alerts []backend.Alert) {
+			cmd = p.pollDeltaFlash(tenant, p.byTenant[tenant], alerts)
 			p.byTenant[tenant] = alerts
 		})
-		return p, nil
+		return p, cmd
 	case spinner.TickMsg:
 		// Drop ticks outside the cold-start / refresh-in-flight
 		// windows to break the self-perpetuating Tick chain when
@@ -84,6 +97,12 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 // handleSort / handleAction to keep each handler under cyclop=15.
 func (p *Page) handleKey(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 	if p.handleMotion(m) {
+		return p, nil
+	}
+	// Scroll runs before handleSort, which binds Left/Right as aliases
+	// of the h/l sort walk on every other table page: this page takes
+	// the two arrows for the view window, and h/l keep the sort walk.
+	if p.scroll.HandleKey(m.String()) {
 		return p, nil
 	}
 	if p.handleSort(m) {
@@ -142,18 +161,21 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "space":
-		p.toggleMarkAtCursor()
+		listpage.MarkOrCommit(&p.Base, p.groups, p.marks, markKey)
+	case "V":
+		listpage.StartOrCommitVisual(&p.Base, p.groups, p.marks, markKey)
 	case "F":
 		p.cycleStateFilter()
 		p.recompute()
+	case "W":
+		if p.labels.ToggleWide() {
+			p.recompute()
+		}
 	case "T":
 		// Ask the App to flip the app-global state-format density; the
 		// page's SetStateFormat hook receives the broadcast result.
 		return p, func() tea.Msg { return app.StateFormatToggleMsg{} }
 	case "s":
-		if p.readOnly {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
 		cmd := p.openSilenceForS()
 		return p, cmd
 	case "r":
@@ -168,7 +190,7 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, resourceAlerts)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, ViewName)
 }
 
 // openSilenceForS is the entry point for the `s` key — silence-all at
@@ -176,9 +198,15 @@ func (p *Page) requestRefresh() tea.Cmd {
 // directly, count>1 opens a blast-radius confirm modal first (CONTEXT
 // "Silence-all"). With marks → the bulk silence-all fanout (one
 // alertname silence per marked group). The single-cursor confirm and
-// the ≥2-marks bulk confirm are distinct paths with separate pending
+// the marked bulk confirm are distinct paths with separate pending
 // state — see bulk.go.
 func (p *Page) openSilenceForS() tea.Cmd {
+	return listpage.GateWrite(p.session, listpage.HintAlertsReadOnly,
+		func() { listpage.CommitVisual(&p.Base, p.groups, p.marks, markKey) },
+		p.silenceRequest, p.openSilence)
+}
+
+func (p *Page) openSilence() tea.Cmd {
 	if len(p.marks) == 0 {
 		return p.openSilenceAllForCursor()
 	}
@@ -209,34 +237,16 @@ func (p *Page) openSilenceAllForCursor() tea.Cmd {
 		scopeNote: p.silenceAllScopeNote(g),
 	}
 	if g.count > 1 {
+		typed := p.session.Guardrails().Decide(p.silenceRequest()).Typed
 		return app.OpenModal(func() modal.Modal {
-			return modal.NewConfirm(silenceAllQuestion(g), modal.ConfirmDefaultYes)
+			return modal.NewGuardedConfirm(silenceAllQuestion(g), modal.ConfirmDefaultYes, typed)
 		})
 	}
 	return p.pushSilenceAllForm()
 }
 
-// hintReadOnly is the flash text emitted on a Dangerous keypress
-// when the page is in read-only mode. Singular noun keeps it under
-// the 80-col footer width.
-const hintReadOnly = "read-only mode — alerts cannot be silenced"
-
-// handleClearMarks drops every mark on the page in response to
-// the global Ctrl+\ binding. Flashes "marks cleared" when the
-// pre-clear count was non-zero so the user sees confirmation;
-// silently no-ops otherwise (no flash on a key that did nothing
-// would be a poor affordance, but an unconditional flash on a
-// page that never had marks would be surprising spam).
 func (p *Page) handleClearMarks() tea.Cmd {
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
-}
-
-func (p *Page) toggleMarkAtCursor() {
-	listpage.ToggleMarkAtCursor(p.groups, p.Index(), p.marks, func(g alertGroup) string { return g.key() })
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // drillToDetail returns a Cmd that drills into the cursor group. A
@@ -271,20 +281,19 @@ func (p *Page) drillToInstance(g alertGroup) tea.Cmd {
 // the App's unexported push message.
 func (p *Page) buildInstancePage(g alertGroup) app.Page {
 	return alert.New(alert.Options{
-		Alert:           g.instances[0],
-		Tenant:          g.tenant,
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		TimeFormat:      p.timeFormat,
-		ReadOnly:        p.readOnly,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		EditorResolver:  p.editorResolver,
-		EditorCtx:       p.editorCtx,
+		Alert:          g.instances[0],
+		Tenant:         g.tenant,
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		EditorResolver: p.editorResolver,
+		EditorCtx:      p.editorCtx,
 	})
 }
 
@@ -302,21 +311,21 @@ func (p *Page) drillToGroup(g alertGroup) tea.Cmd {
 // never aliases the live group.
 func (p *Page) buildGroupPage(g alertGroup) app.Page {
 	return groupdetail.New(groupdetail.Options{
-		Tenant:          g.tenant,
-		AlertName:       g.alertName,
-		Instances:       append([]backend.Alert(nil), g.instances...),
-		Styles:          p.styles,
-		Now:             p.now,
-		Clients:         p.clients,
-		Creator:         p.creator,
-		TimeFormat:      p.timeFormat,
-		StateFormat:     p.stateFormat,
-		ReadOnly:        p.readOnly,
-		BulkConcurrency: p.bulkConcurrency,
-		Logger:          p.logger,
-		BulkCtx:         p.bulkCtx,
-		SubmitCtx:       p.submitCtx,
-		EditorResolver:  p.editorResolver,
-		EditorCtx:       p.editorCtx,
+		Tenant:         g.tenant,
+		AlertName:      g.alertName,
+		Instances:      append([]backend.Alert(nil), g.instances...),
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		TimeFormat:     p.timeFormat,
+		StateFormat:    p.stateFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		EditorResolver: p.editorResolver,
+		EditorCtx:      p.editorCtx,
+		SortMemory:     p.sortMemory,
 	})
 }

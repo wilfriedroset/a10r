@@ -51,6 +51,12 @@ type Opts struct {
 	Level  slog.Level
 	Path   string
 	Stderr bool
+
+	// Capture is the optional warning side-channel. It is wired here
+	// rather than wrapped around the returned logger because New emits
+	// the fallback warning before it returns, and that warning is the
+	// one a reader with no access to the log file most needs.
+	Capture *Capture
 }
 
 // sinkOpener is the unit-test seam for sink resolution. It returns
@@ -89,7 +95,11 @@ func newWithOpener(opts Opts, openSinkFn sinkOpener) (*slog.Logger, io.Closer, e
 	}
 
 	writer, closer, attemptedPath, fallbackErr := openSinkFn(opts)
-	logger := slog.New(newHandler(format, opts.Level, writer))
+	handler := newHandler(format, opts.Level, writer)
+	if opts.Capture != nil {
+		handler = opts.Capture.Wrap(handler)
+	}
+	logger := slog.New(handler)
 	if fallbackErr != nil {
 		emitFallbackWarning(logger, attemptedPath, fallbackErr)
 	}

@@ -4,7 +4,6 @@ package modal
 
 import (
 	"strings"
-	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -64,6 +63,7 @@ type Picker struct {
 	origin string
 
 	items   []string
+	search  []string // nil searches items
 	query   string
 	cursor  int
 	marks   map[int]struct{} // selected item indexes; multi mode
@@ -89,6 +89,17 @@ func NewPicker(title string, items []string, mode PickerMode) *Picker {
 // the namespace (e.g. "scope", "silence-form-tenant").
 func (p *Picker) WithOrigin(origin string) *Picker {
 	p.origin = origin
+	return p
+}
+
+// WithSearch makes the query match against corpus instead of the shown
+// items, so a row cut for display stays searchable in full. corpus must
+// be parallel to items.
+func (p *Picker) WithSearch(corpus []string) *Picker {
+	if len(corpus) != len(p.items) {
+		panic("modal: search corpus length differs from items")
+	}
+	p.search = corpus
 	return p
 }
 
@@ -119,10 +130,10 @@ func (p *Picker) Update(msg tea.Msg) (Modal, tea.Cmd) {
 // Returns (cmd, true) when the key was terminal.
 func (p *Picker) handleTerminalKey(keyMsg tea.KeyMsg) (tea.Cmd, bool) {
 	switch keyMsg.String() {
-	case "enter":
+	case keyEnter:
 		cmd := p.submit()
 		return cmd, true
-	case "esc":
+	case keyEsc:
 		origin := p.origin
 		return func() tea.Msg { return PickerCancelledMsg{Origin: origin} }, true
 	}
@@ -145,10 +156,10 @@ func (p *Picker) handleNavOrEdit(keyMsg tea.KeyMsg) bool {
 		if p.mode == PickerMulti && len(p.matches) > 0 {
 			p.toggleAt(p.matches[p.cursor])
 		}
-	case "ctrl+u":
+	case keyClearLine:
 		p.query = ""
 		p.refilter()
-	case "backspace":
+	case keyBackspace:
 		if p.query != "" {
 			r := []rune(p.query)
 			p.query = string(r[:len(r)-1])
@@ -167,14 +178,7 @@ func (p *Picker) handleQueryInput(keyMsg tea.KeyMsg) {
 		p.selectAllFiltered()
 		return
 	}
-	k := keyMsg.Key()
-	if k.Mod != 0 {
-		return
-	}
-	r := k.Text
-	if r == "" && k.Code > 0 && unicode.IsPrint(k.Code) {
-		r = string(k.Code)
-	}
+	r := printableRune(keyMsg)
 	if r == "" {
 		return
 	}
@@ -234,7 +238,11 @@ func (p *Picker) refilter() {
 			p.matches = append(p.matches, i)
 		}
 	} else {
-		hits := fuzzy.Find(p.query, p.items)
+		corpus := p.items
+		if p.search != nil {
+			corpus = p.search
+		}
+		hits := fuzzy.Find(p.query, corpus)
 		p.matches = p.matches[:0]
 		for _, m := range hits {
 			p.matches = append(p.matches, m.Index)

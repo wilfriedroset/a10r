@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
+	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/log"
+	"github.com/wilfriedroset/a10r/internal/report"
+	"github.com/wilfriedroset/a10r/internal/uistate"
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
 // newInfoCmd returns the `a10r info` subcommand. Diagnostic output
@@ -30,27 +33,31 @@ func newInfoCmd(flags *GlobalFlags) *cobra.Command {
 	}
 }
 
-// runInfo wires the cobra command to the renderInfo body, resolving
-// the host-side context (config dir, log path, possibly-loaded
-// config) before delegating to the pure renderer.
+// runInfo resolves the host-side context (config dir, log path,
+// possibly-loaded config) before delegating to the pure renderer in
+// internal/report, which the TUI's `:info` page also renders from.
 func runInfo(out io.Writer, flags *GlobalFlags) error {
 	configDir, err := config.ResolveDir(flags.ConfigDir)
 	if err != nil {
 		return fmt.Errorf("resolve config dir: %w", err)
 	}
 
-	logPath := flags.LogPath
-	if logPath == "" {
-		resolved, perr := log.DefaultPath()
-		if perr != nil {
-			return fmt.Errorf("resolve log path: %w", perr)
-		}
-		logPath = resolved
-	}
-
 	cfg, loadErr := config.Load(loadOptsFromFlags(flags))
 	if loadErr != nil && !errors.Is(loadErr, config.ErrNotFound) {
 		return fmt.Errorf("load config: %w", loadErr)
+	}
+
+	// The precedence chain runs through config.Resolve rather than the
+	// raw flags, so the report names the log file and the skin the
+	// process would actually use — the same two values the TUI's
+	// `:info` page resolves from the same file.
+	fileCfg := config.Config{}
+	if cfg != nil {
+		fileCfg = *cfg
+	}
+	eff, err := config.Resolve(*flags, os.Getenv, fileCfg)
+	if err != nil {
+		return fmt.Errorf("resolve config: %w", err)
 	}
 
 	// Aliases are an optional overlay; a missing file is fine and
@@ -61,130 +68,40 @@ func runInfo(out io.Writer, flags *GlobalFlags) error {
 		return fmt.Errorf("load aliases: %w", aliasErr)
 	}
 
-	return renderInfo(out, infoContext{
+	stateDir, rememberedScope := stateReport(cfg)
+
+	return report.Info(out, report.InfoInput{ //nolint:wrapcheck // the only error is the caller's own io.Writer, already named by report.Info.
+		Theme:      eff.Config.Theme.Name,
 		Version:    version,
 		Commit:     commit,
 		Date:       date,
 		ConfigDir:  configDir,
-		LogPath:    logPath,
+		LogPath:    log.ReportPath(eff.Config.Log.Path),
 		Config:     cfg,
 		NotFound:   errors.Is(loadErr, config.ErrNotFound),
 		AliasCount: len(aliases),
+
+		StateDir:        stateDir,
+		RememberedScope: rememberedScope,
 	})
 }
 
-// infoContext is the deterministic input renderInfo consumes. Pulled
-// out so the test injects fixed strings (version="dev", commit="test"
-// etc.) and the golden file matches byte-for-byte across hosts.
-type infoContext struct {
-	Version    string
-	Commit     string
-	Date       string
-	ConfigDir  string
-	LogPath    string
-	Config     *config.Config // nil when NotFound is true
-	NotFound   bool
-	AliasCount int // resolved <config-dir>/aliases.yaml entry count
-}
-
-// renderInfo writes the human-readable info report to out. Format
-// is pinned by cmd/testdata/info_*.golden so a regression in
-// formatting is loud.
-func renderInfo(out io.Writer, ctx infoContext) error {
-	w := &writer{out: out}
-	w.printf("a10r %s commit=%s built=%s\n\n", ctx.Version, ctx.Commit, ctx.Date)
-	w.printf("config dir: %s\n", ctx.ConfigDir)
-	w.printf("log path:   %s\n", ctx.LogPath)
-	w.printf("aliases:    %d\n", ctx.AliasCount)
-
-	if ctx.NotFound {
-		w.printf("\nconfig: not found (run `a10r` with no subcommand to launch the first-run wizard)\n")
-		return w.err
+// stateReport resolves the state directory and, when tui.remember is
+// on, the tenant scope a10r would boot on. The stored scope is pruned
+// against the configured backends exactly as boot prunes it, so info
+// never names a tenant a10r would silently drop. An unresolvable
+// directory reports empty rather than failing the command: info is a
+// diagnostic, and a missing HOME is the very thing an operator runs
+// it to find out.
+func stateReport(cfg *config.Config) (dir, scope string) {
+	dir, err := xdg.DefaultStateDir()
+	if err != nil {
+		return "", ""
 	}
-	if ctx.Config == nil {
-		return w.err
+	if cfg == nil || !cfg.TUI.Remember {
+		return dir, ""
 	}
-
-	w.printf("\nbackends (%d):\n", len(ctx.Config.Backends))
-	for _, b := range ctx.Config.Backends {
-		renderBackend(w, b)
-	}
-	return w.err
-}
-
-// writer is a small fmt.Fprintf wrapper that captures the first
-// error and short-circuits subsequent calls. Lets the renderers
-// stay flat instead of `if err != nil { return err }` after every
-// line.
-type writer struct {
-	out io.Writer
-	err error
-}
-
-func (w *writer) printf(format string, args ...any) {
-	if w.err != nil {
-		return
-	}
-	if _, err := fmt.Fprintf(w.out, format, args...); err != nil {
-		w.err = fmt.Errorf("write info output: %w", err)
-	}
-}
-
-func renderBackend(w *writer, b config.Backend) {
-	w.printf("  %s\n", b.Name)
-	w.printf("    url:    %s\n", b.URL)
-	if b.Prefix != "" {
-		w.printf("    prefix: %s\n", b.Prefix)
-	}
-	if b.Tenant != "" {
-		header := b.TenantHeader
-		if header == "" {
-			header = "(no header)"
-		}
-		w.printf("    tenant: %s (%s)\n", b.Tenant, header)
-	}
-	if authLabel := authLabel(b); authLabel != "" {
-		w.printf("    auth:   %s\n", authLabel)
-	}
-	if caps := capabilityList(b.Capabilities); caps != "" {
-		w.printf("    caps:   %s\n", caps)
-	}
-}
-
-// authLabel summarises the configured auth as a single word for the
-// info report. Returns empty string when no auth is configured —
-// the caller skips the line entirely. The schema's "at most one of
-// basic_auth, authorization, bearer_token" rule (config.Backend.
-// Validate) means at most one branch fires per backend.
-func authLabel(b config.Backend) string {
-	switch {
-	case b.BasicAuth != nil:
-		return authModeBasic
-	case b.Authorization != nil:
-		// authorization.type defaults to "Bearer" via Backend.Validate
-		// — surface it as-is so the operator can read off the wire
-		// scheme without consulting the source YAML.
-		return "authorization (" + b.Authorization.Type + ")"
-	case b.BearerToken != "":
-		return "bearer"
-	default:
-		return ""
-	}
-}
-
-// capabilityList returns the enabled capability flags as a comma-
-// separated label. Empty means no capabilities are enabled and the
-// caller skips the line.
-func capabilityList(caps config.Capabilities) string {
-	var enabled []string
-	if caps.ConfigAPI {
-		enabled = append(enabled, "config_api")
-	}
-	if caps.TenantAdmin {
-		enabled = append(enabled, "tenant_admin")
-	}
-	if caps.Ring {
-		enabled = append(enabled, "ring")
-	}
-	return strings.Join(enabled, ", ")
+	store := uistate.Open(dir)
+	defer func() { _ = store.Close() }()
+	return dir, report.RememberedScope(cfg, store)
 }

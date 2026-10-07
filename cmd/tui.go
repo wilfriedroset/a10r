@@ -22,6 +22,7 @@ func runTUI(cmd *cobra.Command, flags *GlobalFlags) error {
 	res, err := boot.Build(cmd.Context(), flags, boot.Deps{
 		Version: version,
 		Commit:  commit,
+		Date:    date,
 		Stderr:  cmd.ErrOrStderr(),
 	})
 	if err != nil {

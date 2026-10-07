@@ -19,42 +19,33 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/browser"
+	"github.com/wilfriedroset/a10r/internal/tui/clipboard"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/detailpage"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	silencepage "github.com/wilfriedroset/a10r/internal/tui/page/silence"
 	silencespage "github.com/wilfriedroset/a10r/internal/tui/page/silences"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
-// Clipboard is the copy-to-clipboard seam. The Cmd runs in the
-// bubbletea loop because OSC52 must go through the renderer, not a
-// raw stdout write; it is fire-and-forget, so no failure to report.
-type Clipboard interface {
-	Copy(s string) tea.Cmd
-}
-
 // Browser is the open-URL seam; errors surface as flash messages.
 type Browser interface {
 	Open(url string) error
 }
-
-// osc52Clipboard is the default Clipboard, using the terminal's
-// OSC52 sequence so it works over SSH and without an X/Wayland display.
-type osc52Clipboard struct{}
-
-func (osc52Clipboard) Copy(s string) tea.Cmd { return tea.SetClipboard(s) }
 
 // Options bundles the per-page dependencies. The fields forwarded to
 // the silences page pushed by `S` mirror silences.Options of the same name.
@@ -62,8 +53,13 @@ type Options struct {
 	Alert  backend.Alert
 	Tenant string
 	Styles *theme.Styles
-	// Clipboard handles `c` (copy fingerprint); nil defaults to OSC52.
-	Clipboard Clipboard
+	// Session is the live configuration the page reads its write
+	// policy from at the point of use, so a reload reaches the page
+	// while it is open. Must not be nil.
+	Session *session.Session
+	// Clipboard handles `c` (copy fingerprint) and `Y` (copy any
+	// field); nil defaults to OSC52.
+	Clipboard clipboard.Clipboard
 	// Browser handles `o` (open generatorURL); nil defaults to the
 	// platform launcher (xdg-open / open / start).
 	Browser Browser
@@ -78,18 +74,12 @@ type Options struct {
 	// TimeFormat seeds the page's time-format mode at push so the
 	// detail body opens in the same mode the parent list was showing.
 	TimeFormat timerender.Format
-	// ReadOnly hides Dangerous bindings (`s`) from the hint strip /
-	// help overlay and turns the keystroke into a flash hint.
-	ReadOnly bool
 	// EditorResolver handles the `Ctrl+E` round-trip on the restricted
 	// silences page pushed by `S` (N>1). Zero value flashes a hint.
 	EditorResolver edit.Resolver
 	// EditorCtx is the parent ctx the editor subprocess and bulk-expire
 	// fanout inherit; nil falls back to context.Background().
 	EditorCtx context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	// BulkConcurrency caps the per-tenant bulk worker pool; zero resolves
-	// to the config default inside silences.New.
-	BulkConcurrency int
 	// Logger receives per-failure detail from bulk operations; nil suppresses logging.
 	Logger *slog.Logger
 	// BulkCtx is the parent ctx the bulk-expire fanout inherits; nil falls back to context.Background().
@@ -115,7 +105,7 @@ type Page struct {
 	silencedBy []string
 	tenant     string
 	styles     *theme.Styles
-	clip       Clipboard
+	clip       clipboard.Clipboard
 	browser    Browser
 	now        func() time.Time
 
@@ -130,8 +120,7 @@ type Page struct {
 	// IDs in backend.Alert are never cross-tenant.
 	silences map[string]backend.Silence
 
-	// readOnly filters Dangerous bindings and turns `s` into a flash hint.
-	readOnly bool
+	session *session.Session
 
 	// rawYAML toggles the body to a raw payload dump (k9s-style escape
 	// hatch). Per-page, not persisted across pushes, so a fresh drill-in
@@ -140,12 +129,11 @@ type Page struct {
 
 	// These fields are forwarded to the restricted silences page pushed
 	// by `S` when the alert has N>1 silenced-by IDs (ADR 0035).
-	editorResolver  edit.Resolver
-	editorCtx       context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
-	bulkConcurrency int
-	logger          *slog.Logger
-	bulkCtx         context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
-	submitCtx       context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
+	editorResolver edit.Resolver
+	editorCtx      context.Context //nolint:containedctx // editor subprocess ctx, plumbed once at construction.
+	logger         *slog.Logger
+	bulkCtx        context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
+	submitCtx      context.Context //nolint:containedctx // silence-form submit ctx, plumbed once at construction.
 }
 
 func New(opts Options) *Page {
@@ -153,34 +141,29 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	clip := opts.Clipboard
-	if clip == nil {
-		clip = osc52Clipboard{}
-	}
 	br := opts.Browser
 	if br == nil {
 		br = browser.System{}
 	}
 	p := &Page{
-		Base:            &detailpage.Base{},
-		a:               opts.Alert,
-		silencedBy:      dedupStrings(opts.Alert.SilencedBy),
-		tenant:          opts.Tenant,
-		styles:          opts.Styles,
-		clip:            clip,
-		browser:         br,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		timeFormat:      opts.TimeFormat,
-		silences:        map[string]backend.Silence{},
-		readOnly:        opts.ReadOnly,
-		editorResolver:  opts.EditorResolver,
-		editorCtx:       opts.EditorCtx,
-		bulkConcurrency: opts.BulkConcurrency,
-		logger:          opts.Logger,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
+		Base:           &detailpage.Base{},
+		a:              opts.Alert,
+		silencedBy:     dedupStrings(opts.Alert.SilencedBy),
+		tenant:         opts.Tenant,
+		styles:         opts.Styles,
+		clip:           clipboard.Resolve(opts.Clipboard),
+		browser:        br,
+		now:            now,
+		clients:        opts.Clients,
+		creator:        opts.Creator,
+		timeFormat:     opts.TimeFormat,
+		silences:       map[string]backend.Silence{},
+		session:        session.Must(opts.Session),
+		editorResolver: opts.EditorResolver,
+		editorCtx:      opts.EditorCtx,
+		logger:         opts.Logger,
+		bulkCtx:        opts.BulkCtx,
+		submitCtx:      opts.SubmitCtx,
 	}
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
 	return p
@@ -206,14 +189,16 @@ func (p *Page) Title() string {
 // Bindings returns the page's key bindings; Dangerous (`s`) entries
 // are stripped in read-only mode.
 func (p *Page) Bindings() []action.Action {
+	guarded := p.guarded()
 	out := []action.Action{
-		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true},
+		{Key: "s", Description: "silence", View: viewAlert, Dangerous: true, Guarded: guarded},
 		{Key: "S", Description: "open silences", View: viewAlert},
 		{Key: "y", Description: "yaml", View: viewAlert},
 		{Key: "c", Description: "copy fp", View: viewAlert},
+		{Key: "Y", Description: "copy field", View: viewAlert},
 		{Key: "o", Description: "open URL", View: viewAlert},
 	}
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out
@@ -241,6 +226,14 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case silenceform.CancelledMsg:
 		// Auto-pop already happened. No flash — Esc is a non-event.
 		return p, nil
+	case modal.PickerSubmittedMsg:
+		// Origin gates the handler so another page's picker
+		// forwarded down here cannot drive a copy, the same guard
+		// the silence form puts on its tenant picker.
+		if m.Origin != clipboard.PickerOrigin {
+			return p, nil
+		}
+		return p, clipboard.CopySelected(p.clip, p.copyFields(), m)
 	}
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
@@ -258,14 +251,13 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	case "c":
 		cmd := p.copyFingerprint()
 		return p, cmd
+	case "Y":
+		return p, clipboard.OpenPicker(p.copyFields())
 	case "o":
 		cmd := p.openGeneratorURL()
 		return p, cmd
 	case "s":
-		if p.readOnly {
-			return p, footer.ShowFlash(footer.FlashWarn, hintReadOnly)
-		}
-		cmd := p.openSilenceForm()
+		cmd := listpage.GateWrite(p.session, listpage.HintAlertsReadOnly, nil, p.request, p.openSilenceForm)
 		return p, cmd
 	case "S":
 		cmd := p.openSilencedByDetail()
@@ -311,19 +303,29 @@ func (p *Page) openSilenceForm() tea.Cmd {
 	now := p.now
 	clients := p.clients
 	tenant := p.tenant
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:  clients,
-			Tenant:   tenant,
-			Styles:   styles,
-			Now:      now,
-			Creator:  creator,
-			Matchers: matchers,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			Guardrails: sess.Guardrails(),
+			Action:     guardrail.ActionSilenceCreate,
 		})
 	})
 }
 
-const hintReadOnly = "read-only mode — alerts cannot be silenced"
+// request is the whole fan-out an `s` press can reach here: one alert
+// on one backend, so the adapter is a one-element slice and no Lead is
+// owed — the sentence reads back as the rule to edit.
+func (p *Page) request() guardrail.Request {
+	return guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: []string{p.tenant}}
+}
+
+func (p *Page) guarded() bool { return p.session.Guardrails().Refuses(p.request()) }
 
 func (p *Page) copyFingerprint() tea.Cmd {
 	if p.a.Fingerprint == "" {
@@ -331,8 +333,38 @@ func (p *Page) copyFingerprint() tea.Cmd {
 	}
 	return tea.Batch(
 		p.clip.Copy(p.a.Fingerprint),
-		footer.ShowFlash(footer.FlashSuccess, "fingerprint copied"),
+		footer.ShowFlash(footer.FlashInfo, "copied fingerprint"),
 	)
+}
+
+// copyFields is the `Y` picker's list: the two identifiers first,
+// then labels, then annotations, each group sorted by name. An empty
+// value stays listed rather than hidden — confirming that a label is
+// empty is a reason to open the picker.
+func (p *Page) copyFields() []clipboard.Field {
+	out := make([]clipboard.Field, 0, 2+len(p.a.Labels)+len(p.a.Annotations))
+	out = append(out,
+		clipboard.Field{Name: "fingerprint", Value: p.a.Fingerprint},
+		clipboard.Field{Name: "generatorURL", Value: p.a.GeneratorURL},
+	)
+	out = append(out, sortedFields("label ", p.a.Labels)...)
+	out = append(out, sortedFields("annotation ", p.a.Annotations)...)
+	return out
+}
+
+// sortedFields turns a label / annotation map into picker fields,
+// name-sorted so the same alert always yields the same row order.
+func sortedFields(prefix string, m map[string]string) []clipboard.Field {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]clipboard.Field, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, clipboard.Field{Name: prefix + k, Value: m[k]})
+	}
+	return out
 }
 
 // openGeneratorURL asks the browser integration to open the
@@ -508,7 +540,7 @@ func (p *Page) silencedByRow(id string, width int) string {
 	if !ok {
 		return silenceRowIndent + id + "  (silence not in snapshot)"
 	}
-	prefix := silenceRowIndent + id + "  " + p.expiryField(s.EndsAt) + "  by " + s.CreatedBy
+	prefix := silenceRowIndent + id + "  " + p.expiryField(s.EndsAt) + "  by " + format.SingleLine(s.CreatedBy)
 	comment := strings.TrimSpace(s.Comment)
 	if comment == "" {
 		return prefix
@@ -545,7 +577,7 @@ func clipComment(s string, budget int) string {
 		return ""
 	}
 	first, _, multiline := strings.Cut(s, "\n")
-	s = first
+	s = format.SingleLine(first)
 	width := lipgloss.Width(s)
 	needsEllipsis := multiline || width > budget
 	if !needsEllipsis {
@@ -571,42 +603,35 @@ func (p *Page) openSilencedByDetail() tea.Cmd {
 	if len(p.silencedBy) == 1 {
 		return p.openSilenceDetail(p.silencedBy[0])
 	}
-	silencedBy := p.silencedBy
-	styles := p.styles
-	now := p.now
-	clients := p.clients
-	creator := p.creator
-	editorResolver := p.editorResolver
-	timeFormat := p.timeFormat
-	bulkConcurrency := p.bulkConcurrency
-	logger := p.logger
-	readOnly := p.readOnly
-	editorCtx := p.editorCtx
-	bulkCtx := p.bulkCtx
-	submitCtx := p.submitCtx
-	tenant := p.tenant
-	alertName := p.a.Labels["alertname"]
-	labels := p.a.Labels
+	// The options are built here, outside the closure, so the pushed
+	// page captures a value rather than this page.
+	opts := p.silencesPageOptions()
 	return app.PushPage(func() app.Page {
-		return silencespage.New(silencespage.Options{
-			Styles:          styles,
-			Now:             now,
-			Clients:         clients,
-			Creator:         creator,
-			EditorResolver:  editorResolver,
-			TimeFormat:      timeFormat,
-			BulkConcurrency: bulkConcurrency,
-			Logger:          logger,
-			ReadOnly:        readOnly,
-			EditorCtx:       editorCtx,
-			BulkCtx:         bulkCtx,
-			SubmitCtx:       submitCtx,
-			Tenants:         []string{tenant},
-			RestrictIDs:     silencedBy,
-			AlertName:       alertName,
-			AlertLabels:     labels,
-		})
+		return silencespage.New(opts)
 	})
+}
+
+// silencesPageOptions is what the restricted silences list inherits
+// from this page. The session has to travel: boot is not the only
+// construction site, and a page built without it reads as writable.
+func (p *Page) silencesPageOptions() silencespage.Options {
+	return silencespage.Options{
+		Styles:         p.styles,
+		Now:            p.now,
+		Clients:        p.clients,
+		Creator:        p.creator,
+		EditorResolver: p.editorResolver,
+		TimeFormat:     p.timeFormat,
+		Session:        p.session,
+		Logger:         p.logger,
+		EditorCtx:      p.editorCtx,
+		BulkCtx:        p.bulkCtx,
+		SubmitCtx:      p.submitCtx,
+		Tenants:        []string{p.tenant},
+		RestrictIDs:    p.silencedBy,
+		AlertName:      p.a.Labels["alertname"],
+		AlertLabels:    p.a.Labels,
+	}
 }
 
 // dedupStrings preserves first-occurrence order to match the stable

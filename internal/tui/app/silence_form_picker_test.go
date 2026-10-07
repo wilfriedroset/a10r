@@ -37,6 +37,7 @@ func TestModal_NonScopePickerForwardsToTopPage(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
@@ -99,6 +100,7 @@ func TestModal_NonScopePickerCancelForwardsToTopPage(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
@@ -138,6 +140,7 @@ func TestModal_ScopePickerStillTranslates(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)

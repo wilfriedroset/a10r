@@ -375,6 +375,113 @@ func TestLoad_DropIn_TUITipsOneWayWins(t *testing.T) {
 		"drop-in cadence override must reach the resolved config")
 }
 
+func TestLoad_DropIn_TUITerminalTitleOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// terminal_title follows tips: opt-in by default, one-way on
+	// merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  terminal_title: false\n",
+		map[string]string{
+			"10-title.yaml": "tui:\n  terminal_title: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.TerminalTitle)
+}
+
+func TestLoad_DropIn_TUIPollDeltaOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// poll_delta follows tips and terminal_title: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  poll_delta: false\n",
+		map[string]string{
+			"10-delta.yaml": "tui:\n  poll_delta: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.PollDelta)
+}
+
+func TestLoad_DropIn_TUIRememberOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// remember follows the other tui bools: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  remember: false\n",
+		map[string]string{
+			"10-remember.yaml": "tui:\n  remember: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.Remember)
+}
+
+func TestLoad_DropIn_TUINotifyEnabledOneWayWins(t *testing.T) {
+	t.Parallel()
+
+	// notify.enabled follows the other tui bools: opt-in by default,
+	// one-way on merge, so a drop-in can switch it on but not back off.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    enabled: false\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    enabled: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	require.True(t, cfg.TUI.Notify.Enabled)
+}
+
+func TestLoad_DropIn_TUINotifyFieldsNonZeroWins(t *testing.T) {
+	t.Parallel()
+
+	// Bell is non-nil-wins so a drop-in can silence the bell an
+	// earlier layer asked for; desktop and min_severity are plain
+	// non-empty-wins; command replaces the whole list.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    enabled: true\n    bell: true\n    desktop: osc9\n    min_severity: info\n    command: [\"old\"]\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    bell: false\n    desktop: both\n    min_severity: critical\n    command: [\"notify-send\", \"$MESSAGE\"]\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	n := cfg.TUI.Notify
+	require.True(t, n.Enabled, "the base opt-in must survive a drop-in that only tunes fields")
+	require.False(t, n.BellOrDefault(), "an explicit false in a drop-in must reach the resolved config")
+	require.Equal(t, NotifyDesktopBoth, n.Desktop)
+	require.Equal(t, "critical", n.MinSeverity)
+	require.Equal(t, []string{"notify-send", "$MESSAGE"}, n.Command)
+}
+
+func TestLoad_DropIn_TUINotifyUnsetLeavesBaseAlone(t *testing.T) {
+	t.Parallel()
+
+	// A drop-in that only flips enabled must not erase the base's
+	// bell, transport, floor, or argv.
+	dir := writeBaseAndDropIns(t,
+		"tui:\n  notify:\n    bell: false\n    desktop: osc9\n    min_severity: critical\n    command: [\"notify-send\"]\n",
+		map[string]string{
+			"10-notify.yaml": "tui:\n  notify:\n    enabled: true\n",
+		})
+
+	cfg, err := loadWithEnv(LoadOpts{Dir: dir}, envNone, homeNone, "linux")
+	require.NoError(t, err)
+	n := cfg.TUI.Notify
+	require.True(t, n.Enabled)
+	require.False(t, n.BellOrDefault())
+	require.Equal(t, NotifyDesktopOSC9, n.Desktop)
+	require.Equal(t, "critical", n.MinSeverity)
+	require.Equal(t, []string{"notify-send"}, n.Command)
+}
+
 func TestLoad_DropIn_ReadOnlyOneWayWins(t *testing.T) {
 	t.Parallel()
 

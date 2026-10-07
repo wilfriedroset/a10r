@@ -195,3 +195,25 @@ func TestNewWithOpener_NoWarningOnSuccess(t *testing.T) {
 	require.NotContains(t, buf.String(), "log file unwritable",
 		"no warning when openSinkFn succeeds")
 }
+
+// The log-file-unwritable warning is the one an operator most needs
+// from inside the TUI, because the log file is exactly what they
+// cannot consult. log.New emits it before it returns, so the capture
+// has to be wired through Opts rather than wrapped afterwards.
+func TestNewWithOpener_CapturesTheFallbackWarning(t *testing.T) {
+	t.Parallel()
+
+	var capture Capture
+	capture.Start()
+
+	var buf bytes.Buffer
+	opener := fakeOpenerCapturing(&buf, "/tmp/blocked.log", errors.New("simulated mkdir failure"))
+
+	_, closer, err := newWithOpener(Opts{Format: FormatLogfmt, Capture: &capture}, opener)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closer.Close() })
+
+	require.Len(t, capture.Messages(), 1)
+	require.Contains(t, capture.Messages()[0], "log file unwritable; falling back to stderr")
+	require.Contains(t, buf.String(), "log file unwritable; falling back to stderr")
+}

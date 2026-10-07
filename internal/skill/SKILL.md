@@ -18,7 +18,8 @@ inspect alerts and receivers, and to manage silences.
    it). It lists the backends (tenants). Confirm config and connectivity before acting:
    - `a10r info` — the *resolved* config path (use this to find the actual file)
      and the backends it found.
-   - `a10r validate` — config parses and every backend is usable.
+   - `a10r validate` — config parses and every backend is usable. A `guardrails:`
+     tenant glob that matches no backend prints a warning on stderr and still exits `0`.
    - `a10r doctor` — live reachability/auth/version-floor checks per backend.
 
 `validate` and `info` are text-only diagnostics with no `--output` flag — branch
@@ -49,6 +50,7 @@ defaults to **JSON on stdout**, including the write verbs. So:
 | `3`  | Every backend in scope unreachable — fix connectivity (retry later). |
 | `4`  | Every backend in scope rejected credentials (401/403) — fix auth. |
 | `5`  | Resource not found (a `get`/`update`/`expire`/`recreate` target) while a backend answered — it is gone, not unreachable. |
+| `6`  | A `guardrails:` rule refused the write (denied verb, `max_bulk` exceeded, or the tenant needs `--confirm-tenant <name>`). Nothing was written. |
 | `10` | `--fail` predicate matched: a list command found matching rows. |
 
 These values are a stable, append-only contract (`docs/end-users/exit-codes.md`
@@ -68,7 +70,17 @@ Before any of them:
   run's pre-mutation phase, so a clean dry-run (exit `0`) is a reliable pre-commit
   gate. Always dry-run a write you are not certain about, and show the user the plan.
 - **`--read-only`** hard-disables every write verb for the session. Dry-run still
-  plans under it (it never writes), marking targets `read_only: true`.
+  plans under it (it never writes), marking targets `read_only: true`. A plan with
+  any read-only target exits `1`, the code the real run gives, never `6`.
+- **Guardrails** (`guardrails:` in `a10r.yaml`) restrict write verbs per tenant.
+  A refusal writes nothing and exits `6`: the verb is denied, the run exceeds that
+  tenant's `max_bulk`, or the tenant needs `--confirm-tenant <name>` (repeatable,
+  and it clears only the tenant it names). A `confirmation: plain` rule has no
+  effect headless: the write goes ahead. Dry-run reports the same refusal on the
+  plan line as `[guardrail: denied]` (or `[guardrail: denied: <reason>]`),
+  `[guardrail: max_bulk N exceeded]`, or
+  `[guardrail: needs --confirm-tenant <name>]`, so check before you write. Match
+  a deny on the `denied` prefix, because a deny with a reason reads `denied: <reason>`.
 - After a successful write, a **next-step hint is on stderr**: `expire with: …`
   after create/recreate (the undo), `recreate with: …` after a *single* expire,
   `verify with: …` after update. Capture it to offer the user an undo or check.

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/matcher"
-	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 )
 
 // recompute rebuilds common, the entry slice, and the sorted/filtered
@@ -17,7 +17,8 @@ import (
 func (p *Page) recompute() {
 	p.common = backend.CommonLabels(p.instances)
 	flat := p.buildEntries()
-	p.view = filterEntries(flat, p.Filter, p.stateFilter)
+	p.view = p.applyFilter(flat)
+	p.labels.Measure(len(p.view), func(r, i int) string { return table.LabelCell(p.view[r].labelCells, i) })
 	p.sorter.Apply(p.view)
 	p.resolveFocus()
 	p.Clamp(len(p.view))
@@ -34,6 +35,7 @@ func (p *Page) buildEntries() []instanceEntry {
 			a:                  a,
 			lowerComposite:     lowerComposite(a),
 			distinguishSummary: distinguishingSummary(a, p.common),
+			labelCells:         p.labels.Cells(func(l string) string { return a.Labels[l] }),
 		})
 	}
 	return out
@@ -106,47 +108,32 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// filterEntries returns only the entries matching both the search and
-// state filters. When the search buffer is a Prometheus label matcher
-// (`cluster_id=99`, `cluster_id=~9.*`, …) it filters by that label
-// predicate; otherwise it runs through footer.NewMatcher (substring /
-// fuzzy / literal / regex over the values). Shares the input backing
-// when nothing filters (recompute owns the slice) to avoid an O(N)
-// copy every poll tick.
-func filterEntries(in []instanceEntry, search, state string) []instanceEntry {
-	if pred, ok := matcher.LabelPredicate(search); ok {
-		return filterByLabel(in, pred, state)
-	}
-	m := footer.NewMatcher(search)
-	if m.MatchAll() && state == "" {
+func (p *Page) applyFilter(in []instanceEntry) []instanceEntry {
+	if p.FilterMatchAll() && p.stateFilter == "" {
+		// recompute owns the input slice, so sharing the backing
+		// avoids an O(N) copy every poll tick.
 		return in
 	}
+	now := p.now()
 	out := make([]instanceEntry, 0, len(in))
 	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
+		if p.stateFilter != "" && string(e.a.State) != p.stateFilter {
 			continue
 		}
-		if !m.MatchAll() && !m.Match(e.lowerComposite) {
-			continue
+		// CountAvail is Missing because a single group has no COUNT to
+		// compare: `count>=1` and `!count>=1` both match nothing here.
+		if p.FilterMatch(filterexpr.Row{
+			Now:        now,
+			Labels:     e.a.Labels,
+			Text:       e.lowerComposite,
+			State:      string(e.a.State),
+			Instance:   filterexpr.Present,
+			CountAvail: filterexpr.Missing,
+			Start:      e.a.StartsAt,
+			AgeAvail:   filterexpr.Present,
+		}) {
+			out = append(out, e)
 		}
-		out = append(out, e)
-	}
-	return out
-}
-
-// filterByLabel keeps entries whose instance labels satisfy the label
-// predicate (and the state filter). Separate from filterEntries' text
-// path so each stays a flat loop rather than a branch-in-loop.
-func filterByLabel(in []instanceEntry, pred func(map[string]string) bool, state string) []instanceEntry {
-	out := make([]instanceEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
-		}
-		if !pred(e.a.Labels) {
-			continue
-		}
-		out = append(out, e)
 	}
 	return out
 }

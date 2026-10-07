@@ -38,6 +38,7 @@ Every commit triggers:
 - `gofumpt` formatting.
 - SPDX license header on every Go file.
 - Trailing whitespace, EOF, merge conflicts, private keys.
+- `zizmor` on the GitHub Actions workflows and `dependabot.yml`.
 
 Run the whole suite manually with `prek -a`.
 
@@ -51,6 +52,40 @@ config-only commits are exempt.
 ```sh
 go test -race ./...
 ```
+
+Whole rendered frames are pinned by golden files. If you change a
+layout on purpose, rewrite them and read the diff before you
+commit:
+
+```sh
+go test ./internal/tui/boot -run TestGoldenFrame -update
+go test ./cmd -run TestRenderInfo -update
+```
+
+There are two commands because `-update` is registered per test
+binary: `go test ./... -update` fails on every package that does
+not define the flag.
+
+The hidden `a10r snapshot <page>` command renders the same kind of
+frame against live backends and writes it to stdout, for eyeballing
+a layout without a terminal. `make screenshots` runs it over every
+page against `examples/demo.yaml` and drops the text under
+`docs/screenshots/`, which is gitignored because every run moves the
+AGE column. It is a maintainer tool, so it is absent from
+`a10r --help`, from `docs/end-users/cli.md`, and from the embedded
+agent skill.
+
+```sh
+a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
+```
+
+`a10r snapshot` never notifies. The render path builds a disabled
+notifier whatever the configuration says, so a screenshot run on a
+machine with `tui.notify` on rings no bell and starts no subprocess.
+
+`a10r snapshot` also ignores `tui.remember`. It renders the scope
+`--tenant` names, or the configured default scope without it, with the
+built-in sort, and it never writes `ui-state.yaml`.
 
 Coverage runs via `make cover` (Go's `go test -coverprofile=...`).
 There is no minimum-coverage gate; the standard is "every public

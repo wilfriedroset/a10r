@@ -15,15 +15,37 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultSkinName is the default skin. Picked for predictability:
-// works on any terminal regardless of the user's bg config. Users
-// who curate their terminal palette typically prefer one of the
-// `-transparent` variants bundled alongside.
+// DefaultSkinName is the dark skin: what auto-detection picks on a
+// dark terminal, what a terminal that never reports its background
+// keeps, and the fallback for an unknown name. Users who curate
+// their terminal palette typically prefer one of the `-transparent`
+// variants bundled alongside.
 const DefaultSkinName = "catppuccin-mocha"
 
-// skinsDir is the basename used both for the embedded skins/
-// directory and for the user-side <config-dir>/skins/ directory.
-const skinsDir = "skins"
+// LightSkinName is the light-terminal counterpart of DefaultSkinName.
+// The pair is deliberately from one family so an automatic switch
+// between them does not change the palette, only its polarity.
+const LightSkinName = "catppuccin-latte"
+
+// AutoSkinName is the sentinel theme name that defers the choice to
+// the terminal background colour. It never names a file: Load
+// rejects it so a user skin called `auto.yaml` cannot shadow the
+// sentinel and silently disable detection.
+const AutoSkinName = "auto"
+
+// AutoSkinFor resolves the sentinel to a concrete bundled skin once
+// the terminal has reported whether its background is dark.
+func AutoSkinFor(dark bool) string {
+	if dark {
+		return DefaultSkinName
+	}
+	return LightSkinName
+}
+
+// SkinsDir is the basename used for the embedded skins/ directory,
+// for the user-side <config-dir>/skins/ directory, and by the boot
+// layer when it names the same path back to the operator.
+const SkinsDir = "skins"
 
 // ErrInvalidSkin wraps every parse / validate / compile failure so
 // callers can branch on a stable sentinel via errors.Is. Used by
@@ -52,7 +74,8 @@ type Loader struct {
 //     unknown. A warning is logged so the operator knows the
 //     requested skin was missing.
 //
-// Empty name short-circuits to DefaultSkinName.
+// Empty name short-circuits to DefaultSkinName. AutoSkinName is
+// rejected — callers resolve it through AutoSkinFor first.
 //
 // A malformed or invalid skin always surfaces as an error wrapping
 // ErrInvalidSkin — callers should NOT silently continue past one,
@@ -61,6 +84,9 @@ type Loader struct {
 func (l *Loader) Load(name string) (*Styles, error) {
 	if name == "" {
 		name = DefaultSkinName
+	}
+	if name == AutoSkinName {
+		return nil, fmt.Errorf("%w: theme name %q is reserved", ErrInvalidSkin, AutoSkinName)
 	}
 
 	raw, fromUser, ok := l.findSkin(name)
@@ -143,7 +169,7 @@ func (l *Loader) warnShadow(name string) {
 // readBundled returns the raw bytes of the named bundled skin. The
 // embed path is `skins/<name>.yaml`.
 func readBundled(name string) ([]byte, error) {
-	path := skinsDir + "/" + name + ".yaml"
+	path := SkinsDir + "/" + name + ".yaml"
 	data, err := bundledSkins.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read bundled %q: %w", path, err)
@@ -153,7 +179,7 @@ func readBundled(name string) ([]byte, error) {
 
 // bundledExists reports whether name is in the embedded set.
 func bundledExists(name string) bool {
-	_, err := fs.Stat(bundledSkins, skinsDir+"/"+name+".yaml")
+	_, err := fs.Stat(bundledSkins, SkinsDir+"/"+name+".yaml")
 	return err == nil
 }
 

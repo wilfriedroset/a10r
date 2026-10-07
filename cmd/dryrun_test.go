@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
 
@@ -83,7 +85,7 @@ func TestRunDryRun_ExpireOmitsSpecFields(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1"}} // expire carries an id, no spec
 
 	var out, errOut bytes.Buffer
-	require.NoError(t, runDryRun(&out, &errOut, cfg, output.FormatJSON, "expire", targets, false))
+	require.NoError(t, runDryRun(&out, &errOut, cfg, output.FormatJSON, guardrail.ActionSilenceExpire, targets, false, nil))
 
 	var got []plannedWrite
 	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
@@ -108,7 +110,8 @@ func TestSilenceCreate_DryRunUnderGlobalReadOnlyStillPlans(t *testing.T) {
 			Comment:  "m",
 			DryRun:   true,
 		}, "alice", "")
-	require.NoError(t, err, "dry-run plans even under read-only; it does not abort")
+	require.Error(t, err)
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "the plan exits as the apply would")
 	require.Nil(t, client.created)
 	require.Contains(t, out.String(), "would create")
 	require.Contains(t, errOut.String(), "read-only", "lines mode notes read-only on stderr")
@@ -129,7 +132,8 @@ func TestSilenceCreate_DryRunReadOnlyBackendStructuredField(t *testing.T) {
 			Comment:  "m",
 			DryRun:   true,
 		}, "alice", output.FormatJSON)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "the plan exits as the apply would")
 	require.Nil(t, client.created)
 
 	var got []plannedWrite
@@ -147,7 +151,7 @@ func TestSilenceExpire_DryRunActiveNoWrite(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true, nil)
 	require.NoError(t, err)
 	require.Empty(t, client.expired, "dry-run must not call ExpireSilence")
 	require.Contains(t, out.String(), "would expire")
@@ -162,7 +166,7 @@ func TestSilenceExpire_DryRunAlreadyExpiredSkipExitsNonZero(t *testing.T) {
 	build := func(config.Backend) (backend.Client, error) { return client, nil }
 
 	var out, errOut bytes.Buffer
-	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true)
+	err := silenceExpire(context.Background(), &out, &errOut, cfg, false, build, []string{"sil-1"}, "", true, nil)
 	require.Error(t, err, "a skipped target exits non-zero, mirroring the real run")
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -229,7 +233,7 @@ func TestRunDryRun_ExitCodeCleanIsNil(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1"}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, "", "expire", targets, false)
+	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
 	require.NoError(t, err)
 }
 
@@ -240,7 +244,7 @@ func TestRunDryRun_ExitCodeSkipIsNonZero(t *testing.T) {
 	targets := []writeTarget{{tenant: "prod", id: "sil-1", skip: errSkipTest}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, "", "expire", targets, false)
+	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
 	require.Error(t, err)
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
@@ -259,8 +263,118 @@ func TestRunDryRun_SpecRendersMatchersAndTimes(t *testing.T) {
 	}}}
 
 	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, output.FormatYAML, "create", targets, false)
+	err := runDryRun(&out, &errOut, cfg, output.FormatYAML, guardrail.ActionSilenceCreate, targets, false, nil)
 	require.NoError(t, err)
 	require.Contains(t, out.String(), "severity")
 	require.Contains(t, out.String(), testNow.Add(2*time.Hour).UTC().Format(time.RFC3339))
+}
+
+func TestRunDryRun_LinesEscapeWhatTheStructuredModesKeepRaw(t *testing.T) {
+	t.Parallel()
+
+	cfg := cfgWith(config.Backend{Name: "prod"})
+	targets := []writeTarget{{tenant: "prod", id: "sil\x1b]0;x\a", spec: backend.SilenceSpec{
+		Matchers: []backend.Matcher{
+			{Name: "m\x1bsg", Value: "x\", b=\"\x1b[2J", IsEqual: true},
+			{Name: "pod", Value: `\d+`, IsRegex: true, IsEqual: true},
+		},
+		EndsAt: testNow,
+	}}}
+
+	var out, errOut bytes.Buffer
+	require.NoError(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceUpdate, targets, false, nil))
+	require.NotContains(t, out.String(), "\x1b", "no raw escape byte reaches the terminal")
+	require.NotContains(t, out.String(), "\a")
+	require.Contains(t, out.String(), "would update prod sil ]0;x : ")
+	require.Contains(t, out.String(), `m sg="x\", b=\"\x1b[2J", pod=~"\\d+"`)
+
+	want := []string{"m\x1bsg=\"x\", b=\"\x1b[2J\"", `pod=~"\d+"`}
+	for _, tc := range []struct {
+		format    output.Format
+		unmarshal func([]byte, any) error
+	}{
+		{output.FormatJSON, json.Unmarshal},
+		{output.FormatYAML, yaml.Unmarshal},
+	} {
+		out.Reset()
+		require.NoError(t, runDryRun(&out, &errOut, cfg, tc.format, guardrail.ActionSilenceUpdate, targets, false, nil))
+		var got []plannedWrite
+		require.NoError(t, tc.unmarshal(out.Bytes(), &got))
+		require.Equal(t, want, got[0].Matchers, "%s: the encoder already escapes, so it keeps the --matcher form", tc.format)
+	}
+
+	out.Reset()
+	skipped := []writeTarget{{tenant: "prod", id: "sil-2", skip: errors.New("gone\x1b[2J")}}
+	require.Error(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, skipped, false, nil))
+	require.Contains(t, out.String(), "(skip: gone [2J)")
+
+	out.Reset()
+	cfg.Guardrails = guardrail.Set{{Deny: true, Reason: "freeze\x1b[2J\nnow"}}
+	require.Error(t, runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, []writeTarget{{tenant: "prod", id: "sil-3"}}, false, nil))
+	require.NotContains(t, out.String(), "\x1b", "a deny reason is user text too")
+	require.Contains(t, out.String(), "[guardrail: denied: freeze [2J now]")
+}
+
+// TestRunDryRun_ExitMatchesTheRealRun pins that a dry run exits
+// with the code the real run's pre-mutation phase would produce, which
+// is 1 for a read-only refusal and 6 for a guardrail one.
+func TestRunDryRun_ExitMatchesTheRealRun(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		be             config.Backend
+		rules          guardrail.Set
+		globalReadOnly bool
+		wantCode       int
+		wantLine       string
+	}{
+		{
+			name:     "a clean plan exits zero",
+			be:       config.Backend{Name: "prod"},
+			wantLine: "would expire prod sil-1",
+		},
+		{
+			name:     "a guardrail refusal exits six",
+			be:       config.Backend{Name: "prod"},
+			rules:    guardrail.Set{{Deny: true}},
+			wantCode: ExitGuardrailRefused,
+			wantLine: "[guardrail: denied]",
+		},
+		{
+			name:     "a read-only backend exits one",
+			be:       config.Backend{Name: "prod", ReadOnly: true},
+			wantCode: ExitRuntimeError,
+			wantLine: "[read-only: apply would be refused]",
+		},
+		{
+			name:           "the global read-only flag exits one",
+			be:             config.Backend{Name: "prod"},
+			globalReadOnly: true,
+			wantCode:       ExitRuntimeError,
+			wantLine:       "[read-only: apply would be refused]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := cfgWith(tt.be)
+			cfg.Guardrails = tt.rules
+			targets := []writeTarget{{tenant: "prod", id: "sil-1"}}
+
+			var out, errOut bytes.Buffer
+			err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, tt.globalReadOnly, nil)
+			require.Contains(t, out.String(), tt.wantLine)
+			if tt.wantCode == 0 {
+				require.NoError(t, err)
+				return
+			}
+			require.Equal(t, tt.wantCode, exitCodeFor(err))
+			var ex *ExitError
+			require.ErrorAs(t, err, &ex)
+			require.True(t, ex.Emitted, "the plan the user read already carried the reason")
+		})
+	}
 }

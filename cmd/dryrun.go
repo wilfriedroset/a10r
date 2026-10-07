@@ -5,14 +5,15 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/output"
+	"github.com/wilfriedroset/a10r/internal/tui/page/format"
 )
 
 // plannedWrite is one resolved write target as a dry-run would render it
@@ -30,33 +31,49 @@ type plannedWrite struct {
 	CreatedBy string   `json:"created_by,omitempty" yaml:"created_by,omitempty"`
 	Skip      string   `json:"skip,omitempty" yaml:"skip,omitempty"`
 	ReadOnly  bool     `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	// Guardrail is the short refusal note ("denied", "denied: <reason>",
+	// "max_bulk 20 exceeded") when the write policy would stop this tenant. A
+	// read-only tenant never carries one: ADR 0049 answers read-only
+	// first, so only one reason is ever named.
+	Guardrail string `json:"guardrail,omitempty" yaml:"guardrail,omitempty"`
+	// rawMatchers stays unescaped: lines mode quotes it, while the
+	// structured modes keep the --matcher form.
+	rawMatchers []backend.Matcher
 }
 
 // runDryRun renders the resolved write plan and returns without calling
-// the mutating op (ADR 0046: the command minus its mutation). It runs
-// after target-building and instead of ensureWritableTargets/runWrites,
-// so read-only is noted on the plan rather than aborting — with no
-// mutation in flight the fail-closed gate is moot. The exit code is
-// faithful: a target carrying a skip exits non-zero exactly as the real
-// run would, a fully writable plan exits zero.
+// the mutating op (ADR 0046: the command minus its mutation). The
+// plan's display verb is derived from action so the rendered word and
+// the evaluated rule name can never drift apart. It runs after
+// target-building and instead of runWrites, so every refusal lands on
+// the plan before it lands on the exit code. The exit code is
+// faithful: the plan exits with whatever the real run's pre-mutation
+// phase would give it, and a target carrying a skip exits non-zero
+// exactly as the real run would.
 func runDryRun(
 	out, errOut io.Writer,
 	cfg *config.Config,
-	format output.Format,
-	action string,
+	outFormat output.Format,
+	action guardrail.Action,
 	targets []writeTarget,
 	globalReadOnly bool,
+	confirmTenants []string,
 ) error {
 	readOnly := make(map[string]bool, len(cfg.Backends))
 	for _, be := range cfg.Backends {
 		readOnly[be.Name] = be.ReadOnly
 	}
 
+	notes := guardrailNotes(cfg, action, targets, readOnly, globalReadOnly, confirmTenants)
+
+	verb := strings.TrimPrefix(string(action), "silence.")
 	plans := make([]plannedWrite, 0, len(targets))
 	results := make([]writeResult, 0, len(targets))
 	for _, t := range targets {
 		ro := globalReadOnly || readOnly[t.tenant]
-		plans = append(plans, plannedWriteFrom(t, action, ro))
+		p := plannedWriteFrom(t, verb, ro)
+		p.Guardrail = notes[t.tenant]
+		plans = append(plans, p)
 		if t.skip != nil {
 			results = append(results, writeResult{Tenant: t.tenant, ID: t.id, Status: writeStatusError, Error: t.skip.Error()})
 			continue
@@ -64,7 +81,7 @@ func runDryRun(
 		results = append(results, writeResult{Tenant: t.tenant, ID: t.id, Status: writeStatusPlanned})
 	}
 
-	switch format {
+	switch outFormat {
 	case output.FormatJSON:
 		if err := output.WriteJSON(out, plans); err != nil {
 			return fmt.Errorf("write json: %w", err)
@@ -77,7 +94,62 @@ func runDryRun(
 		dryRunLines(out, errOut, plans)
 	}
 
+	// Read-only is asked through the real run's own gate, so the code a
+	// dry run promises cannot drift from the code an apply gives. It is
+	// asked first because ADR 0049 answers read-only ahead of any rule.
+	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
+		return newEmittedError(exitCodeFor(err), err)
+	}
+
+	// A guardrail refuses the whole command, so its code outranks the
+	// per-target skip accounting. The notes are already on the plan the
+	// user just read, which is why the error is marked emitted.
+	if len(notes) > 0 {
+		return newEmittedError(ExitGuardrailRefused,
+			fmt.Errorf("%swould refuse %s; no silence would be written",
+				guardrailPrefix, strings.Join(refusedTenants(targets, notes), ", ")))
+	}
 	return writeExitError(results, nil)
+}
+
+// guardrailNotes maps each refused tenant to its short note. The whole
+// resolved target list is asked about, read-only targets included,
+// because one entry per target is the count max_bulk compares against.
+// A read-only tenant is then dropped from the notes rather than from
+// the count: ADR 0049 puts read-only first, so a10r never names a user
+// rule on a backend that was already refused for another reason.
+func guardrailNotes(
+	cfg *config.Config,
+	action guardrail.Action,
+	targets []writeTarget,
+	readOnly map[string]bool,
+	globalReadOnly bool,
+	confirmTenants []string,
+) map[string]string {
+	if globalReadOnly || len(cfg.Guardrails) == 0 {
+		return nil
+	}
+	notes := make(map[string]string)
+	for _, r := range guardrailRefusals(cfg.Guardrails, action, targets, confirmTenants) {
+		if readOnly[r.Tenant] {
+			continue
+		}
+		notes[r.Tenant] = r.Note
+	}
+	return notes
+}
+
+// refusedTenants lists the refused tenants once each, in the order the
+// targets first name them, so the error reads in the same order as the
+// plan the user just read.
+func refusedTenants(targets []writeTarget, notes map[string]string) []string {
+	out := make([]string, 0, len(notes))
+	for _, t := range targetTenants(targets) {
+		if _, ok := notes[t]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // plannedWriteFrom projects one resolved target onto its dry-run record:
@@ -89,7 +161,8 @@ func plannedWriteFrom(t writeTarget, action string, readOnly bool) plannedWrite 
 		p.Skip = t.skip.Error()
 	}
 	if len(t.spec.Matchers) > 0 {
-		p.Matchers = renderMatchers(t.spec.Matchers)
+		p.Matchers = renderMatchers(t.spec.Matchers, matcher.Format)
+		p.rawMatchers = t.spec.Matchers
 		if !t.spec.StartsAt.IsZero() {
 			p.StartsAt = t.spec.StartsAt.UTC().Format(time.RFC3339)
 		}
@@ -102,13 +175,10 @@ func plannedWriteFrom(t writeTarget, action string, readOnly bool) plannedWrite 
 	return p
 }
 
-// renderMatchers prints each matcher as a Prometheus-style expr with the
-// value quoted, matching the --matcher input syntax so the preview reads
-// back as something the operator could retype.
-func renderMatchers(ms []backend.Matcher) []string {
+func renderMatchers(ms []backend.Matcher, render func(backend.Matcher) string) []string {
 	out := make([]string, 0, len(ms))
 	for _, m := range ms {
-		out = append(out, m.Name+matcher.Op(m)+strconv.Quote(m.Value))
+		out = append(out, render(m))
 	}
 	return out
 }
@@ -137,12 +207,12 @@ const dryRunReadOnlyRefused = "apply would be refused"
 
 func dryRunLine(p plannedWrite) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "would %s %s", p.Action, p.Tenant)
+	fmt.Fprintf(&b, "would %s %s", p.Action, format.SingleLine(p.Tenant))
 	if p.ID != "" {
-		fmt.Fprintf(&b, " %s", p.ID)
+		fmt.Fprintf(&b, " %s", format.SingleLine(p.ID))
 	}
-	if len(p.Matchers) > 0 {
-		fmt.Fprintf(&b, ": %s", strings.Join(p.Matchers, ", "))
+	if len(p.rawMatchers) > 0 {
+		fmt.Fprintf(&b, ": %s", strings.Join(renderMatchers(p.rawMatchers, quoteForLine), ", "))
 		if p.StartsAt != "" {
 			fmt.Fprintf(&b, " from %s", p.StartsAt)
 		}
@@ -151,10 +221,18 @@ func dryRunLine(p plannedWrite) string {
 		}
 	}
 	if p.Skip != "" {
-		fmt.Fprintf(&b, " (skip: %s)", p.Skip)
+		fmt.Fprintf(&b, " (skip: %s)", format.SingleLine(p.Skip))
 	}
 	if p.ReadOnly {
 		b.WriteString(" [read-only: " + dryRunReadOnlyRefused + "]")
 	}
+	if p.Guardrail != "" {
+		b.WriteString(" [guardrail: " + format.SingleLine(p.Guardrail) + "]")
+	}
 	return b.String()
+}
+
+// quoteForLine also cleans the name: ParseOne only trims it.
+func quoteForLine(m backend.Matcher) string {
+	return format.SingleLine(matcher.Quote(m))
 }

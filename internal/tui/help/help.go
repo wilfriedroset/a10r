@@ -378,7 +378,14 @@ func (h *Help) resourceColumn(verbs []action.Action) []string {
 		}
 	}
 	for _, a := range verbs {
-		parts = append(parts, rowParts{key: a.ChipKey(), desc: a.Description})
+		// The strip already dropped a guarded verb; the overlay keeps it
+		// and marks it, because the rule names tenants rather than the
+		// whole session (ADR 0043).
+		desc := a.Description
+		if a.Guarded {
+			desc += " [guarded]"
+		}
+		parts = append(parts, rowParts{key: a.ChipKey(), desc: desc})
 	}
 	return h.alignedColumn("RESOURCE", parts)
 }

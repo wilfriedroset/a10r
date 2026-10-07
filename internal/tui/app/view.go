@@ -9,6 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/filter"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/panel"
 )
@@ -49,6 +51,7 @@ func (a *App) View() tea.View {
 	out := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	v := tea.NewView(out)
 	v.AltScreen = true
+	v.WindowTitle = a.windowTitle()
 	// Cell-motion mouse mode lets the terminal forward wheel ticks
 	// (and click/release/motion) into the program. The app routes
 	// wheel events to cursor walk on tables and the help modal's
@@ -83,7 +86,10 @@ func (a *App) panelState() panel.State {
 		Tenants: tenantBindings(a.tenants),
 	}
 	if p := a.topPage(); p != nil {
-		state.Hints = p.Bindings()
+		// A guarded verb stays in Bindings() for the help overlay but
+		// leaves the strip, so the chrome never offers a key that can
+		// only answer with a refusal.
+		state.Hints = action.FilterGuarded(p.Bindings())
 	}
 	return state
 }
@@ -140,18 +146,10 @@ func (a *App) renderBody(height int) string {
 		// see the active filter without leaving the body in their
 		// peripheral vision. Mirrors the k9s "/-prompt visible"
 		// affordance. Closed prompt OR command mode → no append.
-		//
-		// A trailing `[fuzzy]` / `[literal]` / `[regex]` tag is
-		// appended when the buffer auto-detects a non-default mode,
-		// so the user gets feedback that a leading sigil (or a
-		// regex-y body) changed the matcher. Substring — the
-		// default — stays untagged to keep the common case quiet.
 		if a.prompt.IsOpen() && a.prompt.Mode() == footer.PromptFilter {
 			value := a.prompt.Value()
 			title += " </" + value + ">"
-			if mode := footer.DetectSearchMode(value); mode != footer.SearchSubstring {
-				title += " [" + mode.String() + "]"
-			}
+			title += a.filterTag(p, value)
 		}
 		subtitle := p.HeaderContent()
 		if subtitle != "" {
@@ -201,4 +199,31 @@ func linesIn(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
+}
+
+// filterTag renders the title's trailing `[...]` segment for an open
+// filter prompt: the parse reason when the page rejects the buffer,
+// and the mode the page classified the buffer as otherwise. Substring
+// carries no label, so the common case stays untagged.
+// The error variant is warn-tinted so it reads as a problem, not a
+// mode label.
+//
+// A page that classified its own buffer owns the answer, because the
+// tag has to name the grammar that actually ran. A page without that
+// seam carries no Base and never classified anything, so the mode is
+// detected from the raw value for it alone.
+func (a *App) filterTag(p Page, value string) string {
+	if t, ok := p.(filterAware); ok {
+		if err := t.FilterError(); err != nil {
+			return " " + a.styles.Flash.Warn.Render("["+err.Error()+"]")
+		}
+		if mode := t.FilterMode(); mode != "" {
+			return " [" + mode + "]"
+		}
+		return ""
+	}
+	if mode := filter.DetectSearchMode(value); mode != filter.SearchSubstring {
+		return " [" + mode.String() + "]"
+	}
+	return ""
 }

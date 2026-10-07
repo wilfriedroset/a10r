@@ -9,8 +9,11 @@ that shape — [bubbletea](https://github.com/charmbracelet/bubbletea)
 [tview](https://github.com/rivo/tview) (imperative widgets on
 tcell, what k9s itself is built on). a10r builds on bubbletea,
 with `bubbles` for ready-made widgets, `lipgloss` for styling
-and layout, and `huh` for the silence form. `teatest` plus
-`x/exp/golden` carry the rendering tests.
+and layout, and `huh` for the silence form. Rendering tests are
+in-tree: `internal/tui/boot/frame_test.go` boots the real startup
+graph with fake dependencies and compares the rendered frame to a
+golden file, so neither `teatest` nor `x/exp/golden` is a
+dependency.
 
 The decision turns on the project framing. a10r is a pet
 project with no delivery deadline, so the one axis where tview
@@ -19,8 +22,8 @@ Pages, Modal, Form, InputField, and Frame all ship as
 primitives you assemble rather than build — is worth less than
 it looks. What we trade for it is worth more under the same
 framing: Model/Update/View is trivially unit-testable
-(`m2, cmd := m.Update(msg)`, no terminal), `teatest` does
-golden-file snapshots of a full program (something tview
+(`m2, cmd := m.Update(msg)`, no terminal), a pure `View()` makes
+golden-file snapshots of a full program cheap (something tview
 fundamentally cannot do), and the Charm constellation
 (lipgloss, huh, glamour, bubblezone, log) composes cleanly
 on top — tview has no comparable siblings. bubbles already

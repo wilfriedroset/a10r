@@ -41,7 +41,7 @@ func (p *Page) emptyState() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
 		return ""
 	}
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return "no silences match the active filter — Esc clears the prompt"
 	}
 	if p.totalSilences() == 0 {
@@ -106,13 +106,15 @@ func (p *Page) renderHeader(width int) string {
 	if p.hasMarks() {
 		leading = "    "
 	}
-	return leading + p.padColumns(parts, width)
+	// The header carries no filter match: its labels are chrome, not
+	// row content.
+	return leading + p.padColumns(parts, width, format.Highlighter{})
 }
 
-// hasMarks reports whether any silence ID is currently marked.
-// Inlined-style helper so the renderer can branch without
-// poking at p.marks length in two places.
-func (p *Page) hasMarks() bool { return len(p.marks) > 0 }
+// hasMarks reports whether the mark column has to be drawn. An open
+// visual range counts: its preview occupies the column, so the header
+// and the rows must reserve it now rather than shift on commit.
+func (p *Page) hasMarks() bool { return len(p.marks) > 0 || p.Visual.On() }
 
 func (p *Page) renderRows(width, maxRows int) string {
 	if maxRows <= 0 || len(p.view) == 0 {
@@ -120,10 +122,14 @@ func (p *Page) renderRows(width, maxRows int) string {
 	}
 	end := min(p.TopRow()+maxRows, len(p.view))
 	showMark := p.hasMarks()
+	// An open range previews as marked rows; the keys only reach
+	// p.marks on commit, so the span is resolved per frame.
+	visual := listpage.VisualPreview(&p.Base, p.view, markKey)
+	spans := p.FilterSpans()
 	var b strings.Builder
 	b.Grow((end - p.TopRow()) * width * 2)
 	for i := p.TopRow(); i < end; i++ {
-		b.WriteString(p.renderRow(i, p.view[i], width, showMark))
+		b.WriteString(p.renderRow(i, p.view[i], width, showMark, visual.Covers(i), spans))
 		if i < end-1 {
 			b.WriteString("\n")
 		}
@@ -138,16 +144,17 @@ func (p *Page) renderRows(width, maxRows int) string {
 // keeps the body's default background — k9s "tinted text" rather than
 // competing highlighted stripes. Dimming fires when the silence is
 // expired and is neither cursor nor marked; Marked beats the dim
-// because it is an explicit user action while expiry is ambient state.
-func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string {
+// because it is an explicit user action — or, when previewed is set,
+// the range about to become one — while expiry is ambient state.
+func (p *Page) renderRow(i int, e silenceEntry, width int, showMark, previewed bool, spans func(string) [][2]int) string {
 	row := make([]string, 0, 7)
 	if p.ShowTenantColumn(len(p.byTenant)) {
 		row = append(row, e.tenant)
 	}
 	row = append(row,
 		clipSilenceID(e.s.ID),
-		e.s.CreatedBy,
-		singleLine(e.s.Comment),
+		format.SingleLine(e.s.CreatedBy),
+		format.SingleLine(e.s.Comment),
 		p.formatTime(e.s.StartsAt),
 		p.formatTime(e.s.EndsAt),
 		string(e.s.State),
@@ -157,6 +164,7 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string
 		prefix = "▸ "
 	}
 	_, marked := p.marks[e.s.ID]
+	marked = marked || previewed
 	mark := ""
 	if showMark {
 		if marked {
@@ -165,7 +173,9 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string
 			mark = "  "
 		}
 	}
-	line := format.PadRight(prefix+mark+p.padColumns(row, width), width)
+	rowStyled := i == p.Index() || marked || e.s.State == backend.SilenceStateExpired
+	hl := format.HighlighterFor(spans, p.styles.Table.MatchFg, rowStyled)
+	line := format.PadRight(prefix+mark+p.padColumns(row, width, hl), width)
 	switch {
 	case i == p.Index():
 		// k9s parity: cursor bg tracks the silence-state colour
@@ -188,7 +198,7 @@ func (p *Page) renderRow(i int, e silenceEntry, width int, showMark bool) string
 // breathing room instead of competing with another text column.
 // STARTS / ENDS widen in absolute time mode so the ISO local
 // timestamp fits without truncation.
-func (p *Page) padColumns(parts []string, width int) string {
+func (p *Page) padColumns(parts []string, width int, hl format.Highlighter) string {
 	const (
 		tenantW = 16
 		uuidW   = 10
@@ -213,7 +223,9 @@ func (p *Page) padColumns(parts []string, width int) string {
 		if i >= len(cols) {
 			break
 		}
-		b.WriteString(padCell(v, cols[i]))
+		// Painted after the pad or the cut, so a span never moves a
+		// column and a span past the cut is dropped.
+		b.WriteString(hl.Text(padCell(v, cols[i])))
 	}
 	return b.String()
 }
@@ -255,29 +267,6 @@ func clipSilenceID(id string) string {
 		return id
 	}
 	return id[:8]
-}
-
-// singleLine flattens whitespace and strips control bytes from
-// user-provided content (silence Comment, CreatedBy, matcher
-// values) so a multi-line value can't break the table row alignment
-// and a crafted value can't smuggle terminal escape sequences into
-// the rendered output. Operators routinely paste URLs or runbook
-// excerpts on their own line; the C0 / C1 strip closes audit-style
-// findings where a comment like "\x1b[31m..." would repaint adjacent
-// cells. Replacement is space so word boundaries survive.
-func singleLine(s string) string {
-	return strings.Map(func(r rune) rune {
-		// C0 (incl. \n \r \t \x1b BEL etc.) and DEL collapse to space.
-		if r < 0x20 || r == 0x7F {
-			return ' '
-		}
-		// C1 controls (0x80–0x9F): some terminals still treat 0x9B
-		// as a single-byte CSI introducer. Strip the whole band.
-		if r >= 0x80 && r <= 0x9F {
-			return ' '
-		}
-		return r
-	}, s)
 }
 
 // silenceStateColor returns the foreground color associated with a

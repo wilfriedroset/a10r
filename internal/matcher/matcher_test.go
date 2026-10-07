@@ -193,18 +193,109 @@ func TestLabelPredicate(t *testing.T) {
 		{name: "literal sigil is text mode", input: `\foo=1`, ok: false},
 		{name: "leading operator is text mode", input: "=99", ok: false},
 		{name: "empty is text mode", input: "", ok: false},
-		{name: "uncompilable regex falls back to text", input: "cluster_id=~[", ok: false},
+		{name: "uncompilable regex is an error", input: "cluster_id=~[", ok: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			pred, ok := matcher.LabelPredicate(tt.input)
-			require.Equal(t, tt.ok, ok, "label-vs-text classification")
+			pred, err := matcher.LabelPredicate(tt.input)
 			if !tt.ok {
+				require.Error(t, err, "label-vs-text classification")
 				require.Nil(t, pred)
 				return
 			}
+			require.NoError(t, err, "label-vs-text classification")
 			require.Equal(t, tt.matches, pred(tt.labels))
+		})
+	}
+}
+
+// TestLabelPredicate_ErrorKinds separates the two failure modes the
+// callers act on differently: a buffer that is not a selector at all
+// falls through to text search, while a selector whose regex will not
+// compile is a real error the chrome surfaces.
+func TestLabelPredicate_ErrorKinds(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		input      string
+		notMatcher bool
+		wantMsg    string
+	}{
+		{name: "bare word is not a matcher", input: "web", notMatcher: true},
+		{name: "empty is not a matcher", input: "", notMatcher: true},
+		{name: "fuzzy sigil is not a matcher", input: "~foo", notMatcher: true},
+		{name: "literal sigil is not a matcher", input: `\foo=1`, notMatcher: true},
+		{name: "mixed matcher and bare word is not a matcher", input: "cluster_id=99,foo", notMatcher: true},
+		{name: "uncompilable regex value is a real error", input: `a=~"("`, wantMsg: `compile regex "(": error parsing regexp: missing closing ): ` + "`^(?:()$`"},
+		{name: "uncompilable not-regex value is a real error", input: "a!~[", wantMsg: "compile regex \"[\": error parsing regexp: missing closing ]: `[)$`"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			pred, err := matcher.LabelPredicate(tc.input)
+			require.Nil(t, pred)
+			require.Error(t, err)
+			if tc.notMatcher {
+				require.ErrorIs(t, err, matcher.ErrNotMatcher)
+				return
+			}
+			require.NotErrorIs(t, err, matcher.ErrNotMatcher,
+				"a compile failure must not read as text-mode fallback")
+			require.Equal(t, tc.wantMsg, err.Error())
+		})
+	}
+}
+
+func TestFormat_RoundTripsThroughParseOne(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   backend.Matcher
+		want string
+	}{
+		{name: "equal", in: backend.Matcher{Name: "severity", Value: "critical", IsEqual: true}, want: `severity="critical"`},
+		{name: "not equal", in: backend.Matcher{Name: "severity", Value: "info"}, want: `severity!="info"`},
+		{name: "regex", in: backend.Matcher{Name: "job", Value: "a.*", IsRegex: true, IsEqual: true}, want: `job=~"a.*"`},
+		{name: "not regex", in: backend.Matcher{Name: "job", Value: "a.*", IsRegex: true}, want: `job!~"a.*"`},
+		{name: "value with a comma", in: backend.Matcher{Name: "id", Value: "(a,b)", IsRegex: true, IsEqual: true}, want: `id=~"(a,b)"`},
+		{name: "regex with a backslash", in: backend.Matcher{Name: "pod", Value: `web-\d+`, IsRegex: true, IsEqual: true}, want: `pod=~"web-\d+"`},
+		{name: "dotted host regex", in: backend.Matcher{Name: "instance", Value: `10\.0\..*`, IsRegex: true, IsEqual: true}, want: `instance=~"10\.0\..*"`},
+		{name: "value with a quote", in: backend.Matcher{Name: "msg", Value: `say "hi"`, IsEqual: true}, want: `msg="say "hi""`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := matcher.Format(tc.in)
+			require.Equal(t, tc.want, got)
+			back, err := matcher.ParseOne(got)
+			require.NoError(t, err)
+			require.Equal(t, tc.in, back, "Format must be readable by ParseOne")
+		})
+	}
+}
+
+func TestQuote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   backend.Matcher
+		want string
+	}{
+		{name: "plain value", in: backend.Matcher{Name: "a", Value: "b", IsEqual: true}, want: `a="b"`},
+		{name: "embedded quote", in: backend.Matcher{Name: "a", Value: `x", b="y`, IsEqual: true}, want: `a="x\", b=\"y"`},
+		{name: "newline", in: backend.Matcher{Name: "a", Value: "x\ny"}, want: `a!="x\ny"`},
+		{name: "terminal escape", in: backend.Matcher{Name: "a", Value: "\x1b[2J", IsEqual: true}, want: `a="\x1b[2J"`},
+		{name: "regex backslash doubles", in: backend.Matcher{Name: "a", Value: `\d+`, IsRegex: true, IsEqual: true}, want: `a=~"\\d+"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, matcher.Quote(tc.in))
 		})
 	}
 }

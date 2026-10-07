@@ -1,0 +1,24 @@
+<0> all      <?>       help           <shift-y> copy field
+<1> prod     <s>       silence        <o>       open URL
+<2> staging  <shift-s> open silences
+             <y>       yaml
+             <c>       copy fp
+┌─────────────────────────── Describe(prod/HighCPU) ───────────────────────────┐
+│alertname:   HighCPU                                                          │
+│state:       active                                                           │
+│severity:    critical                                                         │
+│fingerprint: HighCPUcritical                                                  │
+│age:         12m ago                                                          │
+│tenant:      prod                                                             │
+│                                                                              │
+│Labels:                                                                       │
+│  alertname: HighCPU                                                          │
+│  instance: web-01                                                            │
+│  severity: critical                                                          │
+│                                                                              │
+│Annotations:                                                                  │
+│  (none)                                                                      │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+<alerts> <instances> <detail>

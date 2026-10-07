@@ -72,6 +72,21 @@ func TestParseAlertsArgs(t *testing.T) {
 			args:    []string{"--state"},
 			wantErr: "--state: missing value",
 		},
+		{
+			name:     "label matcher filter accepted",
+			args:     []string{"--filter", "cluster_id=~9.*"},
+			wantFltr: "cluster_id=~9.*",
+		},
+		{
+			name:    "uncompilable regex filter rejected",
+			args:    []string{"--filter", "^web("},
+			wantErr: "--filter \"^web(\": regex: missing closing )",
+		},
+		{
+			name:    "uncompilable matcher regex filter rejected",
+			args:    []string{"--filter", `a=~"("`},
+			wantErr: "matcher: compile regex",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

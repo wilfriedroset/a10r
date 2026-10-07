@@ -23,3 +23,24 @@ func (b *Base) ScopeIncludes(tenant string) bool {
 	}
 	return false
 }
+
+// ScopeTenantCount reports how many tenants the current scope spans.
+// Empty / "all" defers to the configured fleet and falls back to
+// observed when none was plumbed in, the same configured-beats-
+// observed rule ShowTenantColumn documents.
+func (b *Base) ScopeTenantCount(observed int) int {
+	scope := strings.TrimSpace(b.Scope)
+	if scope == "" || scope == ScopeAll {
+		if n := len(b.Tenants); n > 0 {
+			return n
+		}
+		return observed
+	}
+	n := 0
+	for s := range strings.SplitSeq(scope, ",") {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	return n
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
+	"github.com/wilfriedroset/a10r/internal/uistate"
 )
 
 // testDeps returns a Deps populated with fakes that let Build run
@@ -38,8 +39,14 @@ func testDeps(t *testing.T) Deps {
 		LoadConfig: func(_ config.LoadOpts) (*config.Config, error) {
 			return &config.Config{}, nil
 		},
-		NewLogger: func(_ a10rlog.Opts) (*slog.Logger, io.Closer, error) {
-			return slog.New(slog.DiscardHandler), io.NopCloser(strings.NewReader("")), nil
+		NewLogger: func(opts a10rlog.Opts) (*slog.Logger, io.Closer, error) {
+			// Mirrors the production factory: Capture is honoured inside
+			// NewLogger, not wrapped around its result.
+			h := slog.DiscardHandler
+			if opts.Capture != nil {
+				h = opts.Capture.Wrap(h)
+			}
+			return slog.New(h), io.NopCloser(strings.NewReader("")), nil
 		},
 		BuildClient: func(_ config.Backend, _ string, _ ...factory.Option) (backend.Client, error) {
 			return &fakeStatusBackend{}, nil
@@ -214,7 +221,7 @@ func TestBuild_BuildClientFailuresAreNonFatal(t *testing.T) {
 	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
 	require.NoError(t, err, "one bad backend must not abort the whole boot")
 	require.NotNil(t, res.App())
-	require.Contains(t, stderr.String(), `backend "bad": build failed`,
+	require.Contains(t, stderr.String(), `warning: no client for "bad"`,
 		"the misconfigured entry must surface the warning to stderr "+
 			"so the operator sees it without scanning the audit log")
 }
@@ -333,4 +340,223 @@ func TestBuild_LoadOptsFromFlagsForwardsConfigPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tmpDir, captured.Dir)
 	require.Equal(t, "custom.yaml", captured.File)
+}
+
+// writeUIState drops a `ui-state.yaml` into a fresh dir and returns
+// the dir, shaped for Deps.HistoryDir.
+func writeUIState(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, uistate.FileName), []byte(body), 0o600))
+	return dir
+}
+
+// depsWithState wires a remembered state file plus a two-backend
+// config, with tui.remember under the caller's control.
+func depsWithState(t *testing.T, remember bool, body string) Deps {
+	t.Helper()
+	deps := testDeps(t)
+	dir := writeUIState(t, body)
+	deps.HistoryDir = func() (string, error) { return dir, nil }
+	deps.LoadConfig = func(_ config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends: []config.Backend{
+				{Name: "prod", URL: "http://am-prod"},
+				{Name: "staging", URL: "http://am-staging"},
+			},
+			TUI: config.TUI{Remember: remember},
+		}, nil
+	}
+	return deps
+}
+
+// TestBuild_RemembersScope covers the boot-time scope precedence:
+// a remembered scope that still matches the config wins over the
+// built-in default, unknown names are pruned, and nothing
+// remembered falls back to scopeFor.
+func TestBuild_RemembersScope(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "remembered name wins over the built-in default", body: "scope: staging\n", want: "staging"},
+		{name: "remembered list survives", body: "scope: prod,staging\n", want: "prod,staging"},
+		{name: "unknown names are pruned", body: "scope: gone,prod\n", want: "prod"},
+		{name: "every name gone falls back to all", body: "scope: gone\n", want: scopeAll},
+		{name: "sort-only file leaves the scope at the default", body: "sort:\n  alerts: severity:asc\n", want: scopeAll},
+		{name: "malformed file leaves the scope at the default", body: "scope: [\n", want: scopeAll},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, true, tc.body))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, res.Close()) })
+			require.Equal(t, tc.want, res.env.Scope)
+		})
+	}
+}
+
+// TestBuild_TenantFlagPicksTheStartScope pins the root --tenant
+// flag's TUI half: it beats a remembered scope without overwriting
+// it, and a name the config lacks fails the boot.
+func TestBuild_TenantFlagPicksTheStartScope(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		tenant  string
+		want    string
+		wantErr string
+	}{
+		{name: "flag beats the remembered scope", tenant: "prod", want: "prod"},
+		{name: "list is trimmed", tenant: " prod , staging,", want: "prod,staging"},
+		{name: "all widens past the remembered scope", tenant: "all", want: scopeAll},
+		{name: "unknown name fails", tenant: "prod,bogus", wantErr: `no configured backend matches --tenant "bogus"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			deps := depsWithState(t, true, "scope: staging\n")
+			res, err := Build(t.Context(), &config.CLIFlags{Tenant: tc.tenant}, deps)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, res.env.Scope)
+			require.NoError(t, res.Close())
+			dir, err := deps.HistoryDir()
+			require.NoError(t, err)
+			require.Equal(t, "staging", uistate.Open(dir).Scope(), "the flag must not replace the remembered scope")
+		})
+	}
+}
+
+// TestBuild_RememberOffReadsNothing is the opt-in contract: with
+// tui.remember unset the state file on disk is never consulted and
+// the sorters get a memory that answers empty.
+func TestBuild_RememberOffReadsNothing(t *testing.T) {
+	t.Parallel()
+
+	res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, false, "scope: staging\nsort:\n  alerts: name:asc\n"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Equal(t, scopeAll, res.env.Scope,
+		"tui.remember: false must leave boot on the built-in default scope")
+	require.Empty(t, res.store.Sort("alerts"),
+		"tui.remember: false must not read the sort entries either")
+	require.Empty(t, res.store.Scope())
+}
+
+// TestBuild_RememberedSortReachesThePages renders a page built by
+// the real factory, so the assertion fails if the memory stops at
+// pageEnv instead of reaching the page's sorter. The tenant page
+// boots with rows already, and its header arrow names the active
+// column.
+func TestBuild_RememberedSortReachesThePages(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		body  string
+		arrow string
+	}{
+		{name: "default", body: "", arrow: "NAME \u2191"},
+		{name: "remembered column", body: "sort:\n  tenant: url:desc\n", arrow: "URL \u2193"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := Build(t.Context(), &config.CLIFlags{}, depsWithState(t, true, tc.body))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+			body := newTenantPage(res.env, nil).View(120, 20)
+			require.Contains(t, body, tc.arrow)
+		})
+	}
+}
+
+// TestBuild_WritesThePrunedScopeBack pins that the prune reaches
+// the file. Without the write-back every later run repeats the same
+// warning about the same dead name.
+func TestBuild_WritesThePrunedScopeBack(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "scope: gone,prod\n")
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	body, err := os.ReadFile(filepath.Join(dir, uistate.FileName))
+	require.NoError(t, err)
+	require.Equal(t, "scope: prod\n", string(body))
+}
+
+// TestBuild_PrunesTheRememberedSortKeys pins the wiring between the
+// page list and the store. A key no page binds any more is dropped
+// at load, so the file cannot grow entries nothing reads.
+func TestBuild_PrunesTheRememberedSortKeys(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "sort:\n  alerts: severity:desc\n  retired: name:asc\n")
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, res.Close()) })
+
+	require.Equal(t, "severity:desc", res.store.Sort(resourceAlerts))
+	require.Empty(t, res.store.Sort("retired"))
+}
+
+// TestBuild_ForgetsAScopeThatLostEveryName pins the order of the
+// write-back against the fallback. A scope with nothing left must
+// forget the key, not persist the one backend the session falls
+// back to: the next run would then read a choice the user never
+// made.
+func TestBuild_ForgetsAScopeThatLostEveryName(t *testing.T) {
+	t.Parallel()
+
+	deps := depsWithState(t, true, "scope: gone\n")
+	deps.LoadConfig = func(config.LoadOpts) (*config.Config, error) {
+		return &config.Config{
+			Backends: []config.Backend{{Name: "prod", URL: "http://am-prod"}},
+			TUI:      config.TUI{Remember: true},
+		}, nil
+	}
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.Equal(t, "prod", res.env.Scope, "the session still boots on the only backend left")
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	require.NoFileExists(t, filepath.Join(dir, uistate.FileName),
+		"a state file with nothing left to remember is removed")
+}
+
+// TestBuild_HeadlessLeavesTheStateAlone pins that a headless boot
+// never acts on ui-state.yaml: a snapshot renders the configured
+// default and never prunes the file the interactive session owns.
+func TestBuild_HeadlessLeavesTheStateAlone(t *testing.T) {
+	t.Parallel()
+
+	const body = "scope: gone,staging\nsort:\n  alerts: severity:desc\n  retired: name:asc\n"
+	deps := depsWithState(t, true, body)
+	deps.Headless = true
+	res, err := Build(t.Context(), &config.CLIFlags{}, deps)
+	require.NoError(t, err)
+	require.Equal(t, scopeAll, res.env.Scope, "a headless frame ignores the remembered scope")
+	require.Empty(t, res.store.Sort(resourceAlerts), "a headless frame ignores the remembered sort")
+	require.NoError(t, res.Close())
+
+	dir, err := deps.HistoryDir()
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(dir, uistate.FileName))
+	require.NoError(t, err)
+	require.Equal(t, body, string(got), "a headless run must not rewrite ui-state.yaml")
 }

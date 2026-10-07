@@ -3,29 +3,49 @@
 // Package format holds width-aware text helpers shared across pages
 // and chrome packages: cell padding and width-bounded truncation
 // against lipgloss.Width (which counts terminal cells, not bytes,
-// honouring CJK / emoji width).
+// honouring CJK / emoji width), the duf-style column allocator, and
+// the horizontal scroll window and position a page drives it with.
 package format
 
 import (
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 )
 
+// SingleLine maps every control rune to a space, newline and tab
+// included because a cell is one line by contract. Invalid UTF-8
+// becomes U+FFFD, so a lone 0x9B byte cannot act as a C1 CSI.
+func SingleLine(s string) string {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // PadRight pads s with trailing spaces so the rendered string is
 // exactly w terminal cells wide. Returns "" if w <= 0. Strings
 // whose terminal-cell width already meets or exceeds w are
-// truncated to w via Truncate — the function never returns a
+// truncated to w via SGRTruncate — the function never returns a
 // string wider than the requested width.
 //
-// Not SGR-aware (delegates to Truncate); see Truncate's caveat.
+// The overflow path is SGR-aware because a padded cell can already
+// carry styling: a highlighted filter match, a severity tint. Plain
+// input takes the same route and comes out identical to Truncate.
 func PadRight(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
 	cur := lipgloss.Width(s)
 	if cur >= w {
-		return Truncate(s, w)
+		return SGRTruncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-cur)
 }

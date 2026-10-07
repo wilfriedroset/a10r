@@ -122,7 +122,7 @@ func (a *App) registerGlobalBindings() {
 			Tenants:      a.tenants,
 			Commands:     a.cmdbar.Groups(),
 			UserCommands: a.cmdbar.UserAliases(),
-			ReadOnly:     a.readOnly,
+			ReadOnly:     a.session.ReadOnly(),
 			Styles:       a.styles,
 		})
 	})
@@ -135,7 +135,7 @@ func (a *App) registerGlobalBindings() {
 	// `Esc` falls through to "pop stack" at the global layer per
 	// keybindings.md. Modal / prompt layers shadow this when active
 	// so Esc dismisses them first.
-	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, PopPage)
+	a.dispatcher.SetAction(keys.LayerGlobal, "back", "back", keyNameEsc, a.back)
 	a.dispatcher.SetAction(keys.LayerGlobal, "quit", "quit", "q", quitRequestedCmd)
 	a.dispatcher.SetAction(keys.LayerGlobal, "force-quit", "force quit", "Ctrl+C", quitRequestedCmd)
 	// `Ctrl+T` opens the tenant picker — fuzzy search over
@@ -262,12 +262,26 @@ func (a *App) activePageBindings() []action.Action {
 func (a *App) openPromptCmd(mode footer.PromptMode) func() tea.Cmd {
 	return func() tea.Cmd {
 		hist := a.histories.historyFor(mode, a.activeViewLabel())
-		a.prompt = a.prompt.OpenWithHistory(mode, hist)
+		var gate func(string) error
+		if fa, ok := a.topPage().(filterAware); ok && mode == footer.PromptFilter {
+			gate = fa.ValidateFilter
+		}
+		a.prompt = a.prompt.OpenWithHistory(mode, hist, gate)
 		if mode == footer.PromptFilter {
 			return func() tea.Msg { return footer.PromptOpenedMsg{Mode: mode} }
 		}
 		return nil
 	}
+}
+
+// filterAware is the optional seam a list page implements to veto a
+// `/` buffer it cannot apply and to report why in the chrome. Declared
+// here rather than taken from the page package because listpage
+// imports app, not the reverse.
+type filterAware interface {
+	ValidateFilter(buffer string) error
+	FilterError() error
+	FilterMode() string
 }
 
 // handleInput covers the input pipeline: prompt results, paste,
@@ -383,6 +397,16 @@ func (a *App) handlePromptSubmitted(m footer.PromptSubmittedMsg) tea.Cmd {
 		return nil
 	}
 	return showFlash(footer.FlashWarn, err.Error())
+}
+
+// back is the Esc handler at the global layer. An EscapeConsumer top
+// page unwinds one step of its own state (the visual-mode range) and
+// keeps the key; every other page pops the stack as before.
+func (a *App) back() tea.Cmd {
+	if p, ok := a.topPage().(EscapeConsumer); ok && p.ConsumeEscape() {
+		return nil
+	}
+	return PopPage()
 }
 
 // showFlash returns a tea.Cmd that emits a FlashShowMsg with the

@@ -4,185 +4,103 @@ package cmd
 
 import (
 	"bytes"
-	"flag"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/uistate"
+	"github.com/wilfriedroset/a10r/internal/xdg"
 )
 
-// Run `go test ./cmd -update -run TestRenderInfo` to regenerate
-// every cmd/testdata/*.golden when the renderer's expected output
-// changes. Without the flag, assertGolden reads and compares.
-var updateGolden = flag.Bool("update", false, "regenerate golden files under testdata/")
+// info is a diagnostic, so opening the state store must leave the
+// file byte-for-byte alone. A later flush-on-Close or normalize-on-
+// Open inside internal/uistate would otherwise make `a10r info`
+// rewrite a hand-edited file with nothing failing.
+func TestRunInfo_LeavesTheStateFileAlone(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(xdg.StateHome, stateHome)
 
-func assertGolden(t *testing.T, name, got string) {
-	t.Helper()
-	path := filepath.Join("testdata", name)
-	if *updateGolden {
-		require.NoError(t, os.WriteFile(path, []byte(got), 0o600))
-		return
-	}
-	body, err := os.ReadFile(path)
+	stateDir := filepath.Join(stateHome, "a10r")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	statePath := filepath.Join(stateDir, uistate.FileName)
+	// Deliberately not what yaml.Marshal emits: a comment and a
+	// 2-space indent both parse fine and both die in a rewrite, so
+	// the byte comparison below fails on a flush info must never do.
+	body := "# hand-edited\nscope: prod\nsort:\n  alerts: severity:asc\n"
+	require.NoError(t, os.WriteFile(statePath, []byte(body), 0o600))
+
+	cfgDir := t.TempDir()
+	writeYAML(t, cfgDir, "a10r.yaml",
+		"backends:\n  - name: prod\n    url: http://x\ntui:\n  remember: true\n")
+
+	var buf bytes.Buffer
+	require.NoError(t, runInfo(&buf, &GlobalFlags{
+		ConfigDir: cfgDir,
+		LogPath:   filepath.Join(stateDir, "a10r.log"),
+	}))
+	require.Contains(t, buf.String(), "scope:      prod (remembered)")
+
+	after, err := os.ReadFile(statePath)
 	require.NoError(t, err)
-	require.Equal(t, string(body), got)
+	require.Equal(t, body, string(after))
+
+	tmps, err := filepath.Glob(filepath.Join(stateDir, "*.tmp"))
+	require.NoError(t, err)
+	require.Empty(t, tmps)
 }
 
-func TestRenderInfo_FullConfig(t *testing.T) {
-	t.Parallel()
+// A remembered tenant the config dropped must not reach the report:
+// info answers "why did a10r open there", and boot prunes the same
+// name away before it ever opens.
+func TestRunInfo_PrunesTheRememberedScope(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(xdg.StateHome, stateHome)
 
-	cfg := &config.Config{
-		Backends: []config.Backend{
-			{
-				Name:        "prod-vanilla",
-				URL:         "https://am-prod.internal",
-				BearerToken: "tok",
-			},
-			{
-				Name:         "staging-mimir",
-				URL:          "https://mimir-staging.internal",
-				Prefix:       "/alertmanager",
-				TenantHeader: "X-Scope-OrgID",
-				Tenant:       "tenant-a",
-				Capabilities: config.Capabilities{ConfigAPI: true, TenantAdmin: true},
-				BasicAuth:    &config.BasicAuth{Username: "u", Password: "p"},
-			},
-		},
-	}
+	stateDir := filepath.Join(stateHome, "a10r")
+	require.NoError(t, os.MkdirAll(stateDir, 0o700))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(stateDir, uistate.FileName), []byte("scope: gone\n"), 0o600,
+	))
+
+	cfgDir := t.TempDir()
+	writeYAML(t, cfgDir, "a10r.yaml",
+		"backends:\n  - name: prod\n    url: http://x\ntui:\n  remember: true\n")
 
 	var buf bytes.Buffer
-	require.NoError(t, renderInfo(&buf, infoContext{
-		Version:   "dev",
-		Commit:    "test",
-		Date:      "test",
-		ConfigDir: "/home/test/.config/a10r",
-		LogPath:   "/home/test/.local/state/a10r/a10r.log",
-		Config:    cfg,
+	require.NoError(t, runInfo(&buf, &GlobalFlags{
+		ConfigDir: cfgDir,
+		LogPath:   filepath.Join(stateDir, "a10r.log"),
 	}))
-	assertGolden(t, "info_full.golden", buf.String())
+	require.NotContains(t, buf.String(), "gone")
+	require.NotContains(t, buf.String(), "(remembered)")
 }
 
-func TestRenderInfo_EmptyBackendsList(t *testing.T) {
-	t.Parallel()
+// `a10r info` and the TUI's `:info` page print one report, so they
+// must agree on the log path and the skin for one config file. The
+// TUI resolves both through config.Resolve; info reading its raw
+// flag instead printed the default log path and the default theme
+// for a file that set either one.
+func TestRunInfo_ReportsTheResolvedLogPathAndTheme(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv(xdg.StateHome, stateHome)
+	// config.Resolve reads the environment now, and A10R_LOG outranks
+	// the file, so a developer host that exports it would otherwise
+	// fail this test for the wrong reason.
+	t.Setenv("A10R_LOG", "")
+	t.Setenv("A10R_READ_ONLY", "")
+
+	cfgDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "from-config.log")
+	writeYAML(t, cfgDir, "a10r.yaml",
+		"backends:\n  - name: prod\n    url: http://x\n"+
+			"log:\n  path: "+logPath+"\n"+
+			"theme:\n  name: catppuccin-latte\n")
 
 	var buf bytes.Buffer
-	require.NoError(t, renderInfo(&buf, infoContext{
-		Version:   "dev",
-		Commit:    "test",
-		Date:      "test",
-		ConfigDir: "/home/test/.config/a10r",
-		LogPath:   "/home/test/.local/state/a10r/a10r.log",
-		Config:    &config.Config{},
-	}))
-	assertGolden(t, "info_empty.golden", buf.String())
-}
+	require.NoError(t, runInfo(&buf, &GlobalFlags{ConfigDir: cfgDir}))
 
-func TestRenderInfo_NotFound(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	require.NoError(t, renderInfo(&buf, infoContext{
-		Version:   "dev",
-		Commit:    "test",
-		Date:      "test",
-		ConfigDir: "/home/test/.config/a10r",
-		LogPath:   "/home/test/.local/state/a10r/a10r.log",
-		NotFound:  true,
-	}))
-	assertGolden(t, "info_notfound.golden", buf.String())
-}
-
-func TestRenderInfo_NonZeroAliases(t *testing.T) {
-	t.Parallel()
-
-	// The alias count is the operator's signal that
-	// <config-dir>/aliases.yaml landed where they expected — pin
-	// the rendered line so a regression in formatting is loud.
-	var buf bytes.Buffer
-	require.NoError(t, renderInfo(&buf, infoContext{
-		Version:    "dev",
-		Commit:     "test",
-		Date:       "test",
-		ConfigDir:  "/home/test/.config/a10r",
-		LogPath:    "/home/test/.local/state/a10r/a10r.log",
-		Config:     &config.Config{},
-		AliasCount: 3,
-	}))
-	assertGolden(t, "info_aliases.golden", buf.String())
-}
-
-func TestAuthLabel(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		in   config.Backend
-		want string
-	}{
-		{name: "no auth yields empty"},
-		{
-			name: "basic",
-			in:   config.Backend{BasicAuth: &config.BasicAuth{Username: "u", Password: "p"}},
-			want: "basic",
-		},
-		{
-			name: "bearer_token shorthand",
-			in:   config.Backend{BearerToken: "tok"},
-			want: "bearer",
-		},
-		{
-			name: "authorization echoes the wire scheme",
-			in: config.Backend{
-				Authorization: &config.Authorization{Type: "Bearer", Credentials: "tok"},
-			},
-			want: "authorization (Bearer)",
-		},
-		{
-			name: "authorization with custom type",
-			in: config.Backend{
-				Authorization: &config.Authorization{Type: "Token", Credentials: "tok"},
-			},
-			want: "authorization (Token)",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, authLabel(tc.in))
-		})
-	}
-}
-
-func TestCapabilityList(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name string
-		in   config.Capabilities
-		want string
-	}{
-		{name: "all off yields empty"},
-		{name: "config_api only", in: config.Capabilities{ConfigAPI: true}, want: "config_api"},
-		{
-			name: "all on, declaration order preserved",
-			in:   config.Capabilities{ConfigAPI: true, TenantAdmin: true, Ring: true},
-			want: "config_api, tenant_admin, ring",
-		},
-		{
-			name: "skip middle off",
-			in:   config.Capabilities{ConfigAPI: true, Ring: true},
-			want: "config_api, ring",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			require.Equal(t, tc.want, capabilityList(tc.in))
-		})
-	}
+	require.Contains(t, buf.String(), "log path:   "+logPath)
+	require.Contains(t, buf.String(), "theme:      catppuccin-latte")
 }

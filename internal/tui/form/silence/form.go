@@ -25,6 +25,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -114,6 +115,26 @@ type Form struct {
 	// the title to "edit silence <id>".
 	editID string
 
+	// guardrails is the per-tenant write policy. The form is the last
+	// gate before a single write leaves a10r, so it asks policy at
+	// submit rather than trusting whatever page pushed it.
+	guardrails guardrail.Set
+	// action names the verb a submit performs, so a rule that restricts
+	// only silence.update reaches the edit form and nothing else.
+	action guardrail.Action
+	// awaitingConfirm records that a guardrail prompt is open for this
+	// form. A ConfirmResultMsg with no prompt pending starts a write
+	// nobody asked for, so the form answers only its own question.
+	awaitingConfirm bool
+	// confirmed are the backends whose guardrail confirmation is
+	// already cleared for this write. It holds names rather than a bool
+	// because the Tenant row can move the write to another backend
+	// after the answer, and that backend has its own rule. It is the
+	// slice guardrail.Request.Confirmed takes, so the page that asked
+	// before it pushed the form hands over the same type the gate
+	// reads.
+	confirmed []string
+
 	// bulk hides matchers, skips matcher validation, renders the
 	// banner instead of the textarea, and routes submit through
 	// BulkSubmittedMsg.
@@ -165,10 +186,25 @@ type Options struct {
 	// EditID switches submit to UpdateSilence(id). Empty → create.
 	EditID string
 
+	// Guardrails is the per-tenant write policy a submit is checked
+	// against. Zero value means no policy, the shape every test and
+	// every read-only-free deployment sees.
+	Guardrails guardrail.Set
+	// Action names the verb the submit performs. Empty means
+	// silence.create.
+	Action guardrail.Action
+	// Confirmed names the backends whose guardrail confirmation the
+	// pushing page already collected, so a page that asked before it
+	// pushed the form does not make the user answer twice for one write.
+	Confirmed []string
+
 	// Bulk hides matchers, skips matcher validation, renders the
 	// banner in the buffer's slot, and emits BulkSubmittedMsg
 	// instead of calling Client.CreateSilence. Mutually exclusive
-	// with EditID (bulk-edit is out of scope).
+	// with EditID (bulk-edit is out of scope). A bulk submit returns
+	// before the guardrail gate, so Guardrails and Action are dead
+	// weight here: the pushing page owns the policy, and a form handed
+	// a verb would name a check it never runs.
 	Bulk bool
 	// BulkBanner is rendered where the matchers buffer would
 	// otherwise sit when Bulk is true; the page formats this so the
@@ -205,13 +241,15 @@ func New(opts Options) *Form {
 	if now == nil {
 		now = time.Now
 	}
+	// A caller that names no verb gets the one this form performs most
+	// often. Guessing a real verb beats evaluating policy against an
+	// empty name, which every actions glob would fail to match.
+	verb := opts.Action
+	if verb == "" {
+		verb = guardrail.ActionSilenceCreate
+	}
 
-	matchers := textarea.New()
-	matchers.Prompt = ""
-	matchers.Placeholder = "alertname=HighCPU\nseverity=critical"
-	matchers.SetHeight(matchersHeight)
-	matchers.ShowLineNumbers = false
-	flattenTextareaBlur(&matchers)
+	matchers := newMatchersArea()
 	// Skip the matchers prefill in bulk mode — the buffer is hidden
 	// and parseSpec ignores it; pre-populating would only leak state
 	// into a future non-bulk reuse.
@@ -252,6 +290,9 @@ func New(opts Options) *Form {
 		creator:    creator,
 		comment:    comment,
 		editID:     opts.EditID,
+		guardrails: opts.Guardrails,
+		action:     verb,
+		confirmed:  opts.Confirmed,
 		bulk:       opts.Bulk,
 		bulkBanner: opts.BulkBanner,
 		scopeNote:  opts.ScopeNote,
@@ -347,6 +388,10 @@ func (f *Form) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 	}
 	if m, ok := msg.(modal.PickerCancelledMsg); ok && m.Origin == pickerOrigin {
 		return f, nil
+	}
+	if m, ok := msg.(modal.ConfirmResultMsg); ok {
+		cmd := f.applyGuardrailConfirm(m)
+		return f, cmd
 	}
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		if cmd, handled := f.handleKey(keyMsg); handled {

@@ -1,0 +1,24 @@
+<0> all      <?>       help                               _    _    ___
+<1> prod     <y>       yaml                              / \  / |  / _ \   _ __
+<2> staging  <shift-y> copy field                       / _ \ | | | | | | | '__|
+                                                       / ___ \| | | |_| | | |
+                                                      /_/   \_\_|  \___/  |_|
+┌───────────────────────── Describe(prod/sil-prod-2) ──────────────────────────┐
+│id: sil-prod-2                                                                │
+│state: active                                                                 │
+│createdBy: bob                                                                │
+│comment: scheduled maintenance                                                │
+│startsAt: "2025-12-31T23:00:00Z"                                              │
+│endsAt: "2026-01-01T00:30:00Z"                                                │
+│matchers:                                                                     │
+│    - name: alertname                                                         │
+│      value: HighCPU                                                          │
+│      isRegex: false                                                          │
+│      isEqual: true                                                           │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+<silences> <silence>

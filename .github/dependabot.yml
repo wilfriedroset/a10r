@@ -5,8 +5,13 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Let a poisoned release be yanked before it reaches a PR here.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7

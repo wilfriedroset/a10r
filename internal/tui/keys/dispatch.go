@@ -9,6 +9,7 @@ package keys
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -75,6 +76,13 @@ type Dispatcher struct {
 	// overlay's GENERAL column ordering. Anonymous Set bindings carry
 	// no name and are intentionally absent.
 	actionOrder []string
+
+	// overrides records what each key ApplyOverrides touched meant
+	// beforehand, so ClearOverrides can put it back. `:reload`
+	// re-runs the key loader, and a key the user deleted from the
+	// file must stop working without taking a shadowed built-in
+	// down with it.
+	overrides []overrideEntry
 
 	// chordPending is the prefix key already pressed; empty means no
 	// chord is in flight. chordExpiry is when the timeout fires.
@@ -199,10 +207,22 @@ func (d *Dispatcher) Clear(layer Layer) {
 	d.actionOrder = kept
 }
 
+// overrideEntry is one key an override claimed, plus the binding it
+// displaced. A nil prior means the key was free.
+type overrideEntry struct {
+	layer Layer
+	key   string
+	prior Handler
+}
+
 // ApplyOverrides binds every user-supplied extra key onto the matching
 // action's (layer, handler) pair. "Shadow defaults" semantics (ADR
 // 0010): user keys are additional, the original SetAction key still
-// works. The only error path is an unknown action name. Idempotent.
+// works. The only error path is an unknown action name.
+//
+// Re-applying the same overrides binds the same keys again, but each
+// call also appends to the undo journal ClearOverrides walks. Clear
+// between applications, or the journal grows for the session.
 func (d *Dispatcher) ApplyOverrides(overrides map[string][]string) error {
 	// Sort for a deterministic error path: unknown actions would
 	// otherwise surface in flapping map-iteration order.
@@ -217,10 +237,30 @@ func (d *Dispatcher) ApplyOverrides(overrides map[string][]string) error {
 			return fmt.Errorf("unknown action %q (no built-in binding registered under that name)", name)
 		}
 		for _, key := range overrides[name] {
+			d.overrides = append(d.overrides, overrideEntry{
+				layer: entry.layer,
+				key:   key,
+				prior: d.layers[entry.layer][key],
+			})
 			d.Set(entry.layer, key, entry.handler)
 		}
 	}
 	return nil
+}
+
+// ClearOverrides undoes every binding ApplyOverrides installed,
+// restoring what each key meant before. Walking backward matters
+// when two overrides claimed the same key: the earliest entry holds
+// the binding that predates both.
+func (d *Dispatcher) ClearOverrides() {
+	for _, e := range slices.Backward(d.overrides) {
+		if e.prior == nil {
+			delete(d.layers[e.layer], e.key)
+			continue
+		}
+		d.layers[e.layer][e.key] = e.prior
+	}
+	d.overrides = nil
 }
 
 // HasAction reports whether an action is registered. Exposed so

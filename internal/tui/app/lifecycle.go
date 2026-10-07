@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/help"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
@@ -30,19 +31,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if isModalResult(msg) {
 		a.closeModal()
-		// Scope-origin (Ctrl+T) submissions become a global
-		// ScopeChangedMsg; other Origins fall through to the page that
-		// opened the picker. Empty and "all" both resolve to scope "all".
-		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginScope {
-			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
-			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
-		}
-		if pc, ok := msg.(modal.PickerCancelledMsg); ok && pc.Origin == PickerOriginScope {
-			// Cancelling the global scope picker is a no-op; other Origins
-			// fall through so the originator can react.
-			return a, nil
-		}
-		cmd := a.forwardToTop(msg)
+		cmd := a.routeModalResult(msg)
 		return a, cmd
 	}
 	if _, ok := msg.(AutoPopMsg); ok {
@@ -62,13 +51,49 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.hintbar, cmd = a.hintbar.Update(msg)
 		return a, cmd
 	}
+	if m, ok := msg.(ScopeChangedMsg); ok {
+		// Observed, not consumed: pages still need it to refilter. The
+		// App keeps its own copy because the window title names the
+		// scope and no page reports it back.
+		a.scope = m.Scope
+		a.notify.SetScope(m.Scope)
+		if a.saveScope != nil {
+			a.saveScope(m.Scope)
+		}
+	}
 	cmd := a.forwardToTop(msg)
 	return a, cmd
 }
 
+// routeModalResult delivers a closed modal's result. Scope-origin
+// (Ctrl+T) submissions become a global ScopeChangedMsg and skin-origin
+// ones apply the skin; other Origins fall through to the page that
+// opened the picker. Empty and "all" both resolve to scope "all".
+func (a *App) routeModalResult(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case modal.PickerSubmittedMsg:
+		switch m.Origin {
+		case PickerOriginScope:
+			scope := pickerSelectionsToScope(m.Selections, a.tenants)
+			return func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
+		case PickerOriginSkin:
+			return ApplySkin(skinFromSelection(m.Selections))
+		}
+	case modal.PickerCancelledMsg:
+		// Cancelling a global picker is a no-op -- Esc keeps the
+		// applied scope or skin. Other Origins fall through so the
+		// originator can react.
+		if m.Origin == PickerOriginScope || m.Origin == PickerOriginSkin {
+			return nil
+		}
+	}
+	return a.forwardToTop(msg)
+}
+
 // handleLifecycle covers the App's own message types, returning
-// (cmd, true) when handled. It fans out into three clusters (session,
-// poll snapshotting, stack/modal) so each switch stays small.
+// (cmd, true) when handled. It fans out into four clusters (session,
+// poll snapshotting, live config, stack/modal) so each switch stays
+// small.
 func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	if cmd, handled := a.handleSessionMsg(msg); handled {
 		return cmd, true
@@ -76,11 +101,31 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	if cmd, handled := a.handlePollMsg(msg); handled {
 		return cmd, true
 	}
+	if cmd, handled := a.handleConfigMsg(msg); handled {
+		return cmd, true
+	}
 	return a.handleStackMsg(msg)
 }
 
+// handleConfigMsg covers the live-config messages: skin apply, skin
+// picker, and config reload.
+func (a *App) handleConfigMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case ApplySkinMsg:
+		return a.applySkin(m.Name), true
+	case OpenSkinPickerMsg:
+		return a.openSkinPicker(), true
+	case ReloadRequestedMsg:
+		return a.reloadConfig(), true
+	case ReloadedMsg:
+		return a.applyReloaded(m), true
+	}
+	return nil, false
+}
+
 // handleSessionMsg covers session-level lifecycle messages: window
-// resize, quit, chord-timer expiry, and refresh requests.
+// resize, quit, terminal background report, chord-timer expiry, and
+// refresh requests.
 func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	switch m := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -92,6 +137,9 @@ func (a *App) handleSessionMsg(msg tea.Msg) (tea.Cmd, bool) {
 	case QuitRequestedMsg:
 		// Page-stack tear-down before tea.Quit; see QuitRequestedMsg's doc.
 		return a.quitWithCleanup(), true
+	case tea.BackgroundColorMsg:
+		a.applyAutoTheme(m.IsDark())
+		return nil, true
 	case keys.ChordExpiredMsg:
 		return a.dispatcher.HandleChordExpired(m), true
 	case StateFormatToggleMsg:
@@ -123,12 +171,26 @@ func (a *App) handlePollMsg(msg tea.Msg) (tea.Cmd, bool) {
 		if m.ResourceLabel != "" {
 			a.cacheDataMsg(m)
 		}
-		return a.forwardToTop(m), true
+		return tea.Batch(a.forwardToTop(m), a.observeAlerts(m)), true
 	case poll.BackendStatusMsg:
 		a.cacheStatusMsg(m)
 		return a.forwardToTop(m), true
 	}
 	return nil, false
+}
+
+// observeAlerts hands an alerts payload to the notifier. Every
+// resource shares poll.DataMsg, so a silences or status payload
+// arrives here too and is a silent no-op rather than an error.
+func (a *App) observeAlerts(m poll.DataMsg) tea.Cmd {
+	if m.ResourceLabel != resourceAlerts {
+		return nil
+	}
+	alerts, ok := m.Resource.([]backend.Alert)
+	if !ok {
+		return nil
+	}
+	return a.notify.Observe(m.Tenant, alerts)
 }
 
 // handleStackMsg routes page-stack and modal-slot operations
@@ -166,6 +228,22 @@ func (a *App) forwardToTop(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// forwardToAll delivers msg to every page on the stack, swapping in
+// the derivatives they return. For the settings that must not go
+// stale under a page the user can still walk back to.
+func (a *App) forwardToAll(msg tea.Msg) tea.Cmd {
+	cmds := make([]tea.Cmd, 0, len(a.stack))
+	for i := range a.stack {
+		page, cmd := a.stack[i].Update(msg)
+		a.stack[i] = page
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	a.refreshCrumbs()
+	return tea.Batch(cmds...)
+}
+
 // pushPage adds a new page on top, runs its Init, refreshes crumbs, and
 // replays cached poll snapshots so it hydrates without waiting for the
 // next tick. Returns the batched Init and replay Cmds.
@@ -176,6 +254,9 @@ func (a *App) pushPage(factory func() Page) tea.Cmd {
 	page := factory()
 	if page == nil {
 		return nil
+	}
+	if s, ok := a.topPage().(Suspender); ok {
+		s.Suspend()
 	}
 	a.stack = append(a.stack, page)
 	a.refreshCrumbs()

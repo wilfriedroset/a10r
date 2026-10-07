@@ -34,6 +34,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,11 +42,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
@@ -59,9 +63,16 @@ const (
 	sortKeyAge      = "age"
 )
 
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "alerts"
+
+// wordAlert / wordAlerts are operator-facing prose, so ViewName must
+// not double as a noun.
 const (
-	resourceAlerts = "alerts"
-	wordAlert      = "alert"
+	wordAlert  = "alert"
+	wordAlerts = "alerts"
 )
 
 // labelAlertname is the Alertmanager wire-format label key. Distinct
@@ -70,8 +81,8 @@ const (
 // silently re-target label lookups.
 const labelAlertname = "alertname"
 
-// alertSortColumns returns the page's sortable column set, now keyed
-// on the alertname aggregate. Severity and count default DESC (worst /
+// alertSortColumns returns the page's sortable column set, keyed on
+// the alertname aggregate. Severity and count default DESC (worst /
 // largest first); alertname and age read naturally ascending. Every
 // comparator falls back to alertName ASC then tenant ASC so the order
 // is total and deterministic across re-sorts / poll ticks regardless
@@ -80,8 +91,8 @@ const labelAlertname = "alertname"
 // Severity uses Hotkey 'S' (Shift+S): unlike the L2 page, alerts L1
 // has no uppercase `S` verb — silence is lowercase `s` — so the
 // shortcut is free.
-func alertSortColumns() []tablesort.Column[alertGroup] {
-	return []tablesort.Column[alertGroup]{
+func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
+	return slices.Concat([]tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -106,7 +117,7 @@ func alertSortColumns() []tablesort.Column[alertGroup] {
 				return a.oldestStart.Before(b.oldestStart)
 			}),
 		},
-	}
+	}, table.LabelSortColumns(user, func(g *alertGroup) []string { return g.labelCells }, tieBreakGroup))
 }
 
 // tieBreakGroup wraps a comparator so equal-by-primary groups fall
@@ -149,22 +160,17 @@ type Options struct {
 	// (stateformat.Full) is the pre-toggle default, so a zero-value
 	// Options opens in the legible full mode.
 	StateFormat stateformat.Format
-	// BulkConcurrency caps the per-tenant worker pool for the
-	// bulk-silence fanout (one CreateSilence per marked alert).
-	// Zero resolves to config.DefaultBulkConcurrency at construction
-	// time so callers can pass the unmaterialised
-	// `defaults.bulk_concurrency` directly.
-	BulkConcurrency int
 	// Logger receives per-failure detail (`backend`, `tenant`,
 	// `alert_fingerprint`, `err`) at error level when the bulk
 	// fanout surfaces individual CreateSilence failures. Nil
 	// suppresses logging.
 	Logger *slog.Logger
-	// ReadOnly hides the page's Dangerous bindings (`s` for
-	// silence) from the hint strip / help overlay and turns the
-	// keystroke into a flash hint. Wired from the resolved
-	// defaults.read_only chain — see internal/config/resolve.go.
-	ReadOnly bool
+	// Session is the live configuration the page reads its write
+	// policy, bulk pool size and `tui.poll_delta` from at the point of
+	// use, so a reload reaches the page while it is open. The label
+	// columns are the one exception, re-derived on a reload instead.
+	// Must not be nil.
+	Session *session.Session
 	// BulkCtx is the parent ctx the bulk-silence fanout inherits.
 	// Cancelling cancels every in-flight worker — important for
 	// multi-day sessions where a quit must not orphan goroutines.
@@ -208,6 +214,9 @@ type Options struct {
 	// observed DataMsgs — kept for tests that don't care about the
 	// column toggle.
 	Tenants []string
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // alertEntry pairs an alert with the tenant tag the poller
@@ -245,17 +254,40 @@ type alertGroup struct {
 	active      int
 	suppressed  int
 	unprocessed int
+	// labelCells holds one rolled-up cell per user-declared label
+	// column, in config order. Computed once per aggregate so the
+	// sort comparators and the row renderer never walk the instance
+	// slice again — the render budget is O(rows), not O(rows x
+	// instances).
+	labelCells []string
 }
 
 // key is the group's stable identity — the cursor-focus anchor and
 // the mark key. NUL-joined so a tenant or alertname containing the
 // separator can't forge another group's key.
-func (g alertGroup) key() string { return g.tenant + "\x00" + g.alertName }
+func (g alertGroup) key() string { return groupKeyOf(g.tenant, g.alertName) }
+
+// groupKeyOf is the single spelling of the (tenant, alertname)
+// identity. Every lookup that has to agree with aggregate's map goes
+// through it, NUL-separated so a tenant name cannot forge a key.
+func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + alertName }
+
+// markKey hands the listpage mark and range helpers the group key,
+// so a re-sort carries a mark with its row instead of its index.
+func markKey(g alertGroup) string { return g.key() }
 
 // allSuppressed reports whether every instance in the group is
 // suppressed — the row-dim condition. A zero-count group is never
 // "all suppressed" (there is nothing to dim).
 func (g alertGroup) allSuppressed() bool { return g.count > 0 && g.suppressed == g.count }
+
+// The range-mark contract from listpage.Base reaches the app shell
+// only through these two optional interfaces, and neither is named
+// anywhere else in the package.
+var (
+	_ app.EscapeConsumer = (*Page)(nil)
+	_ app.Suspender      = (*Page)(nil)
+)
 
 // Implements app.Page.
 type Page struct {
@@ -292,22 +324,18 @@ type Page struct {
 	marks map[string]struct{}
 
 	// pendingBulkSilence captures the resolved bulk-silence targets
-	// between an opened confirm modal (N≥2 marks) and its
-	// ConfirmResultMsg, or between an opened bulk form (any N≥1)
-	// and its BulkSubmittedMsg. Cleared after consumption.
+	// between an opened confirm modal and its ConfirmResultMsg, or
+	// between an opened bulk form and its BulkSubmittedMsg. Cleared
+	// after consumption.
 	pendingBulkSilence pendingBulkSilence
 
 	// pendingSilenceAll captures the single-cursor silence-all target
 	// (count>1) between its blast-radius confirm modal and the
 	// ConfirmResultMsg. DISTINCT from pendingBulkSilence: the
-	// single-cursor confirm and the ≥2-marks bulk confirm are separate
+	// single-cursor confirm and the marked bulk confirm are separate
 	// code paths and must not share state. Cleared after consumption.
 	pendingSilenceAll pendingSilenceAll
 
-	// bulkConcurrency caps the per-tenant worker pool for the
-	// bulk-silence fanout. Tenants always run in parallel; this
-	// knob limits the inner pool size per tenant.
-	bulkConcurrency int
 	// logger: nil suppresses logging.
 	logger *slog.Logger
 	// cancelBulk cancels the in-flight bulk-silence fanout when
@@ -317,8 +345,15 @@ type Page struct {
 	// silences page's contract).
 	cancelBulk context.CancelFunc
 
-	// sorter: comparators from alertSortColumns.
-	sorter      *tablesort.Sorter[alertGroup]
+	labels table.LabelSet
+
+	scroll table.Scroll
+
+	sorter *tablesort.Sorter[alertGroup]
+
+	// sortMemory is held only to hand down to the L2 group-detail
+	// page, which this page constructs and boot never sees.
+	sortMemory  tablesort.Memory
 	stateFilter string // "" = all, otherwise an AlertState value
 
 	// timeFormat is flipped by app.TimeFormatChangedMsg so all list pages agree.
@@ -327,8 +362,7 @@ type Page struct {
 	// stateFormat is flipped by app.StateFormatChangedMsg so L1 and L2 agree on density.
 	stateFormat stateformat.Format
 
-	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
-	readOnly bool
+	session *session.Session
 
 	// bulkCtx parents the bulk-silence fanout. See Options.BulkCtx.
 	bulkCtx context.Context //nolint:containedctx // bulk fanout ctx, plumbed once at construction.
@@ -349,50 +383,62 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	sp := spinner.New(
-		spinner.WithSpinner(spinner.Points),
-		spinner.WithStyle(opts.Styles.Header.Accent),
-	)
-	concurrency := opts.BulkConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultBulkConcurrency
-	}
+	sp := spinner.New(spinner.WithSpinner(spinner.Points))
+	sess := session.Must(opts.Session)
+	labels := table.NewLabelSet(sess.AlertColumns())
 	p := &Page{
-		Scope:           opts.Scope,
-		Filter:          opts.InitialFilter,
-		BackendHealth:   map[string]listpage.BackendHealth{},
-		Tenants:         opts.Tenants,
-		PolledTenants:   map[string]struct{}{},
-		NextRefresh:     map[string]time.Time{},
-		Spinner:         sp,
-		styles:          opts.Styles,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		timeFormat:      opts.TimeFormat,
-		stateFormat:     opts.StateFormat,
-		byTenant:        map[string][]backend.Alert{},
-		sorter:          tablesort.New(alertSortColumns(), sortKeySeverity),
-		marks:           map[string]struct{}{},
-		bulkConcurrency: concurrency,
-		logger:          opts.Logger,
-		readOnly:        opts.ReadOnly,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
-		stateFilter:     opts.InitialStateFilter,
-		editorResolver:  opts.EditorResolver,
-		editorCtx:       opts.EditorCtx,
+		Scope:          opts.Scope,
+		BackendHealth:  map[string]listpage.BackendHealth{},
+		Tenants:        opts.Tenants,
+		PolledTenants:  map[string]struct{}{},
+		NextRefresh:    map[string]time.Time{},
+		Spinner:        sp,
+		styles:         opts.Styles,
+		now:            now,
+		clients:        opts.Clients,
+		creator:        opts.Creator,
+		timeFormat:     opts.TimeFormat,
+		stateFormat:    opts.StateFormat,
+		byTenant:       map[string][]backend.Alert{},
+		labels:         labels,
+		marks:          map[string]struct{}{},
+		logger:         opts.Logger,
+		session:        sess,
+		bulkCtx:        opts.BulkCtx,
+		submitCtx:      opts.SubmitCtx,
+		stateFilter:    opts.InitialStateFilter,
+		editorResolver: opts.EditorResolver,
+		editorCtx:      opts.EditorCtx,
+		sortMemory:     opts.SortMemory,
 	}
+	p.sorter = tablesort.New(p.sortAxes(), sortKeySeverity)
+	p.sorter.Bind(opts.SortMemory, ViewName)
+	p.sorter.SetHidden(p.labels.HiddenSortKey)
 	p.Recompute = p.recompute
+	p.Grammar = filterexpr.AlertGrammar
+	p.SetFilter(opts.InitialFilter)
 	p.RowCount = func() int { return len(p.groups) }
 	p.SnapshotFocus = p.snapshotFocus
 	p.SetTimeFormat = func(f timerender.Format) { p.timeFormat = f }
 	p.SetStateFormat = func(f stateformat.Format) { p.stateFormat = f }
 	p.ClearMarks = p.handleClearMarks
+	p.Reconfigure = p.reconfigure
 	return p
 }
 
-// Mirror of app.ScopeChangedMsg for direct callers (cmd-bar, tests).
+// reconfigure re-derives the label columns after a reload. They key
+// the sorter's axes and the header geometry, so unlike the policy they
+// cannot be read at the point of use. A sort on a column the reload
+// removed falls back to the page default.
+func (p *Page) reconfigure() {
+	p.labels.Reconfigure(p.session.AlertColumns())
+	p.sorter.SetColumns(p.sortAxes())
+	p.recompute()
+}
+
+// SetScope mirrors app.ScopeChangedMsg for tests, which is its only
+// caller: production rescopes through the message so Update runs and
+// the visual-range anchor check goes with it.
 func (p *Page) SetScope(s string) {
 	p.Scope = s
 	p.recompute()
@@ -410,17 +456,17 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return resourceAlerts }
+func (*Page) Crumb() string { return ViewName }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(resourceAlerts)
+		return p.LoadingTitle(ViewName, p.styles.Header.Accent)
 	}
 	scope := p.Scope
 	if scope == "" {
 		scope = listpage.ScopeAll
 	}
-	if p.Filter != "" || p.stateFilter != "" {
+	if p.FilterBuffer() != "" || p.stateFilter != "" {
 		return fmt.Sprintf("alerts(%s)[%d/%d]", scope, len(p.groups), p.totalGroups())
 	}
 	return fmt.Sprintf("alerts(%s)[%d]", scope, len(p.groups))
@@ -428,14 +474,17 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter:"+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter:"+p.FilterBuffer())
 	}
 	if p.stateFilter != "" {
 		parts = append(parts, "state:"+p.stateFilter)
 	}
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
+	}
+	if p.Visual.On() {
+		parts = append(parts, listpage.ChipVisual)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -451,27 +500,35 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{resourceAlerts} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
-// When read-only, Dangerous entries ('s') are stripped before returning.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings(resourceAlerts)
+	guarded := p.guarded()
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: resourceAlerts},
-		action.Action{Key: "Space", Description: "mark", View: resourceAlerts, Shared: true},
-		action.Action{Key: "s", Description: "silence", View: resourceAlerts, Dangerous: true},
-		action.Action{Key: "/", Description: "filter", View: resourceAlerts},
-		action.Action{Key: "Shift+F", Description: "state filter", View: resourceAlerts},
+		action.Action{Key: "Enter", Description: "detail", View: ViewName},
+		action.Action{Key: "Space", Description: "mark", View: ViewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: ViewName, Shared: true},
+		action.Action{Key: "s", Description: "silence", View: ViewName, Dangerous: true, Guarded: guarded},
+		action.Action{Key: "/", Description: "filter", View: ViewName},
+		action.Action{Key: "Shift+F", Description: "state filter", View: ViewName},
 	)
+	if p.labels.HasWide() {
+		out = append(out, action.Action{Key: "Shift+W", Description: "wide", View: ViewName})
+	}
 	out = append(out, sortBindings...)
 	// 'r' is global; surface it here for discoverability.
 	out = append(out,
-		action.Action{Key: "Shift+T", Description: "state format", View: resourceAlerts},
-		action.Action{Key: "r", Description: "refresh", View: resourceAlerts},
-		action.Action{Key: "w", Description: "toggle watch", View: resourceAlerts},
+		action.Action{Key: "Shift+T", Description: "state format", View: ViewName},
+		action.Action{Key: "r", Description: "refresh", View: ViewName},
+		action.Action{Key: "w", Description: "toggle watch", View: ViewName},
+		// Last on purpose: the keys do nothing on a terminal wide
+		// enough for every column, and the fixed-size hint strip drops
+		// the tail first.
+		action.Action{Key: "Right", DisplayKey: "←/→", Description: "scroll columns", View: ViewName},
 	)
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out

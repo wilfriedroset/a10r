@@ -31,6 +31,7 @@ const (
 var (
 	validInitAuthModes = []string{authModeNone, authModeBearer, authModeBasic}
 	validInitThemes    = []string{
+		config.ThemeAuto,
 		"catppuccin-mocha",
 		"catppuccin-latte",
 		themeGruvboxDark,
@@ -42,7 +43,7 @@ var (
 // because the starter-config wizard has always offered 30s.
 const (
 	defaultPollInterval = "30s"
-	defaultTheme        = "catppuccin-mocha"
+	defaultTheme        = config.DefaultThemeName
 )
 
 // recognised --kv keys, sorted so the "unknown key" error echo is stable.

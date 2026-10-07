@@ -1,0 +1,40 @@
+<0> all      <?>       help                   </>       filter                 <shift-a> sort by age
+<1> prod     <enter>   detail                 <shift-f> state filter           [-]       reset sort to default
+<2> staging  <space>   mark                   <shift-s> sort by severity       <shift-t> state format
+             <shift-v> mark range             <shift-n> sort by alertname      <r>       refresh
+             <s>       silence                <shift-c> sort by count          <w>       toggle watch
+┌─────────────────────────────────────────────────── alerts(all)[3] ───────────────────────────────────────────────────┐
+│    TENANT           SEVERITY ↓   ALERTNAME                                        COUNT   STATE          AGE         │
+│▸   prod             critical     HighCPU                                          2       2 active       12m ago     │
+│    prod             warning      DiskFillingUp                                    1 →     1 active       3h ago      │
+│    staging          info         CertExpiringSoon                                 1 →     1 active       1d ago      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└────────────────────────────────────────────────── next refresh 1m ───────────────────────────────────────────────────┘
+<alerts>

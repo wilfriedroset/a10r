@@ -5,12 +5,14 @@ package silences
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/matcher"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
@@ -25,7 +27,16 @@ import (
 	"charm.land/bubbles/v2/spinner"
 )
 
+// Update wraps the message switch so every path that rebuilds the
+// view is followed by the anchor check — a filter change, a poll
+// refresh or a scope switch can drop the row an open range hangs
+// off, and the preview must not outlive it.
 func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
+	next, cmd := p.handleMsg(msg)
+	return next, tea.Batch(cmd, listpage.CancelVisualOnLostAnchor(&p.Base, p.view, markKey))
+}
+
+func (p *Page) handleMsg(msg tea.Msg) (app.Page, tea.Cmd) {
 	if handled, cmd := p.HandleSidebandMsg(msg); handled {
 		return p, cmd
 	}
@@ -90,6 +101,9 @@ func (p *Page) handleWriteResult(msg tea.Msg) tea.Cmd {
 		// non-event from the user's perspective.
 		return nil
 	case modal.ConfirmResultMsg:
+		if cmd, mine := p.applyEditConfirm(m); mine {
+			return cmd
+		}
 		return p.handleExpireConfirm(m)
 	case bulkExpireDoneMsg:
 		return p.handleBulkExpireDone(m)
@@ -141,21 +155,23 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 		cmd := p.drillToDetail()
 		return p, cmd
 	case "n":
-		cmd := p.runWriteAction(p.openNewSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceCreate, p.openNewSilenceForm)
 		return p, cmd
 	case "e":
-		cmd := p.runWriteAction(p.openEditSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceUpdate, p.openEditSilenceForm)
 		return p, cmd
 	case "x", "delete":
-		cmd := p.runWriteAction(p.openExpireConfirmUnified)
+		cmd := p.runWriteAction(guardrail.ActionSilenceExpire, p.openExpireConfirmUnified)
 		return p, cmd
 	case "space":
-		p.toggleMarkAtCursor()
+		listpage.MarkOrCommit(&p.Base, p.view, p.marks, markKey)
+	case "V":
+		listpage.StartOrCommitVisual(&p.Base, p.view, p.marks, markKey)
 	case "ctrl+e":
-		cmd := p.runWriteAction(p.openEditorForCursor)
+		cmd := p.runWriteAction(guardrail.ActionSilenceUpdate, p.openEditorForCursor)
 		return p, cmd
 	case "ctrl+n":
-		cmd := p.runWriteAction(p.openRecreateSilenceForm)
+		cmd := p.runWriteAction(guardrail.ActionSilenceRecreate, p.openRecreateSilenceForm)
 		return p, cmd
 	case "r":
 		cmd := p.requestRefresh()
@@ -169,16 +185,86 @@ func (p *Page) handleAction(m tea.KeyPressMsg) (app.Page, tea.Cmd) {
 
 func (p *Page) toggleWatch() { listpage.ToggleWatch(&p.Base, &p.PollingUI) }
 
-// runWriteAction is the read-only gate applied to every Dangerous
-// keypress on the page. When the page is read-only it short-circuits
-// with a single Warn flash; otherwise it dispatches the wrapped
-// handler. Centralised here so the read-only contract has one
-// touch-point and a stray new write verb cannot bypass it.
-func (p *Page) runWriteAction(action func() tea.Cmd) tea.Cmd {
-	if p.readOnly {
-		return footer.ShowFlash(footer.FlashWarn, hintReadOnly)
+// runWriteAction routes every Dangerous keypress on the page through
+// the write gate, so a stray new write verb cannot bypass it.
+func (p *Page) runWriteAction(name guardrail.Action, action func() tea.Cmd) tea.Cmd {
+	var commit func()
+	if name == guardrail.ActionSilenceExpire {
+		// Expire is the one verb that fans out over marks.
+		commit = func() { listpage.CommitVisual(&p.Base, p.view, p.marks, markKey) }
 	}
-	return action()
+	return listpage.GateWrite(p.session, hintReadOnly, commit,
+		func() guardrail.Request { return p.writeRequest(name) }, action)
+}
+
+// writeRequest asks about the run a press would really fire, so the
+// duplicate tenants are the per-tenant count the cap compares against.
+func (p *Page) writeRequest(name guardrail.Action) guardrail.Request {
+	return p.request(name, p.markedTargets)
+}
+
+// guarded answers the [guarded] suffix. It counts each marked tenant
+// once: a binding outlives any one run, so a cap the current marks
+// happen to breach must not strike the key off the hint strip.
+func (p *Page) guarded(name guardrail.Action) bool {
+	return p.session.Guardrails().Refuses(p.request(name, p.markedTenants))
+}
+
+// request turns the press into its targets; marked resolves the bulk
+// fan-out, the one case the callers count differently.
+//
+// Lead follows the press rather than the rule, so the sentence names
+// the key the user pressed. A bulk expire is the only press this page
+// has a name for; every other one reads back as the rule to edit.
+func (p *Page) request(name guardrail.Action, marked func() []string) guardrail.Request {
+	switch {
+	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
+		return guardrail.Request{Action: name, Tenants: marked(), Lead: "bulk expire"}
+	case name == guardrail.ActionSilenceCreate:
+		if t, ok := p.pickWriteTarget(); ok {
+			return guardrail.Request{Action: name, Tenants: []string{t}}
+		}
+	case p.Index() < len(p.view):
+		return guardrail.Request{Action: name, Tenants: []string{p.view[p.Index()].tenant}}
+	}
+	return guardrail.Request{Action: name}
+}
+
+// markedTargets names the tenant of every marked silence, once per
+// silence and in a stable order. It walks byTenant rather than the
+// filtered view because openBulkExpireConfirm queues from byTenant
+// too: a mark the active filter hides still reaches the write, so the
+// policy has to count the same rows. A mark on a tenant with no
+// writeable client is kept for the same reason — refusing a press that
+// would have failed anyway costs nothing, and dropping it would let a
+// capped tenant through whenever its client is missing.
+func (p *Page) markedTargets() []string {
+	var out []string
+	for tenant, sils := range p.byTenant {
+		for _, s := range sils {
+			if _, marked := p.marks[s.ID]; marked {
+				out = append(out, tenant)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// markedTenants serves the callers that ask per backend rather than
+// per row.
+func (p *Page) markedTenants() []string {
+	var out []string
+	for tenant, sils := range p.byTenant {
+		for _, s := range sils {
+			if _, marked := p.marks[s.ID]; marked {
+				out = append(out, tenant)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // hintReadOnly is the flash text emitted when a write keystroke
@@ -205,23 +291,11 @@ func (p *Page) drillToDetail() tea.Cmd {
 }
 
 func (p *Page) requestRefresh() tea.Cmd {
-	return listpage.RequestRefresh(&p.Base, &p.PollingUI, resourceSilences)
+	return listpage.RequestRefresh(&p.Base, &p.PollingUI, ViewName)
 }
 
-// handleClearMarks drops every mark on the page in response to
-// the global Ctrl+\ binding. Flashes "marks cleared" when the
-// pre-clear count was non-zero so the user sees confirmation;
-// silently no-ops otherwise.
 func (p *Page) handleClearMarks() tea.Cmd {
-	if len(p.marks) == 0 {
-		return nil
-	}
-	p.marks = map[string]struct{}{}
-	return footer.ShowFlash(footer.FlashInfo, "marks cleared")
-}
-
-func (p *Page) toggleMarkAtCursor() {
-	listpage.ToggleMarkAtCursor(p.view, p.Index(), p.marks, func(e silenceEntry) string { return e.s.ID })
+	return listpage.ClearMarks(&p.Base, p.marks)
 }
 
 // openEditSilenceForm pushes the silence form in edit mode
@@ -257,18 +331,21 @@ func (p *Page) openEditSilenceForm() tea.Cmd {
 	tenant := entry.tenant
 	s := entry.s
 	submitCtx := p.submitCtx
+	sess := p.session
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  s.Matchers,
-			Comment:   s.Comment,
-			EndsAt:    s.EndsAt,
-			EditID:    s.ID,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   s.Matchers,
+			Comment:    s.Comment,
+			EndsAt:     s.EndsAt,
+			EditID:     s.ID,
+			Guardrails: sess.Guardrails(),
+			Action:     guardrail.ActionSilenceUpdate,
+			SubmitCtx:  submitCtx,
 		})
 	})
 }
@@ -295,16 +372,18 @@ func (p *Page) recreateFormOptions() (silenceform.Options, tea.Cmd, bool) {
 		return silenceform.Options{}, footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend), false
 	}
 	return silenceform.Options{
-		Clients:   p.clients,
-		Tenant:    entry.tenant,
-		Styles:    p.styles,
-		Now:       p.now,
-		Creator:   p.defaultCreator(),
-		Matchers:  entry.s.Matchers,
-		Comment:   entry.s.Comment,
-		BlankEnds: true,
-		FocusEnds: true,
-		SubmitCtx: p.submitCtx,
+		Clients:    p.clients,
+		Tenant:     entry.tenant,
+		Styles:     p.styles,
+		Now:        p.now,
+		Creator:    p.defaultCreator(),
+		Matchers:   entry.s.Matchers,
+		Comment:    entry.s.Comment,
+		BlankEnds:  true,
+		FocusEnds:  true,
+		Guardrails: p.session.Guardrails(),
+		Action:     guardrail.ActionSilenceRecreate,
+		SubmitCtx:  p.submitCtx,
 	}, nil, true
 }
 
@@ -324,10 +403,12 @@ func (p *Page) openRecreateSilenceForm() tea.Cmd {
 // session and its FinishedMsg. id is the silence ID; tenant is
 // the backend the silence belongs to (cached at open time so a
 // poll-tick reordering between open and save still routes the
-// update correctly).
+// update correctly). round tells two rounds on the same silence
+// apart, so a write result only settles the round that sent it.
 type pendingEdit struct {
 	id     string
 	tenant string
+	round  uint64
 }
 
 // editorUpdateResultMsg carries the outcome of the asynchronous
@@ -360,17 +441,64 @@ func (p *Page) openEditorForCursor() tea.Cmd {
 	if _, ok := p.clients[entry.tenant]; !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
+	if cmd, asked := p.confirmEdit(entry); asked {
+		return cmd
+	}
+	return p.startEditor(entry)
+}
+
+// startEditor hands one captured row to the editor. It takes the row
+// rather than reading the cursor, so a round resumed after a
+// confirmation edits the silence the question named.
+func (p *Page) startEditor(entry silenceEntry) tea.Cmd {
 	body, err := silenceToYAML(entry.s)
 	if err != nil {
 		return footer.ShowFlash(footer.FlashError, "yaml encode: "+err.Error())
 	}
-	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant}
+	p.editRounds++
+	p.pendingEdit = pendingEdit{id: entry.s.ID, tenant: entry.tenant, round: p.editRounds}
 	return p.editor.Edit(edit.Request{
 		ResourceID: entry.s.ID,
 		Initial:    string(body),
 		Extension:  editorExtensionYAML,
 		Ctx:        p.editorCtx,
 	})
+}
+
+// confirmEdit asks the confirmation a guardrail rule demands before
+// the editor takes over the screen. Ctrl+E is the one silence.update
+// route that never opens the form, so the prompt the form owns at
+// submit has to live here as well, or the same verb would be asked on
+// one route and waved through on the other. A deny is already refused
+// upstream in runWriteAction.
+func (p *Page) confirmEdit(entry silenceEntry) (tea.Cmd, bool) {
+	d := p.session.Guardrails().Decide(guardrail.Request{
+		Action:  guardrail.ActionSilenceUpdate,
+		Tenants: []string{entry.tenant},
+	})
+	if d.Confirm == "" {
+		return nil, false
+	}
+	captured := entry
+	p.pendingEditConfirm = &captured
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewGuardedConfirm("edit silence "+entry.s.ID+"?", modal.ConfirmDefaultNo, d.Typed)
+	}), true
+}
+
+// applyEditConfirm claims a confirm result the editor prompt asked
+// for. The expire flow reads the same message type, so the latch says
+// which question the answer belongs to.
+func (p *Page) applyEditConfirm(m modal.ConfirmResultMsg) (tea.Cmd, bool) {
+	if p.pendingEditConfirm == nil {
+		return nil, false
+	}
+	entry := *p.pendingEditConfirm
+	p.pendingEditConfirm = nil
+	if m.Cancelled || !m.Yes {
+		return nil, true
+	}
+	return p.startEditor(entry), true
 }
 
 // handleEditorFinished consumes a FinishedMsg arriving after an
@@ -423,19 +551,13 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 	// editor with the user's typed content preserved, mirroring the
 	// id-mismatch path above. Losing the user's edits to a transient
 	// 5xx is the user-pain that motivates this branch.
-	tenant := pending.tenant
-	if tenant == "" {
-		// Defensive — pending was cleared between open and finish
-		// (concurrent close, etc.). Look up the silence's tenant
-		// from the current view via the parsed ID.
-		for _, e := range p.view {
-			if e.s.ID == id {
-				tenant = e.tenant
-				break
-			}
-		}
+	if pending.tenant == "" {
+		// Every round opens with its tenant, after the rule's
+		// confirmation; writing a tenant picked now would skip it.
+		p.pendingEdit = pendingEdit{}
+		return footer.ShowFlash(footer.FlashError, "no editor round for silence "+id)
 	}
-	client, ok := p.clients[tenant]
+	client, ok := p.clients[pending.tenant]
 	if !ok {
 		// No retry path the user can drive from here: the tenant
 		// vanished between open and save. Clear pendingEdit and
@@ -448,8 +570,8 @@ func (p *Page) handleEditorFinished(m edit.FinishedMsg) tea.Cmd {
 }
 
 // dispatchEditorUpdate runs UpdateSilence asynchronously so a slow
-// backend doesn't block Update. The mu-guarded cancel handle lets
-// Close() abort the in-flight write; editorCtx propagates app-level
+// backend doesn't block Update. The cancel handle lets Close() abort
+// the in-flight write; editorCtx propagates app-level
 // shutdown when set. pending is threaded through so a failed write
 // can reopen the editor with the user's content preserved.
 func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec backend.SilenceSpec, pending pendingEdit, content string) tea.Cmd {
@@ -458,22 +580,16 @@ func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec b
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	p.mu.Lock()
 	if p.cancelEditorUpdate != nil {
-		// A previous editor write was somehow still in flight;
-		// cancel it so we don't have two writes racing.
+		// A second Ctrl+E saved while the earlier write was still in
+		// flight; cancel it so we don't have two writes racing.
 		p.cancelEditorUpdate()
 	}
 	p.cancelEditorUpdate = cancel
-	p.mu.Unlock()
-	clearCancel := func() {
-		p.mu.Lock()
-		p.cancelEditorUpdate = nil
-		p.mu.Unlock()
-		cancel()
-	}
 	return func() tea.Msg {
-		defer clearCancel()
+		// The slot keeps this cancel: a newer round can own it by the
+		// time this returns, and a spent cancel is a no-op.
+		defer cancel()
 		err := client.UpdateSilence(ctx, id, spec)
 		return editorUpdateResultMsg{
 			id:      id,
@@ -487,9 +603,17 @@ func (p *Page) dispatchEditorUpdate(client silenceform.Client, id string, spec b
 // handleEditorUpdateResult resolves the async UpdateSilence
 // outcome. On failure, the editor is reopened with the user's
 // typed YAML preserved (same retry pattern as the id-mismatch path).
+//
+// A result can land after a second Ctrl+E opened a newer round,
+// since nothing holds the key while a write is in flight. Such a
+// result only reports: ending or reopening over the newer round
+// would drop its tenant or bury its buffer.
 func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 	if m.err != nil {
 		flash := footer.ShowFlash(footer.FlashError, "update: "+m.err.Error())
+		if m.pending != p.pendingEdit {
+			return flash
+		}
 		reopen := p.editor.Edit(edit.Request{
 			ResourceID: m.pending.id,
 			Initial:    m.content,
@@ -498,7 +622,9 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 		})
 		return tea.Batch(flash, reopen)
 	}
-	p.pendingEdit = pendingEdit{}
+	if m.pending == p.pendingEdit {
+		p.pendingEdit = pendingEdit{}
+	}
 	auditSilenceWrite("updated", m.id, "editor")
 	return footer.ShowFlash(footer.FlashSuccess, "silence updated: "+m.id)
 }
@@ -513,7 +639,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 // silences view) the form's matchers are prefilled from the alert's
 // labels — same prefill as alert-detail `s` (ADR 0035).
 func (p *Page) openNewSilenceForm() tea.Cmd {
-	tenant, _, ok := p.pickWriteTarget()
+	tenant, ok := p.pickWriteTarget()
 	if !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
@@ -522,19 +648,22 @@ func (p *Page) openNewSilenceForm() tea.Cmd {
 	styles := p.styles
 	clients := p.clients
 	submitCtx := p.submitCtx
+	sess := p.session
 	var matchers []backend.Matcher
 	if len(p.alertLabels) > 0 {
 		matchers = matcher.FromLabels(p.alertLabels)
 	}
 	return app.PushPage(func() app.Page {
 		return silenceform.New(silenceform.Options{
-			Clients:   clients,
-			Tenant:    tenant,
-			Styles:    styles,
-			Now:       now,
-			Creator:   creator,
-			Matchers:  matchers,
-			SubmitCtx: submitCtx,
+			Clients:    clients,
+			Tenant:     tenant,
+			Styles:     styles,
+			Now:        now,
+			Creator:    creator,
+			Matchers:   matchers,
+			Guardrails: sess.Guardrails(),
+			Action:     guardrail.ActionSilenceCreate,
+			SubmitCtx:  submitCtx,
 		})
 	})
 }
@@ -551,18 +680,18 @@ func (p *Page) defaultCreator() string {
 	return "a10r"
 }
 
-// pickWriteTarget returns the tenant + client to send a write to.
+// pickWriteTarget returns the tenant to send a write to.
 // Cursor row's tenant wins when a row is focused; otherwise falls
 // back to the first in-scope tenant (alphabetical for stability).
-// Returns (_, _, false) when nothing usable is configured.
-func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
+// Returns ("", false) when nothing usable is configured.
+func (p *Page) pickWriteTarget() (string, bool) {
 	if len(p.clients) == 0 {
-		return "", nil, false
+		return "", false
 	}
 	if p.Index() < len(p.view) {
 		t := p.view[p.Index()].tenant
-		if c, ok := p.clients[t]; ok {
-			return t, c, true
+		if _, ok := p.clients[t]; ok {
+			return t, true
 		}
 	}
 	names := make([]string, 0, len(p.clients))
@@ -572,10 +701,10 @@ func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 	sort.Strings(names)
 	for _, t := range names {
 		if p.ScopeIncludes(t) {
-			return t, p.clients[t], true
+			return t, true
 		}
 	}
-	return "", nil, false
+	return "", false
 }
 
 // auditSilenceWrite emits the success-path audit record on every

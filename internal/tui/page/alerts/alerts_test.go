@@ -15,16 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
+	"github.com/wilfriedroset/a10r/internal/tui/form/silence/silencetest"
 	"github.com/wilfriedroset/a10r/internal/tui/header"
 	"github.com/wilfriedroset/a10r/internal/tui/modal"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alert"
 	"github.com/wilfriedroset/a10r/internal/tui/page/groupdetail"
 	"github.com/wilfriedroset/a10r/internal/tui/page/pagetest"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -37,8 +41,9 @@ var fixedNow = time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
 func newPage(t *testing.T) *Page {
 	t.Helper()
 	return New(Options{
-		Styles: pagetest.Styles(t),
-		Now:    func() time.Time { return fixedNow },
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: testutil.Session(),
 	})
 }
 
@@ -92,6 +97,7 @@ func TestAggregate_SameAlertnameDistinctTenantsDoNotMerge(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod", "stg"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp-prod", time.Minute, nil),
@@ -421,7 +427,7 @@ func TestSort_TotalOrderTieBreakAlertnameThenTenant(t *testing.T) {
 		{tenant: "a", alertName: "Same", count: 1, severityRank: 2},
 		{tenant: "m", alertName: "Other", count: 1, severityRank: 2},
 	}
-	cols := alertSortColumns()
+	cols := alertSortColumns(nil)
 	var sevLess func(a, b *alertGroup) bool
 	for _, c := range cols {
 		if c.Key == sortKeySeverity {
@@ -437,7 +443,7 @@ func TestSort_TotalOrderTieBreakAlertnameThenTenant(t *testing.T) {
 func TestSort_StateSortDropped(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range alertSortColumns() {
+	for _, c := range alertSortColumns(nil) {
 		require.NotEqual(t, "state", c.Key, "the state sort column must be dropped")
 	}
 }
@@ -466,7 +472,7 @@ func TestStateFormat_ChangedMsgFlipsDensity(t *testing.T) {
 func TestStateFormat_ZeroValueOptionDefaultsFull(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: testutil.Session()})
 	require.Equal(t, stateformat.Full, p.stateFormat, "zero-value Options opens in Full")
 }
 
@@ -537,7 +543,7 @@ func TestSilenceAll_ConfirmGateFiresOnlyForCountGreaterThanOne(t *testing.T) {
 
 	t.Run("count==1 pushes form directly", func(t *testing.T) {
 		t.Parallel()
-		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients})
+		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients, Session: testutil.Session()})
 		_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 			mkAlert("Solo", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 		}})
@@ -551,7 +557,7 @@ func TestSilenceAll_ConfirmGateFiresOnlyForCountGreaterThanOne(t *testing.T) {
 
 	t.Run("count>1 opens confirm modal", func(t *testing.T) {
 		t.Parallel()
-		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients})
+		p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Clients: clients, Session: testutil.Session()})
 		_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 			mkAlert("Multi", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 			mkAlert("Multi", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
@@ -585,7 +591,7 @@ func TestSilenceAll_ScopeNoteWording(t *testing.T) {
 	t.Run("substring filter active", func(t *testing.T) {
 		t.Parallel()
 		p := newPage(t)
-		p.Filter = "host"
+		require.True(t, p.SetFilter("host"))
 		require.Equal(t,
 			"Silencing ALL instances of alertname=HighCPU — the active filter (filter host) is NOT applied",
 			p.silenceAllScopeNote(g))
@@ -594,7 +600,7 @@ func TestSilenceAll_ScopeNoteWording(t *testing.T) {
 	t.Run("both filters active", func(t *testing.T) {
 		t.Parallel()
 		p := newPage(t)
-		p.Filter = "host"
+		require.True(t, p.SetFilter("host"))
 		p.stateFilter = "active"
 		require.Equal(t,
 			"Silencing ALL instances of alertname=HighCPU — the active filter (filter host, state active) is NOT applied",
@@ -626,6 +632,7 @@ func TestBulkSilenceAll_FansOutOneAlertnameSilencePerMarkedGroup(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": client},
 		Creator: "wilfried",
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "c1", time.Minute, map[string]string{"instance": "a"}),
@@ -675,6 +682,7 @@ func TestBulkSilenceAll_OneMarkPushesFormDirectly(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "c1", time.Minute, nil),
@@ -726,6 +734,7 @@ func TestBulkSilenceAll_RetainsMarksOnFailureAndFlashes(t *testing.T) {
 			Styles:  pagetest.Styles(t),
 			Now:     func() time.Time { return fixedNow },
 			Clients: map[string]silenceform.Client{"prod": client},
+			Session: testutil.Session(),
 		})
 		markBoth(t, p)
 		diskKey := "prod\x00DiskFull"
@@ -751,6 +760,7 @@ func TestBulkSilenceAll_RetainsMarksOnFailureAndFlashes(t *testing.T) {
 			Styles:  pagetest.Styles(t),
 			Now:     func() time.Time { return fixedNow },
 			Clients: map[string]silenceform.Client{"prod": client},
+			Session: testutil.Session(),
 		})
 		markBoth(t, p)
 
@@ -792,6 +802,7 @@ func TestPage_CloseCancelsInFlightBulkFanout(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
 	})
 	cancelled := false
 	p.cancelBulk = func() { cancelled = true }
@@ -823,7 +834,7 @@ func TestMarks_KeyedByGroupKey(t *testing.T) {
 func TestReadOnly_StripsSilenceBinding(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, ReadOnly: true})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}})})
 	for _, b := range p.Bindings() {
 		require.NotEqual(t, "s", b.Key, "read-only mode hides the silence binding")
 	}
@@ -832,7 +843,7 @@ func TestReadOnly_StripsSilenceBinding(t *testing.T) {
 func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 	t.Parallel()
 
-	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, ReadOnly: true})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: session.New(config.Config{Defaults: config.Defaults{ReadOnly: true}})})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
 	}})
@@ -841,6 +852,163 @@ func TestReadOnly_SilenceKeyFlashesHint(t *testing.T) {
 	msg := cmd().(footer.FlashShowMsg)
 	require.Equal(t, footer.FlashWarn, msg.Level)
 	require.Contains(t, msg.Text, "read-only")
+}
+
+func guardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Session: session.New(config.Config{Guardrails: rules}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	return p
+}
+
+func TestGuardrail_DenyKeepsTheBindingButMarksIt(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"prod-*"}, Deny: true}})
+	var found bool
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			found = true
+			require.True(t, b.Guarded, "a denied verb is marked, not dropped")
+		}
+	}
+	require.True(t, found, "the help overlay still needs the silence row")
+}
+
+func TestGuardrail_SilenceKeyFlashesTheDeny(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "silence.create denied on prod-eu: use the change ticket", msg.Text)
+}
+
+func TestGuardrail_ARuleOnAnotherTenantLeavesTheVerbAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Tenants: []string{"staging"}, Deny: true}})
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+		}
+	}
+}
+
+// twoTenantGuardedPage puts one group on a denied tenant and one on an
+// allowed tenant, so a test can leave the cursor on the allowed row and
+// still reach the denied one through marks.
+func twoTenantGuardedPage(t *testing.T, rules guardrail.Set) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles: pagetest.Styles(t),
+		Now:    func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{
+			"prod-eu": &fakeSilenceClient{},
+			"staging": &fakeSilenceClient{},
+		},
+		Session: session.New(config.Config{Guardrails: rules}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "staging", Resource: []backend.Alert{
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 2)
+	return p
+}
+
+// moveCursorTo walks the cursor down to idx the way a user would.
+func moveCursorTo(t *testing.T, p *Page, idx int) {
+	t.Helper()
+	for range len(p.groups) {
+		if p.Index() == idx {
+			break
+		}
+		key := "j"
+		if p.Index() > idx {
+			key = "k"
+		}
+		_, _ = p.Update(tea.KeyPressMsg{Code: rune(key[0]), Text: key})
+	}
+	require.Equal(t, idx, p.Index())
+}
+
+// tenantRow reports which row sits on the named tenant, so a test does
+// not depend on the sort order the page happens to pick.
+func tenantRow(t *testing.T, p *Page, tenant string) int {
+	t.Helper()
+	for i, g := range p.groups {
+		if g.tenant == tenant {
+			return i
+		}
+	}
+	t.Fatalf("no row on tenant %s", tenant)
+	return -1
+}
+
+// TestGuardrail_AMarkOnADeniedTenantStopsThePress covers the fan-out
+// branch: the cursor sits on an allowed row, so only the marked tenant
+// can refuse the press.
+func TestGuardrail_AMarkOnADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := twoTenantGuardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	moveCursorTo(t, p, tenantRow(t, p, "prod-eu"))
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	moveCursorTo(t, p, tenantRow(t, p, "staging"))
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a denied press flashes instead of opening the form")
+	require.Equal(t, "bulk silence denied on prod-eu: use the change ticket", msg.Text)
+	require.Len(t, p.marks, 1, "a refusal keeps the marks the user set")
+}
+
+// TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress covers the
+// range branch: the rows are not marked until `s` commits them, so the
+// check has to run after the commit or the range slips through.
+func TestGuardrail_AVisualRangeOverADeniedTenantStopsThePress(t *testing.T) {
+	t.Parallel()
+
+	p := twoTenantGuardedPage(t, guardrail.Set{
+		{Tenants: []string{"prod-*"}, Deny: true, Reason: "use the change ticket"},
+	})
+	moveCursorTo(t, p, tenantRow(t, p, "prod-eu"))
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	moveCursorTo(t, p, tenantRow(t, p, "staging"))
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a denied press flashes instead of opening the confirm modal")
+	require.Equal(t, "bulk silence denied on prod-eu: use the change ticket", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+}
+
+func TestGuardrail_ARuleOnAnotherVerbLeavesSilenceAlone(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{Actions: []string{"silence.expire"}, Deny: true}})
+	for _, b := range p.Bindings() {
+		if b.Key == "s" {
+			require.False(t, b.Guarded)
+		}
+	}
 }
 
 // --- Bindings --------------------------------------------------------
@@ -888,6 +1056,7 @@ func TestInfra_DropsDataMsgFromUnknownTenant(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod"},
+		Session: testutil.Session(),
 	})
 	p.SetScope("prod")
 	_, _ = p.Update(poll.DataMsg{Tenant: "stg", Resource: []backend.Alert{
@@ -904,6 +1073,7 @@ func TestInfra_TenantColumnAppearsForMultiBackendScope(t *testing.T) {
 		Now:     func() time.Time { return fixedNow },
 		Scope:   "all",
 		Tenants: []string{"prod", "stg"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "p1", time.Minute, nil),
@@ -920,6 +1090,7 @@ func TestInfra_TenantColumnHiddenForSingleBackend(t *testing.T) {
 		Styles:  pagetest.Styles(t),
 		Now:     func() time.Time { return fixedNow },
 		Tenants: []string{"prod"},
+		Session: testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
 		mkAlert("HighCPU", "warning", backend.AlertStateActive, "p1", time.Minute, nil),
@@ -982,6 +1153,7 @@ func TestInfra_InitialFilterPreseeds(t *testing.T) {
 		Styles:        pagetest.Styles(t),
 		Now:           func() time.Time { return fixedNow },
 		InitialFilter: "disk",
+		Session:       testutil.Session(),
 	})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
 		mkAlert("HighCPU", "critical", backend.AlertStateActive, "f1", time.Minute, nil),
@@ -998,6 +1170,7 @@ func TestInfra_InitialStateFilterPreseeds(t *testing.T) {
 		Styles:             pagetest.Styles(t),
 		Now:                func() time.Time { return fixedNow },
 		InitialStateFilter: "suppressed",
+		Session:            testutil.Session(),
 	})
 	require.Equal(t, "suppressed", p.stateFilter, "constructor seeds the state filter")
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
@@ -1061,4 +1234,353 @@ func (f *fakeSilenceClient) callsCopy() []backend.SilenceSpec {
 	out := make([]backend.SilenceSpec, len(f.calls))
 	copy(out, f.calls)
 	return out
+}
+
+// TestGuardrail_TheInstancePageInheritsThePolicy pins the wiring: the
+// drill-down builds the alert detail page here, so a page built with
+// an empty rule set would let a denied silence through one Enter away
+// from a guarded list.
+func TestGuardrail_TheInstancePageInheritsThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := guardedPage(t, guardrail.Set{{
+		Tenants: []string{"prod-*"},
+		Actions: []string{"silence.create"},
+		Deny:    true,
+	}})
+
+	page, ok := p.buildInstancePage(p.groups[0]).(*alert.Page)
+	require.True(t, ok)
+	for _, b := range page.Bindings() {
+		if b.Key == "s" {
+			require.True(t, b.Guarded, "the pushed page reads the same rules")
+			return
+		}
+	}
+	t.Fatal("the pushed page must keep its silence row")
+}
+
+// cappedMarksPage marks three prod-eu groups under a max_bulk of two,
+// the smallest shape that breaches the cap.
+func cappedMarksPage(t *testing.T) *Page {
+	t.Helper()
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants: []string{"prod-eu"},
+			Actions: []string{"silence.create"},
+			MaxBulk: new(2),
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+		mkAlert("OOM", "warning", backend.AlertStateActive, "fp3", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 3)
+	for range p.groups {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 3)
+	return p
+}
+
+// TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal pins the cap
+// rule on the alerts page: the check runs before the confirm modal and
+// the marks survive, so the user can narrow the selection and retry.
+func TestGuardrail_TheCapStopsTheBulkSilenceBeforeTheModal(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a capped run flashes instead of opening the confirm modal")
+	require.Equal(t, footer.FlashWarn, msg.Level)
+	require.Equal(t, "bulk silence on prod-eu: 3 targets exceed max_bulk 2", msg.Text)
+	require.Empty(t, p.pendingBulkSilence.targets, "nothing is queued for a write")
+	require.Len(t, p.marks, 3, "the marks stay so the user can narrow them")
+}
+
+// TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip splits the run
+// from the binding: a binding outlives any one run, so a cap the
+// current marks happen to breach refuses the press without striking
+// `s` off the hint strip.
+func TestGuardrail_ABreachedCapLeavesTheKeyOnTheHintStrip(t *testing.T) {
+	t.Parallel()
+
+	p := cappedMarksPage(t)
+	require.Empty(t, guardedKeys(p), "a breached cap refuses this run, not the binding")
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok)
+	require.Equal(t, "bulk silence on prod-eu: 3 targets exceed max_bulk 2", msg.Text)
+}
+
+// guardedKeys lists the keys the page currently reports as guarded, so
+// a test names the whole outcome rather than one binding at a time.
+func guardedKeys(p *Page) []string {
+	var out []string
+	for _, b := range p.Bindings() {
+		if b.Guarded {
+			out = append(out, b.Key)
+		}
+	}
+	return out
+}
+
+// TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal pins the stronger
+// prompt on the bulk silence path of this page.
+func TestGuardrail_ATypedRuleReplacesTheBulkSilenceModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("LowDisk", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	for range p.groups {
+		_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+		_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	require.Len(t, p.marks, 2)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+}
+
+// TestGuardrail_ATypedRuleReplacesTheSilenceAllModal pins the stronger
+// prompt on the cursor silence-all of a group with several instances.
+func TestGuardrail_ATypedRuleReplacesTheSilenceAllModal(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	require.Len(t, p.groups, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+}
+
+// TestGuardrail_TheSilenceAllFormCarriesThePolicy pins the form gate on
+// the silence-all path of a group with one instance, which skips the
+// blast-radius modal and pushes the form straight away.
+func TestGuardrail_TheSilenceAllFormCarriesThePolicy(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("Solo", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, silencetest.SubmitModal(t, cmd, ""))
+}
+
+// TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm pins that one
+// write asks once. The blast-radius modal already collected the typed
+// answer for this tenant, so the form it pushes writes on submit
+// instead of asking the same question a second time.
+func TestGuardrail_TheSilenceAllModalAnswerCarriesToTheForm(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": client},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, cmd))
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	submit := silencetest.Submit(t, push, "")
+	require.NotNil(t, submit)
+	_ = submit()
+	require.Len(t, client.calls, 1, "the answered modal lets the submit write")
+}
+
+// TestGuardrail_APlainRuleAsksOnASingleMarkedTarget keeps the weaker
+// level on the same route, so the one-target gate reads the rule and
+// not only its typed flavour.
+func TestGuardrail_APlainRuleAsksOnASingleMarkedTarget(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSilenceClient{}
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": client},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationPlain,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.IsType(t, &modal.Confirm{}, pagetest.OpenedModal(t, cmd))
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}
+
+// TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget closes the hole a
+// one-target run left: the page skips its blast-radius modal at one
+// mark, and the bulk form leaves policy to the page, so nothing asked.
+func TestGuardrail_ATypedRuleAsksOnASingleMarkedTarget(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{
+			Tenants:      []string{"prod-eu"},
+			Actions:      []string{"silence.create"},
+			Confirmation: guardrail.ConfirmationTypeTenantName,
+		}}}),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Len(t, p.marks, 1)
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	m := pagetest.OpenedModal(t, cmd)
+	require.IsType(t, &modal.TypedConfirm{}, m)
+	require.Contains(t, m.View(70, 14), `type "prod-eu" to confirm`)
+	require.NotContains(t, m.View(70, 14), "1 alerts?", "one target reads as one alert")
+
+	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
+}
+
+// TestGuardrail_TheBulkFormCarriesNoPolicy holds the two files in
+// agreement: the form emits BulkSubmittedMsg before its own gate runs,
+// so a verb handed over here would name a check nothing runs. This
+// page cleared the run already.
+func TestGuardrail_TheBulkFormCarriesNoPolicy(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod-eu": &fakeSilenceClient{}},
+		Session: session.New(config.Config{Guardrails: guardrail.Set{{Deny: true}}}),
+	})
+
+	opts := p.bulkFormOptions(pendingBulkSilence{
+		targets: []bulkSilenceTarget{{Key: "k", Tenant: "prod-eu", AlertName: "HighCPU"}},
+		tenants: []string{"prod-eu"},
+	})
+
+	require.Empty(t, opts.Action, "the options carry no verb")
+	require.Empty(t, opts.Guardrails, "a bulk form carries no policy")
+	require.True(t, opts.Bulk)
+}
+
+// A `:reload` that tightens read_only reaches this page while it is
+// already on the stack. The hint strip and the help overlay both
+// re-read Bindings(), so a page that kept a copy would still
+// advertise a key it now refuses.
+func TestBindingsFollowReadOnlyAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: sess})
+	require.True(t, hasBinding(p.Bindings(), "s"), "a writable page starts with the silence verb")
+
+	sess.Apply(config.Config{Defaults: config.Defaults{ReadOnly: true}})
+	require.False(t, hasBinding(p.Bindings(), "s"), "read-only must hide the verb without a restart")
+
+	sess.Apply(config.Config{})
+	require.True(t, hasBinding(p.Bindings(), "s"), "loosening read_only must bring the verb back")
+}
+
+// A reload that adds a deny rule and touches no read_only flag is the
+// case that used to leave an open page permissive.
+func TestGuardrailAppliesAfterApply(t *testing.T) {
+	t.Parallel()
+
+	sess := session.New(config.Config{})
+	p := New(Options{Styles: pagetest.Styles(t), Now: func() time.Time { return fixedNow }, Session: sess})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod-eu", Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+
+	sess.Apply(config.Config{Guardrails: guardrail.Set{{
+		Tenants: []string{"prod-eu"}, Deny: true, Reason: "change freeze",
+	}}})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	require.Equal(t,
+		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on prod-eu: change freeze"},
+		cmd())
+}
+
+// TestGroupDetail_PollsTheAlertsResource pins the poll label the
+// group detail page shares with this one. groupdetail cannot import
+// this package (the drill runs the other way), so it keeps its own
+// copy; a drift would leave the drilled page without data.
+func TestGroupDetail_PollsTheAlertsResource(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, (*Page)(nil).PollResources(), (*groupdetail.Page)(nil).PollResources())
 }

@@ -103,13 +103,24 @@ $ a10r silences expire sil-1 --dry-run -o json
 ]
 ```
 
+The lines mode and the `silences list` table backslash-escape each
+matcher value, so a regex `\d` prints as `\\d`. The `json` and `yaml`
+plans keep the `--matcher` form.
+
 A create/recreate plan carries the resolved `matchers`, `starts_at`,
 `ends_at`, `comment`, and `created_by` (but no `id` — that is minted at
 apply); a skipped target carries a `skip` reason; a target in a
-read-only backend carries `read_only: true` (dry-run plans even under
-read-only — it never writes, so it is never refused). The dry-run exit
-code mirrors the real run's pre-mutation phase, so a clean dry-run is a
-true pre-commit gate (see [exit-codes.md](exit-codes.md)).
+read-only backend carries `read_only: true` (the plan still renders
+under read-only, but it exits `1` as the apply would); a target a
+`guardrails:` rule would refuse carries `guardrail` with the short
+reason (`denied`, or `denied: <reason>` when the rule has one,
+`max_bulk 20 exceeded`, `needs --confirm-tenant
+prod-eu`), which the lines mode prints as a trailing `[guardrail: …]`.
+Match a deny on the `denied` prefix, not the whole value, because a
+deny with a reason reads `denied: <reason>`.
+The dry-run exit code mirrors the real run's pre-mutation phase, so a
+clean dry-run is a true pre-commit gate (see
+[exit-codes.md](exit-codes.md)).
 
 ## Errors
 
@@ -164,6 +175,12 @@ release.
 - HTML escaping is disabled: URLs in alert annotations / labels
   retain literal `&`, `<`, `>` so jq pipelines see human-readable
   values rather than `&`-style escapes.
+- A silence's comment, author and matchers come out exactly as the
+  backend stored them, newlines and tabs included, so a script can
+  write them back unchanged. The `table` and lines modes and the TUI
+  replace each control character with a space for display. Alert
+  labels, annotations and receiver names are cleaned before any
+  output, so `json` and `yaml` show them with that substitution.
 - YAML output uses 2-space indent (matching the file-side `a10r.yaml`
   convention) and yaml.v3's default key ordering, so it reads and
   diffs cleanly. It is a view of the resource, not the config schema —

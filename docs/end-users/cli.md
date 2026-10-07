@@ -24,6 +24,9 @@ without installing it.
 on — the same `<name>` / `all` / `a,b` syntax as the TUI's `:tenant`.
 It defaults to every backend. A `--tenant` value that names no
 configured backend is an error, not a silent empty result.
+Without a subcommand, `--tenant` picks the tenant scope the TUI
+opens on, ahead of a scope remembered by `tui.remember`, without
+replacing the remembered scope.
 
 ```
 a10r alerts list --tenant prod          # only the prod backend
@@ -55,10 +58,13 @@ is `a10r alerts list` → copy a fingerprint → `a10r alerts get <fp>`
 
 ```
 a10r silences create   (--matcher <m>... | --alert <fingerprint>...) \
-                        --comment <text> [--starts <when>] [--ends <when>] [--created-by <who>]
-a10r silences update    <id> [--matcher <m>...] [--starts <when>] [--ends <when>] [--comment <text>] [--created-by <who>]
-a10r silences expire     <id> [<id>...]
-a10r silences recreate  <id> --ends <when> [--comment <text>] [--created-by <who>]
+                        --comment <text> [--starts <when>] [--ends <when>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
+a10r silences update    <id> [--matcher <m>...] [--starts <when>] [--ends <when>] [--comment <text>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
+a10r silences expire     <id> [<id>...] [--confirm-tenant <name>]... [--dry-run]
+a10r silences recreate  <id> --ends <when> [--comment <text>] [--created-by <who>] \
+                        [--confirm-tenant <name>]... [--dry-run]
 ```
 
 - **create** — `--matcher` (repeatable, Prometheus syntax) authors a
@@ -108,6 +114,39 @@ the session is read-only (`--read-only`, `A10R_READ_ONLY`, or
 `defaults.read_only`) or any target backend is individually read-only,
 the command writes nothing and tells you which backend blocked it.
 Narrow `--tenant` to the writable set to proceed.
+
+The same fail-closed rule covers the `guardrails:` policy, which
+restricts write verbs per tenant beyond read-only (see
+[configuration.md](configuration.md#guardrails)). a10r evaluates it
+once the target set is resolved and before the first write. A denied
+verb, or a run that exceeds a tenant's `max_bulk`, refuses the whole
+command, writes nothing, and exits `6`. Every refusal line on stderr
+starts with `guardrail:` and names the verb and the tenant. A `deny`
+rule also quotes its `reason`. A `max_bulk` breach quotes the cap and
+the target count instead.
+
+The command line has no modal, so the two `confirmation` levels act
+differently here than in the TUI:
+
+- `confirmation: plain` does nothing on the command line. The write
+  goes ahead with no prompt and no flag. To stop scripts too, use
+  `type-tenant-name` or `deny`.
+- `confirmation: type-tenant-name` needs **`--confirm-tenant <name>`**
+  (repeatable). It clears the rule for the tenant it names and no
+  other, so a fan-out still has to name each restricted tenant.
+  Without it a10r prints `guardrail: silence.expire on prod-eu
+  requires --confirm-tenant prod-eu` and exits `6`.
+
+`--dry-run` reports the same refusals rather than hiding them: the
+plan line gains `[guardrail: denied]` (or `[guardrail: denied:
+<reason>]` when the rule has a `reason`), `[guardrail: max_bulk 20
+exceeded]`, or `[guardrail: needs --confirm-tenant prod-eu]`, and the
+dry run exits `6`. Read-only is checked first and always wins, so a
+read-only target is never reported as a guardrail refusal: the plan
+line says `[read-only: apply would be refused]` and the dry run exits
+`1`, the code the real run gives. A plan with any read-only target
+exits `1` even when another tenant is refused by a rule, so a wrapper
+that branches on `6` sees `1` for a mixed plan.
 
 ## Output and exit codes
 

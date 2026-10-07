@@ -40,7 +40,7 @@ func benchSilences(n, tenants int) map[string][]backend.Silence {
 // strings.ToLower on every searchable field per row per keystroke.
 func BenchmarkSilenceMatches_500(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchSilences(500, 4)
 	p.recompute()
 	queries := []string{"a", "al", "ale", "alert", "alert4", "alert42"}
@@ -48,7 +48,7 @@ func BenchmarkSilenceMatches_500(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := range b.N {
-		p.Filter = queries[i%len(queries)]
+		p.SetFilter(queries[i%len(queries)])
 		p.recompute()
 	}
 }
@@ -58,7 +58,7 @@ func BenchmarkSilenceMatches_500(b *testing.B) {
 // across 10 tenants).
 func BenchmarkSilencesRecompute_2000(b *testing.B) {
 	styles := testutil.LoadStyles(b)
-	p := New(Options{Styles: styles, Now: time.Now})
+	p := New(Options{Styles: styles, Now: time.Now, Session: testutil.Session()})
 	p.byTenant = benchSilences(2000, 10)
 
 	b.ReportAllocs()

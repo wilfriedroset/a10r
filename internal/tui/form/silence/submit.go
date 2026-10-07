@@ -5,12 +5,16 @@ package silence
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/modal"
 )
 
 // submitDoneMsg is the result of an async CreateSilence /
@@ -198,7 +202,58 @@ func (f *Form) submitNow() tea.Cmd {
 	if !ok || client == nil {
 		return f.fail("no client for tenant " + f.tenant)
 	}
+	if cmd, blocked := f.guardrailGate(); blocked {
+		return cmd
+	}
 	return f.submit.Start(client, f.editID, spec)
+}
+
+// guardrailGate is the last policy check before a single write leaves
+// the form. A read-only session never reaches it, because the key that
+// opens the form is filtered before the form exists. Policy is never
+// quoted on a backend a10r cannot write to at all.
+//
+// A rule that asks for any confirmation opens the prompt and stops
+// here. The answer arrives as a ConfirmResultMsg and re-enters
+// submitNow, which finds the tenant already confirmed and lets the
+// write through.
+func (f *Form) guardrailGate() (tea.Cmd, bool) {
+	d := f.guardrails.Decide(guardrail.Request{
+		Action:    f.action,
+		Tenants:   []string{f.tenant},
+		Confirmed: f.confirmed,
+	})
+	if d.Refused() {
+		return footer.ShowFlash(footer.FlashWarn, d.Flash()), true
+	}
+	// Decision.Confirm names the level the rule demands, never the one
+	// still owed, so the answer already given stays the form's own
+	// memory. Confirmed rides on the request for the shared type; with
+	// one tenant this branch settles it before Typed is read.
+	if d.Confirm == "" || slices.Contains(f.confirmed, f.tenant) {
+		return nil, false
+	}
+	question := "submit " + string(f.action) + " on " + f.tenant + "?"
+	f.awaitingConfirm = true
+	return app.OpenModal(func() modal.Modal {
+		return modal.NewGuardedConfirm(question, modal.ConfirmDefaultNo, d.Typed)
+	}), true
+}
+
+// applyGuardrailConfirm resumes a submit the guardrail prompt
+// interrupted. A refused or cancelled prompt is silent on purpose: the
+// form is still on screen with everything the user typed, so the retry
+// is one Ctrl+S away.
+func (f *Form) applyGuardrailConfirm(m modal.ConfirmResultMsg) tea.Cmd {
+	if !f.awaitingConfirm {
+		return nil
+	}
+	f.awaitingConfirm = false
+	if m.Cancelled || !m.Yes {
+		return nil
+	}
+	f.confirmed = []string{f.tenant}
+	return f.submitNow()
 }
 
 // applySubmitDone routes a submitDoneMsg back into the form. Stale

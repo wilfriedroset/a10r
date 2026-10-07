@@ -3,12 +3,17 @@
 package alerts
 
 import (
+	"fmt"
 	"sort"
 	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/matcher"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/page/table"
 )
 
 // totalGroups is the unfiltered group count within the current
@@ -23,10 +28,72 @@ func (p *Page) totalGroups() int {
 			continue
 		}
 		for _, a := range alerts {
-			seen[tenant+"\x00"+a.Labels[labelAlertname]] = struct{}{}
+			seen[groupKeyOf(tenant, a.Labels[labelAlertname])] = struct{}{}
 		}
 	}
 	return len(seen)
+}
+
+// pollDeltaFlash names the aggregates that appeared and disappeared
+// for one tenant between two polls. It ignores the `/` filter and the
+// state filter on purpose: the flash narrates what the backend did,
+// not what the view shows.
+func (p *Page) pollDeltaFlash(tenant string, before, after []backend.Alert) tea.Cmd {
+	if !p.session.Config().TUI.PollDelta || !p.ScopeIncludes(tenant) {
+		return nil
+	}
+	// A tenant with no map key has never polled, so the whole first
+	// snapshot would read as new.
+	if _, seen := p.byTenant[tenant]; !seen {
+		return nil
+	}
+	beforeKeys, afterKeys := alertnameKeys(tenant, before), alertnameKeys(tenant, after)
+	newCount, resolvedCount := countMissing(afterKeys, beforeKeys), countMissing(beforeKeys, afterKeys)
+	if newCount == 0 && resolvedCount == 0 {
+		return nil
+	}
+	text := pollDeltaText(newCount, resolvedCount)
+	if p.ScopeTenantCount(len(p.byTenant)) > 1 {
+		text = tenant + ": " + text
+	}
+	level := footer.FlashSuccess
+	if newCount > 0 {
+		level = footer.FlashWarn
+	}
+	return footer.ShowWeakFlash(level, text)
+}
+
+// alertnameKeys is the aggregate key set of one tenant's snapshot —
+// the same (tenant, alertname) identity the table rows on.
+func alertnameKeys(tenant string, alerts []backend.Alert) map[string]struct{} {
+	out := make(map[string]struct{}, len(alerts))
+	for _, a := range alerts {
+		out[groupKeyOf(tenant, a.Labels[labelAlertname])] = struct{}{}
+	}
+	return out
+}
+
+func countMissing(keys, from map[string]struct{}) int {
+	n := 0
+	for k := range keys {
+		if _, ok := from[k]; !ok {
+			n++
+		}
+	}
+	return n
+}
+
+// pollDeltaText drops a zero term so an all-new poll reads
+// "+3 new" rather than "+3 new, -0 resolved".
+func pollDeltaText(newCount, resolvedCount int) string {
+	parts := make([]string, 0, 2)
+	if newCount > 0 {
+		parts = append(parts, fmt.Sprintf("+%d new", newCount))
+	}
+	if resolvedCount > 0 {
+		parts = append(parts, fmt.Sprintf("-%d resolved", resolvedCount))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // hasInScopeAlerts reports whether any in-scope tenant has at least
@@ -48,8 +115,9 @@ func (p *Page) hasInScopeAlerts() bool {
 func (p *Page) recompute() {
 	total, knownKey := p.scanScope()
 	flat := p.flatten(total)
-	survivors := filterEntries(flat, p.Filter, p.stateFilter)
-	p.groups = aggregate(survivors)
+	survivors := p.applyFilter(flat)
+	p.groups = aggregate(survivors, &p.labels)
+	p.labels.Measure(len(p.groups), func(r, i int) string { return table.LabelCell(p.groups[r].labelCells, i) })
 	p.sorter.Apply(p.groups)
 	p.resolveFocus(knownKey)
 	p.Clamp(len(p.groups))
@@ -69,7 +137,7 @@ func (p *Page) scanScope() (total int, knownKey bool) {
 		}
 		if p.focusGroupKey != "" && !knownKey {
 			for _, a := range alerts {
-				if tenant+"\x00"+a.Labels[labelAlertname] == p.focusGroupKey {
+				if groupKeyOf(tenant, a.Labels[labelAlertname]) == p.focusGroupKey {
 					knownKey = true
 					break
 				}
@@ -108,12 +176,12 @@ func (p *Page) flatten(total int) []alertEntry {
 // rows. A missing alertname (Labels["alertname"]=="") groups under
 // the synthetic empty-name key; the renderer surfaces it as
 // "(no alertname)".
-func aggregate(in []alertEntry) []alertGroup {
+func aggregate(in []alertEntry, labels *table.LabelSet) []alertGroup {
 	byKey := map[string]*alertGroup{}
 	order := make([]string, 0)
 	for _, e := range in {
 		name := e.a.Labels[labelAlertname]
-		key := e.tenant + "\x00" + name
+		key := groupKeyOf(e.tenant, name)
 		g, ok := byKey[key]
 		if !ok {
 			g = &alertGroup{tenant: e.tenant, alertName: name, oldestStart: e.a.StartsAt}
@@ -143,6 +211,7 @@ func aggregate(in []alertEntry) []alertGroup {
 		sort.Slice(g.instances, func(i, j int) bool {
 			return g.instances[i].Fingerprint < g.instances[j].Fingerprint
 		})
+		g.labelCells = labels.Cells(func(l string) string { return aggregateCell(g.instances, l) })
 		out = append(out, *g)
 	}
 	return out
@@ -191,53 +260,88 @@ func (p *Page) cycleStateFilter() {
 	p.stateFilter = ""
 }
 
-// filterEntries returns a new slice containing only entries whose
-// Alert matches both the search and state filters. When the search
-// buffer is a Prometheus label matcher (`cluster_id=99`,
-// `cluster_id=~9.*`, …) it filters by that label predicate; otherwise
-// the buffer runs through footer.NewMatcher so a leading `~` flips to
-// fuzzy, a leading `\` to literal substring, and a body with two
-// distinct regex metas to compiled regex — matching the keybindings.md
-// /-prompt contract.
-func filterEntries(in []alertEntry, search, state string) []alertEntry {
-	if pred, ok := matcher.LabelPredicate(search); ok {
-		return filterByLabel(in, pred, state)
-	}
-	m := footer.NewMatcher(search)
-	if m.MatchAll() && state == "" {
+func (p *Page) applyFilter(in []alertEntry) []alertEntry {
+	if p.FilterMatchAll() && p.stateFilter == "" {
 		// `in` is recompute's local `flat` slice, consumed only by
 		// aggregate() which reads it without retaining it. Returning it
 		// unchanged avoids an O(N) copy that would fire every poll tick.
 		return in
 	}
-	out := make([]alertEntry, 0, len(in))
-	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
+	kept := in
+	if p.stateFilter != "" {
+		kept = make([]alertEntry, 0, len(in))
+		for _, e := range in {
+			if string(e.a.State) == p.stateFilter {
+				kept = append(kept, e)
+			}
 		}
-		if !m.MatchAll() && !m.Match(e.lowerComposite) {
-			continue
+	}
+	if p.FilterMatchAll() {
+		// kept was allocated just above, so the caller holds no
+		// reference to it and a second copy would buy nothing.
+		return kept
+	}
+	// Only an expression can name COUNT or AGE, and the pre-pass costs
+	// a key and a map slot per instance, so a text or selector buffer
+	// skips it.
+	var stats map[string]groupStat
+	if p.FilterIsExpr() {
+		stats = groupStats(kept)
+	}
+	now := p.now()
+	out := make([]alertEntry, 0, len(kept))
+	for _, e := range kept {
+		if p.FilterMatch(e.filterRow(now, stats)) {
+			out = append(out, e)
 		}
-		out = append(out, e)
 	}
 	return out
 }
 
-// filterByLabel keeps entries whose alert labels satisfy the label
-// predicate (and the state filter). Separate from filterEntries' text
-// path so each stays a flat loop rather than a branch-in-loop.
-func filterByLabel(in []alertEntry, pred func(map[string]string) bool, state string) []alertEntry {
-	out := make([]alertEntry, 0, len(in))
+// filterRow is the entry as the filter sees it. COUNT and AGE are the
+// group's, so they are only present when stats were gathered.
+func (e alertEntry) filterRow(now time.Time, stats map[string]groupStat) filterexpr.Row {
+	row := filterexpr.Row{
+		Now:      now,
+		Labels:   e.a.Labels,
+		Text:     e.lowerComposite,
+		State:    string(e.a.State),
+		Instance: filterexpr.Present,
+	}
+	if stats != nil {
+		g := stats[groupKey(e)]
+		row.Count, row.CountAvail = g.count, filterexpr.Present
+		row.Start, row.AgeAvail = g.oldestStart, filterexpr.Present
+	}
+	return row
+}
+
+// groupStat carries the two group-level values an expression can
+// compare against.
+type groupStat struct {
+	count       int
+	oldestStart time.Time
+}
+
+// groupStats accumulates count and oldest start exactly as aggregate
+// does: the filter compares the same AGE the column renders, so the
+// two rules have to move together.
+func groupStats(in []alertEntry) map[string]groupStat {
+	out := map[string]groupStat{}
 	for _, e := range in {
-		if state != "" && string(e.a.State) != state {
-			continue
+		key := groupKey(e)
+		g, ok := out[key]
+		if !ok || e.a.StartsAt.Before(g.oldestStart) {
+			g.oldestStart = e.a.StartsAt
 		}
-		if !pred(e.a.Labels) {
-			continue
-		}
-		out = append(out, e)
+		g.count++
+		out[key] = g
 	}
 	return out
+}
+
+func groupKey(e alertEntry) string {
+	return groupKeyOf(e.tenant, e.a.Labels[labelAlertname])
 }
 
 // alertLowerComposite concatenates the lower-cased label values
@@ -272,4 +376,33 @@ func alertLowerComposite(a backend.Alert) string {
 		b.WriteString(strings.ToLower(v))
 	}
 	return b.String()
+}
+
+// aggregateCell rolls a label up over every instance of an alertname
+// aggregate: the shared value when all agree, a distinct-count marker
+// when they do not. An instance missing the label contributes the
+// empty value, which counts as one distinct value — a half-populated
+// label is disagreement, not absence.
+func aggregateCell(instances []backend.Alert, label string) string {
+	if len(instances) == 0 {
+		return ""
+	}
+	first := instances[0].Labels[label]
+	// The set is built only once a value disagrees. Most rows agree,
+	// and a map per group per column costs more than the scan does.
+	var seen map[string]struct{}
+	for _, a := range instances[1:] {
+		v := a.Labels[label]
+		if seen == nil {
+			if v == first {
+				continue
+			}
+			seen = map[string]struct{}{first: {}}
+		}
+		seen[v] = struct{}{}
+	}
+	if seen == nil {
+		return first
+	}
+	return table.RollupMarker(len(seen))
 }

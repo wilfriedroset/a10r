@@ -61,6 +61,18 @@ func newInput(placeholder string) textinput.Model {
 	return in
 }
 
+// newMatchersArea is newInput's counterpart for the multi-line
+// matchers buffer.
+func newMatchersArea() textarea.Model {
+	m := textarea.New()
+	m.Prompt = ""
+	m.Placeholder = "alertname=HighCPU\nseverity=critical"
+	m.SetHeight(matchersHeight)
+	m.ShowLineNumbers = false
+	flattenTextareaBlur(&m)
+	return m
+}
+
 // flattenTextareaBlur strips the bubbles defaults that would
 // fight the form's focus chrome. Two slots are flattened:
 //   - Text in both focused and blurred states, so typed

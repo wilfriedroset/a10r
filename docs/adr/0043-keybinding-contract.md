@@ -23,7 +23,12 @@ body is a table) → global. `Esc` always reaches an open
 modal/prompt to dismiss it, and otherwise falls through to
 pop the page stack at the global layer. Modals are not stack
 frames; `Esc` dismisses the modal without popping the view
-under it.
+under it. One stateful exception sits between the two: a page
+holding a transient sub-state — today only the `Shift+V` range
+anchor — unwinds that state and keeps the key, so `Esc` reads
+as "back one step" everywhere rather than jumping the operator
+out of the view. The page opts in by implementing an interface
+the global handler consults; it is not a fourth layer.
 
 **Global vs page binding model.** A binding is global when it
 must behave identically on every page, page-local when its
@@ -40,27 +45,58 @@ prelude chip (ADR 0038).
 is reserved and must not be rebound by future plugins (deferred
 past v0.1, k9s pattern): `:` `/` `?` `Esc` `Ctrl+C` `Ctrl+T`
 `Ctrl+E` `Ctrl+N` `Ctrl+\`, the digits `0`–`9`, the vim motions,
-`Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`/`Shift+Tab`. Some
-are reserved before they are bound (`Ctrl+N` is held for a
-future compose-as-YAML companion to `Ctrl+E`) so the namespace
-stays stable.
+`Enter`, `Space`, `Ctrl+A`, `r`, `q`, `Tab`/`Shift+Tab`,
+`Shift+V` on the pages that have marks, and `Shift+W` on the
+pages that declare a `wide` label column. Some are reserved
+before they are bound (`Ctrl+N` is held for a future
+compose-as-YAML companion to `Ctrl+E`) so the namespace stays
+stable. The set is a design contract for the plugin
+surface this ADR defers, not a rule anything checks today: the
+reject list in `internal/config/keys.go` holds the digits and
+nothing else, because the digits are the only part a user
+overlay can already break.
 
-**Namespace discipline.** `Shift+<letter>` is sort-only and
-never destructive or stateful — it always sorts by a column.
-Bulk verbs reuse the single-row key and branch on the marked-
-row count (`s` silences the cursor alert or fans out over
-marks; `x` expires one silence or many), so there is no
-parallel `Ctrl+S`/`Ctrl+X`; `Ctrl+\` is the explicit clear-all-
-marks escape hatch.
+**Namespace discipline.** On a page whose body is a table, sort
+claims the column-letter namespace first. Each sortable column
+claims its hotkey letter, and `Shift+<letter>` sorts by it and does
+nothing else. A column that does not sort, such as TENANT on the
+alerts list, claims no letter, so `Shift+T` stays a view verb on
+that page.
+Remaining letters go to non-destructive view verbs (`Shift+F`
+cycles the state filter). A detail page has no columns to sort, so
+every letter is free there, the reserved motions aside, on the
+same never-destructive terms (`S` opens the silences suppressing
+an alert, `Y` copies a field). Bulk verbs reuse the single-row key
+and branch on the marked-row count (`s` silences the cursor alert
+or fans out over marks; `x` expires one silence or many), so there
+is no parallel `Ctrl+S`/`Ctrl+X`; `Ctrl+\` is the explicit
+clear-all-marks escape hatch. `Shift+V` starts a mark range and is
+reserved on the pages that have marks (alerts, group detail,
+silences) — but only there, because the sort namespace still wins
+elsewhere: the tenant table has a VERSION column, so `Shift+V`
+sorts by it and the range verb has nothing to attach to on a page
+with no marks. `Shift+W` is a view verb in that same namespace: it
+shows or hides the `wide` label-column tier, so it is reserved on
+the pages that declare such a column and the sort letter wins
+elsewhere. `Left` and `Right` are the one departure from the vim
+motion reading: on the alerts list and group detail they scroll the
+columns that do not fit the terminal, while `h` and `l` keep the
+sort walk.
 
 **Dangerous-action tagging for read-only mode.** Every binding
 that mutates remote state (silence, expire, edit) is tagged
-Dangerous at registration. When the active backend or the
-global override sets `read_only: true`, tagged bindings are
-hidden from both the help overlay and the hint strip, and a
-press is a no-op with a flash naming the read-only backend.
+Dangerous at registration. When `defaults.read_only` is set, or
+every configured backend is read-only, tagged bindings are
+hidden from both the help overlay and the hint strip. A
+per-backend `read_only: true` short of that is per row: the
+hint strip drops the key on a frozen row, `?` keeps it with a
+`[guarded]` suffix, and a press refuses and names the backend.
 The tag is the single source for this filtering — read-only
-mode is not a second list to maintain.
+mode is not a second list to maintain. A verb a `guardrails:`
+rule denies on a tenant the press would write to follows the same
+hiding rule on the hint strip, but the help overlay keeps its
+row with a `[guarded]` suffix, because the rule names tenants
+rather than the whole session.
 
 Related: ADR 0010 fixes the canonical key form bindings parse
 into (`Shift+X`, `Ctrl+X`, chords); ADR 0037 governs how a

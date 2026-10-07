@@ -14,16 +14,36 @@ import (
 // loadConfigForTUI loads the user config; missing config returns a
 // zero Config so the program still starts. errOut receives the
 // one-line "no config found" hint so the operator sees the next step.
-func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*config.Config, error), errOut io.Writer) (*config.Config, error) {
-	cfg, err := load(LoadOptsFromFlags(flags))
+// found is false for that case, which the `:info` report prints as
+// the same "config: not found" line `a10r info` does.
+func loadConfigForTUI(flags *config.CLIFlags, load func(config.LoadOpts) (*config.Config, error), errOut io.Writer) (cfg *config.Config, found bool, err error) {
+	cfg, err = load(LoadOptsFromFlags(flags))
 	if err != nil {
 		if errors.Is(err, config.ErrNotFound) {
 			fmt.Fprintln(errOut, "no config found — starting with empty backend list (run `a10r validate` after editing your config)")
-			return &config.Config{}, nil
+			return &config.Config{}, false, nil
 		}
-		return nil, err
+		return nil, false, err
 	}
-	return cfg, nil
+	return cfg, true, nil
+}
+
+// startupConfig is the config a fresh session boots on. Unlike a
+// reload, a missing file is tolerated, and the --tenant scope is
+// checked against the resolved backends before anything is built.
+func startupConfig(flags *config.CLIFlags, load func(config.LoadOpts) (*config.Config, error), errOut io.Writer) (eff config.Effective, found bool, err error) {
+	cfg, found, err := loadConfigForTUI(flags, load, errOut)
+	if err != nil {
+		return config.Effective{}, false, err
+	}
+	eff, err = resolveEffectiveConfig(flags, cfg)
+	if err != nil {
+		return config.Effective{}, false, err
+	}
+	if err := config.ValidateScope(eff.Config.Backends, eff.Tenant); err != nil {
+		return config.Effective{}, false, err //nolint:wrapcheck // the message already names the flag and the bad tenant.
+	}
+	return eff, found, nil
 }
 
 // LoadOptsFromFlags translates persistent flags into

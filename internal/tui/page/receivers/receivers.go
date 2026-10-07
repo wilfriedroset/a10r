@@ -19,6 +19,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/format"
@@ -44,7 +45,10 @@ type DrillRequestMsg struct {
 // idiom.
 const sortKeyName = "name"
 
-const resourceReceivers = "receivers"
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "receivers"
 
 // receiverSortColumns returns the page's single sortable axis. The
 // helper still applies the same "press the active column to flip
@@ -100,6 +104,9 @@ type Options struct {
 	// poll or render. Empty disables the guard for tests / legacy
 	// wiring that don't pin the list.
 	Tenants []string
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // Page is the receivers list view.
@@ -147,6 +154,7 @@ func New(opts Options) *Page {
 		byTenant:      map[string][]string{},
 		sorter:        tablesort.New(receiverSortColumns(), sortKeyName),
 	}
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
@@ -157,7 +165,7 @@ func (*Page) Init() tea.Cmd { return nil }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return resourceReceivers }
+func (*Page) Crumb() string { return ViewName }
 
 // Title implements app.Page. Mirrors the alerts shape:
 // `receivers(<scope>)[<count>]` or `receivers(<scope>)[F/T]`
@@ -168,7 +176,7 @@ func (p *Page) Title() string {
 		scope = listpage.ScopeAll
 	}
 	total := p.totalReceivers()
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return fmt.Sprintf("receivers(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("receivers(%s)[%d]", scope, total)
@@ -212,8 +220,8 @@ func (p *Page) flatten() []receiverEntry {
 // (when any) so the user can see what's been applied without
 // re-opening the prompt. Empty otherwise — count lives in Title.
 func (p *Page) HeaderContent() string {
-	if p.Filter != "" {
-		return "filter:" + p.Filter
+	if p.FilterBuffer() != "" {
+		return "filter:" + p.FilterBuffer()
 	}
 	return ""
 }
@@ -232,18 +240,18 @@ func (p *Page) Footer() string {
 // PollResources implements app.PollAwarePage so the App-level
 // snapshot cache only replays "receivers" payloads into this
 // page on push.
-func (*Page) PollResources() []string { return []string{resourceReceivers} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
 // Bindings implements app.Page. Sort shortcut comes from the
 // tablesort helper; the helper's single-column setup emits exactly
 // one Shift+N entry so the help overlay's RESOURCE column picks it
 // up identically to the multi-axis pages.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings(resourceReceivers)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 2+len(sortBindings))
-	out = append(out, action.Action{Key: "Enter", Description: "drill", View: resourceReceivers})
+	out = append(out, action.Action{Key: "Enter", Description: "drill", View: ViewName})
 	out = append(out, sortBindings...)
-	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: resourceReceivers})
+	out = append(out, action.Action{Key: "w", Description: "toggle watch", View: ViewName})
 	return out
 }
 
@@ -293,19 +301,18 @@ func (p *Page) Update(msg tea.Msg) (app.Page, tea.Cmd) {
 }
 
 // recompute rebuilds the filtered view from byTenant + p.Scope +
-// p.Filter and clamps the cursor to the new range. The active
+// the filter buffer and clamps the cursor to the new range. The active
 // sort direction is applied last so the visible order reflects
-// the user's toggle. The /-prompt filter is auto-classified
-// (substring / fuzzy / literal / regex) by footer.NewMatcher.
+// the user's toggle. The /-prompt filter was auto-classified
+// (substring / fuzzy / literal / regex) when the buffer was set.
 func (p *Page) recompute() {
 	flat := p.flatten()
-	matcher := footer.NewMatcher(p.Filter)
-	if matcher.MatchAll() {
+	if p.FilterMatchAll() {
 		p.view = flat
 	} else {
 		p.view = make([]receiverEntry, 0, len(flat))
 		for _, e := range flat {
-			if matcher.Match(strings.ToLower(e.name)) {
+			if p.FilterMatch(filterexpr.Row{Text: strings.ToLower(e.name), Instance: filterexpr.Present}) {
 				p.view = append(p.view, e)
 			}
 		}
@@ -407,7 +414,7 @@ func (p *Page) View(width, height int) string {
 	p.SetViewport(height-1-bandLines, len(p.view))
 	if len(p.view) == 0 {
 		msg := "no receivers (yet)"
-		if p.totalReceivers() > 0 && p.Filter != "" {
+		if p.totalReceivers() > 0 && p.FilterBuffer() != "" {
 			msg = "no receivers match the active filter — Esc clears the prompt"
 		}
 		// Render bg-less so the empty pane keeps the terminal
@@ -426,8 +433,9 @@ func (p *Page) View(width, height int) string {
 	}
 	rows = append(rows, p.renderHeader())
 	showTenant := p.ShowTenantColumn(len(p.byTenant))
+	spans := p.FilterSpans()
 	for i := p.TopRow(); i < end; i++ {
-		rows = append(rows, p.renderRow(i, width, p.view[i], showTenant))
+		rows = append(rows, p.renderRow(i, width, p.view[i], showTenant, spans))
 	}
 	return listpage.Wrap(width, strings.Join(rows, "\n"))
 }
@@ -435,21 +443,20 @@ func (p *Page) View(width, height int) string {
 // renderRow renders one receiver row at view index i, padded to width.
 // Receiver rows carry no severity / state, so the cursor row uses
 // Severity.Info as its semantic colour (the k9s StdColor equivalent).
-func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool) string {
+func (p *Page) renderRow(i, width int, e receiverEntry, showTenant bool, spans func(string) [][2]int) string {
 	prefix := "  "
 	if i == p.Index() {
 		prefix = "▸ "
 	}
+	hl := format.HighlighterFor(spans, p.styles.Table.MatchFg, i == p.Index())
 	var b strings.Builder
 	b.WriteString(prefix)
 	if showTenant {
-		b.WriteString(format.PadRight(e.tenant, receiverTenantW))
+		b.WriteString(hl.Text(format.PadRight(e.tenant, receiverTenantW)))
 	}
-	b.WriteString(e.name)
+	b.WriteString(hl.Text(e.name))
 	// Pad to width before applying the cursor style so the background
-	// extends across the whole row k9s-style. The assembled line is
-	// still plain text here, so PadRight's overflow-truncation walks
-	// runes safely (no ANSI to split).
+	// extends across the whole row k9s-style.
 	row := format.PadRight(b.String(), width)
 	if i == p.Index() {
 		rowColor := p.styles.Severity.Info.GetForeground()

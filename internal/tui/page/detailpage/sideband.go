@@ -10,11 +10,11 @@ import (
 
 // HandleSidebandMsg consumes the cross-cutting messages every detail
 // page sees: the universal app.GoToFirstRowMsg scroll-home reset and
-// the optional app.TimeFormatChangedMsg. Pages call this first and
-// short-circuit on handled=true.
+// the optional app.TimeFormatChangedMsg.
+// Pages call this first and short-circuit on handled=true.
 //
-// A nil SetTimeFormat is a fall-through (handled=false) so pages
-// without the feature pass through without per-page scaffolding.
+// A nil callback is a fall-through (handled=false) so pages without
+// the feature pass through without per-page scaffolding.
 // See ADR 0022.
 func (b *Base) HandleSidebandMsg(msg tea.Msg) (handled bool, cmd tea.Cmd) {
 	switch m := msg.(type) {

@@ -5,6 +5,7 @@ package boot
 import (
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/backend/factory"
@@ -12,6 +13,7 @@ import (
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
@@ -37,6 +39,9 @@ type Deps struct {
 	LoadConfig func(opts config.LoadOpts) (*config.Config, error)
 
 	// NewLogger constructs the structured logger plus its sink Closer.
+	// An implementation must honour opts.Capture: the `:config` page
+	// reads its startup warnings from there, and one of them is emitted
+	// inside the factory before it returns.
 	// Production default: a10rlog.New. Tests override to capture the
 	// emitted records or to swap in a no-op closer.
 	NewLogger func(opts a10rlog.Opts) (*slog.Logger, io.Closer, error)
@@ -79,12 +84,30 @@ type Deps struct {
 	// Tests override to return t.TempDir() or empty (in-memory rings).
 	HistoryDir func() (string, error)
 
-	// Version, Commit are the ldflag-injected build identifiers. The
-	// caller (cmd/tui.go) reads its own package-level vars and passes
-	// them in; boot does not inherit cmd state. Empty/sentinel values
-	// fold into a User-Agent without a parenthesised commit suffix.
+	// NotifyRunner starts the tui.notify command. Production default:
+	// notify.RunCommand. Tests count the calls to prove that a
+	// headless render spawns nothing.
+	NotifyRunner notify.Runner
+
+	// Now is the time source the page renderers read for their
+	// relative columns (AGE, ENDS IN). Production default:
+	// time.Now. Tests freeze it so a rendered frame is byte-stable.
+	Now func() time.Time
+
+	// Version, Commit, Date are the ldflag-injected build identifiers.
+	// The caller (cmd/tui.go) reads its own package-level vars and
+	// passes them in; boot does not inherit cmd state. Empty/sentinel
+	// Version and Commit fold into a User-Agent without a
+	// parenthesised commit suffix. Date reaches the `:info` report
+	// only, so it has no production default.
 	Version string
 	Commit  string
+	Date    string
+
+	// Headless marks a one-frame render (cmd/snapshot.go) rather than
+	// an interactive session, so the App it builds gets no notifier
+	// and no ui-state.yaml store.
+	Headless bool
 
 	// Stderr is the destination for non-fatal startup warnings
 	// (logger-close failures, factory.Build failures, "no config
@@ -126,6 +149,12 @@ func (d Deps) resolved() Deps {
 	}
 	if out.HistoryDir == nil {
 		out.HistoryDir = footer.DefaultHistoryDir
+	}
+	if out.NotifyRunner == nil {
+		out.NotifyRunner = notify.RunCommand
+	}
+	if out.Now == nil {
+		out.Now = time.Now
 	}
 	if out.Version == "" {
 		out.Version = buildVersionDev

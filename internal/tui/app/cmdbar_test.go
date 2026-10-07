@@ -34,6 +34,7 @@ func newAppWithCmdbar(t *testing.T) (*App, *fakePage) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)
@@ -128,6 +129,7 @@ func TestCmdBar_AmbiguousAliasFlashesWarn(t *testing.T) {
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		CmdBar:     resolver,
+		Session:    testutil.Session(),
 	})
 	updated, _ := a.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a = updated.(*App)

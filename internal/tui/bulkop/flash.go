@@ -7,8 +7,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/footer"
 )
+
+// SilenceRequest asks the policy about an `s` press. Lead follows the
+// press rather than the rule, so only the marked fan-out has a name of
+// its own; a cursor press reads back as the rule to edit.
+func SilenceRequest(bulk bool, tenants ...string) guardrail.Request {
+	req := guardrail.Request{Action: guardrail.ActionSilenceCreate, Tenants: tenants}
+	if bulk {
+		req.Lead = "bulk silence"
+	}
+	return req
+}
 
 // SilenceResultFlash formats the completed-round flash for a bulk
 // silence-all fanout. noun is the pluralised unit ("alerts",

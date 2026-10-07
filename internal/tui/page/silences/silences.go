@@ -20,18 +20,19 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
+	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/tablesort"
 	"github.com/wilfriedroset/a10r/internal/tui/theme"
 	"github.com/wilfriedroset/a10r/internal/tui/timerender"
@@ -50,7 +51,10 @@ const (
 	colHeaderState  = "STATE"
 )
 
-const resourceSilences = "silences"
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "silences"
 
 const editorExtensionYAML = "yaml"
 
@@ -88,6 +92,18 @@ type silenceEntry struct {
 	// single strings.Contains.
 	lowerComposite string
 }
+
+// markKey hands the listpage mark and range helpers the silence ID,
+// so a re-sort carries a mark with its row instead of its index.
+func markKey(e silenceEntry) string { return e.s.ID }
+
+// The range-mark contract from listpage.Base reaches the app shell
+// only through these two optional interfaces, and neither is named
+// anywhere else in the package.
+var (
+	_ app.EscapeConsumer = (*Page)(nil)
+	_ app.Suspender      = (*Page)(nil)
+)
 
 type Page struct {
 	listpage.Base
@@ -142,9 +158,16 @@ type Page struct {
 	// $EDITOR so the FinishedMsg handler can call UpdateSilence
 	// against the right backend. Empty between rounds.
 	pendingEdit pendingEdit
+	// editRounds numbers the editor rounds opened so far.
+	editRounds uint64
+	// pendingEditConfirm holds the row a guardrail prompt is open for,
+	// nil between rounds. It is a captured copy rather than a flag for
+	// the reason pendingEdit and pendingExpire are: a poll tick lands
+	// on the page while the modal is up, so the cursor can move between
+	// the question and the answer, and the answer belongs to the row
+	// the question named.
+	pendingEditConfirm *silenceEntry
 
-	// bulkConcurrency: tenants always parallel; this limits the inner pool per tenant.
-	bulkConcurrency int
 	// logger is the structured logger used for per-failure detail
 	// in the bulk fanout. Nil suppresses logging — the page never
 	// crashes on a missing logger.
@@ -152,17 +175,11 @@ type Page struct {
 	// cancelBulk: Close() calls it so a page pop short-circuits not-yet-started workers.
 	cancelBulk context.CancelFunc
 
-	// mu guards cancelEditorUpdate. The editor-driven UpdateSilence
-	// goroutine sets/clears the cancel while Close() (running on the
-	// bubbletea Update goroutine) reads it.
-	mu sync.Mutex
 	// cancelEditorUpdate cancels the in-flight editor-driven
-	// UpdateSilence call. Populated by handleEditorFinished when the
-	// async write Cmd is built; cleared by the goroutine's defer.
-	// Close() calls it so a page-pop while a slow tenant is writing
-	// aborts the request instead of letting the goroutine survive
-	// until app shutdown. Mirrors the per-write cancel pattern used
-	// by the silence form and tenantconfig.
+	// UpdateSilence call. Set by dispatchEditorUpdate. Close() calls
+	// it so a page-pop while a slow tenant is writing aborts the
+	// request instead of letting the goroutine survive until app
+	// shutdown.
 	cancelEditorUpdate context.CancelFunc
 
 	// restrictIDs is the frozen set of silence IDs the page is
@@ -172,8 +189,7 @@ type Page struct {
 	alertName   string
 	alertLabels map[string]string
 
-	// readOnly: Bindings() filters Dangerous; handleAction flashes a hint.
-	readOnly bool
+	session *session.Session
 
 	// editorCtx is the parent context the editor subprocess
 	// inherits when the user presses Ctrl+E. Wired to the
@@ -205,22 +221,15 @@ type Options struct {
 	// so a page pushed *after* the user toggled `t` doesn't open
 	// in relative while the rest of the app reads absolute.
 	TimeFormat timerender.Format
-	// BulkConcurrency caps the per-tenant worker pool for the
-	// bulk-expire fanout. Zero resolves to config.DefaultBulkConcurrency
-	// at construction time so callers can pass the unmaterialised
-	// `defaults.bulk_concurrency` directly.
-	BulkConcurrency int
 	// Logger receives per-failure detail (`backend`, `tenant`,
 	// `silence_id`, `err`) at error level when the bulk fanout
 	// surfaces individual ExpireSilence failures. Nil suppresses
 	// logging — the page never crashes on a missing logger.
 	Logger *slog.Logger
-	// ReadOnly hides the page's Dangerous bindings from the hint
-	// strip / help overlay and turns every write keystroke into a
-	// flash hint instead of pushing the form / confirm modal. Wired
-	// from the resolved defaults.read_only / --read-only / A10R_READ_ONLY
-	// chain so a misclick or stray paste cannot mutate state.
-	ReadOnly bool
+	// Session is the live configuration the page reads its write
+	// policy and bulk pool size from at the point of use, so a reload
+	// reaches the page while it is open. Must not be nil.
+	Session *session.Session
 	// EditorCtx is the parent ctx the Ctrl+E editor subprocess
 	// inherits. Cancelling kills the editor so a parent shutdown
 	// can abort a hung session. nil falls back to
@@ -257,6 +266,9 @@ type Options struct {
 	// list on `n` via matcher.FromLabels — same prefill as
 	// alert-detail `s`. Only meaningful alongside RestrictIDs.
 	AlertLabels map[string]string
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 func New(opts Options) *Page {
@@ -264,38 +276,30 @@ func New(opts Options) *Page {
 	if now == nil {
 		now = time.Now
 	}
-	sp := spinner.New(
-		spinner.WithSpinner(spinner.Points),
-		spinner.WithStyle(opts.Styles.Header.Accent),
-	)
-	concurrency := opts.BulkConcurrency
-	if concurrency <= 0 {
-		concurrency = config.DefaultBulkConcurrency
-	}
+	sp := spinner.New(spinner.WithSpinner(spinner.Points))
 	p := &Page{
-		Scope:           listpage.ScopeAll,
-		BackendHealth:   map[string]listpage.BackendHealth{},
-		Tenants:         opts.Tenants,
-		PolledTenants:   map[string]struct{}{},
-		NextRefresh:     map[string]time.Time{},
-		Spinner:         sp,
-		styles:          opts.Styles,
-		now:             now,
-		clients:         opts.Clients,
-		creator:         opts.Creator,
-		editor:          opts.EditorResolver,
-		timeFormat:      opts.TimeFormat,
-		byTenant:        map[string][]backend.Silence{},
-		marks:           map[string]struct{}{},
-		sorter:          tablesort.New(silenceSortColumns(), sortKeyEndsAt),
-		bulkConcurrency: concurrency,
-		logger:          opts.Logger,
-		readOnly:        opts.ReadOnly,
-		editorCtx:       opts.EditorCtx,
-		bulkCtx:         opts.BulkCtx,
-		submitCtx:       opts.SubmitCtx,
-		alertName:       opts.AlertName,
-		alertLabels:     opts.AlertLabels,
+		Scope:         listpage.ScopeAll,
+		BackendHealth: map[string]listpage.BackendHealth{},
+		Tenants:       opts.Tenants,
+		PolledTenants: map[string]struct{}{},
+		NextRefresh:   map[string]time.Time{},
+		Spinner:       sp,
+		styles:        opts.Styles,
+		now:           now,
+		clients:       opts.Clients,
+		creator:       opts.Creator,
+		editor:        opts.EditorResolver,
+		timeFormat:    opts.TimeFormat,
+		byTenant:      map[string][]backend.Silence{},
+		marks:         map[string]struct{}{},
+		sorter:        tablesort.New(silenceSortColumns(), sortKeyEndsAt),
+		logger:        opts.Logger,
+		session:       session.Must(opts.Session),
+		editorCtx:     opts.EditorCtx,
+		bulkCtx:       opts.BulkCtx,
+		submitCtx:     opts.SubmitCtx,
+		alertName:     opts.AlertName,
+		alertLabels:   opts.AlertLabels,
 	}
 	if len(opts.RestrictIDs) > 0 {
 		p.restrictIDs = make(map[string]struct{}, len(opts.RestrictIDs))
@@ -303,6 +307,7 @@ func New(opts Options) *Page {
 			p.restrictIDs[id] = struct{}{}
 		}
 	}
+	p.sorter.Bind(opts.SortMemory, ViewName)
 	p.Recompute = p.recompute
 	p.RowCount = func() int { return len(p.view) }
 	p.SnapshotFocus = p.snapshotFocus
@@ -323,11 +328,8 @@ func (p *Page) Init() tea.Cmd { return p.Spinner.Tick }
 // same per-write cancel contract as the silence form and
 // tenantconfig.
 func (p *Page) Close() tea.Cmd {
-	p.mu.Lock()
-	cancelEdit := p.cancelEditorUpdate
-	p.mu.Unlock()
-	if cancelEdit != nil {
-		cancelEdit()
+	if p.cancelEditorUpdate != nil {
+		p.cancelEditorUpdate()
 	}
 	if p.cancelBulk != nil {
 		p.cancelBulk()
@@ -336,11 +338,11 @@ func (p *Page) Close() tea.Cmd {
 	return nil
 }
 
-func (*Page) Crumb() string { return resourceSilences }
+func (*Page) Crumb() string { return ViewName }
 
 func (p *Page) Title() string {
 	if p.SpinnerActive(p.ScopeIncludes) {
-		return p.LoadingTitle(resourceSilences)
+		return p.LoadingTitle(ViewName, p.styles.Header.Accent)
 	}
 	scope := p.alertName
 	if scope == "" {
@@ -350,7 +352,7 @@ func (p *Page) Title() string {
 		}
 	}
 	total := p.totalSilences()
-	if p.Filter != "" {
+	if p.FilterBuffer() != "" {
 		return fmt.Sprintf("silences(%s)[%d/%d]", scope, len(p.view), total)
 	}
 	return fmt.Sprintf("silences(%s)[%d]", scope, total)
@@ -358,11 +360,14 @@ func (p *Page) Title() string {
 
 func (p *Page) HeaderContent() string {
 	var parts []string
-	if p.Filter != "" {
-		parts = append(parts, "filter:"+p.Filter)
+	if p.FilterBuffer() != "" {
+		parts = append(parts, "filter:"+p.FilterBuffer())
 	}
 	if n := len(p.marks); n > 0 {
 		parts = append(parts, fmt.Sprintf("marked:%d", n))
+	}
+	if p.Visual.On() {
+		parts = append(parts, listpage.ChipVisual)
 	}
 	return strings.Join(parts, " · ")
 }
@@ -378,27 +383,32 @@ func (p *Page) Footer() string {
 }
 
 // PollResources implements app.PollAwarePage.
-func (*Page) PollResources() []string { return []string{resourceSilences} }
+func (*Page) PollResources() []string { return []string{ViewName} }
 
 // When read-only, Dangerous entries are stripped before returning.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings(resourceSilences)
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 8+len(sortBindings))
+	create := p.guarded(guardrail.ActionSilenceCreate)
+	update := p.guarded(guardrail.ActionSilenceUpdate)
+	expire := p.guarded(guardrail.ActionSilenceExpire)
+	recreate := p.guarded(guardrail.ActionSilenceRecreate)
 	out = append(out,
-		action.Action{Key: "Enter", Description: "detail", View: resourceSilences},
-		action.Action{Key: "n", Description: "new", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "e", Description: "edit", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "x", Description: "expire (cursor / marks)", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "Space", Description: "mark", View: resourceSilences, Shared: true},
-		action.Action{Key: "Ctrl+E", Description: "editor", View: resourceSilences, Dangerous: true},
-		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: resourceSilences, Dangerous: true},
+		action.Action{Key: "Enter", Description: "detail", View: ViewName},
+		action.Action{Key: "n", Description: "new", View: ViewName, Dangerous: true, Guarded: create},
+		action.Action{Key: "e", Description: "edit", View: ViewName, Dangerous: true, Guarded: update},
+		action.Action{Key: "x", Description: "expire (cursor / marks)", View: ViewName, Dangerous: true, Guarded: expire},
+		action.Action{Key: "Space", Description: "mark", View: ViewName, Shared: true},
+		action.Action{Key: "Shift+V", Description: "mark range", View: ViewName, Shared: true},
+		action.Action{Key: "Ctrl+E", Description: "editor", View: ViewName, Dangerous: true, Guarded: update},
+		action.Action{Key: "Ctrl+N", Description: "recreate (expired)", View: ViewName, Dangerous: true, Guarded: recreate},
 	)
 	out = append(out, sortBindings...)
 	out = append(out,
-		action.Action{Key: "r", Description: "refresh", View: resourceSilences},
-		action.Action{Key: "w", Description: "toggle watch", View: resourceSilences},
+		action.Action{Key: "r", Description: "refresh", View: ViewName},
+		action.Action{Key: "w", Description: "toggle watch", View: ViewName},
 	)
-	if p.readOnly {
+	if p.session.ReadOnly() {
 		return action.FilterDangerous(out)
 	}
 	return out

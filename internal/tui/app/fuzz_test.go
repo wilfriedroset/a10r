@@ -4,36 +4,80 @@ package app_test
 
 import (
 	"log/slog"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
+	"github.com/wilfriedroset/a10r/internal/tui/cmdbar"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/notify"
 	"github.com/wilfriedroset/a10r/internal/tui/page/alerts"
 	"github.com/wilfriedroset/a10r/internal/tui/poll"
+	"github.com/wilfriedroset/a10r/internal/tui/session"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/theme"
 )
 
 // fuzzNow / fuzzAlerts are hoisted to package scope so the per-
 // iteration boot path doesn't reallocate the alert slice on every
 // fuzz exec. Read-only from the fuzz fn; safe to share.
 var (
+	// fuzzRules is hoisted for the reason the slices below are: the
+	// guarded target rebuilds nothing per exec. Read-only from the
+	// fuzz fn.
+	fuzzRules = guardrail.Set{
+		{Tenants: []string{"staging"}, Deny: true, Reason: "use the change ticket"},
+		{Tenants: []string{"prod"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+	}
 	fuzzNow    = time.Date(2026, 5, 6, 12, 0, 0, 0, time.UTC)
 	fuzzAlerts = []backend.Alert{
 		{
-			Labels:   map[string]string{"alertname": "HighCPU", "severity": "critical"},
+			Labels:   map[string]string{"alertname": "HighCPU", "severity": "critical", "cluster": "eu-1"},
 			State:    backend.AlertStateActive,
 			StartsAt: fuzzNow.Add(-time.Minute),
 		},
+		// Same aggregate as the row above with a different cluster, so
+		// the label-column rollup renders its `<N values>` marker and
+		// the marker comparator gets fuzzed alongside the plain cells.
+		{
+			Labels:   map[string]string{"alertname": "HighCPU", "severity": "warning", "cluster": "us-1"},
+			State:    backend.AlertStateSuppressed,
+			StartsAt: fuzzNow.Add(-2 * time.Minute),
+		},
+		// No cluster label at all, so the empty-cell tail-sort path is
+		// reachable too.
 		{
 			Labels:   map[string]string{"alertname": "LowDisk", "severity": "warning"},
 			State:    backend.AlertStateActive,
 			StartsAt: fuzzNow.Add(-time.Minute),
 		},
+	}
+
+	// fuzzNotifyAlerts carries every row of fuzzAlerts plus one alert
+	// whose name holds a `;` and an ESC. A poll of it after the warm-up
+	// poll is what makes the notifier diff, sanitise and emit, so the
+	// hostile name reaches tea.Raw on the fuzzed path.
+	fuzzNotifyAlerts = append(slices.Clone(fuzzAlerts), backend.Alert{
+		Labels:   map[string]string{"alertname": "Evil;\x1b]9;own", "severity": "critical"},
+		State:    backend.AlertStateActive,
+		StartsAt: fuzzNow.Add(-time.Minute),
+	})
+
+	// fuzzColumns gives the fuzzer a user-declared column with a sort
+	// key, so Shift+L walks into a comparator the built-in set does
+	// not own. The second column is wide and also a sort axis, so
+	// Shift+W drives the tier toggle and the parked-sort path.
+	fuzzColumns = []config.Column{
+		{Label: "cluster", SortKey: "L"},
+		{Label: "team", Title: "OWNER", Width: 8, Wide: true, SortKey: "O"},
 	}
 )
 
@@ -46,21 +90,41 @@ func FuzzApp(f *testing.F) {
 	addAppSeeds(f)
 
 	f.Fuzz(func(t *testing.T, in []byte) {
-		// Bound the per-iteration cost. Long fuzz inputs produce
-		// many frames; processing all of them in one iteration
-		// stalls the fuzz scheduler on a single worker. 64 msgs
-		// is enough to reach any modal / form state and keeps
-		// iters short enough for the fuzzer to bisect.
-		const maxFrames = 64
-		msgs := testutil.DecodeFuzzMsgs(in)
-		if len(msgs) > maxFrames {
-			msgs = msgs[:maxFrames]
-		}
-		m := bootApp(t)
-		for _, msg := range msgs {
-			m = step(m, msg)
-		}
+		driveFrames(t, in, nil)
 	})
+}
+
+// FuzzGuardedApp is FuzzApp under a write policy: staging is denied
+// and prod asks for its name to be typed. Both tenants carry rows, so
+// the policy adds two states no other seed reaches, a key that refuses
+// and a prompt only an exact name clears, and both sit on the write
+// path.
+func FuzzGuardedApp(f *testing.F) {
+	addGuardedSeeds(f)
+
+	f.Fuzz(func(t *testing.T, in []byte) {
+		driveFrames(t, in, fuzzRules)
+	})
+}
+
+// driveFrames runs one fuzz iteration against an app booted under the
+// given policy.
+func driveFrames(t *testing.T, in []byte, rules guardrail.Set) {
+	t.Helper()
+	// Bound the per-iteration cost. Long fuzz inputs produce
+	// many frames; processing all of them in one iteration
+	// stalls the fuzz scheduler on a single worker. 64 msgs
+	// is enough to reach any modal / form state and keeps
+	// iters short enough for the fuzzer to bisect.
+	const maxFrames = 64
+	msgs := testutil.DecodeFuzzMsgs(in)
+	if len(msgs) > maxFrames {
+		msgs = msgs[:maxFrames]
+	}
+	m := bootApp(t, rules)
+	for _, msg := range msgs {
+		m = step(m, msg)
+	}
 }
 
 // step feeds one message through Update, resolves the returned
@@ -133,16 +197,83 @@ func resolveCmd(cmd tea.Cmd) tea.Msg {
 	}
 }
 
+// fuzzSkins memoises the compiled skins across iterations, because
+// the fuzz target re-boots the app per input and every `:skin` seed
+// would otherwise pay a YAML parse and a full compile. The cached
+// value is only ever read: applySkin copies out of it.
+var fuzzSkins sync.Map
+
+func fuzzLoadSkin(name string) (*theme.Styles, error) {
+	if cached, ok := fuzzSkins.Load(name); ok {
+		styles, _ := cached.(*theme.Styles)
+		return styles, nil
+	}
+	styles, err := (&theme.Loader{}).Load(name)
+	if err != nil {
+		return nil, err
+	}
+	fuzzSkins.Store(name, styles)
+	return styles, nil
+}
+
+func fuzzConfig(cols []config.Column, rules guardrail.Set) config.Config {
+	return config.Config{
+		Defaults:   config.Defaults{BulkConcurrency: 4},
+		Guardrails: rules,
+		// Both escape transports, and kept on across the reload so the
+		// frames after it still drive the diff and the sanitiser.
+		TUI: config.TUI{Notify: config.Notify{Enabled: true, Desktop: config.NotifyDesktopBoth}},
+		Pages: config.PageOverrides{
+			Alerts:      config.AlertsPageConfig{Columns: cols},
+			GroupDetail: config.GroupDetailConfig{Columns: cols},
+		},
+	}
+}
+
 // bootApp constructs the App, pushes the alerts home page, and
 // hydrates it with one synthetic poll.DataMsg so the fuzzer's
 // random keys land on a populated table from the first iteration.
-func bootApp(t *testing.T) tea.Model {
+func bootApp(t *testing.T, rules guardrail.Set) tea.Model {
 	t.Helper()
 	styles := testutil.LoadFuzzStyles(t)
+	// `:skin` is wired so the seeds below reach the picker's render
+	// and submit paths. The resolver is local rather than boot's: the
+	// fuzz app has no config to build the real one from.
+	resolver := cmdbar.New()
+	resolver.Register("skin", func(args []string) tea.Cmd {
+		if len(args) > 0 {
+			return app.ApplySkin(args[0])
+		}
+		return app.OpenSkinPicker()
+	})
+	resolver.Register("reload", func([]string) tea.Cmd { return app.Reload() })
+	sess := session.New(fuzzConfig(fuzzColumns, rules))
 	a := app.NewApp(app.Options{
 		Styles:     styles,
 		Dispatcher: keys.New(nil),
 		Tenants:    []string{"prod", "staging"},
+		CmdBar:     resolver,
+		SkinNames:  func() []string { return theme.Names("") },
+		SkinName:   theme.DefaultSkinName,
+		LoadStyles: fuzzLoadSkin,
+		Session:    sess,
+		// A reload that always succeeds and always repaints, so the
+		// seed below drives applyReloaded's skin swap and hint-bar
+		// rebuild rather than its refusal path. It also denies prod
+		// and drops the wide column, so the open pages meet a policy
+		// and a column set they were not built with.
+		Reload: func() tea.Cmd {
+			next := fuzzConfig(fuzzColumns[:1], append(guardrail.Set{{Tenants: []string{"prod"}, Deny: true}}, rules...))
+			next.Theme.Name = "catppuccin-latte"
+			next.TUI.Tips, next.TUI.TipsInterval = true, time.Second
+			sess.Apply(next)
+			return func() tea.Msg { return app.ReloadedMsg{} }
+		},
+		// Notifications on with both escape transports. The two
+		// warm-up polls below only seed the firing set; the third one
+		// carries a new alertname and is what drives the diff, the
+		// sanitiser and the raw emission.
+		Notify: notify.New(sess.Notify()),
 	})
 
 	clients := map[string]silenceform.Client{
@@ -151,13 +282,13 @@ func bootApp(t *testing.T) tea.Model {
 	}
 	homeFactory := func() app.Page {
 		return alerts.New(alerts.Options{
-			Styles:          styles,
-			Now:             func() time.Time { return fuzzNow },
-			Scope:           "all",
-			Clients:         clients,
-			Creator:         "fuzz",
-			BulkConcurrency: 4,
-			Logger:          slog.Default(),
+			Styles:  styles,
+			Now:     func() time.Time { return fuzzNow },
+			Scope:   "all",
+			Clients: clients,
+			Creator: "fuzz",
+			Logger:  slog.Default(),
+			Session: sess,
 		})
 	}
 
@@ -166,6 +297,23 @@ func bootApp(t *testing.T) tea.Model {
 	m = step(m, app.PushPage(homeFactory)())
 	m = step(m, poll.DataMsg{
 		Resource:      fuzzAlerts,
+		Tenant:        "prod",
+		ResourceLabel: "alerts",
+		At:            fuzzNow,
+	})
+	// A second tenant carries rows as well, so a per-tenant policy and
+	// the cross-tenant rollup both have something to act on.
+	m = step(m, poll.DataMsg{
+		Resource:      fuzzAlerts,
+		Tenant:        "staging",
+		ResourceLabel: "alerts",
+		At:            fuzzNow,
+	})
+	// prod polls a second time with one alertname the poll before it
+	// did not have, which is the only thing that makes the notifier
+	// speak.
+	m = step(m, poll.DataMsg{
+		Resource:      fuzzNotifyAlerts,
 		Tenant:        "prod",
 		ResourceLabel: "alerts",
 		At:            fuzzNow,
@@ -201,6 +349,35 @@ func addAppSeeds(f *testing.F) {
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey(':'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('a'), testutil.FuzzFrameKeyCode(tea.KeyEnter)))
 
+	// `:skin` both ways: the bare verb opens the picker (Esc closes
+	// it), and a named skin repaints every frame that follows.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('s'), testutil.FuzzFrameKey('k'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('s'), testutil.FuzzFrameKey('k'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKey('a'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter),
+	))
+
+	// `:reload` repaints and rebuilds the hint bar mid-session, so
+	// the frames after it exercise a swapped skin under a live stack.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('e'),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameResize(80, 24),
+	))
+
+	// A reload that adds a deny, then the verb it denies on the page
+	// that was already open: the sequence that used to write anyway.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey(':'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('e'),
+		testutil.FuzzFrameKey('l'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKey('s'),
+	))
+
 	// Tenant quick-switch.
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey('1'), testutil.FuzzFrameKey('2'), testutil.FuzzFrameKey('0')))
 
@@ -226,6 +403,81 @@ func addAppSeeds(f *testing.F) {
 	// Time-format and refresh toggles.
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKey('t'), testutil.FuzzFrameKey('r')))
 
+	// Range marking: anchor, walk, commit, then a bulk verb on the
+	// resulting marks.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKey('j'), testutil.FuzzFrameKey('j'),
+		testutil.FuzzFrameKeyCode(tea.KeySpace), testutil.FuzzFrameKey('s'),
+	))
+	// An anchored range interrupted by Esc, then a second Esc that
+	// must reach the stack now that the range is gone.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+		testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
+	// A filter change mid-preview, which is what drops the anchor row.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('V'), testutil.FuzzFrameKey('j'),
+		testutil.FuzzFrameKey('/'), testutil.FuzzFrameKey('z'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKeyCode(tea.KeySpace),
+	))
+
 	// Tenant picker open/close (Ctrl+T).
 	f.Add(testutil.FuzzSeed(testutil.FuzzFrameKeyCtrl('t'), testutil.FuzzFrameKeyCode(tea.KeyEscape)))
+
+	// Scope narrowing and widening, which drops the notifier's
+	// per-tenant firing set. The codec cannot synthesise a poll, so
+	// the re-warm half is out of the fuzzer's reach.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('1'), testutil.FuzzFrameKey('r'),
+		testutil.FuzzFrameKey('0'), testutil.FuzzFrameKey('r'),
+	))
+
+	// Wide tier: sort on the wide column, hide it so the sort parks,
+	// then walk the axes with h/l while it is out of view. h/l rather
+	// than Left/Right because the frame codec carries printable ASCII
+	// and the two pairs reach the same sorter primitives.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('W'), testutil.FuzzFrameKey('O'), testutil.FuzzFrameKey('W'),
+		testutil.FuzzFrameKey('h'), testutil.FuzzFrameKey('l'),
+		testutil.FuzzFrameKey('W'),
+	))
+}
+
+// addGuardedSeeds drives the shapes a policy adds: a typed prompt
+// answered right and wrong, a key the policy refuses, and the two
+// overlays that render the policy.
+func addGuardedSeeds(f *testing.F) {
+	f.Helper()
+
+	f.Add([]byte{})
+	// Mark a row and silence it, which is the write the prod rule
+	// guards, then type the tenant name and submit.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKeyCode(tea.KeySpace), testutil.FuzzFrameKey('s'),
+		testutil.FuzzFrameKey('p'), testutil.FuzzFrameKey('r'), testutil.FuzzFrameKey('o'),
+		testutil.FuzzFrameKey('d'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+	))
+	// The same prompt answered with a name that does not match, then
+	// Enter, which must leave the prompt open rather than write.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKeyCode(tea.KeySpace), testutil.FuzzFrameKey('s'),
+		testutil.FuzzFrameKey('n'), testutil.FuzzFrameKey('o'),
+		testutil.FuzzFrameKeyCode(tea.KeyEnter), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
+	// A row on the denied tenant, where the key refuses instead of
+	// opening anything, then the same key after a filter reshuffles
+	// which row the cursor sits on.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('j'), testutil.FuzzFrameKey('s'),
+		testutil.FuzzFrameKey('/'), testutil.FuzzFrameKey('z'), testutil.FuzzFrameKeyCode(tea.KeyEnter),
+		testutil.FuzzFrameKey('s'),
+	))
+
+	// The help overlay and the tenant picker under the policy, which
+	// render the guarded and denied rows.
+	f.Add(testutil.FuzzSeed(
+		testutil.FuzzFrameKey('?'), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+		testutil.FuzzFrameKeyCtrl('t'), testutil.FuzzFrameKeyCode(tea.KeyEscape),
+	))
 }

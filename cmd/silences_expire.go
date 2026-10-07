@@ -14,6 +14,7 @@ import (
 
 	"github.com/wilfriedroset/a10r/internal/backend"
 	"github.com/wilfriedroset/a10r/internal/config"
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/listcmd"
 	"github.com/wilfriedroset/a10r/internal/output"
 )
@@ -33,7 +34,10 @@ import (
 // a read-only backend, nothing is expired.
 func newSilencesExpireCmd(flags *GlobalFlags) *cobra.Command {
 	var outputFormat string
-	var dryRun bool
+	var (
+		dryRun         bool
+		confirmTenants []string
+	)
 	cmd := &cobra.Command{
 		Use:   "expire <id> [<id>...]",
 		Short: "Expire one or more silences by id",
@@ -44,17 +48,27 @@ func newSilencesExpireCmd(flags *GlobalFlags) *cobra.Command {
   a10r silences expire a1b2c3d4 --dry-run`,
 		Args: atLeastOneArg("silence id"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSilenceExpire(cmd.Context(), cmd.OutOrStdout(), flags, args, outputFormat, dryRun)
+			return runSilenceExpire(cmd.Context(), cmd.OutOrStdout(), flags, args, outputFormat, dryRun, confirmTenants)
 		},
 	}
 	cmd.Flags().StringVarP(&outputFormat, "output", "o", "",
 		"output format: default tab-separated tenant<TAB>id, or json, yaml; auto-JSON under an AI agent or A10R_OUTPUT")
+	cmd.Flags().StringArrayVar(&confirmTenants, "confirm-tenant", nil,
+		"tenant name that clears a type-tenant-name guardrail for that tenant (repeatable)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
 		"resolve and print what would be written, without making any change")
 	return cmd
 }
 
-func runSilenceExpire(ctx context.Context, out io.Writer, flags *GlobalFlags, ids []string, rawFormat string, dryRun bool) error {
+func runSilenceExpire(
+	ctx context.Context,
+	out io.Writer,
+	flags *GlobalFlags,
+	ids []string,
+	rawFormat string,
+	dryRun bool,
+	confirmTenants []string,
+) error {
 	cfg, globalReadOnly, err := loadWriteConfig(flags)
 	if err != nil {
 		return err
@@ -68,7 +82,7 @@ func runSilenceExpire(ctx context.Context, out io.Writer, flags *GlobalFlags, id
 	if err != nil {
 		return err
 	}
-	return silenceExpire(ctx, out, os.Stderr, cfg, globalReadOnly, build, ids, format, dryRun)
+	return silenceExpire(ctx, out, os.Stderr, cfg, globalReadOnly, build, ids, format, dryRun, confirmTenants)
 }
 
 // expireHit is one backend's match when resolving the requested ids: the
@@ -93,6 +107,7 @@ func silenceExpire(
 	ids []string,
 	format output.Format,
 	dryRun bool,
+	confirmTenants []string,
 ) error {
 	want := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -116,10 +131,7 @@ func silenceExpire(
 		return NewExitError(ExitNotFound,
 			fmt.Errorf("silence(s) %s not found in scope", strings.Join(ids, ", ")))
 	}
-	if dryRun {
-		return runDryRun(out, errOut, cfg, format, "expire", targets, globalReadOnly)
-	}
-	if err := ensureWritableTargets(globalReadOnly, cfg, targetTenants(targets)); err != nil {
+	if proceed, err := gateWrite(out, errOut, cfg, format, guardrail.ActionSilenceExpire, targets, globalReadOnly, dryRun, confirmTenants); !proceed {
 		return err
 	}
 	return runWrites(ctx, out, errOut, cfg, build, format, "expired", targets, expiredHint,

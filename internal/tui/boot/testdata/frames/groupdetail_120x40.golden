@@ -1,0 +1,40 @@
+<0> all      <?>       help                    <shift-s> open silences           <shift-a> sort by age
+<1> prod     <enter>   detail                  </>       filter                  [-]       reset sort to default
+<2> staging  <space>   mark                    <shift-f> state filter            <shift-t> state format
+             <shift-v> mark range              <shift-c> common labels           <r>       refresh
+             <s>       silence                 <shift-n> sort by instance label  <w>       toggle watch
+┌────────────────────────────────────────────────── HighCPU(prod)[2] ──────────────────────────────────────────────────┐
+│common: severity=critical                                                                                             │
+│    SEVERITY ↑   INSTANCE                                                                        STATE    AGE         │
+│▸   critical     instance=web-01                                                                 active   12m ago     │
+│    critical     instance=web-02                                                                 active   9m ago      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└────────────────────────────────────────────────── next refresh 1m ───────────────────────────────────────────────────┘
+<alerts> <instances>

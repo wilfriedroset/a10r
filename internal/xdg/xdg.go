@@ -4,7 +4,11 @@
 // error shared by every a10r package that resolves an OS-conformant
 // path (config dir, log file, future cache dir, …). One source of
 // truth means a Windows fallback rename or a typo in the env-var
-// name lands in one place.
+// name lands in one place. It also resolves the unix state directory
+// (StateDir) and owns the atomic write its files use (AtomicWrite),
+// so state-file permissions and the temp-plus-rename dance are
+// written once. internal/log still resolves its own per-OS log path,
+// because macOS and Windows put logs elsewhere.
 package xdg
 
 import "errors"

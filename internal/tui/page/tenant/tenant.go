@@ -34,6 +34,11 @@ const (
 
 const scopeAll = "all"
 
+// ViewName is the page's view id: its crumb, help-registry View tag
+// and remembered-sort key. Exported for internal/tui/boot, which
+// prunes the remembered sort keys against it.
+const ViewName = "tenant"
+
 // tenantSortColumns returns the page's sortable columns. The version
 // comparator is semver-aware ("0.27.0" sorts after "0.9.0"), and
 // empty versions sort LAST ("unknown", not "lowest") so concrete
@@ -111,6 +116,9 @@ type Options struct {
 	// error flashes instead of pushing (misconfigured backend).
 	// Required: a nil factory makes Enter a silent, undebuggable no-op.
 	DrillFactory func(name string) (app.Page, error)
+	// SortMemory persists the active sort column across runs; nil
+	// disables sort memory for this page.
+	SortMemory tablesort.Memory
 }
 
 // Page is the tenant table view.
@@ -136,12 +144,14 @@ type Page struct {
 }
 
 func New(opts Options) *Page {
-	return &Page{
+	p := &Page{
 		styles: opts.Styles,
 		drill:  opts.DrillFactory,
 		scope:  scopeAll,
 		sorter: tablesort.New(tenantSortColumns(), sortKeyName),
 	}
+	p.sorter.Bind(opts.SortMemory, ViewName)
+	return p
 }
 
 // SetRows replaces the rendered rows. Used instead of a poll.DataMsg
@@ -156,7 +166,7 @@ func (*Page) Init() tea.Cmd { return nil }
 
 func (*Page) Close() tea.Cmd { return nil }
 
-func (*Page) Crumb() string { return "tenant" }
+func (*Page) Crumb() string { return ViewName }
 
 // Title mirrors the other list pages: `tenants(<scope>)[<count>]`.
 func (p *Page) Title() string {
@@ -174,9 +184,9 @@ func (*Page) Footer() string { return "" }
 // Bindings sources sort shortcuts from the tablesort helper so the
 // convention matches alerts / silences / receivers.
 func (p *Page) Bindings() []action.Action {
-	sortBindings := p.sorter.Bindings("tenant")
+	sortBindings := p.sorter.Bindings(ViewName)
 	out := make([]action.Action, 0, 1+len(sortBindings))
-	out = append(out, action.Action{Key: "Enter", Description: "config", View: "tenant"})
+	out = append(out, action.Action{Key: "Enter", Description: "config", View: ViewName})
 	out = append(out, sortBindings...)
 	return out
 }

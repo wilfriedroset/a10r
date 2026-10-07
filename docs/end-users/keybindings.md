@@ -7,15 +7,15 @@
 | Key | What |
 | --- | --- |
 | `?` | Help overlay for the current view. |
-| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
+| `:` | Command bar — `:alerts`, `:silences`, `:status`, `:info`, `:config`, `:skin`, `:reload`, `:tenant`, `:q` (or `:quit`), etc. The help overlay paints this chip as `<:cmd>  Command mode` so the colon-then-command shape reads at a glance. As you type, the alphabetically-first matching alias trails your input as a dim ghost; `Tab` (or `Ctrl+F`) accepts it. Typed input is bolded so it stays visually distinct from the ghost suffix. |
 | `/` | Filter prompt — autodetects substring / fuzzy / literal / regex from the buffer (see [Filter modes](#filter-modes) below). |
-| `Esc` | Dismiss prompt / modal first; otherwise pop the page stack. |
+| `Esc` | Dismiss prompt / modal first, then an open `Shift+V` range; otherwise pop the page stack. |
 | `q` | Quit (confirm if a form is dirty). |
 | `Ctrl+C` | Hard quit, no confirm. |
 | `r` | Refresh the current view (bypass the poll tick). |
 | `t` | Toggle timestamps between relative (`5m ago`) and absolute (ISO local) — app-wide. |
 | `Ctrl+T` | Tenant picker modal (fuzzy search). |
-| `Ctrl+\` | Clear every mark on the focused page (alerts / silences). Silent no-op when nothing is marked. |
+| `Ctrl+\` | Clear every mark on the focused page (alerts / group detail / silences) and cancel any open `Shift+V` range. Flashes only when marks were cleared: cancelling a range on its own is silent, and the `visual` chip leaving the title is the cue. |
 | `0` | Scope: all configured tenants. |
 | `1` … `9` | Scope: nth tenant in `backends:` config order. |
 
@@ -27,13 +27,43 @@ The `/` prompt classifies its input by the buffer itself — there is no "switch
 
 | Buffer | Mode | When |
 | --- | --- | --- |
+| `a \|\| b`, `!a`, `count>3` | expr | **Alerts list & group detail only.** A boolean expression over the modes below, built from `&&`, `\|\|`, `!` and parentheses, plus the typed keys `count`, `age` and `state`. See [Boolean expressions](#boolean-expressions). Prefix the buffer with `\` to force a plain substring instead. |
 | `name<op>value` (`=`, `!=`, `=~`, `!~`) | label matcher | **Alerts list & group detail only.** A Prometheus-style label selector (e.g. `cluster_id=99`, `cluster_id=~9.*`, `severity!=info`) filters by that exact label — key-scoped, not a value substring. Combine several with `,` (or `&&`) to AND them: `cluster_id=99,role=consul`. Quote a value to keep a literal `,` inside a regex: `cluster_id=~"(a,b)"`. Checked before the modes below; prefix with `\` to force a plain substring instead. |
 | `~<text>` | fuzzy | Leading `~`. The `~` is stripped before matching; the rest is fed to a fuzzy matcher. |
 | `\<text>` | literal | Leading `\`. The `\` is stripped; the rest is matched as a plain substring. Use this as the escape hatch when your search would otherwise look like a regex (e.g. `\(prod)`) or a label matcher (e.g. `\foo=bar`). |
 | `<text>` with two or more distinct regex metacharacters from `. * + ? [ ] ( ) \| ^ $ \` | regex | The body is compiled as a Go regular expression. |
 | anything else | substring | Default — case-insensitive substring over the row's full search corpus (see below). |
 
-The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
+The label-matcher operators mirror the silence form: `=` exact, `!=` not-equal (also matches instances missing the label), `=~` / `!~` fully-anchored regex. A label matcher compares values exactly, so `severity=INFO` does not match `info`, and the silence you build from the same text matches the same way. Write `severity=~(?i)info` for a case-insensitive value. The text modes stay case-insensitive. The two-meta threshold for the regex mode is deliberate. `web.api`, `1.2.3.4`, `abc*` keep the substring default — a single `.` or `*` is the most common false-flag in alert filtering. `web.*api`, `^web`, `(prod\|stg)` flip immediately. If you want the literal text and the body trips the threshold, prefix with `\`.
+
+The characters that made a row match are painted in the skin's filter colour (`frame.title.filterColor`); on the cursor row, a marked row and a dimmed row they are underlined instead, so the row keeps its own colour. A row kept by a match the table does not show — an annotation, a hidden label — is listed without any painted characters, and a label matcher paints nothing at all, because it matches on label structure rather than on the rendered text. An expression paints nothing either, because its matching characters are spread across terms the highlighter cannot attribute.
+
+When the buffer will not compile — a half-typed `^web(`, a label matcher whose `=~` value is malformed, or an expression that ends on a dangling `||` — the title tag reads `[regex: <reason>]`, `[matcher: <reason>]` or `[expr: <reason>]` instead of the mode name, the rows stay on the last good filter, and `Enter` keeps the prompt open so you can fix the buffer. `Esc` still restores the filter you had before the prompt opened.
+
+### Boolean expressions
+
+**Alerts list & group detail only.** Combine the modes above with boolean operators. While the prompt is open, the title tag reads `[expr]` for a buffer the expression path owns, in place of the five-mode label.
+
+| Operator | Spelling | Example |
+| --- | --- | --- |
+| AND | `&&`, `,`, or a space | `severity=critical team=infra` |
+| OR | `\|\|` | `severity=critical \|\| severity=warning` |
+| NOT | `!` | `!severity=info` |
+| grouping | `(` `)` | `(severity=info \|\| team=ops) && age>1h` |
+
+`!` binds tighter than AND, and AND binds tighter than OR, so `count>=5 && !severity=info \|\| age<2h` reads as `(count>=5 && !severity=info) \|\| (age<2h)`. Each operand is one of the modes above — label matcher, fuzzy, literal, regex or substring. Inside a buffer the expression path already owns, quote a text operand to search for a phrase that carries a space: `(a=1 && "disk full")`. The quoted text is matched literally, so no sigil and no regex auto-detect applies inside it. The outer quotes are not searched, and `""` constrains nothing. To search for a quote character inside an expression, wrap the term in slashes, as in `/"hi"/`, or prefix the whole buffer with `\`.
+
+Three typed keys compare against a value the table shows rather than against the search text:
+
+| Key | Values | Example |
+| --- | --- | --- |
+| `count` | an integer, the alert's COUNT | `count>=5` |
+| `age` | a duration in `s` `m` `h` `d` `w`, largest unit first (`30m`, `2h`, `1h30m`, `3d`) | `age>2h` |
+| `state` | `active`, `suppressed`, `unprocessed` | `state=suppressed` |
+
+All six comparison operators work on them: `=`, `!=`, `>`, `>=`, `<`, `<=`. The regex operators `=~` and `!~` do not: a10r reads `age=~2h` as a broken typed comparison and reports it, never as a label matcher on a label named `age`. The three key names are reserved under every operator, so no label matcher reaches a real label named `count`, `age` or `state`. Search its value as text instead. Key names are case-insensitive. A value may be quoted, as in `state="active"`. `count` is the group size **before** the expression runs, that is, after the scope and the `Shift+F` state filter only, so `count>=5` asks "this alert has at least 5 instances in scope", not "at least 5 of them also match the rest of my buffer". On group detail `count` is undefined, and a term over it matches nothing, negated or not. The same rule covers `age` on an instance with no start time. Other terms in the same buffer still drop instances, so the COUNT column can be smaller than the number `count` compared: `count>=5 && severity=critical` keeps the alerts that had five instances in scope and then shows only the critical ones.
+
+A buffer becomes an expression only when it carries a `||`, a `!`, a typed comparison, or a `(` next to an explicit `&&` or `,`. Everything else keeps its old meaning: `a=1,b=2` stays the label-matcher AND chain it always was, and `(web|api)` stays a regex alternation, but `a=1,age=~2h` is a parse error. To use a regex that carries parentheses inside an expression, wrap it in slashes: `!/(web|api)/ && age>1h`. A leading `\` still forces literal mode over the whole buffer. A `!` at the start of a word is always NOT, so `!=info` reads as NOT plus the text `=info`, and `disk !full` reads as `disk` AND NOT `full`. Prefix the buffer with `\` when you want the `!` as text. Inside an expression a `\` escapes the next character only inside a quoted value, so use quotes, not a backslash, to keep a `,` or a space in a label value. Nothing removes the backslash afterwards, so `alertname="a\"b"` asks for a value that carries it.
 
 ### What `/` actually matches against
 
@@ -58,19 +88,20 @@ If a fuzzy/substring search surfaces matches that look unrelated to the alertnam
 | `Ctrl+U` / `PageUp` | Half page up |
 | `Ctrl+F` | Full page down (vim sibling of `Ctrl+D`) |
 | `Ctrl+B` | Full page up (vim sibling of `Ctrl+U`) |
-| `h` / `←` | Previous sortable column |
-| `l` / `→` | Next sortable column |
+| `h` / `←` | Previous sortable column. On the alerts list and on group detail `←` scrolls the columns instead, so `h` alone walks the sort there. |
+| `l` / `→` | Next sortable column. On the alerts list and on group detail `→` scrolls the columns instead, so `l` alone walks the sort there. |
 | `Enter` | Drill into the cursor row |
-| `Space` | Mark / unmark the cursor row (multi-select) |
-| `Ctrl+A` | Mark every visible row |
+| `Space` | Mark / unmark the cursor row (multi-select) — on the pages that have marks (alerts, group detail, silences) and on the tenant table |
 
 The mouse wheel walks the cursor too — wheel-up is the same as `k`, wheel-down the same as `j`. Wheel ticks on the open `?` overlay scroll the help body so a long binding list stays reachable. Click and drag are intentionally unbound; the rest of the surface stays keyboard-driven.
 
 ## Sort behaviour
 
-`Shift+<letter>` sorts by a column. Pressing the same shortcut twice flips ASC↔DESC. The active column shows an `↑` (ASC) or `↓` (DESC) arrow next to its uppercase header label — that's the source of truth.
+On a list page, `Shift+<letter>` sorts by a column. Pressing the same shortcut twice flips ASC↔DESC. The active column shows an `↑` (ASC) or `↓` (DESC) arrow next to its uppercase header label — that's the source of truth.
 
 Switching to a new column resets to that column's *default* direction. Severity defaults to descending (worst-first); everything else defaults to ascending.
+
+A label column you declare in the configuration joins the same set. Give it a `sort_key` and `Shift+<that letter>` sorts by it, `h`/`l` walk onto it, and the help overlay lists it. A column with no `sort_key` still renders, but nothing sorts by it. Rows whose cell is empty sort last in both directions. A `<N values>` rollup marker ranks after every plain value, so it lands at the end ascending and at the front descending. Group-detail rows are single instances, so they carry no marker. A `wide` column is not a sort axis while it is out of view: `Shift+<letter>` does nothing and `h`/`l` step over it. A sort you already made on one is parked, not lost. The page falls back to its default sort and direction, then restores your choice when `Shift+W` brings the column back. See [configuration.md](configuration.md#label-columns).
 
 ## Per-view shortcuts
 
@@ -82,13 +113,16 @@ Rows are **alerts** — one per `(tenant, alertname)` — each carrying a COUNT 
 | --- | --- |
 | `Enter` | Drill: single-instance alert → instance detail; multi-instance alert → group detail. |
 | `s` | Silence the whole alert (`alertname=` matcher only). No marks: prefilled form — a confirm guards alerts with more than one instance, and a scope note warns that any active filter is *not* applied. With marks (`Space`): bulk — one silence per marked alert. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `/` | Substring filter over the instances. |
 | `Shift+F` | Cycle the state filter: active → suppressed → unprocessed → all. |
 | `Shift+T` | Toggle the STATE breakdown between full (`9 active · 3 suppressed`) and compact (`9ac 3su`) — app-wide. |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. A row you scrolled sideways returns to the pinned left edge, because the toggle replaces the column set the scroll position was measured against. |
 | `Shift+S` | Sort by severity (worst in the group). |
 | `Shift+N` | Sort by alertname. |
 | `Shift+C` | Sort by instance count. |
 | `Shift+A` | Sort by age (oldest instance). |
+| `←` / `→` | Scroll the columns when the row is too wide for the terminal. The first data column stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. When no column past the cut fits beside the pinned one, `>` shows with `→` inert: the column is cut, but no scroll position brings it back. |
 
 ### Group detail
 
@@ -98,13 +132,16 @@ The instance list for one alert, reached by `Enter` on a multi-instance row. Row
 | --- | --- |
 | `Enter` | Drill into the cursor instance (instance detail). |
 | `s` | Silence the cursor instance (full labels). With marks: bulk — one silence per marked instance; at 10+ marks a warning suggests silencing the whole alert instead. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `S` | Open the silences suppressing this alert's instances. |
 | `Shift+C` | Show / hide the common-labels strip. |
 | `/` | Substring filter. |
 | `Shift+F` | Cycle the state filter. |
 | `Shift+T` | Toggle the STATE rendering (full / compact). |
+| `Shift+W` | Show or hide the label columns you declared `wide: true`. Listed only when the page has one. A row you scrolled sideways returns to the pinned left edge, because the toggle replaces the column set the scroll position was measured against. |
 | `Shift+N` | Sort by instance labels. |
 | `Shift+A` | Sort by age. |
+| `←` / `→` | Scroll the columns when the row is too wide for the terminal. SEVERITY stays pinned, and the header marks the cut edge with `<` or `>`. On a terminal wide enough for every column the two keys do nothing, and `h` / `l` keep the sort walk either way. When no column past the cut fits beside the pinned one, `>` shows with `→` inert: the column is cut, but no scroll position brings it back. |
 
 ### Alert detail (instance detail)
 
@@ -116,6 +153,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `S` | Open the silences suppressing this instance. |
 | `y` | Toggle raw alert payload as YAML (k9s-style escape hatch). The title appends ` [raw yaml]` while raw mode is active so the two views are visually distinguishable at a glance. |
 | `c` | Copy fingerprint to clipboard |
+| `Y` | Copy any field. Opens a picker over the fingerprint, the `generatorURL`, every label, and every annotation. Type to narrow on the field name or on its value, `Enter` copies. The picker cuts a long value to fit its row, but the search and the clipboard always use the value in full. |
 | `o` | Open `generatorURL` in the default browser |
 | `Esc` | Back |
 
@@ -129,6 +167,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `Ctrl+E` | Edit silence as YAML in `$EDITOR` |
 | `Ctrl+N` | Recreate the cursor silence (only on expired rows). The form lands prefilled with the matchers and comment from the source silence; creator is your current user, start defaults to now, and the cursor focuses the `Ends` line so you can type a fresh duration. Submits as a new silence (new ID); the original expired silence is left untouched. Refuses on active or pending rows — use `e` to extend a live silence. |
 | `x` / `Delete` | Expire. With no marks: expires the cursor silence after a default-No confirm. With one or more marks: bulk expire — confirm wording counts the queued silences and breaks them down per tenant (`(tenant prod=12, staging=3)`); fanout retries failed targets only. |
+| `Shift+V` | Start a mark range: anchor on the cursor row, walk with `j`/`k`, then `Space` or a second `Shift+V` marks every row in between. `Esc` cancels. |
 | `Shift+E` | Sort by `endsAt` |
 | `Shift+S` | Sort by `startsAt` |
 | `Shift+C` | Sort by creator |
@@ -139,6 +178,7 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | Key | What |
 | --- | --- |
 | `y` | Toggle raw silence payload as YAML (k9s-style escape hatch); structured curated view by default. The title appends ` [raw yaml]` while raw mode is active so the two YAML views are visually distinguishable at a glance. |
+| `Y` | Copy any field. Opens a picker over the ID, creator, comment, the whole matcher selector, each matcher on its own, both timestamps, and the state. Type to narrow on the field name or on its value, `Enter` copies. Timestamps copy as RFC 3339. A single matcher copies as `name="value"`, the syntax `--matcher` takes. The combined `matchers` row copies one matcher per line, the syntax the silence form's matcher box reads back. |
 | `j` / `k` | Scroll down / up one line |
 | `Ctrl+D` / `Ctrl+U` | Half-page down / up |
 | `Ctrl+F` / `Ctrl+B` | Full-page down / up |
@@ -164,6 +204,98 @@ One fully-expanded instance — its labels, annotations, generator URL, and supp
 | `p` | Jump to the raw config block |
 | `Esc` / `q` | Back |
 
+### Info pane
+
+`:info` opens the same report `a10r info` prints, for the process you
+are in: resolved config dir, log path, state dir, alias count, theme,
+and the configured backends.
+
+| Key | What |
+| --- | --- |
+| `j` / `k` | Scroll down / up one line |
+| `Ctrl+D` / `Ctrl+U` | Half-page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full-page down / up |
+| `G` / `gg` | Jump to last / first line |
+| `r` | Re-render the report |
+| `Esc` | Back |
+
+### Config pane
+
+`:config` lists the files this start read, in the order the merge
+applied them, and every warning that run produced. The source list
+covers the base `a10r.yaml`, its drop-ins, `aliases.yaml`, the keys
+profile, and a user skin, when each one exists.
+
+| Key | What |
+| --- | --- |
+| `j` / `k` | Scroll down / up one line |
+| `Ctrl+D` / `Ctrl+U` | Half-page down / up |
+| `Ctrl+F` / `Ctrl+B` | Full-page down / up |
+| `G` / `gg` | Jump to last / first line |
+| `p` | Jump to the sources section |
+| `w` | Jump to the warnings section |
+| `r` | Re-render the report |
+| `Esc` | Back |
+
+### Skin switch
+
+`:skin` with no argument opens a picker over every skin a10r can
+resolve: the bundled set plus the `.yaml` files in
+`<config-dir>/skins/`. The applied one is marked `(current)`. `Enter`
+applies the highlighted skin and `Esc` keeps the one you have.
+
+`:skin <name>` applies that skin without the picker. An unknown name
+changes nothing and flashes ``skin "<name>" not found``, because you
+named a specific skin and a silent fall back to the default would read
+as a10r ignoring you. A skin that fails to compile also changes
+nothing; the flash carries the error.
+
+The change lasts for the session. It does not write `theme.name`, so
+the next start reads your config file as before.
+
+### Config reload
+
+`:reload` re-reads your config file, your aliases file, and your keys
+file. Your page stack, cursors, marks, filters, and tenant scope stay
+as they are.
+
+`:reload` applies these without a restart:
+
+- `theme.name`
+- `tui.tips` and `tui.tips_interval`
+- every `poll_interval`, which restarts the pollers that changed
+- `defaults.read_only`, per-backend `read_only` and `guardrails`, at
+  once everywhere — the title bar, the help overlay, and every page
+  already on your stack
+- `defaults.bulk_concurrency`, `tui.poll_delta` and every
+  `pages.<page>.columns` block, on the pages already open too
+- `tui.notify` and `tui.terminal_title`
+- your aliases and your keys, as a whole-file swap
+
+`:reload` applies everything else in the file but cannot apply
+`tui.remember`, because the state store is opened once at startup.
+When that key changed, the flash says
+`reloaded, restart a10r to apply tui.remember`. Restart a10r to pick
+it up.
+
+`:reload` refuses the whole reload when the new file changes a
+backend or the log. That covers the backend list, every field of a
+backend entry except `read_only` and `poll_interval`, every `log.*`
+key, and `defaults.log_format`. The session keeps the clients, the pollers, and
+the log file it started with, so the flash says
+`reload: backends or log changed, restart a10r` and nothing moves.
+
+Any error stops the reload before it applies anything: a config that
+no longer parses, an aliases file with a bad entry, or a keys file
+that names an action a10r does not have. The flash carries the error
+and the session keeps every value it had.
+
+`:reload` is refused while a silence form is open, with the flash
+`reload: close the form first`. Close the form and press it again.
+
+`:re` is not enough to reach it, because `:receivers` starts the same
+way. Type `:rel` for the reload and `:rec` for the receivers.
+
 ### Receivers / Tenant table
 
 The lists follow the same vim motions as alerts/silences. View-specific verbs:
@@ -174,16 +306,64 @@ The lists follow the same vim motions as alerts/silences. View-specific verbs:
 | Receivers | `Shift+N` | Toggle the name sort ASC↔DESC (single sortable axis; `h`/`l` are no-ops here) |
 | Tenant | `Enter` | Single-select the cursor row |
 | Tenant | `Space` | Toggle the cursor row in the selection |
-| Tenant | `a` / `Ctrl+A` | Select every tenant |
+| Tenant | `a` | Select every tenant (with the search box empty) |
 
 ## Read-only mode
 
-`--read-only` (or `read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
+`--read-only` (or `defaults.read_only: true` in the config) hides every dangerous binding above. They stop responding and stop appearing in `?` and the right-hand hint strip — so a stray `s` or `x` during a screenshare can't fire by accident.
+
+A per-backend `read_only: true` is per row instead. The keys stay up while any configured backend is writable, whatever your current scope, and a press aimed at a frozen backend refuses and names it. See [Guardrails](#guardrails) below — the hiding and `[guarded]` rules are the same.
+
+## Guardrails
+
+A `guardrails:` rule can deny a write verb on the tenants it names (see
+[configuration.md](configuration.md#guardrails)). A denied verb follows
+the same hiding rule as read-only: the key stops appearing in the
+right-hand hint strip, and pressing it flashes a warning such as
+`silence.create denied on prod-eu: use the change ticket` instead of
+acting.
+
+The warning names the press when it fans out over your marks, and the
+rule when it does not. A marked bulk silence therefore reads `bulk
+silence denied on prod-eu: use the change ticket`, while a cursor press
+names the rule you would edit.
+
+The difference from read-only is scope. A rule names tenants, so the
+verb still works elsewhere, and `?` keeps listing it with a `[guarded]`
+suffix rather than dropping the row. Read-only is checked first, so a
+read-only session never mentions a rule.
+
+A `max_bulk` rule caps how many targets one press can send to one
+backend. The count is per tenant, not per run: a run that spreads ten
+targets over two capped backends counts what each backend gets, never
+the ten. Over the cap, the confirm modal never opens and the press
+flashes a warning such as `bulk expire on prod-eu: 25 targets exceed
+max_bulk 20`. Your marks stay set, so you can unmark rows and press
+again.
+
+A `confirmation: type-tenant-name` rule replaces the yes/no confirm with
+a typed prompt: you retype the backend name and press Enter. A typo
+keeps the prompt open and repeats what to type, and Esc cancels. A run
+that touches several restricted backends asks for each one in turn, and
+one Esc cancels the whole run before any write lands. A rule only
+strengthens the confirmation a key already has, so a verb no rule names
+keeps its usual prompt.
+
+The silence form is a write as well, so the rules reach it too. A deny
+refuses the submit with the same warning, and a rule that asks for a
+confirmation asks when you submit. One write asks once: a key that
+already put the question to you before it opened the form does not ask
+again, and that covers the bulk form, where the key owns the whole run.
+The form is where the target backend is picked, so a change of tenant
+after an answer asks again for the new backend. `Ctrl+E` writes without
+ever opening the form, so it asks its own question before your editor
+takes the screen.
 
 ## Conventions you'll spot in the chrome
 
 - **Title `<resource>(<scope>)[<count>]`.** The bordered panel's title shows what you're looking at. `(<scope>)` is the active tenant set; `[<count>]` is filtered/total when a filter is on, otherwise the total.
 - **Cursor row** keeps the body background and brightens the foreground.
 - **Marked rows** (after `Space`) tint the foreground only — different colour from the cursor so you can tell them apart at a glance.
+- **Visual mode** (`Shift+V`) previews a range in that same marked style and adds a `visual` chip to the title. The rows are not marked yet: `Space` or a second `Shift+V` commits them, `Esc` cancels, and `Ctrl+\` cancels and clears every mark. A commit only ever adds, so marks you picked one by one survive. If the anchor row leaves the view — a filter change, a poll refresh — the range cancels itself and says so.
 - **`TENANT` column** appears on alerts when more than one tenant is in scope. Switching to a single-tenant scope hides it.
 - **Bold breadcrumbs** in the footer trace the page stack: `<alerts> <instances> <detail>` (a single-instance alert skips straight to `<detail>`). `Esc` pops one frame.

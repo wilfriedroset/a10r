@@ -45,13 +45,39 @@ off the list and surface only on the instance view.
 _Avoid_: status (AM wire field name), firing / pending (Grafana
 ruler vocabulary — AM has no pending state).
 
+**Label column**:
+An extra table column the operator declares in the configuration,
+one per alert label, rendered after ALERTNAME on the alerts page and
+after INSTANCE on the group detail page. Display-only text: it does
+not change grouping, filtering, or what a silence matches. Built-in
+columns cannot be removed or reordered around it.
+_Avoid_: custom column, extra field, computed column (nothing is
+computed — the cell is a label value).
+
+**Wide tier**:
+The second set of **label columns** a page can show, declared
+`wide: true` and out of view until the operator presses `Shift+W`.
+The tier is per page and lasts for as long as that page stays open.
+A column in the tier is not a sort axis while it is out of view, and
+a sort already made on one parks on the page's default until the tier
+comes back.
+_Avoid_: expanded view, verbose mode, extended columns.
+
+**Rollup marker**:
+The `<N values>` text a **label column** renders on an **Alert** row
+when the group's instances disagree on that label. N is the count of
+distinct values, and an instance with no such label counts as one of
+them. A row where every instance agrees shows the shared value
+instead. The marker is plain text, never a sample of one instance.
+_Avoid_: mixed, multi, varies.
+
 ### Alert drill-down
 
 **Group detail**:
 The L2 list page reached by Enter on a multi-instance **alert** at
 L1. Rows on **alert instances** (one per fingerprint); columns
-`SEVERITY <specific-labels> STATE AGE` — the L1 order minus
-TENANT/COUNT, with the flex column holding each instance's
+`SEVERITY <specific-labels> [label columns] STATE AGE` — the L1 order
+minus TENANT/COUNT, with the flex column holding each instance's
 instance-specific labels (those outside the common set) — the
 `instance` label pinned first so truncation never eats the primary
 identifier, the rest ellipsized to one line. Live: polls the alerts
@@ -102,6 +128,34 @@ populated for **silence-all** to state the true scope and flag that
 any active list filter is not applied. Empty for **silence-one**.
 _Avoid_: flash (the note is persistent in the form, not a transient
 footer flash).
+
+### Write policy
+
+**Guardrail**:
+A rule under `guardrails:` that restricts a write verb on the
+tenants its glob names. A rule can **deny** the verb, cap the
+targets one press sends to one backend with **max_bulk**, or raise
+the **confirmation** the verb asks for. Rules only tighten: read-only
+is checked first and always wins, and a verb no rule names keeps the
+prompt it already had. Evaluation is per tenant, so a run over three
+backends asks three times and enforces each answer separately.
+_Avoid_: permission, policy engine (nothing is granted here, only
+taken away), RBAC (there are no identities).
+
+**Denied verb**:
+A write verb a guardrail rule refuses on the tenant under the
+cursor. The hint strip drops the key, the way read-only drops a
+Dangerous binding, and a press flashes the rule's `reason`. The help
+overlay keeps the row with a `[guarded]` suffix, because the rule
+names tenants rather than the whole session.
+_Avoid_: disabled, greyed out (nothing renders in a disabled style).
+
+**Typed confirmation**:
+The `type-tenant-name` confirmation level, in which the operator
+retypes the backend name before the write goes out, once per
+restricted backend the run touches. Stronger than the plain yes/no
+modal, and a rule can only raise a verb towards it, never lower it.
+_Avoid_: password prompt, two-factor (nothing is authenticated).
 
 ### Time rendering
 
@@ -301,6 +355,25 @@ tenant is **connected**. Multi-offender layouts collapse to a count
 plus the alphabetically first offender's detail and **next attempt**.
 _Avoid_: status line, error banner.
 
+**Poll delta**:
+How many alertname aggregates appeared and disappeared for one tenant
+between two polls. With `tui.poll_delta` on, the alerts page flashes
+it as one line, `+3 new, -1 resolved`, and names the tenant when the
+scope spans more than one. The delta compares the arriving snapshot
+against the previous one only, and it ignores the active filters
+because it reports the backend, not the view.
+_Avoid_: timeline, change log (a10r keeps no history between polls),
+diff.
+
+**New firing alert**:
+An alertname aggregate key that the previous poll of that tenant did
+not carry, and whose state is **active**. A suppressed or unprocessed
+instance does not count. With `tui.notify` on, a10r flashes, rings the
+terminal bell and raises a desktop notification once per poll that
+brings one. The first poll of a tenant seeds the set and stays quiet.
+_Avoid_: new alert (an instance, where this is an aggregate), alert
+storm.
+
 ### List-page chrome
 
 **Chrome**:
@@ -333,6 +406,51 @@ the footer entirely.
 _Avoid_: refresh footer (surface name, not content), poll status
 (too generic), watch indicator (one branch only).
 
+### Filtering
+
+**Filter expression**:
+A `/` buffer the alerts list and group detail read as a boolean
+expression rather than as one of the five plain modes. It combines
+those modes with `&&`, `||`, `!` and parentheses, and adds the typed
+keys `count`, `age` and `state`. A buffer becomes an expression only
+when it carries a `||`, a `!`, a typed comparison, or a `(` next to
+an explicit `&&` or `,`. Everything else keeps the meaning it always
+had. A term over a value the row does not carry matches neither way,
+so `!count>3` drops a row with no count instead of keeping it.
+_Avoid_: query, search syntax (both suggest a server-side selector,
+which this is not), PromQL.
+
+**Match highlight**:
+The characters that made a row survive the `/` filter, painted in
+the skin filter colour. The cursor row, a marked row and a dimmed
+row underline them instead, so the row keeps its own colour. A label
+matcher paints nothing, because it matches on label structure rather
+than on rendered text, and a **filter expression** paints nothing,
+because its matching characters spread across terms the highlighter
+cannot attribute.
+_Avoid_: selection, hit marker.
+
+### Row marking
+
+**Visual mode**:
+The transient state a list page enters on `Shift+V`, in which the
+rows between the **anchor** and the cursor preview as marked and the
+title carries a `visual` chip. The preview is not a mark: `Space` or a
+second `Shift+V` commits it, `Esc` cancels it, `Ctrl+\` cancels it and
+clears every mark. A commit only adds, so marks picked one by one
+survive it. Page-local: a drill-down drops it on the way in, so
+coming back reveals the page without a preview waiting on it.
+_Avoid_: selection mode (vim's `v` is character-wise and a10r has no
+character-wise equivalent), range mode (names the span, not the state).
+
+**Anchor**:
+The row key `Shift+V` pins visual mode to — a group key, a
+fingerprint, or a silence ID, never a row index, so a re-sort or a
+re-filter carries the preview with its row. When the anchor row leaves
+the view, visual mode cancels itself and flashes the reason.
+_Avoid_: start row (an index reading, which is exactly what the anchor
+is not), pivot.
+
 ### Theming
 
 **Skin**:
@@ -358,6 +476,20 @@ by the end user. Resolved ahead of bundled skins in the loader;
 shadow-warns if its name matches a bundled skin.
 _Avoid_: custom theme, override skin.
 
+### View memory
+
+**View memory**:
+The tenant scope and the per-page sort column a10r reopens on, held
+in `ui-state.yaml` in the state dir and gated behind `tui.remember`.
+Only the choice is kept, never the data behind it: no filters, no
+marks, no cursor position, no page stack. A choice that matches the
+built-in default drops out of the file, and a remembered tenant the
+config no longer declares is dropped at startup.
+_Avoid_: session (a10r restores no session, only two values), cache
+(nothing here is a copy of backend data), prompt history (the `:`
+and `/` rings, which persist separately and are not gated by
+`tui.remember`).
+
 ## Relationships
 
 - An **Alert** rolls up one or more **alert instances** sharing the
@@ -367,7 +499,15 @@ _Avoid_: custom theme, override skin.
 - The substring (`/`) and state (`Shift+F`) filters narrow **alert
   instances** first; **Alerts** are then rebuilt from the survivors
   and an Alert with no surviving instance drops from the page, so
-  COUNT / STATE / AGE always describe the post-filter reality.
+  COUNT / STATE / AGE always describe the post-filter reality. A
+  `count` or `age` term inside a `/` expression reads those same
+  post-filter values, computed before the expression's own terms
+  run, so the other terms can leave a COUNT smaller than the number
+  `count` compared.
+- A **filter expression** and a **match highlight** never appear on
+  the same buffer. A buffer the page reads as an expression paints no
+  highlight, because the characters that made the row survive spread
+  across terms the highlighter cannot attribute to one span.
 - Drill-down ladder: L1 alerts list → (Enter) → L2 **group detail**
   → (Enter) → L3 **instance detail**; Esc pops one level. Enter on a
   COUNT==1 alert at L1 skips L2 and lands on L3 directly — such rows

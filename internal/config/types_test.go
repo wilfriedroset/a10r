@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"gopkg.in/yaml.v3"
+
+	"github.com/wilfriedroset/a10r/internal/guardrail"
 )
 
 func TestConfig_ZeroValueRoundTrips(t *testing.T) {
@@ -69,6 +72,44 @@ func TestConfig_LoadValidFull(t *testing.T) {
 	require.Equal(t, "gateway-headers", got.Backends[2].Name)
 	require.Equal(t, "${A10R_GW_TOKEN}", got.Backends[2].Headers["X-Gateway-Token"])
 	require.Equal(t, "a10r", got.Backends[2].Headers["X-Trace-Id"])
+
+	require.True(t, got.TUI.Tips)
+	require.Equal(t, 12*time.Second, got.TUI.TipsInterval)
+	require.True(t, got.TUI.TerminalTitle)
+	require.True(t, got.TUI.PollDelta)
+	require.True(t, got.TUI.Remember)
+	require.True(t, got.TUI.Notify.Enabled)
+	require.False(t, got.TUI.Notify.BellOrDefault())
+	require.Equal(t, NotifyDesktopBoth, got.TUI.Notify.Desktop)
+	require.Equal(t, "critical", got.TUI.Notify.MinSeverity)
+	require.Equal(t, []string{"notify-send", "a10r", "$MESSAGE"}, got.TUI.Notify.Command)
+
+	require.Equal(t, 5*time.Second, got.Pages.Alerts.PollInterval)
+	require.Equal(t,
+		[]Column{
+			{Label: "cluster", Title: "CLUSTER", SortKey: "L", Width: 12},
+			{Label: "namespace", Wide: true},
+		},
+		got.Pages.Alerts.Columns)
+	require.Equal(t, []Column{{Label: "pod", SortKey: "P"}}, got.Pages.GroupDetail.Columns)
+	require.Equal(t, 20*time.Second, got.Pages.Silences.PollInterval)
+	require.Equal(t, 60*time.Second, got.Pages.Receivers.PollInterval)
+	require.Equal(t, 45*time.Second, got.Pages.Status.PollInterval)
+
+	require.Equal(t, 4, got.Defaults.BulkConcurrency)
+
+	require.Equal(t, guardrail.Set{
+		{
+			Tenants: []string{"prod-*"},
+			Actions: []string{"silence.expire"},
+			Deny:    true,
+			Reason:  "expire prod silences from the change ticket, not a10r",
+		},
+		{Tenants: []string{"prod-*"}, Confirmation: guardrail.ConfirmationTypeTenantName},
+		{MaxBulk: new(20)},
+	}, got.Guardrails)
+
+	require.NoError(t, got.Validate())
 }
 
 func TestConfig_RoundTripPreservesEverything(t *testing.T) {
@@ -96,11 +137,13 @@ func TestDefaultsAreThePinnedConstants(t *testing.T) {
 	// Pin the constants to the user-visible defaults; changing them
 	// is a deliberate behaviour change and must surface in CHANGELOG.
 	require.Equal(t, time.Minute, DefaultPollInterval, "default poll interval is 1m")
-	require.Equal(t, "catppuccin-mocha", DefaultThemeName, "default theme is catppuccin-mocha")
+	require.Equal(t, "auto", DefaultThemeName, "default theme defers to the terminal background")
 	require.Equal(t, 30*time.Second, DefaultRemoteTimeout,
 		"DefaultRemoteTimeout matches Prometheus's remote_timeout default")
 	require.Equal(t, "Bearer", DefaultAuthorizationType,
 		"DefaultAuthorizationType matches Prometheus's HTTPClientConfig.Authorization default")
+	require.Equal(t, "warning", DefaultNotifyMinSeverity,
+		"the notify severity floor catches warning and above")
 	require.Equal(t, 4, DefaultBulkConcurrency,
 		"DefaultBulkConcurrency is the per-tenant worker-pool size when defaults.bulk_concurrency is unset")
 }
@@ -207,6 +250,10 @@ func TestTUI_DefaultIsTipsOff(t *testing.T) {
 	require.False(t, c.TUI.Tips, "tui.tips must default to false")
 	require.Zero(t, c.TUI.TipsInterval,
 		"tui.tips_interval must default to zero (wiring fills in the package default)")
+	require.False(t, c.TUI.TerminalTitle, "tui.terminal_title must default to false")
+	require.False(t, c.TUI.PollDelta, "tui.poll_delta must default to false")
+	require.False(t, c.TUI.Remember, "tui.remember must default to false")
+	require.False(t, c.TUI.Notify.Enabled, "tui.notify.enabled must default to false")
 }
 
 func TestTUI_RoundTrip(t *testing.T) {
@@ -218,6 +265,39 @@ func TestTUI_RoundTrip(t *testing.T) {
 	require.True(t, c.TUI.Tips, "explicit tui.tips: true must round-trip")
 	require.Equal(t, 12*time.Second, c.TUI.TipsInterval,
 		"tui.tips_interval must parse as a duration string")
+
+	body = []byte("tui:\n  terminal_title: true\n")
+	var withTitle Config
+	require.NoError(t, yaml.Unmarshal(body, &withTitle))
+	require.True(t, withTitle.TUI.TerminalTitle,
+		"explicit tui.terminal_title: true must round-trip")
+
+	body = []byte("tui:\n  poll_delta: true\n")
+	var withDelta Config
+	require.NoError(t, yaml.Unmarshal(body, &withDelta))
+	require.True(t, withDelta.TUI.PollDelta,
+		"explicit tui.poll_delta: true must round-trip")
+
+	body = []byte("tui:\n  remember: true\n")
+	var withRemember Config
+	require.NoError(t, yaml.Unmarshal(body, &withRemember))
+	require.True(t, withRemember.TUI.Remember,
+		"explicit tui.remember: true must round-trip")
+
+	// An explicit `bell: false` must survive a marshal: omitempty on a
+	// *bool drops nil only, never a pointer to false.
+	body = []byte("tui:\n  notify:\n    enabled: true\n    bell: false\n")
+	var withNotify Config
+	require.NoError(t, yaml.Unmarshal(body, &withNotify))
+	require.True(t, withNotify.TUI.Notify.Enabled)
+	require.False(t, withNotify.TUI.Notify.BellOrDefault())
+
+	out, err := yaml.Marshal(withNotify)
+	require.NoError(t, err)
+	var back Config
+	require.NoError(t, yaml.Unmarshal(out, &back))
+	require.False(t, back.TUI.Notify.BellOrDefault(),
+		"explicit tui.notify.bell: false must survive a round-trip")
 }
 
 func TestDefaults_BulkConcurrencyZeroPassesValidate(t *testing.T) {

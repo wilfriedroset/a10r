@@ -3,6 +3,8 @@
 package boot
 
 import (
+	"log/slog"
+
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/tui/page/tenant"
 )
@@ -13,8 +15,7 @@ import (
 const scopeAll = "all"
 
 // backendNames returns the configured tenant names in
-// configuration order. Used to populate the panel's tenant-
-// shortcut column.
+// configuration order.
 func backendNames(cfg *config.Config) []string {
 	out := make([]string, len(cfg.Backends))
 	for i, b := range cfg.Backends {
@@ -27,28 +28,19 @@ func backendNames(cfg *config.Config) []string {
 // configured backends + the startup-fetched version map.
 // Backends whose factory build failed are still surfaced (the
 // user wants to see the misconfigured entry in the tenant table)
-// but with an empty version that renders as "—".
+// but with an empty version that renders as "—". The URL is
+// redacted because the column stays on screen for the whole
+// session.
 func buildTenantRows(cfg *config.Config, versions map[string]string) []tenant.Row {
 	rows := make([]tenant.Row, 0, len(cfg.Backends))
 	for _, be := range cfg.Backends {
 		rows = append(rows, tenant.Row{
 			Name:    be.Name,
-			URL:     be.URL,
+			URL:     config.RedactURL(be.URL),
 			Version: versions[be.Name],
 		})
 	}
 	return rows
-}
-
-// tenantConfigIndex returns a map from backend name to its
-// resolved config.Backend struct so the tenant-config drill
-// factory can hand the right entry to the inspector page.
-func tenantConfigIndex(cfg *config.Config) map[string]config.Backend {
-	out := make(map[string]config.Backend, len(cfg.Backends))
-	for _, be := range cfg.Backends {
-		out[be.Name] = be
-	}
-	return out
 }
 
 // scopeFor returns the tenant label rendered in the alerts page
@@ -63,5 +55,18 @@ func scopeFor(cfg *config.Config) string {
 		return cfg.Backends[0].Name
 	default:
 		return scopeAll
+	}
+}
+
+// logUnmatchedTenants warns once per `guardrails:` tenant glob that
+// names no configured backend. A warning rather than a startup
+// error per ADR 0049: one config.d fragment is shared across
+// machines that do not all have every tenant. The capture the
+// `:config` page reads is open around this call, so the warning
+// lands there as well as in the log file.
+func logUnmatchedTenants(logger *slog.Logger, cfg *config.Config) {
+	for _, glob := range cfg.Guardrails.UnmatchedTenants(backendNames(cfg)) {
+		logger.Warn("guardrail tenant glob matches no configured backend",
+			slog.String("glob", glob))
 	}
 }

@@ -537,7 +537,7 @@ func TestBuildInitConfig(t *testing.T) {
 			check: func(t *testing.T, cfg config.Config) {
 				t.Helper()
 				require.Equal(t, 30*time.Second, cfg.Defaults.PollInterval)
-				require.Equal(t, "catppuccin-mocha", cfg.Theme.Name)
+				require.Equal(t, config.DefaultThemeName, cfg.Theme.Name)
 			},
 		},
 	}

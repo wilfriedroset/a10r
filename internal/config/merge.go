@@ -140,6 +140,11 @@ func mergeInto(base, overlay *Config, overlayPath string, backendSource map[stri
 		base.Backends = append(base.Backends, b)
 	}
 
+	// Guardrails concatenate instead of last-layer-wins: a rule is a
+	// restriction, so a drop-in must be able to add one and must never
+	// be able to drop one the base file declared.
+	base.Guardrails = append(base.Guardrails, overlay.Guardrails...)
+
 	mergeDefaults(&base.Defaults, overlay.Defaults)
 	mergeTheme(&base.Theme, overlay.Theme)
 	mergeLog(&base.Log, overlay.Log)
@@ -190,7 +195,11 @@ func mergeLog(base *Log, overlay Log) {
 }
 
 func mergePages(base *PageOverrides, overlay PageOverrides) {
-	mergePage(&base.Alerts, overlay.Alerts)
+	if overlay.Alerts.PollInterval != 0 {
+		base.Alerts.PollInterval = overlay.Alerts.PollInterval
+	}
+	mergeColumns(&base.Alerts.Columns, overlay.Alerts.Columns)
+	mergeColumns(&base.GroupDetail.Columns, overlay.GroupDetail.Columns)
 	mergePage(&base.Silences, overlay.Silences)
 	mergePage(&base.Receivers, overlay.Receivers)
 	mergePage(&base.Status, overlay.Status)
@@ -202,7 +211,19 @@ func mergePage(base *PageConfig, overlay PageConfig) {
 	}
 }
 
-// mergeTUI folds overlay TUI fields onto base. Tips is one-way:
+// mergeColumns replaces the whole column list rather than appending
+// to it. A list is not a scalar: appending across layers would leave
+// the rendered order and the duplicate-label check dependent on which
+// drop-ins happen to be installed, so the last layer that declares
+// any column owns the page's column set.
+func mergeColumns(base *[]Column, overlay []Column) {
+	if len(overlay) > 0 {
+		*base = overlay
+	}
+}
+
+// mergeTUI folds overlay TUI fields onto base. Tips,
+// TerminalTitle, PollDelta and Remember are one-way:
 // once any layer enables it, later layers cannot turn it back off
 // — same idiom as Defaults.ReadOnly. The user toggles it off by
 // editing the layer that set it to true. TipsInterval follows the
@@ -214,5 +235,37 @@ func mergeTUI(base *TUI, overlay TUI) {
 	}
 	if overlay.TipsInterval != 0 {
 		base.TipsInterval = overlay.TipsInterval
+	}
+	if overlay.TerminalTitle {
+		base.TerminalTitle = true
+	}
+	if overlay.PollDelta {
+		base.PollDelta = true
+	}
+	if overlay.Remember {
+		base.Remember = true
+	}
+	mergeNotify(&base.Notify, overlay.Notify)
+}
+
+// mergeNotify folds overlay notify fields onto base. Enabled is
+// one-way like the sibling TUI bools; Bell is non-nil-wins because nil
+// is its "unset". Command replaces the whole list for the same reason
+// as mergeColumns: a list is not a scalar.
+func mergeNotify(base *Notify, overlay Notify) {
+	if overlay.Enabled {
+		base.Enabled = true
+	}
+	if overlay.Bell != nil {
+		base.Bell = overlay.Bell
+	}
+	if overlay.Desktop != "" {
+		base.Desktop = overlay.Desktop
+	}
+	if overlay.MinSeverity != "" {
+		base.MinSeverity = overlay.MinSeverity
+	}
+	if len(overlay.Command) > 0 {
+		base.Command = overlay.Command
 	}
 }

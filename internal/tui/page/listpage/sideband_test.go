@@ -115,6 +115,31 @@ func TestBase_HandleSidebandMsg(t *testing.T) {
 			msg: app.TimeFormatChangedMsg{Format: timerender.Absolute},
 		},
 		{
+			// A page whose columns are derived from the config at
+			// construction re-derives them when a reload lands.
+			name: "reconfigure wired",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				called := false
+				b := &listpage.Base{Reconfigure: func() { called = true }}
+				return b, func(t *testing.T) {
+					t.Helper()
+					require.True(t, called, "the reload must reach the hook")
+				}
+			},
+			msg:         app.ConfigReloadedMsg{},
+			wantHandled: true,
+		},
+		{
+			// Pages with nothing derived from the config pass through.
+			name: "reconfigure unwired falls through",
+			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
+				t.Helper()
+				return &listpage.Base{}, nil
+			},
+			msg: app.ConfigReloadedMsg{},
+		},
+		{
 			name: "state format wired",
 			baseFactory: func(t *testing.T) (*listpage.Base, func(t *testing.T)) {
 				t.Helper()
