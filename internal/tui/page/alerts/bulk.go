@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -166,6 +167,60 @@ func (p *Page) openBulkSilence() tea.Cmd {
 	question := fmt.Sprintf("silence %d %s? (tenant %s)",
 		len(targets), alertNoun(len(targets)), formatTenantBreakdownAlerts(targets))
 	return listpage.OpenBulkForm(len(targets), d, question, p.pushBulkSilenceForm)
+}
+
+// silenceRequest asks about the run an `s` press would really fire,
+// so the duplicate tenants are the per-tenant count the cap compares
+// against.
+func (p *Page) silenceRequest() guardrail.Request {
+	return p.request(p.markedTargets)
+}
+
+// guarded answers the [guarded] suffix. It counts each marked tenant
+// once: a binding outlives any one run, so a cap the current marks
+// happen to breach must not strike `s` off the hint strip.
+func (p *Page) guarded() bool {
+	return p.session.Guardrails().Refuses(p.request(p.markedTenants))
+}
+
+// request turns the press into its targets; marked resolves the bulk
+// fan-out, the one case the callers count differently.
+func (p *Page) request(marked func() []string) guardrail.Request {
+	switch {
+	case len(p.marks) > 0:
+		return bulkop.SilenceRequest(true, marked()...)
+	case p.Index() < len(p.groups):
+		return bulkop.SilenceRequest(false, p.groups[p.Index()].tenant)
+	}
+	return bulkop.SilenceRequest(false)
+}
+
+// markedTargets names the tenant of every marked group, once per group
+// and in the page's own row order. It keeps a marked tenant with no
+// writeable client, which resolveBulkSilenceTargets drops: refusing a
+// press that would have flashed "no writeable backend" costs nothing,
+// and aligning the two walks would let a capped or denied tenant
+// through whenever its client is missing at that moment.
+func (p *Page) markedTargets() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked {
+			out = append(out, g.tenant)
+		}
+	}
+	return out
+}
+
+// markedTenants serves the caller that asks per backend rather than
+// per row.
+func (p *Page) markedTenants() []string {
+	var out []string
+	for _, g := range p.groups {
+		if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
+			out = append(out, g.tenant)
+		}
+	}
+	return out
 }
 
 // resolveBulkSilenceTargets walks the current groups so a marked group

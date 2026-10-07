@@ -42,10 +42,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
-	"github.com/wilfriedroset/a10r/internal/guardrail"
 	"github.com/wilfriedroset/a10r/internal/tui/action"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
-	"github.com/wilfriedroset/a10r/internal/tui/bulkop"
 	"github.com/wilfriedroset/a10r/internal/tui/edit"
 	"github.com/wilfriedroset/a10r/internal/tui/filterexpr"
 	silenceform "github.com/wilfriedroset/a10r/internal/tui/form/silence"
@@ -277,60 +275,6 @@ func groupKeyOf(tenant, alertName string) string { return tenant + "\x00" + aler
 // markKey hands the listpage mark and range helpers the group key,
 // so a re-sort carries a mark with its row instead of its index.
 func markKey(g alertGroup) string { return g.key() }
-
-// silenceRequest asks about the run an `s` press would really fire,
-// so the duplicate tenants are the per-tenant count the cap compares
-// against.
-func (p *Page) silenceRequest() guardrail.Request {
-	return p.request(p.markedTargets)
-}
-
-// guarded answers the [guarded] suffix. It counts each marked tenant
-// once: a binding outlives any one run, so a cap the current marks
-// happen to breach must not strike `s` off the hint strip.
-func (p *Page) guarded() bool {
-	return p.session.Guardrails().Refuses(p.request(p.markedTenants))
-}
-
-// request turns the press into its targets; marked resolves the bulk
-// fan-out, the one case the callers count differently.
-func (p *Page) request(marked func() []string) guardrail.Request {
-	switch {
-	case len(p.marks) > 0:
-		return bulkop.SilenceRequest(true, marked()...)
-	case p.Index() < len(p.groups):
-		return bulkop.SilenceRequest(false, p.groups[p.Index()].tenant)
-	}
-	return bulkop.SilenceRequest(false)
-}
-
-// markedTargets names the tenant of every marked group, once per group
-// and in the page's own row order. It keeps a marked tenant with no
-// writeable client, which resolveBulkSilenceTargets drops: refusing a
-// press that would have flashed "no writeable backend" costs nothing,
-// and aligning the two walks would let a capped or denied tenant
-// through whenever its client is missing at that moment.
-func (p *Page) markedTargets() []string {
-	var out []string
-	for _, g := range p.groups {
-		if _, marked := p.marks[markKey(g)]; marked {
-			out = append(out, g.tenant)
-		}
-	}
-	return out
-}
-
-// markedTenants serves the caller that asks per backend rather than
-// per row.
-func (p *Page) markedTenants() []string {
-	var out []string
-	for _, g := range p.groups {
-		if _, marked := p.marks[markKey(g)]; marked && !slices.Contains(out, g.tenant) {
-			out = append(out, g.tenant)
-		}
-	}
-	return out
-}
 
 // allSuppressed reports whether every instance in the group is
 // suppressed — the row-dim condition. A zero-count group is never
