@@ -94,7 +94,7 @@ const labelAlertname = "alertname"
 // has no uppercase `S` verb — silence is lowercase `s` — so the
 // shortcut is free.
 func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
-	cols := []tablesort.Column[alertGroup]{
+	return slices.Concat([]tablesort.Column[alertGroup]{
 		{
 			Key: sortKeySeverity, Title: "SEVERITY", Hotkey: 'S', DefaultAsc: false,
 			Less: tieBreakGroup(func(a, b *alertGroup) bool {
@@ -119,8 +119,7 @@ func alertSortColumns(user []table.LabelColumn) []tablesort.Column[alertGroup] {
 				return a.oldestStart.Before(b.oldestStart)
 			}),
 		},
-	}
-	return append(cols, table.LabelSortColumns(user, func(g *alertGroup) []string { return g.labelCells }, tieBreakGroup)...)
+	}, table.LabelSortColumns(user, func(g *alertGroup) []string { return g.labelCells }, tieBreakGroup))
 }
 
 // tieBreakGroup wraps a comparator so equal-by-primary groups fall

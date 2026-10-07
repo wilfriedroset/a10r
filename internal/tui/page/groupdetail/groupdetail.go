@@ -78,7 +78,7 @@ const pollResource = "alerts"
 // ascending. Every comparator falls back to fingerprint ASC so the
 // order is total and deterministic across re-sorts / poll ticks.
 func instanceSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEntry] {
-	cols := []tablesort.Column[instanceEntry]{
+	return slices.Concat([]tablesort.Column[instanceEntry]{
 		{
 			// Severity is the default column, so it needs no direct
 			// hotkey — reachable via h/l. Crucially, `Shift+S` and `S`
@@ -114,8 +114,7 @@ func instanceSortColumns(user []table.LabelColumn) []tablesort.Column[instanceEn
 				return a.a.StartsAt.Before(b.a.StartsAt)
 			}),
 		},
-	}
-	return append(cols, table.LabelSortColumns(user, func(e *instanceEntry) []string { return e.labelCells }, tieBreakFingerprint)...)
+	}, table.LabelSortColumns(user, func(e *instanceEntry) []string { return e.labelCells }, tieBreakFingerprint))
 }
 
 // tieBreakFingerprint wraps a comparator so equal-by-primary entries
