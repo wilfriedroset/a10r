@@ -31,6 +31,8 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/yamlstyle"
 )
 
+const viewName = "silence"
+
 // Options bundles the per-page dependencies.
 type Options struct {
 	Silence backend.Silence
@@ -87,7 +89,7 @@ func New(opts Options) *Page {
 	}
 }
 
-func (*Page) Crumb() string { return "silence" }
+func (*Page) Crumb() string { return viewName }
 
 // Title is "Describe(<scope>/<id>)" — same shape as alert-detail.
 // Appends ` [raw yaml]` when `y` has toggled raw mode; both modes
@@ -111,8 +113,8 @@ func (p *Page) Title() string {
 // advertise them here.
 func (*Page) Bindings() []action.Action {
 	return []action.Action{
-		{Key: "y", Description: "yaml", View: "silence"},
-		{Key: "Y", Description: "copy field", View: "silence"},
+		{Key: "y", Description: "yaml", View: viewName},
+		{Key: "Y", Description: "copy field", View: viewName},
 	}
 }
 
