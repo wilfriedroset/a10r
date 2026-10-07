@@ -62,24 +62,31 @@ func parseAlertsArgs(args []string) (alertsArgs, error) {
 			i++
 			val = args[i]
 		}
-		switch key {
-		case cmdbarArgStateName:
-			lower := strings.ToLower(strings.TrimSpace(val))
-			if !slices.Contains(validAlertStates, lower) {
-				return alertsArgs{}, fmt.Errorf("--state %q: must be one of %s",
-					val, strings.Join(validAlertStates, ", "))
-			}
-			out.state = lower
-		case "filter":
-			if _, err := filterexpr.Compile(val, filterexpr.AlertGrammar); err != nil {
-				return alertsArgs{}, fmt.Errorf("--filter %q: %w", val, err)
-			}
-			out.filter = val
-		default:
-			return alertsArgs{}, fmt.Errorf("unknown flag --%s (accepted: --state, --filter)", key)
+		if err := out.set(key, val); err != nil {
+			return alertsArgs{}, err
 		}
 	}
 	return out, nil
+}
+
+func (a *alertsArgs) set(key, val string) error {
+	switch key {
+	case cmdbarArgStateName:
+		lower := strings.ToLower(strings.TrimSpace(val))
+		if !slices.Contains(validAlertStates, lower) {
+			return fmt.Errorf("--state %q: must be one of %s",
+				val, strings.Join(validAlertStates, ", "))
+		}
+		a.state = lower
+	case "filter":
+		if _, err := filterexpr.Compile(val, filterexpr.AlertGrammar); err != nil {
+			return fmt.Errorf("--filter %q: %w", val, err)
+		}
+		a.filter = val
+	default:
+		return fmt.Errorf("unknown flag --%s (accepted: --state, --filter)", key)
+	}
+	return nil
 }
 
 // parseFlagToken splits a CLI-style token into its flag key, the
