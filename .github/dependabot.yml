@@ -15,3 +15,9 @@ updates:
       interval: monthly
     cooldown:
       default-days: 7
+    # The CodeQL init, autobuild, and analyze steps refuse to run at
+    # mixed versions, so they must move in one PR.
+    groups:
+      codeql-action:
+        patterns:
+          - github/codeql-action*
