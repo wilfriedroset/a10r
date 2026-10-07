@@ -31,39 +31,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if isModalResult(msg) {
 		a.closeModal()
-		// Scope-origin (Ctrl+T) submissions become a global
-		// ScopeChangedMsg; other Origins fall through to the page that
-		// opened the picker. Empty and "all" both resolve to scope "all".
-		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginScope {
-			scope := pickerSelectionsToScope(pm.Selections, a.tenants)
-			return a, func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
-		}
-		if pm, ok := msg.(modal.PickerSubmittedMsg); ok && pm.Origin == PickerOriginSkin {
-			return a, ApplySkin(skinFromSelection(pm.Selections))
-		}
-		if pc, ok := msg.(modal.PickerCancelledMsg); ok && (pc.Origin == PickerOriginScope || pc.Origin == PickerOriginSkin) {
-			// Cancelling a global picker is a no-op -- Esc keeps the
-			// applied scope or skin. Other Origins fall through so the
-			// originator can react.
-			return a, nil
-		}
-		cmd := a.forwardToTop(msg)
-		return a, cmd
-	}
-	if m, ok := msg.(ApplySkinMsg); ok {
-		cmd := a.applySkin(m.Name)
-		return a, cmd
-	}
-	if _, ok := msg.(ReloadRequestedMsg); ok {
-		cmd := a.reloadConfig()
-		return a, cmd
-	}
-	if m, ok := msg.(ReloadedMsg); ok {
-		cmd := a.applyReloaded(m)
-		return a, cmd
-	}
-	if _, ok := msg.(OpenSkinPickerMsg); ok {
-		cmd := a.openSkinPicker()
+		cmd := a.routeModalResult(msg)
 		return a, cmd
 	}
 	if _, ok := msg.(AutoPopMsg); ok {
@@ -97,9 +65,35 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+// routeModalResult delivers a closed modal's result. Scope-origin
+// (Ctrl+T) submissions become a global ScopeChangedMsg and skin-origin
+// ones apply the skin; other Origins fall through to the page that
+// opened the picker. Empty and "all" both resolve to scope "all".
+func (a *App) routeModalResult(msg tea.Msg) tea.Cmd {
+	switch m := msg.(type) {
+	case modal.PickerSubmittedMsg:
+		switch m.Origin {
+		case PickerOriginScope:
+			scope := pickerSelectionsToScope(m.Selections, a.tenants)
+			return func() tea.Msg { return ScopeChangedMsg{Scope: scope} }
+		case PickerOriginSkin:
+			return ApplySkin(skinFromSelection(m.Selections))
+		}
+	case modal.PickerCancelledMsg:
+		// Cancelling a global picker is a no-op -- Esc keeps the
+		// applied scope or skin. Other Origins fall through so the
+		// originator can react.
+		if m.Origin == PickerOriginScope || m.Origin == PickerOriginSkin {
+			return nil
+		}
+	}
+	return a.forwardToTop(msg)
+}
+
 // handleLifecycle covers the App's own message types, returning
-// (cmd, true) when handled. It fans out into three clusters (session,
-// poll snapshotting, stack/modal) so each switch stays small.
+// (cmd, true) when handled. It fans out into four clusters (session,
+// poll snapshotting, live config, stack/modal) so each switch stays
+// small.
 func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	if cmd, handled := a.handleSessionMsg(msg); handled {
 		return cmd, true
@@ -107,7 +101,26 @@ func (a *App) handleLifecycle(msg tea.Msg) (tea.Cmd, bool) {
 	if cmd, handled := a.handlePollMsg(msg); handled {
 		return cmd, true
 	}
+	if cmd, handled := a.handleConfigMsg(msg); handled {
+		return cmd, true
+	}
 	return a.handleStackMsg(msg)
+}
+
+// handleConfigMsg covers the live-config messages: skin apply, skin
+// picker, and config reload.
+func (a *App) handleConfigMsg(msg tea.Msg) (tea.Cmd, bool) {
+	switch m := msg.(type) {
+	case ApplySkinMsg:
+		return a.applySkin(m.Name), true
+	case OpenSkinPickerMsg:
+		return a.openSkinPicker(), true
+	case ReloadRequestedMsg:
+		return a.reloadConfig(), true
+	case ReloadedMsg:
+		return a.applyReloaded(m), true
+	}
+	return nil, false
 }
 
 // handleSessionMsg covers session-level lifecycle messages: window
