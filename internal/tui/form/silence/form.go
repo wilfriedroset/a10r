@@ -249,12 +249,7 @@ func New(opts Options) *Form {
 		verb = guardrail.ActionSilenceCreate
 	}
 
-	matchers := textarea.New()
-	matchers.Prompt = ""
-	matchers.Placeholder = "alertname=HighCPU\nseverity=critical"
-	matchers.SetHeight(matchersHeight)
-	matchers.ShowLineNumbers = false
-	flattenTextareaBlur(&matchers)
+	matchers := newMatchersArea()
 	// Skip the matchers prefill in bulk mode — the buffer is hidden
 	// and parseSpec ignores it; pre-populating would only leak state
 	// into a future non-bulk reuse.
