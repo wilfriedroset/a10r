@@ -53,7 +53,7 @@ type plannedWrite struct {
 func runDryRun(
 	out, errOut io.Writer,
 	cfg *config.Config,
-	format output.Format,
+	outFormat output.Format,
 	action guardrail.Action,
 	targets []writeTarget,
 	globalReadOnly bool,
@@ -81,7 +81,7 @@ func runDryRun(
 		results = append(results, writeResult{Tenant: t.tenant, ID: t.id, Status: writeStatusPlanned})
 	}
 
-	switch format {
+	switch outFormat {
 	case output.FormatJSON:
 		if err := output.WriteJSON(out, plans); err != nil {
 			return fmt.Errorf("write json: %w", err)
