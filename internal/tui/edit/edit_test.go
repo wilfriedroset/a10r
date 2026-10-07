@@ -292,7 +292,7 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	dir := t.TempDir()
 	started := filepath.Join(dir, "started")
 	script := filepath.Join(dir, "fake-editor")
-	body := fmt.Sprintf("#!/bin/sh\ntouch %q\nsleep 3\n", started)
+	body := fmt.Sprintf("#!/bin/sh\ntouch %q\nexec sleep 30\n", started)
 	require.NoError(t, os.WriteFile(script, []byte(body), 0o755))
 
 	r := Resolver{
@@ -305,15 +305,20 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	// Cancel before draining the cmd so the in-flight editor
 	// observes ctx.Done. syncRunner waits on cmd.Run(), which
 	// returns once the SIGKILL lands.
+	// Polls, not require: FailNow off the test goroutine would skip cancel.
+	// 10s covers the slow first exec of a new script on macOS.
 	go func() {
-		require.Eventually(t, func() bool {
-			_, err := os.Stat(started)
-			return err == nil
-		}, 2*time.Second, time.Millisecond,
-			"editor must reach touch step before cancel")
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(started); err == nil {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 	fin := cmd().(FinishedMsg)
+	require.FileExists(t, started, "editor must reach touch step before cancel")
 	require.Error(t, fin.Err, "cancelled ctx must surface a non-nil Err on FinishedMsg")
 }
 
