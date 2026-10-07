@@ -119,7 +119,7 @@ func hasHintBarTick(t *testing.T, cmd tea.Cmd) bool {
 		if c == nil {
 			continue
 		}
-		msg, ok := runWithBudget(c, 50*time.Millisecond)
+		msg, ok := runWithBudget(c)
 		if !ok || msg == nil {
 			continue
 		}
@@ -321,7 +321,7 @@ func drainFlashes(t *testing.T, cmd tea.Cmd) []footer.FlashShowMsg {
 		if c == nil {
 			continue
 		}
-		msg, ok := runWithBudget(c, 50*time.Millisecond)
+		msg, ok := runWithBudget(c)
 		if !ok || msg == nil {
 			continue
 		}

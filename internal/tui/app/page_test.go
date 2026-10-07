@@ -132,7 +132,7 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 		if cmd == nil {
 			continue
 		}
-		msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+		msg, ok := runWithBudget(cmd)
 		if !ok || msg == nil {
 			continue
 		}
@@ -142,8 +142,10 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 	}
 }
 
+const runBudget = 50 * time.Millisecond
+
 // runWithBudget runs cmd in a goroutine and returns its message if
-// it resolves within d; otherwise reports !ok and abandons the
+// it resolves within runBudget; otherwise reports !ok and abandons the
 // goroutine to finish on its own.
 //
 // The abandoned goroutine eventually completes (tea.Tick fires its
@@ -152,13 +154,13 @@ func drive(t *testing.T, a *App, cmd tea.Cmd) {
 // flash TTL at 4s and ~20 cmdbar tests this peaks at ~80 parked
 // goroutines for ~4s — well under the runtime's limits and
 // invisible to -race within a normal test run.
-func runWithBudget(cmd tea.Cmd, d time.Duration) (tea.Msg, bool) {
+func runWithBudget(cmd tea.Cmd) (tea.Msg, bool) {
 	ch := make(chan tea.Msg, 1) // buffered: abandoned goroutines never block
 	go func() { ch <- cmd() }()
 	select {
 	case msg := <-ch:
 		return msg, true
-	case <-time.After(d):
+	case <-time.After(runBudget):
 		return nil, false
 	}
 }
@@ -770,7 +772,7 @@ func TestStack_QuitCascadesCloseOnEveryStackPage(t *testing.T) {
 	// The follow-up Cmd must ultimately emit tea.QuitMsg so
 	// bubbletea actually stops — otherwise the cleanup ran but the
 	// program would never exit.
-	msg, ok := runWithBudget(cmd, 50*time.Millisecond)
+	msg, ok := runWithBudget(cmd)
 	require.True(t, ok, "quit Cmd must resolve within the test budget")
 	require.IsType(t, tea.QuitMsg{}, msg,
 		"the Cmd returned by QuitRequestedMsg handling must emit tea.QuitMsg so the program exits")
