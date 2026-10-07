@@ -28,6 +28,14 @@ func syncRunner(c *exec.Cmd, fn func(error) tea.Msg) tea.Cmd {
 	}
 }
 
+// lookPath resolves through PATH because macOS ships true and false only under /usr/bin.
+func lookPath(t *testing.T, name string) string {
+	t.Helper()
+	p, err := exec.LookPath(name)
+	require.NoError(t, err)
+	return p
+}
+
 // makeEditorScript writes a tiny shell script that appends a known
 // suffix to the file the editor is invoked with, then exits 0.
 // Used to drive tea.ExecProcess substitutes in tests.
@@ -155,18 +163,19 @@ func TestEdit_EditorErrorBubblesUp(t *testing.T) {
 	t.Parallel()
 
 	if runtime.GOOS == windowsGOOS {
-		t.Skip("relies on /bin/false")
+		t.Skip("relies on POSIX false")
 	}
 	cache := t.TempDir()
 	r := Resolver{
-		DefaultEditor: "/bin/false",
+		DefaultEditor: lookPath(t, "false"),
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    syncRunner,
 	}
 	cmd := r.Edit(Request{ResourceID: "sil-fail", Initial: "x\n"})
 	fin := cmd().(FinishedMsg)
-	require.Error(t, fin.Err, "non-zero exit must surface as Err")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, fin.Err, &exitErr, "non-zero editor exit must surface as Err, not a start failure")
 	require.Equal(t, "sil-fail", fin.ResourceID)
 }
 
@@ -174,11 +183,11 @@ func TestEdit_DefaultIDProducesValidPath(t *testing.T) {
 	t.Parallel()
 
 	if runtime.GOOS == windowsGOOS {
-		t.Skip("relies on POSIX cat")
+		t.Skip("relies on POSIX true")
 	}
 	cache := t.TempDir()
 	r := Resolver{
-		DefaultEditor: "/bin/true", // exits 0, leaves file unchanged
+		DefaultEditor: lookPath(t, "true"), // exits 0, leaves file unchanged
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    syncRunner,
@@ -227,7 +236,7 @@ func TestEdit_TempfileNameUsesRandomSuffix(t *testing.T) {
 		return func() tea.Msg { return fn(nil) }
 	}
 	r := Resolver{
-		DefaultEditor: "/bin/true",
+		DefaultEditor: lookPath(t, "true"),
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    runner,
@@ -283,7 +292,7 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	dir := t.TempDir()
 	started := filepath.Join(dir, "started")
 	script := filepath.Join(dir, "fake-editor")
-	body := fmt.Sprintf("#!/bin/sh\ntouch %q\nsleep 3\n", started)
+	body := fmt.Sprintf("#!/bin/sh\ntouch %q\nexec sleep 30\n", started)
 	require.NoError(t, os.WriteFile(script, []byte(body), 0o755))
 
 	r := Resolver{
@@ -296,15 +305,20 @@ func TestEdit_CtxAbortsEditor(t *testing.T) {
 	// Cancel before draining the cmd so the in-flight editor
 	// observes ctx.Done. syncRunner waits on cmd.Run(), which
 	// returns once the SIGKILL lands.
+	// Polls, not require: FailNow off the test goroutine would skip cancel.
+	// 10s covers the slow first exec of a new script on macOS.
 	go func() {
-		require.Eventually(t, func() bool {
-			_, err := os.Stat(started)
-			return err == nil
-		}, 2*time.Second, time.Millisecond,
-			"editor must reach touch step before cancel")
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(started); err == nil {
+				break
+			}
+			time.Sleep(time.Millisecond)
+		}
 		cancel()
 	}()
 	fin := cmd().(FinishedMsg)
+	require.FileExists(t, started, "editor must reach touch step before cancel")
 	require.Error(t, fin.Err, "cancelled ctx must surface a non-nil Err on FinishedMsg")
 }
 
@@ -327,7 +341,7 @@ func TestEdit_CacheDirTightensPreExistingPerm(t *testing.T) {
 		"MkdirAll respects umask; force the legacy mode explicitly")
 
 	r := Resolver{
-		DefaultEditor: "/bin/true",
+		DefaultEditor: lookPath(t, "true"),
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    syncRunner,
@@ -351,7 +365,7 @@ func TestEdit_CacheDirCreatedAt0o700(t *testing.T) {
 	parent := t.TempDir()
 	cache := filepath.Join(parent, "fresh-cache")
 	r := Resolver{
-		DefaultEditor: "/bin/true",
+		DefaultEditor: lookPath(t, "true"),
 		CacheDir:      cache,
 		LookupEnv:     func(string) (string, bool) { return "", false },
 		ExecRunner:    syncRunner,
