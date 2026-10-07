@@ -221,7 +221,7 @@ func (p *Page) request(name guardrail.Action, marked func() []string) guardrail.
 	case name == guardrail.ActionSilenceExpire && len(p.marks) > 0:
 		return guardrail.Request{Action: name, Tenants: marked(), Lead: "bulk expire"}
 	case name == guardrail.ActionSilenceCreate:
-		if t, _, ok := p.pickWriteTarget(); ok {
+		if t, ok := p.pickWriteTarget(); ok {
 			return guardrail.Request{Action: name, Tenants: []string{t}}
 		}
 	case p.Index() < len(p.view):
@@ -639,7 +639,7 @@ func (p *Page) handleEditorUpdateResult(m editorUpdateResultMsg) tea.Cmd {
 // silences view) the form's matchers are prefilled from the alert's
 // labels — same prefill as alert-detail `s` (ADR 0035).
 func (p *Page) openNewSilenceForm() tea.Cmd {
-	tenant, _, ok := p.pickWriteTarget()
+	tenant, ok := p.pickWriteTarget()
 	if !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
@@ -680,18 +680,18 @@ func (p *Page) defaultCreator() string {
 	return "a10r"
 }
 
-// pickWriteTarget returns the tenant + client to send a write to.
+// pickWriteTarget returns the tenant to send a write to.
 // Cursor row's tenant wins when a row is focused; otherwise falls
 // back to the first in-scope tenant (alphabetical for stability).
-// Returns (_, _, false) when nothing usable is configured.
-func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
+// Returns ("", false) when nothing usable is configured.
+func (p *Page) pickWriteTarget() (string, bool) {
 	if len(p.clients) == 0 {
-		return "", nil, false
+		return "", false
 	}
 	if p.Index() < len(p.view) {
 		t := p.view[p.Index()].tenant
-		if c, ok := p.clients[t]; ok {
-			return t, c, true
+		if _, ok := p.clients[t]; ok {
+			return t, true
 		}
 	}
 	names := make([]string, 0, len(p.clients))
@@ -701,10 +701,10 @@ func (p *Page) pickWriteTarget() (string, silenceform.Client, bool) {
 	sort.Strings(names)
 	for _, t := range names {
 		if p.ScopeIncludes(t) {
-			return t, p.clients[t], true
+			return t, true
 		}
 	}
-	return "", nil, false
+	return "", false
 }
 
 // auditSilenceWrite emits the success-path audit record on every
