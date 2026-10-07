@@ -122,7 +122,7 @@ func TestNewAuth_HeadersOnWire(t *testing.T) {
 			srv := httptest.NewServer(srvCap)
 			t.Cleanup(srv.Close)
 
-			rt, err := NewAuth(tc.opts, http.DefaultTransport)
+			rt, err := NewAuth(tc.opts, srv.Client().Transport)
 			require.NoError(t, err)
 
 			roundTripOnce(t, rt, srv)
@@ -174,7 +174,7 @@ func TestWithHeaders_InjectsEveryEntry(t *testing.T) {
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt := WithHeaders(http.DefaultTransport, map[string]string{
+	rt := WithHeaders(srv.Client().Transport, map[string]string{
 		"X-Scope-OrgID":   "tenant-a",
 		"X-Gateway-Token": "g1",
 	})
@@ -192,7 +192,7 @@ func TestWithHeaders_SnapshotsTheMap(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	in := map[string]string{"X-Snap": "before"}
-	rt := WithHeaders(http.DefaultTransport, in)
+	rt := WithHeaders(srv.Client().Transport, in)
 	in["X-Snap"] = "after"
 	in["X-Late"] = "added"
 
@@ -211,7 +211,7 @@ func TestComposition_AuthAndHeadersBothApply(t *testing.T) {
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	authed, err := NewAuth(AuthOptions{BearerToken: "tok"}, http.DefaultTransport)
+	authed, err := NewAuth(AuthOptions{BearerToken: "tok"}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	rt := WithHeaders(authed, map[string]string{"X-Scope-OrgID": "tenant-b"})
@@ -230,7 +230,7 @@ func TestWithUserAgent_Injects(t *testing.T) {
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt := WithUserAgent(http.DefaultTransport, "a10r/1.2.3")
+	rt := WithUserAgent(srv.Client().Transport, "a10r/1.2.3")
 	roundTripOnce(t, rt, srv)
 
 	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
@@ -243,7 +243,7 @@ func TestWithUserAgent_OverridesCallerSetUA(t *testing.T) {
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt := WithUserAgent(http.DefaultTransport, "a10r/1.2.3")
+	rt := WithUserAgent(srv.Client().Transport, "a10r/1.2.3")
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
 	require.NoError(t, err)
 	req.Header.Set("User-Agent", "should-be-overridden/9.9")
@@ -265,7 +265,7 @@ func TestRoundTrip_DoesNotMutateCallerRequest(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	rt, err := NewAuth(AuthOptions{BearerToken: "tok"}, http.DefaultTransport)
+	rt, err := NewAuth(AuthOptions{BearerToken: "tok"}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, http.NoBody)
@@ -444,7 +444,7 @@ func TestNewAuth_BasicAuth_HostPinDropsOnMismatch(t *testing.T) {
 	rt, err := NewAuth(AuthOptions{
 		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
 		ExpectedHost: "configured.example:9093",
-	}, http.DefaultTransport)
+	}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	roundTripOnce(t, rt, srv) // srv.URL.Host is 127.0.0.1:<port>, never "configured.example:9093"
@@ -469,7 +469,7 @@ func TestNewAuth_BasicAuth_HostPinAppliesOnMatch(t *testing.T) {
 	rt, err := NewAuth(AuthOptions{
 		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
 		ExpectedHost: srvURL.Host,
-	}, http.DefaultTransport)
+	}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	roundTripOnce(t, rt, srv)
@@ -492,7 +492,7 @@ func TestNewAuth_Bearer_HostPinDropsOnMismatch(t *testing.T) {
 	rt, err := NewAuth(AuthOptions{
 		BearerToken:  "abc.def.ghi",
 		ExpectedHost: "configured.example:9093",
-	}, http.DefaultTransport)
+	}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	roundTripOnce(t, rt, srv)
@@ -515,7 +515,7 @@ func TestNewAuth_Authorization_HostPinDropsOnMismatch(t *testing.T) {
 	rt, err := NewAuth(AuthOptions{
 		Authorization: &config.Authorization{Type: "Token", Credentials: "abcdef"},
 		ExpectedHost:  "configured.example:9093",
-	}, http.DefaultTransport)
+	}, srv.Client().Transport)
 	require.NoError(t, err)
 
 	roundTripOnce(t, rt, srv)
@@ -536,7 +536,7 @@ func TestWithHostPinnedHeaders_DropsOnMismatch(t *testing.T) {
 	srv := httptest.NewServer(srvCap)
 	t.Cleanup(srv.Close)
 
-	rt := WithHostPinnedHeaders(http.DefaultTransport, map[string]string{
+	rt := WithHostPinnedHeaders(srv.Client().Transport, map[string]string{
 		"X-Scope-OrgID":   "tenant-a",
 		"X-Gateway-Token": "g1",
 	}, "configured.example:9093")
@@ -560,7 +560,7 @@ func TestWithHostPinnedHeaders_AppliesOnMatch(t *testing.T) {
 	srvURL, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 
-	rt := WithHostPinnedHeaders(http.DefaultTransport, map[string]string{
+	rt := WithHostPinnedHeaders(srv.Client().Transport, map[string]string{
 		"X-Scope-OrgID": "tenant-a",
 	}, srvURL.Host)
 	roundTripOnce(t, rt, srv)
@@ -595,7 +595,7 @@ func TestRedirectChain_BasicAuthRTDoesNotReplayCredentials(t *testing.T) {
 	authedRT, err := NewAuth(AuthOptions{
 		BasicAuth:    &config.BasicAuth{Username: "alice", Password: "s3cret"},
 		ExpectedHost: configuredURL.Host,
-	}, http.DefaultTransport)
+	}, configured.Client().Transport)
 	require.NoError(t, err)
 
 	// Drive the redirect through a stock http.Client so the

@@ -57,7 +57,7 @@ func TestWithDebugLog_LogsRequestMetadata(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	var buf bytes.Buffer
-	rt := WithDebugLog(http.DefaultTransport, debugCapturingLogger(&buf))
+	rt := WithDebugLog(server.Client().Transport, debugCapturingLogger(&buf))
 	client := &http.Client{Transport: rt}
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/v2/status", http.NoBody)
@@ -121,7 +121,7 @@ func TestWithDebugLog_RedactionEndToEnd(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	rt := WithDebugLog(http.DefaultTransport, logger)
+	rt := WithDebugLog(server.Client().Transport, logger)
 	client := &http.Client{Transport: rt}
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, http.NoBody)
 	require.NoError(t, err)
