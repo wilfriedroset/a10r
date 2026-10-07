@@ -22,37 +22,41 @@ func (b *Base) HandleFilterPrompt(msg tea.Msg) {
 	}
 	switch m := msg.(type) {
 	case footer.PromptOpenedMsg:
-		if m.Mode != footer.PromptFilter {
-			return
-		}
-		b.FilterErr = nil
-		snap := b.FilterBuffer()
-		b.PreFilter = &snap
-		if snap != "" {
-			b.SetFilter("")
-			b.Recompute()
+		if m.Mode == footer.PromptFilter {
+			b.openFilter()
 		}
 	case footer.PromptChangedMsg:
-		if m.Mode != footer.PromptFilter || !b.SetFilter(m.Value) {
-			return
+		if m.Mode == footer.PromptFilter && b.SetFilter(m.Value) {
+			b.Recompute()
 		}
-		b.Recompute()
 	case footer.PromptSubmittedMsg:
-		if m.Mode != footer.PromptFilter || !b.SetFilter(m.Value) {
-			return
+		if m.Mode == footer.PromptFilter && b.SetFilter(m.Value) {
+			b.PreFilter = nil
+			b.Recompute()
 		}
-		b.PreFilter = nil
-		b.Recompute()
 	case footer.PromptCancelledMsg:
-		if m.Mode != footer.PromptFilter {
-			return
+		if m.Mode == footer.PromptFilter {
+			b.cancelFilter()
 		}
-		b.FilterErr = nil
-		if b.PreFilter == nil {
-			return
-		}
-		b.SetFilter(*b.PreFilter)
-		b.PreFilter = nil
+	}
+}
+
+func (b *Base) openFilter() {
+	b.FilterErr = nil
+	snap := b.FilterBuffer()
+	b.PreFilter = &snap
+	if snap != "" {
+		b.SetFilter("")
 		b.Recompute()
 	}
+}
+
+func (b *Base) cancelFilter() {
+	b.FilterErr = nil
+	if b.PreFilter == nil {
+		return
+	}
+	b.SetFilter(*b.PreFilter)
+	b.PreFilter = nil
+	b.Recompute()
 }
