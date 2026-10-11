@@ -375,8 +375,9 @@ func wheelToKey(m tea.MouseWheelMsg) (tea.KeyPressMsg, bool) {
 		return tea.KeyPressMsg{Code: 'k', Text: "k"}, true
 	case tea.MouseWheelDown:
 		return tea.KeyPressMsg{Code: 'j', Text: "j"}, true
+	default:
+		return tea.KeyPressMsg{}, false
 	}
-	return tea.KeyPressMsg{}, false
 }
 
 // handlePromptSubmitted routes a prompt's submission. Command
