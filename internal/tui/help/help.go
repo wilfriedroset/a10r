@@ -153,6 +153,7 @@ func (h *Help) scrollBy(m tea.MouseWheelMsg) {
 		}
 	case tea.MouseWheelDown:
 		h.scroll++
+	default:
 	}
 }
 

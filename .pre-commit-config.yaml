@@ -23,10 +23,10 @@ repos:
         args: ["--min-confidence", "medium", "--min-severity", "low"]
 
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.13.2
+    rev: v2.14.0
     hooks:
       # language_version pinned: prek otherwise provisions Go 1.24.6,
-      # which cannot build golangci-lint v2.13.2 (go.mod requires >= 1.26.0).
+      # which cannot build golangci-lint v2.14.0 (go.mod requires >= 1.26.0).
       - id: golangci-lint
         language_version: "1.27"
 
