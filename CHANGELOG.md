@@ -6,6 +6,8 @@ to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+## [v0.4.0] — 2026-10-11
+
 ### Added
 
 - **In-app info, config, skin, and reload** — four `:` commands answer
@@ -72,10 +74,12 @@ to [Semantic Versioning][semver].
   column and direction you last picked for each list page. The values
   live in `ui-state.yaml` in the state dir, next to the prompt
   history. A remembered tenant that is no longer in the config is
-  dropped with a warning and the scope falls back to every backend. A
+  dropped with a warning and the scope falls back to every backend.
+  a10r writes the pruned scope back, so the warning appears once. A
   page back on its built-in sort drops out of the file, so what stays
-  on disk is short enough to read and edit by hand. `a10r info` now
-  reports the state dir and the remembered scope. Off by default.
+  on disk is short enough to read and edit by hand. The file survives
+  a power cut, like the prompt history. `a10r info` now reports the
+  state dir and the remembered scope. Off by default.
 - **Poll delta flash** — with `tui.poll_delta: true`, a poll that adds
   or removes an alertname in the alerts list flashes one line, for
   example `+3 new, -1 resolved`. A poll that changes nothing stays
@@ -135,9 +139,6 @@ to [Semantic Versioning][semver].
   rule covers the label-matcher form (`cluster_id=~9.*`) and the
   `:alerts --filter` value, which now refuses a pattern it cannot
   compile.
-- **Docker images** — multi-arch (amd64, arm64) distroless images
-  pushed to `ghcr.io/wilfriedroset/a10r` by the release pipeline,
-  plus a standalone build-from-source `Dockerfile`.
 
 ### Changed
 
@@ -158,6 +159,9 @@ to [Semantic Versioning][semver].
   pinned left edge. Keeping the old offset opened the new column set
   parked at its far right, hiding the column the key was pressed to
   reveal.
+- **Go modules** — bubbletea moves to v2.0.10, with ultraviolet,
+  `golang.org/x/sync` and `golang.org/x/sys` bumped to their latest
+  releases. No user-facing change.
 
 ### Fixed
 
@@ -171,39 +175,17 @@ to [Semantic Versioning][semver].
   so read-only never arrives as the guardrail code `6`.
 
 - **A password inside a backend `url` no longer reaches the screen.**
-  `a10r info`, the `:info` page, the `:tenant` table and the tenant
-  config inspector strip the `user:password@` part of a backend URL
-  before printing it. When the backend sets no other auth field, the
-  `auth:` line reads `url userinfo`, so the report still says that
-  the backend authenticates.
+  `a10r info` and the `:tenant` table strip the `user:password@` part
+  of a backend URL before printing it. When the backend sets no other
+  auth field, the `a10r info` `auth:` line reads `url userinfo`, so
+  the report still says that the backend authenticates.
 
-- **The hidden `a10r snapshot` command no longer notifies.** A
-  one-frame render built the same notifier the TUI builds. A render
-  that saw two polls of a tenant with a new firing alert therefore
-  started the `tui.notify.command` program, and the notification
-  flash could land in the frame it wrote to stdout. The headless path
-  now builds no notifier at all.
-
-- **a10r forgets a tenant you removed from the configuration.** The
-  remembered tenant scope kept the dead name in `ui-state.yaml`, so
-  every later start logged the same warning about it. The pruned
-  scope is now written back. A remembered sort column for a page a10r
-  no longer has is forgotten at the same point, and leaves the file
-  at the next change you make.
-
-- **A state file now survives a power cut.** a10r writes
-  `ui-state.yaml` and the history files to a temp file and renames it
-  into place. The rename alone protects the file against a crash of
-  a10r, but not against a crash of the host: the new name could reach
-  the disk before the bytes it points at. a10r now flushes the temp
-  file and the directory entry before it reports the write as done.
-
-- **A snapshot of a list page now names a backend it could not build
-  a client for.** Such a backend has no poller, so it reported
-  nothing and the frame looked healthy while the tenant was missing
-  from it. The alerts, silences and receivers frames now carry the
-  same degraded band a user sees, and the stderr warning names the
-  backend in the same words.
+- **The prompt history now survives a power cut.** a10r writes the
+  history files to a temp file and renames it into place. The rename
+  alone protects the file against a crash of a10r, but not against a
+  crash of the host: the new name could reach the disk before the
+  bytes it points at. a10r now flushes the temp file and the directory
+  entry before it reports the write as done.
 
 - **Most text a backend sends can no longer repaint your terminal.**
   a10r
@@ -222,6 +204,70 @@ to [Semantic Versioning][semver].
   `yaml` output carries them unchanged. One known gap remains: the
   TUI edit and recreate form still flattens comment newlines and
   splits or drops control characters in matchers.
+
+### Security
+
+- **Built with Go 1.27.2.** Go 1.27.1 has eight standard library
+  vulnerabilities that the backend HTTP and TLS transport can reach:
+  GO-2026-6603, GO-2026-6605, GO-2026-6607, GO-2026-6608,
+  GO-2026-6610, GO-2026-6611, GO-2026-6613 and GO-2026-6617. Go
+  1.27.2 fixes all of them.
+
+## [v0.3.0] — 2026-09-06
+
+### Changed
+
+- **Go 1.27.1** — the build toolchain moves to Go 1.27.1, with the
+  Charm stack, testify and the CI actions bumped to their latest
+  releases. No user-facing change.
+
+## [v0.2.0] — 2026-06-22
+
+### Added
+
+- **Silence lifecycle from the CLI** — `alerts get`, `silences get`,
+  `silences create`, `silences update`, `silences expire` and
+  `silences recreate` bring the headless CLI level with the TUI.
+  `--tenant` now scopes every headless command. Writes fail closed: a
+  read-only target aborts the command before anything is written.
+  `alerts list` shows a FINGERPRINT column and `silences list` an ID
+  column. A new exit code `5` means that no backend in scope knows
+  the named alert or silence. `--output` gains the `-o` shorthand.
+- **Output for coding agents** — a10r detects a coding agent from its
+  environment, and `A10R_OUTPUT` sets the default format. An agent
+  gets `json` by default, failures as an `{error,code}` envelope on
+  stderr, and the follow-up command after a successful write.
+  `--dry-run` on the silence write verbs prints the plan without a
+  write, and exits with the code the real run gives before its first
+  write. See ADR 0045
+  and ADR 0046.
+- **`a10r skills add`** — installs the embedded agent skill into
+  `~/.agents/skills`, or `~/.claude/skills` with `--claude`, or any
+  directory with `--dest`. `--dry-run` names the target without a
+  write, and `--force` overwrites an older copy. `a10r skills preview`
+  prints the skill.
+- **`:quit`** — a synonym for `:q`.
+- **Docker images** — multi-arch (amd64, arm64) distroless images
+  pushed to `ghcr.io/wilfriedroset/a10r` by the release pipeline,
+  plus a standalone build-from-source `Dockerfile`.
+
+### Removed
+
+- **The route-grouped groups page and `a10r groups list`.** The
+  alerts page already aggregates by alertname, so the page added
+  nothing. See ADR 0047.
+
+### Fixed
+
+- **`a10r validate` now refuses an unusable backend.** A backend with
+  an empty name, a duplicate name or an empty `url` passed validation
+  and failed later in every command.
+
+- **`alerts list --state` now refuses an unknown state.** A typo
+  matched nothing, so `--fail` never fired.
+
+- **The alert detail page no longer hangs in a very narrow
+  terminal.** A wrap width below the label indent looped forever.
 
 ## [v0.1.0] — 2026-06-03
 
