@@ -75,3 +75,10 @@ func TestRun_HonoursContextCancellation(t *testing.T) {
 	require.Empty(t, results)
 	require.Empty(t, hits, "cancelled context aborts before any checker runs")
 }
+
+func TestRun_NoCheckersYieldsNoResults(t *testing.T) {
+	t.Parallel()
+
+	results := Run(t.Context(), []config.Backend{{Name: "prod"}}, map[string]backend.Client{}, nil)
+	require.Empty(t, results)
+}
