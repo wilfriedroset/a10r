@@ -29,6 +29,7 @@ func TestParseVersion(t *testing.T) {
 		{name: "empty rejected", input: "", wantErr: true},
 		{name: "negative major rejected", input: "-1.0.0", wantErr: true},
 		{name: "negative patch rejected", input: "0.0.-1", wantErr: true},
+		{name: "leading build-metadata sign rejected", input: "+1.2.3", wantErr: true},
 	}
 
 	for _, tc := range cases {

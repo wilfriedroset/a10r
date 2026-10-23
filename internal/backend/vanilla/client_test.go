@@ -679,3 +679,75 @@ func TestClient_ProbeAlertmanagerMount_TransportError(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, backend.ErrUnreachable)
 }
+
+func TestNew_TimeoutDefaultsOnlyWhenZero(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{name: "zero takes the default", in: 0, want: defaultRequestTimeout},
+		{name: "explicit value is kept", in: 7 * time.Second, want: 7 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c, err := New(ClientConfig{BaseURL: "http://am.example", Timeout: tc.in})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, c.http.Timeout)
+		})
+	}
+}
+
+func TestClient_URLFor(t *testing.T) {
+	t.Parallel()
+
+	c, err := New(ClientConfig{BaseURL: "http://am.example", Prefix: "/am"})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		query url.Values
+		want  string
+	}{
+		{name: "nil query has no question mark", query: nil, want: "http://am.example/am/api/v2/status"},
+		{name: "empty query has no question mark", query: url.Values{}, want: "http://am.example/am/api/v2/status"},
+		{name: "query is encoded", query: url.Values{"active": {"true"}}, want: "http://am.example/am/api/v2/status?active=true"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, c.urlFor("/status", tc.query))
+		})
+	}
+}
+
+func TestClient_StatusErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		wantErr string
+	}{
+		{name: "300 is not a success", status: http.StatusMultipleChoices, wantErr: "list alerts: HTTP 300"},
+		{name: "400 body at the cap is kept whole", status: http.StatusBadRequest, body: strings.Repeat("a", maxErrorBodyLen), wantErr: "list alerts: HTTP 400: " + strings.Repeat("a", maxErrorBodyLen)},
+		{name: "400 body over the cap is truncated", status: http.StatusBadRequest, body: strings.Repeat("a", maxErrorBodyLen+1), wantErr: "list alerts: HTTP 400: " + strings.Repeat("a", maxErrorBodyLen) + "…"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(srv.Close)
+
+			_, err := newTestClient(t, srv).ListAlerts(t.Context(), backend.AlertFilter{})
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}

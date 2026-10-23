@@ -60,6 +60,8 @@ func TestRetryable(t *testing.T) {
 		{name: "opt-in true", err: retryableError{retryable: true}, want: true},
 		{name: "opt-in false", err: retryableError{retryable: false}, want: false},
 		{name: "wrapped opt-in true", err: fmt.Errorf("wrap: %w", retryableError{retryable: true}), want: true},
+		{name: "unauthorized beats opt-in true", err: fmt.Errorf("%w: %w", ErrUnauthorized, retryableError{retryable: true}), want: false},
+		{name: "unsupported beats opt-in true", err: fmt.Errorf("%w: %w", ErrUnsupported, retryableError{retryable: true}), want: false},
 		{name: "unknown defaults false", err: errors.New("some unrelated failure"), want: false},
 	}
 	for _, tc := range cases {

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/vanilla"
 )
 
 // observingHandler records the URL path + a few headers of every
@@ -105,4 +106,54 @@ func TestNew_AuthAndTenantCompose(t *testing.T) {
 	require.Equal(t, "tenant-b", *h.tHead.Load())
 	require.Equal(t, "Bearer tok", *h.auth.Load(),
 		"auth and tenant header must both reach the wire")
+}
+
+type countingRT struct {
+	calls atomic.Int32
+}
+
+func (c *countingRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.calls.Add(1)
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestNew_UsesInjectedTransport(t *testing.T) {
+	t.Parallel()
+
+	h := &observingHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	rt := &countingRT{}
+	c, err := New(ClientConfig{BaseURL: srv.URL, Prefix: "/alertmanager", Transport: rt})
+	require.NoError(t, err)
+
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rt.calls.Load())
+}
+
+func TestNew_RefusesCrossOriginRedirect(t *testing.T) {
+	t.Parallel()
+
+	other := &observingHandler{}
+	otherSrv := httptest.NewServer(other)
+	t.Cleanup(otherSrv.Close)
+
+	home := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, otherSrv.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(home.Close)
+
+	c, err := New(ClientConfig{
+		BaseURL:     home.URL,
+		Prefix:      "/alertmanager",
+		Headers:     map[string]string{"X-Scope-OrgID": "tenant-a"},
+		BearerToken: "tok",
+	})
+	require.NoError(t, err)
+
+	_, err = c.ListAlerts(t.Context(), backend.AlertFilter{})
+	require.ErrorIs(t, err, vanilla.ErrCrossOriginRedirect)
+	require.EqualValues(t, 0, other.calls.Load())
 }
