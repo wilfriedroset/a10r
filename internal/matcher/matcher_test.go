@@ -75,6 +75,16 @@ func TestParseOne(t *testing.T) {
 			in:   "foo!~bar=baz",
 			want: backend.Matcher{Name: "foo", Value: "bar=baz", IsRegex: true},
 		},
+		{
+			name: "empty quoted value strips to empty",
+			in:   `a=""`,
+			want: backend.Matcher{Name: "a", Value: "", IsEqual: true},
+		},
+		{
+			name: "trailing quote alone is kept",
+			in:   `a=b"`,
+			want: backend.Matcher{Name: "a", Value: `b"`, IsEqual: true},
+		},
 		{name: "missing operator", in: "severitycritical", wantErr: matcher.ErrMissingOperator},
 		{name: "empty string", in: "", wantErr: matcher.ErrMissingOperator},
 		{name: "operator at index zero treated as missing", in: "=oops", wantErr: matcher.ErrMissingOperator},
