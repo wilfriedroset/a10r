@@ -4,8 +4,10 @@ package log_test
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -131,4 +133,43 @@ func TestCapture_CollectsAboveTheSinkLevel(t *testing.T) {
 
 	require.Equal(t, []string{"unknown skin"}, c.Messages())
 	require.NotContains(t, sink.String(), "unknown skin")
+}
+
+func TestCapture_EnabledOpensOnlyWarningsInsideTheWindow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		open  bool
+		level slog.Level
+		want  bool
+	}{
+		{name: "warning inside the window", open: true, level: slog.LevelWarn, want: true},
+		{name: "info inside the window", open: true, level: slog.LevelInfo, want: false},
+		{name: "warning outside the window", open: false, level: slog.LevelWarn, want: false},
+		{name: "error outside the window", open: false, level: slog.LevelError, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &a10rlog.Capture{}
+			h := c.Wrap(slog.NewTextHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelError}))
+			if tt.open {
+				c.Start()
+			}
+			require.Equal(t, tt.want, h.Enabled(context.Background(), tt.level))
+		})
+	}
+}
+
+func TestCapture_HandleWritesTheSink(t *testing.T) {
+	t.Parallel()
+
+	c := &a10rlog.Capture{}
+	var sink bytes.Buffer
+	h := c.Wrap(slog.NewTextHandler(&sink, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	require.NoError(t, h.Handle(context.Background(), slog.NewRecord(time.Time{}, slog.LevelInfo, "ready", 0)))
+	require.Equal(t, "level=INFO msg=ready\n", sink.String())
 }
