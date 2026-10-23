@@ -224,6 +224,8 @@ func TestForm_EndsHintStaysFixedAsDurationGrows(t *testing.T) {
 	posShort := endsSuffixCol(t, short.View(width, 24))
 	require.Less(t, posShort, width/2,
 		"with the default short value the suffix must sit in the left half of the row, not pinned right")
+	require.Equal(t, len("  ")+labelWidth+endsValueReserve+endsHintGap, posShort,
+		"the suffix starts right after the reserved value column and its gap")
 
 	typed := newForm(t, &fakeClient{})
 	typed.ends.SetValue("2h30m")
@@ -580,4 +582,70 @@ func TestForm_DisabledRowValueIsFaint(t *testing.T) {
 	interactive := f.fieldRow("Starts", fieldStarts, "12:00")
 	require.NotContains(t, interactive, "\x1b[2m",
 		"blurred-but-interactive row value must NOT carry the Faint SGR (only disabled rows are greyed)")
+}
+
+func TestForm_ViewWithoutRoomIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		width, height int
+	}{
+		{"zero width", 0, 24},
+		{"zero height", 120, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Empty(t, newForm(t, &fakeClient{}).View(tt.width, tt.height))
+		})
+	}
+}
+
+func TestForm_OnlyTheFocusedRowCarriesTheMarker(t *testing.T) {
+	t.Parallel()
+	view := newForm(t, &fakeClient{}).View(120, 24)
+	require.Equal(t, 1, strings.Count(view, "▸"))
+}
+
+func TestForm_WithoutAnErrorRendersNoErrorLine(t *testing.T) {
+	t.Parallel()
+	view := newForm(t, &fakeClient{}).View(120, 24)
+	require.NotContains(t, view, "ERR:")
+}
+
+func TestForm_RowHintsElideAtTheExactFitWidth(t *testing.T) {
+	t.Parallel()
+
+	marker := lipgloss.Width("▸ ")
+	tenantFit := marker + labelWidth + len("prod") + len("  ") + len(enterToChangeHint)
+	endsFit := marker + labelWidth + endsValueReserve + endsHintGap + lipgloss.Width(endsHintSuffix)
+	tests := []struct {
+		name     string
+		width    int
+		ends     string
+		token    string
+		wantHint bool
+	}{
+		{"tenant hint fits exactly", tenantFit, "", "[Enter", true},
+		{"tenant hint one column short", tenantFit - 1, "", "[Enter", false},
+		{"ends hint fits exactly", endsFit, "", "1w2d", true},
+		{"ends hint one column short", endsFit - 1, "", "1w2d", false},
+		{"ends value fills the reserve", 120, "1w2d3h4m", endsHintSuffix, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+			if tt.ends != "" {
+				f.ends.SetValue(tt.ends)
+			}
+			view := ansi.Strip(f.View(tt.width, 24))
+			if tt.wantHint {
+				require.Contains(t, view, tt.token)
+				return
+			}
+			require.NotContains(t, view, tt.token)
+		})
+	}
 }

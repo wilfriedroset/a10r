@@ -133,25 +133,39 @@ func TestGuardrail_ATypedRulePromptsOnSubmit(t *testing.T) {
 	require.Equal(t, 1, client.createCalls)
 }
 
-// TestGuardrail_ACancelledPromptKeepsTheFormOpen pins that Esc on the
-// typed prompt loses nothing the user typed and writes nothing.
+// TestGuardrail_ACancelledPromptKeepsTheFormOpen pins that Esc or a no
+// on the typed prompt loses nothing the user typed and writes nothing.
 func TestGuardrail_ACancelledPromptKeepsTheFormOpen(t *testing.T) {
 	t.Parallel()
 
-	client := &fakeClient{}
-	f := guardedForm(t, client, guardrail.Set{{
-		Tenants:      []string{defaultTenant},
-		Confirmation: guardrail.ConfirmationTypeTenantName,
-	}}, Options{})
-	_, _ = f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	tests := []struct {
+		name   string
+		answer modal.ConfirmResultMsg
+	}{
+		{"cancelled", modal.ConfirmResultMsg{Cancelled: true}},
+		{"answered no", modal.ConfirmResultMsg{}},
+	}
 
-	_, cmd := f.Update(modal.ConfirmResultMsg{Cancelled: true})
-	require.Nil(t, cmd, "a cancelled prompt is silent")
-	require.Equal(t, 0, client.calls())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, cmd = f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, cmd),
-		"the next submit asks again")
+			client := &fakeClient{}
+			f := guardedForm(t, client, guardrail.Set{{
+				Tenants:      []string{defaultTenant},
+				Confirmation: guardrail.ConfirmationTypeTenantName,
+			}}, Options{})
+			_, _ = f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+
+			_, cmd := f.Update(tt.answer)
+			require.Nil(t, cmd, "a refused prompt is silent")
+			require.Equal(t, 0, client.calls())
+
+			_, cmd = f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+			require.IsType(t, &modal.TypedConfirm{}, pagetest.OpenedModal(t, cmd),
+				"the next submit asks again")
+		})
+	}
 }
 
 // TestGuardrail_ABulkSubmitNeverReachesTheGate pins the split: a bulk
