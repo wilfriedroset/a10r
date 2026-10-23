@@ -21,6 +21,8 @@ func TestWriteHints(t *testing.T) {
 		require.Equal(t, "expire with: a10r silences expire a", createdHint([]writeResult{ok("a")}))
 		require.Equal(t, "expire with: a10r silences expire a b", createdHint([]writeResult{ok("a"), ok("b")}))
 		require.Equal(t, "expire with: a10r silences expire a", createdHint([]writeResult{ok("a"), fail}))
+		require.Equal(t, "expire with: a10r silences expire a",
+			createdHint([]writeResult{ok("a"), {Tenant: "t", ID: "b", Status: writeStatusError}}), "a failed id is never undone")
 	})
 
 	t.Run("expiredHint undoes via recreate only when single", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -88,27 +89,33 @@ func cfgWith(backends ...config.Backend) *config.Config {
 func TestSilenceCreate_MatcherSingleTenant(t *testing.T) {
 	t.Parallel()
 
-	client := &silenceWriteClient{createID: "new-1"}
-	cfg := cfgWith(config.Backend{Name: "prod"})
-	build := func(config.Backend) (backend.Client, error) { return client, nil }
+	for _, explicitTenant := range []bool{true, false} {
+		t.Run(fmt.Sprintf("explicit tenant %t", explicitTenant), func(t *testing.T) {
+			t.Parallel()
 
-	var out, errOut bytes.Buffer
-	err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, true,
-		silenceCreateOptions{
-			Matchers: []string{`severity="critical"`},
-			Ends:     "2h",
-			Comment:  "maint",
-		}, "alice", "")
-	require.NoError(t, err)
-	require.Equal(t, "prod\tnew-1\n", out.String())
-	require.Equal(t, "expire with: a10r silences expire new-1\n", errOut.String(),
-		"create emits the undo hint on stderr")
-	require.NotNil(t, client.created)
-	require.Equal(t, "alice", client.created.CreatedBy)
-	require.Equal(t, "maint", client.created.Comment)
-	require.Len(t, client.created.Matchers, 1)
-	require.Equal(t, "severity", client.created.Matchers[0].Name)
-	require.True(t, client.created.EndsAt.Equal(testNow.Add(2*time.Hour)))
+			client := &silenceWriteClient{createID: "new-1"}
+			cfg := cfgWith(config.Backend{Name: "prod"})
+			build := func(config.Backend) (backend.Client, error) { return client, nil }
+
+			var out, errOut bytes.Buffer
+			err := silenceCreate(context.Background(), &out, &errOut, cfg, false, build, testNow, explicitTenant,
+				silenceCreateOptions{
+					Matchers: []string{`severity="critical"`},
+					Ends:     "2h",
+					Comment:  "maint",
+				}, "alice", "")
+			require.NoError(t, err)
+			require.Equal(t, "prod\tnew-1\n", out.String())
+			require.Equal(t, "expire with: a10r silences expire new-1\n", errOut.String(),
+				"create emits the undo hint on stderr")
+			require.NotNil(t, client.created)
+			require.Equal(t, "alice", client.created.CreatedBy)
+			require.Equal(t, "maint", client.created.Comment)
+			require.Len(t, client.created.Matchers, 1)
+			require.Equal(t, "severity", client.created.Matchers[0].Name)
+			require.True(t, client.created.EndsAt.Equal(testNow.Add(2*time.Hour)))
+		})
+	}
 }
 
 func TestSilenceCreate_MatcherMultiTenantNeedsExplicitTenant(t *testing.T) {

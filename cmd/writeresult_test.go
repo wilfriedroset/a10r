@@ -100,6 +100,19 @@ func TestEmitWriteResults_AllUnreachableExits3(t *testing.T) {
 		"every write failing unreachable surfaces code 3, like the reads and sibling verbs")
 }
 
+func TestEmitWriteResults_AllUnauthorizedIsAuthFailed(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	err := emitWriteResults(&out, &errOut, "", []writeResult{
+		{Tenant: "prod", Status: "error", Error: "unauthorized"},
+		{Tenant: "staging", Status: "error", Error: "unauthorized"},
+	}, []error{backend.ErrUnauthorized, backend.ErrUnauthorized})
+	var ex *ExitError
+	require.ErrorAs(t, err, &ex)
+	require.Equal(t, ExitAuthFailed, ex.Code)
+}
+
 func TestEmitWriteResults_MixedFailuresStayRuntimeError(t *testing.T) {
 	t.Parallel()
 
@@ -112,6 +125,20 @@ func TestEmitWriteResults_MixedFailuresStayRuntimeError(t *testing.T) {
 	var ex *ExitError
 	require.ErrorAs(t, err, &ex)
 	require.Equal(t, ExitRuntimeError, ex.Code, "a partial failure is not a uniform transport class")
+}
+
+func TestEmitWriteResults_JSONModeAllSucceededIsClean(t *testing.T) {
+	t.Parallel()
+
+	var out, errOut bytes.Buffer
+	err := emitWriteResults(&out, &errOut, output.FormatJSON, []writeResult{
+		{Tenant: "prod", ID: "a1", Status: "created"},
+	}, nil)
+	require.NoError(t, err)
+
+	var got []writeResult
+	require.NoError(t, json.Unmarshal(out.Bytes(), &got))
+	require.Equal(t, []writeResult{{Tenant: "prod", ID: "a1", Status: "created"}}, got)
 }
 
 func TestEmitWriteResults_JSONModeFullArray(t *testing.T) {

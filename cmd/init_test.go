@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,6 +151,7 @@ func TestValidators(t *testing.T) {
 		{name: "name/ok", fn: validateBackendName, input: "prod"},
 		{name: "name/empty", fn: validateBackendName, input: "", wantErr: true},
 		{name: "name/whitespace", fn: validateBackendName, input: "   ", wantErr: true},
+		{name: "name/at max length", fn: validateBackendName, input: strings.Repeat("x", 64)},
 		{name: "name/too long", fn: validateBackendName, input: strings.Repeat("x", 65), wantErr: true},
 
 		{name: "duration/seconds", fn: validateDuration, input: "30s"},
@@ -166,6 +168,29 @@ func TestValidators(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestIsEnvInterpolation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{name: "single placeholder", in: " ${TOKEN} ", want: true},
+		{name: "plaintext", in: "secret", want: false},
+		{name: "unclosed placeholder", in: "${TOKEN", want: false},
+		{name: "prefix before placeholder", in: "p-${TOKEN}", want: false},
+		{name: "two placeholders", in: "${A}${B}", want: false},
+		{name: "stray closing brace", in: "${A}B}", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, isEnvInterpolation(tc.in))
 		})
 	}
 }
@@ -489,6 +514,11 @@ func TestBuildInitConfig(t *testing.T) {
 			kvs:           append(minKVs(), "auth_mode=bearer"),
 			wantErrSubstr: "auth_mode=bearer requires bearer_token",
 		},
+		{
+			name:          "bearer rejects a basic user",
+			kvs:           append(minKVs(), "auth_mode=bearer", "bearer_token=t", "basic_user=alice"),
+			wantErrSubstr: "auth_mode=bearer forbids basic_user, basic_password",
+		},
 		// user-only and password-only together pin "both required" — a
 		// regression to "only user required" fails basic-missing-password,
 		// a regression to "only password required" fails basic-missing-user.
@@ -525,7 +555,7 @@ func TestBuildInitConfig(t *testing.T) {
 		{
 			name:          "bad poll interval",
 			kvs:           append(minKVs(), "poll_interval=forever"),
-			wantErrSubstr: "duration",
+			wantErrSubstr: "not a valid duration",
 		},
 		{
 			// poll_interval omitted → 30s default (matches wizard prompt
@@ -757,6 +787,28 @@ func TestRunInit_DryRunInvalidKVStillFails(t *testing.T) {
 	var ee *ExitError
 	require.ErrorAs(t, err, &ee)
 	require.Equal(t, ExitConfigInvalid, ee.Code)
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
+
+func TestRunInit_DryRunWriteFailureIsConfigInvalid(t *testing.T) {
+	t.Parallel()
+
+	err := runInit(initIO{
+		In:      strings.NewReader(""),
+		Out:     failingWriter{},
+		Err:     &bytes.Buffer{},
+		Flags:   &GlobalFlags{ConfigDir: t.TempDir()},
+		OneShot: true,
+		DryRun:  true,
+		KVs:     minKVs(),
+	})
+	var ee *ExitError
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, ExitConfigInvalid, ee.Code)
+	require.ErrorContains(t, err, "disk full")
 }
 
 // TestRunInit_NudgesOnPlaintextBasicPassword pins the init-wizard
