@@ -96,7 +96,9 @@ func TestLoad_DropIn_PreservesUnsetBaseFields(t *testing.T) {
 	// nuke the other defaults from the base. This is the contract
 	// that distinguishes per-field merge from "replace whole struct".
 	dir := writeBaseAndDropIns(t,
-		"defaults:\n  poll_interval: 30s\n  log_format: json\n",
+		"defaults:\n  poll_interval: 30s\n  log_format: json\n  bulk_concurrency: 7\n"+
+			"theme:\n  name: catppuccin-latte\n"+
+			"log:\n  path: /var/log/a10r.log\n  level: warn\n",
 		map[string]string{
 			"10-overrides.yaml": "defaults:\n  poll_interval: 60s\n",
 		})
@@ -106,6 +108,9 @@ func TestLoad_DropIn_PreservesUnsetBaseFields(t *testing.T) {
 	require.Equal(t, 60*time.Second, cfg.Defaults.PollInterval)
 	require.Equal(t, "json", cfg.Defaults.LogFormat,
 		"unset overlay fields must leave base values intact")
+	require.Equal(t, 7, cfg.Defaults.BulkConcurrency)
+	require.Equal(t, "catppuccin-latte", cfg.Theme.Name)
+	require.Equal(t, Log{Path: "/var/log/a10r.log", Level: "warn"}, cfg.Log)
 }
 
 func TestLoad_DropIn_RecursiveDiscovery(t *testing.T) {
