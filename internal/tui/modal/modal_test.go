@@ -3,6 +3,7 @@
 package modal
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -250,4 +251,107 @@ func updateAs(p *Picker, msg tea.Msg) (*Picker, tea.Cmd) {
 		panic("Picker.Update must return *Picker")
 	}
 	return pp, cmd
+}
+
+func TestModals_ViewWithoutRoomIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	modals := []struct {
+		name  string
+		modal Modal
+	}{
+		{"confirm", NewConfirm("apply?", ConfirmDefaultNo)},
+		{"typed confirm", NewTypedConfirm("expire", []string{"prod"})},
+		{"picker", NewPicker("tenants", []string{"prod"}, PickerSingle)},
+	}
+	sizes := []struct {
+		name          string
+		width, height int
+	}{
+		{"zero width", 0, 10},
+		{"zero height", 40, 0},
+	}
+	for _, m := range modals {
+		for _, s := range sizes {
+			t.Run(m.name+"/"+s.name, func(t *testing.T) {
+				t.Parallel()
+				require.Empty(t, m.modal.View(s.width, s.height))
+			})
+		}
+	}
+}
+
+func TestConfirm_ViewNamesTheEnterDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		def  ConfirmDefault
+		want string
+	}{
+		{ConfirmDefaultYes, "Enter=yes"},
+		{ConfirmDefaultNo, "Enter=no"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
+			require.Contains(t, NewConfirm("apply?", tt.def).View(60, 10), tt.want)
+		})
+	}
+}
+
+func TestPicker_MultiSpaceOnEmptyMatchesMarksNothing(t *testing.T) {
+	t.Parallel()
+
+	p := NewPicker("tenants", []string{"prod", "staging"}, PickerMulti)
+	for _, r := range "zzz" {
+		p, _ = updateAs(p, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	p, _ = updateAs(p, tea.KeyPressMsg{Code: ' ', Text: " "})
+	require.Empty(t, p.marks)
+}
+
+func TestPicker_FilterClampsCursorSittingPastTheLastMatch(t *testing.T) {
+	t.Parallel()
+
+	p := NewPicker("tenants", []string{"alpha", "beta"}, PickerSingle)
+	p, _ = updateAs(p, tea.KeyPressMsg{Code: tea.KeyDown})
+	p, _ = updateAs(p, tea.KeyPressMsg{Code: 'b', Text: "b"})
+
+	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg := cmd().(PickerSubmittedMsg)
+	require.Equal(t, []string{"beta"}, msg.Selections)
+}
+
+func TestPicker_ViewRows(t *testing.T) {
+	t.Parallel()
+
+	items := []string{"prod", "staging", "dev", "qa", "edge"}
+	tests := []struct {
+		name     string
+		mode     PickerMode
+		height   int
+		wantRows int
+		mark     string
+	}{
+		{"single mode fits every row", PickerSingle, 20, 5, "  "},
+		{"height caps the rows below the query line", PickerSingle, 5, 2, "  "},
+		{"multi mode shows a mark box per row", PickerMulti, 5, 2, "[ ] "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := NewPicker("tenants", items, tt.mode)
+			lines := strings.Split(strings.TrimRight(testutil.StripStyle(p.View(40, tt.height)), " \n"), "\n")
+			require.Equal(t, "> _", strings.TrimRight(lines[0], " "))
+			rows := lines[2:]
+			require.Len(t, rows, tt.wantRows)
+			for i, row := range rows {
+				cursor := "  "
+				if i == 0 {
+					cursor = "▸ "
+				}
+				require.Equal(t, cursor+tt.mark+items[i], strings.TrimRight(row, " "))
+			}
+		})
+	}
 }
