@@ -288,10 +288,7 @@ func (p *Page) ingestSilences(m poll.DataMsg) {
 // openSilenceForm pushes the silence form; an empty or unknown tenant
 // flashes a hint instead, matching the alerts list `s` UX.
 func (p *Page) openSilenceForm() tea.Cmd {
-	if len(p.clients) == 0 || p.tenant == "" {
-		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
-	}
-	if _, ok := p.clients[p.tenant]; !ok {
+	if _, ok := p.clients[p.tenant]; p.tenant == "" || !ok {
 		return footer.ShowFlash(footer.FlashWarn, listpage.HintNoWriteableBackend)
 	}
 	matchers := matcher.FromLabels(p.a.Labels)

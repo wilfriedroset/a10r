@@ -12,8 +12,8 @@ const (
 	colorOrangered      = "orangered"
 )
 
-// stockStatus mirrors the `k9s.frame.status` block from the k9s
-// upstream stock skin
+// stockStatus mirrors the fields a10r binds a role to from the
+// `k9s.frame.status` block of the k9s upstream stock skin
 // (derailed/k9s/internal/config/templates/stock-skin.yaml). It is
 // the ultimate fallback for the load-bearing severity / silence /
 // flash colors when a user's skin omits one or more `frame.status`
@@ -26,7 +26,6 @@ const (
 // resolves them to RGB at compile time.
 var stockStatus = k9sFrameStatus{
 	NewColor:       colorLightskyblue,
-	ModifyColor:    colorGreenyellow,
 	AddColor:       colorDodgerblue,
 	ErrorColor:     colorOrangered,
 	HighlightColor: colorAqua,

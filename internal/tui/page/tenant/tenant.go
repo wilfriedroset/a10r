@@ -283,16 +283,11 @@ func (p *Page) View(width, height int) string {
 		if version == "" {
 			version = "—"
 		}
-		columns := []string{
-			row.Name,
-			row.URL,
-			version,
-		}
 		prefix := "  "
 		if i == p.window.Index() {
 			prefix = "▸ "
 		}
-		body := digitGlyph + scopeGlyph + " " + p.padTenantColumns(columns, width)
+		body := digitGlyph + scopeGlyph + " " + p.padTenantColumns(row.Name, row.URL, version, width)
 		line := format.PadRight(prefix+body, width)
 		switch {
 		case i == p.window.Index():
@@ -369,20 +364,9 @@ const (
 )
 
 // padTenantColumns lays out a row across NAME / URL (flex) / VERSION.
-func (p *Page) padTenantColumns(parts []string, width int) string {
-	if len(parts) == 0 {
-		return ""
-	}
+func (p *Page) padTenantColumns(name, url, version string, width int) string {
 	cols := tenantColumnWidths(width)
-	var b strings.Builder
-	b.Grow(width + 64)
-	for i, v := range parts {
-		if i >= len(cols) {
-			break
-		}
-		b.WriteString(format.PadRight(v, cols[i]))
-	}
-	return b.String()
+	return format.PadRight(name, cols[0]) + format.PadRight(url, cols[1]) + format.PadRight(version, cols[2])
 }
 
 // tenantColumnWidths returns the per-column widths (NAME, URL flex,
