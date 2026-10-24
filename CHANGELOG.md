@@ -6,6 +6,13 @@ to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+### Security
+
+- **Built with Go 1.27.3.** Go 1.27.2 has a standard library
+  vulnerability that the backend TLS transport can reach:
+  GO-2026-6809, which keeps trusting compromised intermediate
+  certificates. Go 1.27.3 fixes it.
+
 ## [v0.4.0] — 2026-10-11
 
 ### Added
