@@ -173,13 +173,19 @@ func TestHistory_NextRestoresDraftAtPresent(t *testing.T) {
 	h := NewHistory("", HistoryFilter)
 	h.Append("a")
 	h.Append("b")
+	h.Append("c")
 
+	_, _ = h.Prev("typed-but-not-submitted")
 	_, _ = h.Prev("typed-but-not-submitted")
 	_, _ = h.Prev("typed-but-not-submitted")
 
 	v, ok := h.Next()
 	require.True(t, ok)
 	require.Equal(t, "b", v, "Next walks back toward the newest")
+
+	v, ok = h.Next()
+	require.True(t, ok)
+	require.Equal(t, "c", v)
 
 	v, ok = h.Next()
 	require.True(t, ok)
@@ -234,6 +240,32 @@ func TestHistory_MalformedFileDegradesGracefully(t *testing.T) {
 	v, ok := h.Prev("")
 	require.True(t, ok)
 	require.Equal(t, "silences", v)
+}
+
+func TestHistory_OversizedFileKeepsTheNewestEntries(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	var body strings.Builder
+	for i := range historyMaxEntries + 5 {
+		body.WriteString("entry-" + itoa(i) + "\n")
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, string(HistoryFilter)), []byte(body.String()), 0o600))
+
+	h := NewHistory(dir, HistoryFilter)
+	require.Equal(t, historyMaxEntries, h.Len())
+	v, ok := h.Prev("")
+	require.True(t, ok)
+	require.Equal(t, "entry-"+itoa(historyMaxEntries+4), v)
+
+	oldest := v
+	for i := 1; i < historyMaxEntries; i++ {
+		oldest, ok = h.Prev("")
+		require.True(t, ok)
+	}
+	require.Equal(t, "entry-5", oldest)
+	_, ok = h.Prev("")
+	require.False(t, ok, "Prev stops at the oldest kept entry")
 }
 
 func TestHistory_UnreadableFileDegradesToEmpty(t *testing.T) {
