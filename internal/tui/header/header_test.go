@@ -261,3 +261,26 @@ func TestRenderHintsWithBudget_DropsTrailingFirst(t *testing.T) {
 	// Zero budget renders nothing.
 	require.Empty(t, renderHintsWithBudget(hints, 0, styles))
 }
+
+func TestRenderMiddle_FitsContentToBudget(t *testing.T) {
+	t.Parallel()
+
+	styles := loadDefaultStyles(t)
+	fg := styles.Header.DefaultFg
+	tests := []struct {
+		name    string
+		content string
+		budget  int
+		want    string
+	}{
+		{name: "content as wide as the floor budget renders whole", content: "abcd", budget: minMiddleWidth, want: fg.Render("abcd")},
+		{name: "budget below the floor drops the zone", content: "abcdef", budget: minMiddleWidth - 1, want: ""},
+		{name: "oversize content keeps budget columns with the marker", content: "abcdefgh", budget: 5, want: fg.Render("abcd" + truncationMarker)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, renderMiddle(tt.content, tt.budget, styles))
+		})
+	}
+}
