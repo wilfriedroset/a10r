@@ -63,12 +63,14 @@ func TestWindow_MoveCursor(t *testing.T) {
 		// Ctrl+D/U use bodyHeight/2 with floor of 10 when unsized
 		{name: "ctrl+d at top advances by half", cursor: 0, topRow: 0, bodyHeight: 20, items: 100, key: "ctrl+d", wantIndex: 10, wantTop: 0, wantChanged: true, wantHandled: true},
 		{name: "ctrl+d unsized advances by 10 floor", cursor: 0, topRow: 0, bodyHeight: 0, items: 100, key: "ctrl+d", wantIndex: 10, wantTop: 0, wantChanged: true, wantHandled: true},
+		{name: "ctrl+d with body height 2 advances by 1", cursor: 0, topRow: 0, bodyHeight: 2, items: 100, key: "ctrl+d", wantIndex: 1, wantTop: 0, wantChanged: true, wantHandled: true},
 		{name: "ctrl+u retreats by half", cursor: 12, topRow: 5, bodyHeight: 20, items: 100, key: "ctrl+u", wantIndex: 2, wantTop: 2, wantChanged: true, wantHandled: true},
 		{name: "ctrl+u clamps to 0", cursor: 2, topRow: 0, bodyHeight: 20, items: 100, key: "ctrl+u", wantIndex: 0, wantTop: 0, wantChanged: true, wantHandled: true},
 
 		// Ctrl+F/B use bodyHeight-2 with floor of 20 when unsized
 		{name: "ctrl+f advances by body-2", cursor: 0, topRow: 0, bodyHeight: 20, items: 100, key: "ctrl+f", wantIndex: 18, wantTop: 0, wantChanged: true, wantHandled: true},
 		{name: "ctrl+f unsized advances by 20 floor, leaves topRow untouched", cursor: 0, topRow: 0, bodyHeight: 0, items: 100, key: "ctrl+f", wantIndex: 20, wantTop: 0, wantChanged: true, wantHandled: true},
+		{name: "ctrl+f with body height 4 advances by 2", cursor: 0, topRow: 0, bodyHeight: 4, items: 100, key: "ctrl+f", wantIndex: 2, wantTop: 0, wantChanged: true, wantHandled: true},
 		{name: "ctrl+b retreats by body-2", cursor: 50, topRow: 32, bodyHeight: 20, items: 100, key: "ctrl+b", wantIndex: 32, wantTop: 32, wantChanged: true, wantHandled: true},
 
 		// Reconcile: cursor below window advances top
@@ -80,6 +82,7 @@ func TestWindow_MoveCursor(t *testing.T) {
 		{name: "j on empty list", cursor: 0, topRow: 0, bodyHeight: 10, items: 0, key: "j", wantIndex: 0, wantTop: 0, wantChanged: false, wantHandled: true},
 		{name: "k on empty list", cursor: 0, topRow: 0, bodyHeight: 10, items: 0, key: "k", wantIndex: 0, wantTop: 0, wantChanged: false, wantHandled: true},
 		{name: "ctrl+d on empty list", cursor: 0, topRow: 0, bodyHeight: 10, items: 0, key: "ctrl+d", wantIndex: 0, wantTop: 0, wantChanged: false, wantHandled: true},
+		{name: "k on empty list with stale cursor resets to 0", cursor: 3, topRow: 0, bodyHeight: 10, items: 0, key: "k", wantIndex: 0, wantTop: 0, wantChanged: true, wantHandled: true},
 
 		// Unhandled keys
 		{name: "unknown key not handled, no change", cursor: 7, topRow: 0, bodyHeight: 10, items: 50, key: "x", wantIndex: 7, wantTop: 0, wantChanged: false, wantHandled: false},
