@@ -71,6 +71,25 @@ func TestPage_VimMotions(t *testing.T) {
 	require.Equal(t, 1, p.scroll, "Update must advance p.scroll on `j`")
 }
 
+func TestPage_JStopsAtLastLine(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t), "prod")
+	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	last := p.scroll
+	require.Equal(t, len(p.lines())-1, last)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, last, p.scroll)
+}
+
+func TestPage_ViewEmptyWhenSizeIsZero(t *testing.T) {
+	t.Parallel()
+	p := New(testutil.LoadStyles(t), "prod")
+	_, _ = p.Update(poll.DataMsg{Resource: sampleStatus()})
+	require.Empty(t, p.View(0, 10))
+	require.Empty(t, p.View(80, 0))
+}
+
 func TestPage_HeaderContentBeforeAndAfterData(t *testing.T) {
 	t.Parallel()
 	p := New(testutil.LoadStyles(t), "prod")
