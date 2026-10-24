@@ -379,6 +379,42 @@ func TestHandleKeyDispatch(t *testing.T) {
 	}
 }
 
+func TestHandleKey_OnlyUppercaseLettersSelectByHotkey(t *testing.T) {
+	t.Parallel()
+	cols := []tablesort.Column[row]{
+		{Key: keyName, Title: "NAME", Hotkey: 'N', DefaultAsc: true, Less: nameLess},
+		{Key: "first", Title: "FIRST", Hotkey: 'A', DefaultAsc: true, Less: nameLess},
+		{Key: "last", Title: "LAST", Hotkey: 'Z', DefaultAsc: true, Less: nameLess},
+		{Key: "below", Title: "BELOW", Hotkey: '@', DefaultAsc: true, Less: nameLess},
+		{Key: "above", Title: "ABOVE", Hotkey: '[', DefaultAsc: true, Less: nameLess},
+	}
+	tests := []struct {
+		name     string
+		key      string
+		wantUsed bool
+		wantKey  string
+	}{
+		{name: "A selects", key: "A", wantUsed: true, wantKey: "first"},
+		{name: "Z selects", key: "Z", wantUsed: true, wantKey: "last"},
+		{name: "shift+a selects", key: "shift+a", wantUsed: true, wantKey: "first"},
+		{name: "@ is not a letter", key: "@", wantUsed: false, wantKey: keyName},
+		{name: "[ is not a letter", key: "[", wantUsed: false, wantKey: keyName},
+		{name: "shift+@ is not a letter", key: "shift+@", wantUsed: false, wantKey: keyName},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := tablesort.New(cols, keyName)
+			if got := s.HandleKey(tc.key); got != tc.wantUsed {
+				t.Fatalf("HandleKey(%q) = %v, want %v", tc.key, got, tc.wantUsed)
+			}
+			if k := s.ActiveKey(); k != tc.wantKey {
+				t.Fatalf("after HandleKey(%q) ActiveKey = %q, want %q", tc.key, k, tc.wantKey)
+			}
+		})
+	}
+}
+
 func TestBindingsEmitsShiftLetterPerColumn(t *testing.T) {
 	t.Parallel()
 	s := tablesort.New(fixtureCols(), keyName)
