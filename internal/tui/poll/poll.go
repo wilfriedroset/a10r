@@ -71,6 +71,8 @@ type Backoff struct {
 	CapMultiplier int
 	// JitterFraction is the ±fraction added as jitter (0.1 = ±10%); zero disables.
 	JitterFraction float64
+	// randFloat draws in [0, 1) for jitter; nil uses rand.Float64. A test seam.
+	randFloat func() float64
 }
 
 // defaultBackoff is the project default (1s base, 6× cap, ±10% jitter), matching
@@ -345,8 +347,12 @@ func (b Backoff) applyJitter(d time.Duration) time.Duration {
 	if b.JitterFraction <= 0 {
 		return d
 	}
+	draw := b.randFloat
+	if draw == nil {
+		draw = rand.Float64
+	}
 	span := float64(d) * b.JitterFraction
-	delta := (rand.Float64()*2 - 1) * span //nolint:gosec // jitter only
+	delta := (draw()*2 - 1) * span
 	out := time.Duration(float64(d) + delta)
 	if out < 0 {
 		// A negative duration would never fire.
