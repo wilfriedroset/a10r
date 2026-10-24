@@ -5,6 +5,7 @@ package panel
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,13 +17,7 @@ import (
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
 
-// stripANSI removes SGR escape sequences from s. The frame border
-// is now foreground-tinted so the raw string carries `\x1b[…m`
-// prefixes / suffixes — assertions that pin border characters need
-// the visible-glyph view, not the byte-level one.
-var stripANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-func plain(s string) string { return stripANSI.ReplaceAllString(s, "") }
+var sgrOpener = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestRenderTop_AllColumnsAppear(t *testing.T) {
 	t.Parallel()
@@ -362,7 +357,7 @@ func TestRenderBody_NarrowSubstitutesPlaceholder(t *testing.T) {
 	body := "row1\nrow2"
 	out := RenderBody(MinBodyWidth-10, 6, body, "alerts(all)[2]", "", testutil.LoadStyles(t))
 
-	plainOut := plain(out)
+	plainOut := testutil.StripStyle(out)
 	// Width 50, inner width 48 — full "terminal too narrow —
 	// resize to >= 60 cols" message fits.
 	require.Contains(t, plainOut, "resize to >= 60 cols",
@@ -381,7 +376,7 @@ func TestRenderBody_VeryNarrowKeepsColsHint(t *testing.T) {
 	// (20 cols) still does. The hint must NOT collapse to the
 	// useless "narrow" sentinel while the cols count still fits.
 	out := RenderBody(28, 6, "row1", "alerts", "", testutil.LoadStyles(t))
-	plainOut := plain(out)
+	plainOut := testutil.StripStyle(out)
 	require.Contains(t, plainOut, ">= 60 cols",
 		"medium-tier variant keeps the actionable cols count")
 	require.NotContains(t, plainOut, "narrow\n",
@@ -394,8 +389,8 @@ func TestRenderBody_AtMinWidthRendersBody(t *testing.T) {
 	// At exactly MinBodyWidth the placeholder branch must NOT fire
 	// — the threshold is "below", not "below or equal".
 	out := RenderBody(MinBodyWidth, 4, "row1", "x", "", testutil.LoadStyles(t))
-	require.Contains(t, plain(out), "row1")
-	require.NotContains(t, plain(out), "narrow")
+	require.Contains(t, testutil.StripStyle(out), "row1")
+	require.NotContains(t, testutil.StripStyle(out), "narrow")
 }
 
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
@@ -403,12 +398,12 @@ func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
 	require.GreaterOrEqual(t, len(lines), 4, "frame must have top + bottom + body lines")
-	require.Contains(t, plain(lines[0]), "alerts(all)[2]",
+	require.Contains(t, testutil.StripStyle(lines[0]), "alerts(all)[2]",
 		"title must appear in the top border")
-	require.True(t, strings.HasPrefix(plain(lines[0]), "┌"))
-	require.True(t, strings.HasSuffix(plain(lines[0]), "┐"))
-	require.True(t, strings.HasPrefix(plain(lines[len(lines)-1]), "└"))
-	require.True(t, strings.HasSuffix(plain(lines[len(lines)-1]), "┘"))
+	require.True(t, strings.HasPrefix(testutil.StripStyle(lines[0]), "┌"))
+	require.True(t, strings.HasSuffix(testutil.StripStyle(lines[0]), "┐"))
+	require.True(t, strings.HasPrefix(testutil.StripStyle(lines[len(lines)-1]), "└"))
+	require.True(t, strings.HasSuffix(testutil.StripStyle(lines[len(lines)-1]), "┘"))
 }
 
 func TestRenderBody_TitleSegmentsUseDistinctStyles(t *testing.T) {
@@ -440,7 +435,7 @@ func TestRenderBody_TitleSegmentsUseDistinctStyles(t *testing.T) {
 // style itself).
 func sgrFor(t *testing.T, rendered string) string {
 	t.Helper()
-	loc := stripANSI.FindStringIndex(rendered)
+	loc := sgrOpener.FindStringIndex(rendered)
 	require.NotNil(t, loc, "rendered snippet should contain SGR opener")
 	return rendered[loc[0]:loc[1]]
 }
@@ -455,7 +450,7 @@ func TestRenderBody_PreStyledTitleTruncatesByVisibleWidth(t *testing.T) {
 	title := "alerts(all)[2] </^web(> " + styles.Flash.Warn.Render("[regex: missing closing )]")
 
 	top, _, _ := strings.Cut(RenderBody(48, 4, "row", title, "", styles), "\n")
-	visible := plain(top)
+	visible := testutil.StripStyle(top)
 
 	require.Equal(t, 48, lipgloss.Width(top), "the clamped title still fills exactly one row")
 	require.NotContains(t, visible, "\x1b",
@@ -474,12 +469,12 @@ func TestRenderBody_FooterInBottomBorder(t *testing.T) {
 	// rather than spend a body line.
 	out := RenderBody(40, 6, "row1", "alerts[2]", "next refresh 26s", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
-	bottom := plain(lines[len(lines)-1])
+	bottom := testutil.StripStyle(lines[len(lines)-1])
 	require.Contains(t, bottom, "next refresh 26s",
 		"footer must appear in the bottom border")
 	require.True(t, strings.HasPrefix(bottom, "└"))
 	require.True(t, strings.HasSuffix(bottom, "┘"))
-	require.NotContains(t, plain(lines[0]), "next refresh",
+	require.NotContains(t, testutil.StripStyle(lines[0]), "next refresh",
 		"footer must not leak into the top border")
 }
 
@@ -487,7 +482,7 @@ func TestRenderBody_EmptyFooterIsPlainRule(t *testing.T) {
 	t.Parallel()
 	out := RenderBody(40, 6, "row1", "alerts[2]", "", testutil.LoadStyles(t))
 	lines := strings.Split(out, "\n")
-	bottom := plain(lines[len(lines)-1])
+	bottom := testutil.StripStyle(lines[len(lines)-1])
 	// A plain bottom rule is "└" + (innerWidth × "─") + "┘". With
 	// innerWidth = 38, that's 38 box-drawing dashes between corners
 	// and no label substring. SGR codes are stripped before the
@@ -511,13 +506,13 @@ func TestRenderFrame_WrapsBodyInBorderedBox(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	require.Len(t, lines, 3,
 		"the prompt frame is exactly 3 lines: top border, body, bottom border")
-	require.True(t, strings.HasPrefix(plain(lines[0]), "┌"))
-	require.True(t, strings.HasSuffix(plain(lines[0]), "┐"))
-	require.True(t, strings.HasPrefix(plain(lines[1]), "│"))
-	require.True(t, strings.HasSuffix(plain(lines[1]), "│"))
+	require.True(t, strings.HasPrefix(testutil.StripStyle(lines[0]), "┌"))
+	require.True(t, strings.HasSuffix(testutil.StripStyle(lines[0]), "┐"))
+	require.True(t, strings.HasPrefix(testutil.StripStyle(lines[1]), "│"))
+	require.True(t, strings.HasSuffix(testutil.StripStyle(lines[1]), "│"))
 	require.Contains(t, lines[1], "🐩> typed")
-	require.True(t, strings.HasPrefix(plain(lines[2]), "└"))
-	require.True(t, strings.HasSuffix(plain(lines[2]), "┘"))
+	require.True(t, strings.HasPrefix(testutil.StripStyle(lines[2]), "└"))
+	require.True(t, strings.HasSuffix(testutil.StripStyle(lines[2]), "┘"))
 }
 
 func TestRenderFrame_TooNarrowFallsBackToBody(t *testing.T) {
@@ -534,4 +529,288 @@ func TestTitle_ScopeAndCount(t *testing.T) {
 	require.Equal(t, "alerts(prod)[5]", Title("alerts", "prod", 5))
 	require.Equal(t, "status(prod)", Title("status", "prod", 0))
 	require.Equal(t, "alerts", Title("alerts", "", 0))
+}
+
+func TestRenderTop_Layout(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	const logo = "LOGO\nLOGO\nLOGO"
+	hints := []action.Action{
+		{Key: "s", Description: "silence"},
+		{Key: "r", Description: "refresh"},
+		{Key: "w", Description: "watch"},
+		{Key: "x", Description: "expire"},
+	}
+	tests := []struct {
+		name      string
+		state     State
+		wantChips [][]string
+		wantLogo  bool
+	}{
+		{
+			name: "logo sits flush right when everything fits",
+			state: State{
+				Width:   40,
+				Tenants: []TenantBinding{{Key: "0", Name: "all"}, {Key: "1", Name: "prod"}},
+				Hints:   []action.Action{{Key: "s", Description: "silence"}},
+				Logo:    logo,
+			},
+			wantChips: [][]string{{"<0>", "<?>"}, {"<1>", "<s>"}, nil},
+			wantLogo:  true,
+		},
+		{
+			name: "tenants past the logo height spread into columns",
+			state: State{
+				Width: 60,
+				Tenants: []TenantBinding{
+					{Key: "1", Name: "a"},
+					{Key: "2", Name: "b"},
+					{Key: "3", Name: "c"},
+					{Key: "4", Name: "d"},
+					{Key: "5", Name: "e"},
+					{Key: "6", Name: "f"},
+					{Key: "7", Name: "g"},
+				},
+				Logo: logo,
+			},
+			wantChips: [][]string{{"<1>", "<4>", "<7>", "<?>"}, {"<2>", "<5>"}, {"<3>", "<6>"}},
+			wantLogo:  true,
+		},
+		{
+			name:      "dropped logo lets hints reflow into two columns",
+			state:     State{Width: 36, Tenants: []TenantBinding{{Key: "0", Name: "all"}}, Hints: hints, Logo: logo},
+			wantChips: [][]string{{"<0>", "<?>", "<w>"}, {"<s>", "<x>"}, {"<r>"}},
+		},
+		{
+			name:      "one hint column clips hints past the logo height",
+			state:     State{Width: 30, Tenants: []TenantBinding{{Key: "0", Name: "all"}}, Hints: hints, Logo: logo},
+			wantChips: [][]string{{"<0>", "<?>"}, {"<s>"}, {"<r>"}},
+		},
+		{
+			name:      "two hint columns at exactly their width",
+			state:     State{Width: 24, Hints: hints, Logo: logo},
+			wantChips: [][]string{{"<?>", "<w>"}, {"<s>", "<x>"}, {"<r>"}},
+		},
+		{
+			name:      "one column short of two hint columns",
+			state:     State{Width: 23, Hints: hints, Logo: logo},
+			wantChips: [][]string{{"<?>"}, {"<s>"}, {"<r>"}},
+		},
+		{
+			name:      "logo stays when the zones fill the width exactly",
+			state:     State{Width: 17, Hints: []action.Action{{Key: "s", Description: "silence"}}, Logo: logo},
+			wantChips: [][]string{{"<?>"}, {"<s>"}, nil},
+			wantLogo:  true,
+		},
+		{
+			name:      "logo drops one column short of the zones",
+			state:     State{Width: 16, Hints: []action.Action{{Key: "s", Description: "silence"}}, Logo: logo},
+			wantChips: [][]string{{"<?>"}, {"<s>"}},
+		},
+		{
+			name: "hint as wide as the space left stays",
+			state: State{
+				Width:   30,
+				Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+				Hints:   []action.Action{{Key: "s", Description: "silence"}, {Key: "x", Description: "expire-everything"}},
+				Logo:    logo,
+			},
+			wantChips: [][]string{{"<0>", "<?>"}, {"<s>"}, {"<x>"}},
+		},
+		{
+			name: "hint wider than the space left drops",
+			state: State{
+				Width:   30,
+				Tenants: []TenantBinding{{Key: "0", Name: "all"}},
+				Hints:   []action.Action{{Key: "s", Description: "silence"}, {Key: "x", Description: "expire-everything-x"}},
+				Logo:    logo,
+			},
+			wantChips: [][]string{{"<0>", "<?>"}, {"<s>"}},
+		},
+		{
+			name:      "without a logo every hint stacks in one column",
+			state:     State{Width: 30, Hints: hints},
+			wantChips: [][]string{{"<?>"}, {"<s>"}, {"<r>"}, {"<w>"}, {"<x>"}},
+		},
+	}
+	chipRE := regexp.MustCompile(`<[^>]+>`)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			lines := strings.Split(testutil.StripStyle(RenderTop(tt.state, styles)), "\n")
+			require.Len(t, lines, len(tt.wantChips))
+
+			labels := map[string]string{"<?>": "help"}
+			isTenant := map[string]bool{}
+			tenantCellW := 0
+			for _, b := range tt.state.Tenants {
+				chip := "<" + b.Key + ">"
+				labels[chip], isTenant[chip] = b.Name, true
+				tenantCellW = max(tenantCellW, len(chip)+1+len(b.Name))
+			}
+			for _, h := range tt.state.Hints {
+				labels["<"+h.Key+">"] = h.Description
+			}
+			hintCellW := 0
+			for chip, label := range labels {
+				if !isTenant[chip] && slices.ContainsFunc(tt.wantChips, func(row []string) bool { return slices.Contains(row, chip) }) {
+					hintCellW = max(hintCellW, len(chip)+1+len(label))
+				}
+			}
+			hintX := 0
+			if n := len(tt.state.Tenants); n > 0 {
+				cols := len(slices.DeleteFunc(slices.Clone(tt.wantChips[0]), func(c string) bool { return !isTenant[c] }))
+				hintX = cols*tenantCellW + (cols-1)*colGap + colGap
+			}
+
+			for i, line := range lines {
+				require.Equal(t, tt.state.Width, lipgloss.Width(line), "row %d=%q", i, line)
+				if tt.wantLogo {
+					require.Equal(t, tt.state.Width-len("LOGO"), strings.Index(line, "LOGO"), "row %d=%q", i, line)
+				} else {
+					require.NotContains(t, line, "LOGO")
+				}
+				locs := chipRE.FindAllStringIndex(line, -1)
+				var chips []string
+				firstHint := true
+				for j, loc := range locs {
+					chip := line[loc[0]:loc[1]]
+					chips = append(chips, chip)
+					require.True(t, strings.HasPrefix(line[loc[1]+1:], labels[chip]),
+						"label of %s sits one column after the chip in row %q", chip, line)
+					if !isTenant[chip] && firstHint {
+						require.Equal(t, hintX, loc[0], "hint column start in row %q", line)
+						firstHint = false
+					}
+					if j == 0 || isTenant[chip] != isTenant[line[locs[j-1][0]:locs[j-1][1]]] {
+						continue
+					}
+					cellW := hintCellW
+					if isTenant[chip] {
+						cellW = tenantCellW
+					}
+					require.Equal(t, cellW+colGap, loc[0]-locs[j-1][0], "grid column offset in row %q", line)
+				}
+				require.Equal(t, tt.wantChips[i], chips, "row %d=%q", i, line)
+			}
+		})
+	}
+}
+
+func TestRenderTop_TenantsWiderThanTheWidthClipAtTheEdge(t *testing.T) {
+	t.Parallel()
+	out := RenderTop(State{
+		Width:   10,
+		Tenants: []TenantBinding{{Key: "0", Name: "production"}},
+		Logo:    "LOGO\nLOGO\nLOGO",
+	}, testutil.LoadStyles(t))
+	require.Equal(t, "<0> produc", testutil.StripStyle(out))
+}
+
+func TestRenderTop_ChipAndLogoStyles(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	out := RenderTop(State{
+		Width: 40,
+		Hints: []action.Action{{Key: "s", Description: "silence"}},
+		Logo:  "LOGO",
+	}, styles)
+	require.Contains(t, out, styles.Hint.HelpKeyBold.Render("<?>"))
+	require.Contains(t, out, styles.Hint.KeyBold.Render("<s>"))
+	require.Contains(t, out, styles.Body.Logo.Render("LOGO"))
+}
+
+func TestRenderBody_Layout(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	row := func(s string) string { return "│" + s + strings.Repeat(" ", 58-len(s)) + "│" }
+	rule := func(l, r string) string { return l + strings.Repeat("─", 58) + r }
+	exact := strings.Repeat("e", 58)
+	tests := []struct {
+		name          string
+		width, height int
+		body          string
+		want          []string
+	}{
+		{
+			name:  "lines pad, clip and stop at the inner height",
+			width: 60, height: 6,
+			body: "short\n" + exact + "\n" + exact + "-overflow\nlast\nhidden",
+			want: []string{rule("┌", "┐"), row("short"), row(exact), row(exact), row("last"), rule("└", "┘")},
+		},
+		{
+			name:  "short body pads to the inner height",
+			width: 60, height: 4,
+			body: "only",
+			want: []string{rule("┌", "┐"), row("only"), row(""), rule("└", "┘")},
+		},
+		{
+			name:  "too narrow for chrome returns the body",
+			width: 3, height: 5,
+			body: "row1",
+			want: []string{"row1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := RenderBody(tt.width, tt.height, tt.body, "", "", styles)
+			require.Equal(t, tt.want, strings.Split(testutil.StripStyle(got), "\n"))
+		})
+	}
+}
+
+func TestRenderBody_NarrowFrame(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	tests := []struct {
+		name          string
+		width, height int
+		wantMsg       string
+	}{
+		{name: "narrow placeholder centres vertically", width: 30, height: 7, wantMsg: "resize to >= 60 cols"},
+		{name: "placeholder variant as wide as the inner width fits", width: 22, height: 3, wantMsg: "resize to >= 60 cols"},
+		{name: "placeholder one column too wide falls back to the shorter variant", width: 21, height: 3, wantMsg: ">= 60 cols"},
+		{name: "smallest frame still draws chrome", width: 4, height: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			lines := strings.Split(testutil.StripStyle(RenderBody(tt.width, tt.height, "row1", "", "", styles)), "\n")
+			require.Len(t, lines, tt.height)
+			for _, l := range lines {
+				require.Equal(t, tt.width, lipgloss.Width(l), "row=%q", l)
+			}
+			last := lines[len(lines)-1]
+			require.True(t, strings.HasPrefix(lines[0], "┌") && strings.HasSuffix(lines[0], "┐"), "top=%q", lines[0])
+			require.True(t, strings.HasPrefix(last, "└") && strings.HasSuffix(last, "┘"), "bottom=%q", last)
+			if tt.wantMsg == "" {
+				return
+			}
+			msgRow := lines[(tt.height-2)/2+1]
+			require.True(t, strings.HasPrefix(msgRow, "│"), "row=%q", msgRow)
+			require.Equal(t, tt.wantMsg, strings.TrimSpace(strings.Trim(msgRow, "│")))
+		})
+	}
+}
+
+func TestRenderFrame_Layout(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	tests := []struct {
+		name  string
+		width int
+		body  string
+		want  []string
+	}{
+		{name: "smallest frame", width: 4, body: "x", want: []string{"┌──┐", "│x │", "└──┘"}},
+		{name: "short body pads", width: 10, body: "abc", want: []string{"┌────────┐", "│abc     │", "└────────┘"}},
+		{name: "long body clips", width: 6, body: "abcdefgh", want: []string{"┌────┐", "│abcd│", "└────┘"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, strings.Split(testutil.StripStyle(RenderFrame(tt.width, tt.body, styles)), "\n"))
+		})
+	}
 }
