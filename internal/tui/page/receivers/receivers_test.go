@@ -3,6 +3,7 @@
 package receivers
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -72,22 +73,20 @@ func TestPage_HeaderRendersForegroundOnly(t *testing.T) {
 		"header must not paint a palette background — chrome stays on terminal default bg")
 }
 
-func TestPage_SortPreservesCursorOnFocusedReceiver(t *testing.T) {
+// A sort keystroke keeps the row position, as k9s does, while a poll
+// refresh follows the focused receiver (see
+// TestPage_PollKeepsCursorOnFocusedReceiver).
+func TestPage_UserResortKeepsCursorAtRowIndex(t *testing.T) {
 	t.Parallel()
 	p := New(Options{Styles: testutil.LoadStyles(t)})
 	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
 		{Name: "web"}, {Name: "ops"}, {Name: "default"},
 	}})
 	require.Equal(t, []string{"default", "ops", "web"}, viewNames(p))
-	// Walk the cursor onto "ops" then flip to DESC. After the flip
-	// the order is web, ops, default — the cursor must follow ops
-	// to row 1, not stay on whatever row 1 contained before.
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
-	require.Equal(t, "ops", p.view[p.Index()].name)
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
 	require.Equal(t, []string{"web", "ops", "default"}, viewNames(p))
-	require.Equal(t, "ops", p.view[p.Index()].name,
-		"DESC must keep the cursor on the same receiver, not the same index")
+	require.Equal(t, 0, p.Index())
+	require.Equal(t, "web", p.view[p.Index()].name)
 }
 
 func TestPage_HLAreNoopOnSingleAxis(t *testing.T) {
@@ -303,6 +302,192 @@ func TestPage_PerTenantRowsNotDeduplicated(t *testing.T) {
 		"a receiver shared across tenants must yield one row per tenant")
 	require.Equal(t, "receivers(all)[2]", p.Title(),
 		"the count reflects per-tenant rows, not the de-duplicated union")
+	require.Equal(t, []string{"prod", "staging"}, []string{p.view[0].tenant, p.view[1].tenant},
+		"a shared name breaks the tie by tenant, ascending")
+}
+
+func TestPage_PollKeepsCursorOnFocusedReceiver(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		keys      string
+		next      []backend.Receiver
+		want      string
+		wantIndex int
+	}{
+		{
+			name: "row inserted above the cursor",
+			next: []backend.Receiver{{Name: "alpha"}, {Name: "default"}, {Name: "ops"}, {Name: "web"}},
+			want: "default", wantIndex: 1,
+		},
+		{
+			name: "row removed above the cursor",
+			keys: "j",
+			next: []backend.Receiver{{Name: "ops"}, {Name: "web"}},
+			want: "ops", wantIndex: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Styles: testutil.LoadStyles(t)})
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{
+				{Name: "web"}, {Name: "ops"}, {Name: "default"},
+			}})
+			for _, k := range tt.keys {
+				_, _ = p.Update(tea.KeyPressMsg{Code: k, Text: string(k)})
+			}
+			_, _ = p.Update(poll.DataMsg{Resource: tt.next})
+			require.Equal(t, tt.wantIndex, p.Index())
+			require.Equal(t, tt.want, p.view[p.Index()].name)
+		})
+	}
+}
+
+func TestPage_TitleNamesTheScope(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		scope string
+		want  string
+	}{
+		{scope: "", want: "receivers(all)[1]"},
+		{scope: "prod", want: "receivers(prod)[1]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Styles: testutil.LoadStyles(t)})
+			p.Scope = tt.scope
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}}, Tenant: "prod"})
+			require.Equal(t, tt.want, p.Title())
+		})
+	}
+}
+
+func TestPage_EmptyStateLinesAndTitle(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		recs   []backend.Receiver
+		filter string
+		down   bool
+		title  string
+		want   []string
+	}{
+		{
+			name:   "filter hides every row",
+			recs:   []backend.Receiver{{Name: "ops"}, {Name: "web"}},
+			filter: "zzz",
+			title:  "receivers(prod)[0/2]",
+			want:   []string{"no receivers match the active filter — Esc clears the prompt"},
+		},
+		{
+			name:   "filter before any poll",
+			filter: "zzz",
+			title:  "receivers(prod)[0/0]",
+			want:   []string{"no receivers (yet)"},
+		},
+		{
+			name:  "error band above the hint",
+			down:  true,
+			title: "receivers(prod)[0]",
+			want:  []string{"! down — retrying now", "no receivers (yet)"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Styles: testutil.LoadStyles(t)})
+			p.Scope = "prod"
+			if tt.recs != nil {
+				_, _ = p.Update(poll.DataMsg{Resource: tt.recs, Tenant: "prod"})
+			}
+			if tt.down {
+				_, _ = p.Update(poll.BackendStatusMsg{Tenant: "prod", State: header.ConnUnreachable, Detail: "down"})
+			}
+			if tt.filter != "" {
+				_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: tt.filter})
+			}
+			require.Equal(t, tt.title, p.Title())
+			lines := strings.Split(testutil.StripStyle(p.View(80, 5)), "\n")
+			for i, l := range lines {
+				lines[i] = strings.TrimSpace(l)
+			}
+			require.Equal(t, tt.want, lines[:len(tt.want)])
+		})
+	}
+}
+
+func TestPage_ViewEmptyWhenSizeIsZero(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}}})
+	require.Empty(t, p.View(0, 10))
+	require.Empty(t, p.View(40, 0))
+}
+
+func TestPage_ViewScrollsToCursorWithinHeight(t *testing.T) {
+	t.Parallel()
+	recs := make([]backend.Receiver, 10)
+	for i := range recs {
+		recs[i] = backend.Receiver{Name: fmt.Sprintf("r%d", i)}
+	}
+	tests := []struct {
+		name   string
+		band   bool
+		height int
+		top    []string
+		bottom []string
+	}{
+		{
+			name:   "no band",
+			height: 4,
+			top:    []string{"NAME ↑", "▸ r0", "r1", "r2"},
+			bottom: []string{"NAME ↑", "r7", "r8", "▸ r9"},
+		},
+		{
+			name:   "error band takes a row",
+			band:   true,
+			height: 5,
+			top:    []string{"NAME ↑", "▸ r0", "r1", "r2"},
+			bottom: []string{"NAME ↑", "r7", "r8", "▸ r9"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Styles: testutil.LoadStyles(t)})
+			p.Scope = "prod"
+			_, _ = p.Update(poll.DataMsg{Resource: recs, Tenant: "prod"})
+			if tt.band {
+				_, _ = p.Update(poll.BackendStatusMsg{Tenant: "prod", State: header.ConnUnreachable, Detail: "down"})
+			}
+			bodyLines := func() []string {
+				lines := strings.Split(testutil.StripStyle(p.View(40, tt.height)), "\n")
+				if tt.band {
+					require.True(t, strings.HasPrefix(lines[0], "! down"), lines[0])
+					lines = lines[1:]
+				}
+				for i, l := range lines {
+					lines[i] = strings.TrimSpace(l)
+				}
+				return lines
+			}
+			require.Equal(t, tt.top, bodyLines())
+			_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+			require.Equal(t, tt.bottom, bodyLines())
+		})
+	}
+}
+
+func TestPage_CursorStyleOnlyOnCursorRow(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Receiver{{Name: "ops"}, {Name: "web"}}})
+	lines := strings.Split(p.View(40, 5), "\n")
+	require.Len(t, lines, 3)
+	require.NotEqual(t, testutil.StripStyle(lines[1]), lines[1], "cursor row is styled")
+	require.Equal(t, testutil.StripStyle(lines[2]), lines[2], "plain row carries no style")
 }
 
 // viewNames projects the page's view onto receiver names so the
