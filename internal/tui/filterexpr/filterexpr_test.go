@@ -437,7 +437,9 @@ func TestTypedTerms(t *testing.T) {
 		{"count>3", false},
 		{"count>=3", true},
 		{"count<4", true},
+		{"count<3", false},
 		{"count<=2", false},
+		{"count<=3", true},
 		{"age<2h", true},
 		{"age>2h", false},
 		{"age>=1h", true},
@@ -468,6 +470,10 @@ func TestTextTerms(t *testing.T) {
 		{"/high.*infra/", true},
 		{"/^infra/", false},
 		{"~hci", true},
+		{"highcpu&&infra", true},
+		{"highcpu&", false},
+		{"//", true},
+		{"cpu/", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.expr, func(t *testing.T) {
