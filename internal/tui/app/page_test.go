@@ -896,3 +896,17 @@ func TestPushPage_ReadableByPageTests(t *testing.T) {
 	got := pagetest.PushedPage(t, PushPage(func() Page { return want }))
 	require.Same(t, want, got)
 }
+
+type pageClosedMsg struct{}
+
+func TestStack_QuitRunsThePageCloseCmds(t *testing.T) {
+	t.Parallel()
+	a := newTestApp(t)
+	home := newFakePage("home")
+	home.closeCmd = func() tea.Msg { return pageClosedMsg{} }
+	drive(t, a, PushPage(func() Page { return home }))
+
+	_, cmd := a.Update(QuitRequestedMsg{})
+
+	require.Equal(t, []tea.Msg{pageClosedMsg{}, tea.QuitMsg{}}, flatten(cmd))
+}

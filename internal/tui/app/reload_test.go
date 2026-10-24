@@ -367,3 +367,26 @@ func TestApplyReloaded_ReachesEveryPageOnTheStack(t *testing.T) {
 			"page %q must hear the reload", p.name)
 	}
 }
+
+type pageReloadedMsg struct{}
+
+type reloadCmdPage struct{ *fakePage }
+
+func (p *reloadCmdPage) Update(msg tea.Msg) (Page, tea.Cmd) {
+	_, _ = p.fakePage.Update(msg)
+	if _, ok := msg.(ConfigReloadedMsg); ok {
+		return p, func() tea.Msg { return pageReloadedMsg{} }
+	}
+	return p, nil
+}
+
+func TestApplyReloaded_KeepsThePageCmds(t *testing.T) {
+	t.Parallel()
+
+	a := newTestApp(t)
+	drive(t, a, PushPage(func() Page { return &reloadCmdPage{newFakePage("alerts")} }))
+
+	_, cmd := a.Update(ReloadedMsg{})
+
+	require.Contains(t, flatten(cmd), tea.Msg(pageReloadedMsg{}))
+}
