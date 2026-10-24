@@ -6,6 +6,14 @@ to [Semantic Versioning][semver].
 
 ## [Unreleased]
 
+### Fixed
+
+- **The alert detail page no longer hangs on wide characters.** An
+  annotation with wide characters, such as Chinese text, looped
+  forever in a narrow terminal and grew memory without end. A long
+  line now breaks at a space instead of inside a word, and an emoji
+  or a flag no longer overflows the line or splits in half.
+
 ### Security
 
 - **Built with Go 1.27.3.** Go 1.27.2 has a standard library

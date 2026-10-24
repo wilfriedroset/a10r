@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -381,6 +382,35 @@ func TestPage_LongNoWhitespaceValueDoesNotFreeze(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("View blocked — format.Hanging likely looped on a no-whitespace value")
 	}
+}
+
+func TestPage_MultiLineAnnotationWithLongURLHasNoBlankRow(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.Annotations = map[string]string{
+		"description": "see runbook\nhttps://runbooks.example.test/" + strings.Repeat("x", 80),
+	}
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
+
+	for _, line := range p.bodyLines(60) {
+		require.False(t, line != "" && strings.TrimSpace(line) == "",
+			"whitespace-only row %q: the URL segment's hang indent must not wrap on its own", line)
+	}
+}
+
+func TestPage_GeneratorURLTooLongForTheLabelLineMovesUnderTheIndent(t *testing.T) {
+	t.Parallel()
+
+	a := sample()
+	a.GeneratorURL = "https://example.test/graph?" + strings.Repeat("x", 80)
+	p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
+
+	lines := p.bodyLines(60)
+	i := slices.Index(lines, "Generator URL:")
+	require.NotEqual(t, -1, i, "the label must stand alone when the URL does not fit beside it")
+	require.True(t, strings.HasPrefix(lines[i+1], strings.Repeat(" ", len("Generator URL: "))+"https://"),
+		"the URL must start on the next line under the indent, got %q", lines[i+1])
 }
 
 func TestPage_AnnotationWithEmbeddedNewlinesAlignsAcrossLines(t *testing.T) {

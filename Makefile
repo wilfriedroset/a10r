@@ -1,4 +1,4 @@
-.PHONY: build test test-race cover vet prek lint lint-comments run clean tidy am-up am-down am-logs smoke skins-sync screenshots fuzz fuzz-app fuzz-form help
+.PHONY: build test test-race cover vet prek lint lint-comments run clean tidy am-up am-down am-logs smoke skins-sync screenshots fuzz fuzz-app fuzz-form fuzz-wrap help
 
 GO ?= go
 BINARY := a10r
@@ -93,13 +93,16 @@ smoke: ## Run the backend smoke harness against the local Alertmanager
 # `make fuzz` is the dev / nightly explore phase.
 FUZZTIME ?= 30s
 
-fuzz: fuzz-app fuzz-form ## Run all fuzz targets ($(FUZZTIME) each)
+fuzz: fuzz-app fuzz-form fuzz-wrap ## Run all fuzz targets ($(FUZZTIME) each)
 
 fuzz-app: ## Fuzz internal/tui/app FuzzApp (FUZZTIME=$(FUZZTIME))
 	$(GO) test -run='^$$' -fuzz=FuzzApp -fuzztime=$(FUZZTIME) ./internal/tui/app/
 
 fuzz-form: ## Fuzz internal/tui/form/silence FuzzSilenceForm (FUZZTIME=$(FUZZTIME))
 	$(GO) test -run='^$$' -fuzz=FuzzSilenceForm -fuzztime=$(FUZZTIME) ./internal/tui/form/silence/
+
+fuzz-wrap: ## Fuzz internal/tui/page/format FuzzHanging (FUZZTIME=$(FUZZTIME))
+	$(GO) test -run='^$$' -fuzz=FuzzHanging -fuzztime=$(FUZZTIME) ./internal/tui/page/format/
 
 # Refresh the embedded skin set from upstream sources pinned in
 # internal/tui/theme/skins/SOURCES.yaml. Each repo is shallow-cloned
