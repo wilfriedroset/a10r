@@ -541,3 +541,72 @@ func TestGuardrailAppliesAfterApply(t *testing.T) {
 		footer.FlashShowMsg{Level: footer.FlashWarn, Text: "silence.create denied on " + tenant + ": change freeze"},
 		cmd())
 }
+
+func TestHeaderContent(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		state string
+		marks []string
+		want  string
+	}{
+		{name: "nothing narrows the view", want: ""},
+		{name: "state cycle", state: string(backend.AlertStateActive), want: "state:active"},
+		{name: "one mark", marks: []string{"fp-1"}, want: "marked:1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPage(t, instance("fp-1", "warning", backend.AlertStateActive, nil))
+			p.stateFilter = tc.state
+			for _, fp := range tc.marks {
+				p.marks[fp] = struct{}{}
+			}
+			require.Equal(t, tc.want, p.HeaderContent())
+		})
+	}
+}
+
+func TestSort_InstanceTieBreaks(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		fps  [2]string
+		pods [2]string
+		want []string
+	}{
+		{name: "distinguishing labels", fps: [2]string{"fp-1", "fp-2"}, pods: [2]string{"z", "a"}, want: []string{"fp-2", "fp-1"}},
+		{name: "fingerprint reorders", fps: [2]string{"fp-2", "fp-1"}, pods: [2]string{"a", "a"}, want: []string{"fp-1", "fp-2"}},
+		{name: "fingerprint keeps order", fps: [2]string{"fp-1", "fp-2"}, pods: [2]string{"a", "a"}, want: []string{"fp-1", "fp-2"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPage(t,
+				instance(tc.fps[0], "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: "same", podKey: tc.pods[0]}),
+				instance(tc.fps[1], "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: "same", podKey: tc.pods[1]}),
+			)
+			_, _ = p.Update(tea.KeyPressMsg{Code: 'N', Text: "N", Mod: tea.ModShift})
+			require.Equal(t, tc.want, []string{p.view[0].a.Fingerprint, p.view[1].a.Fingerprint})
+		})
+	}
+}
+
+func TestFocus_ClearedWhenInstanceResolvesOutBehindAFilter(t *testing.T) {
+	t.Parallel()
+	mk := func(fp string) backend.Alert {
+		return instance(fp, "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: fp})
+	}
+	p := newPage(t, mk("fp-1"), mk("fp-2"), mk("fp-3"))
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, "fp-3", p.view[p.Index()].a.Fingerprint)
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "no-such-instance"})
+	_, _ = p.Update(data(mk("fp-1"), mk("fp-2")))
+	_, _ = p.Update(data(mk("fp-1"), mk("fp-2"), mk("fp-3")))
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: ""})
+
+	require.Equal(t, "fp-1", p.view[p.Index()].a.Fingerprint,
+		"a focus resolved out while hidden must not re-anchor when the instance returns")
+}

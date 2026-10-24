@@ -68,6 +68,11 @@ func TestExpr_FiltersTheView(t *testing.T) {
 			want:   []string{"fp-2"},
 		},
 		{
+			name:  "state cycle alone",
+			state: string(backend.AlertStateSuppressed),
+			want:  []string{"fp-2"},
+		},
+		{
 			name:   "count is undefined here",
 			filter: "count>=1",
 			want:   []string{},
