@@ -69,6 +69,15 @@ func TestWindowAt_OffsetStopsAtTheLastColumn(t *testing.T) {
 	require.False(t, w.ClipRight)
 }
 
+func TestWindowAt_SeparatorsCountAgainstTheBudget(t *testing.T) {
+	t.Parallel()
+
+	w := format.WindowAt(fiveCols(), 55, 2, 0)
+	require.Equal(t, []int{0, 1, 2, 3}, w.Cols)
+	require.False(t, w.ClipLeft)
+	require.True(t, w.ClipRight)
+}
+
 func TestWindowAt_NoColumns(t *testing.T) {
 	t.Parallel()
 
@@ -231,4 +240,30 @@ func TestWindowAt_CanRightIgnoresTheColumnsAlreadyInView(t *testing.T) {
 	require.Equal(t, []int{0, 1, 2}, w.Cols)
 	require.True(t, w.ClipRight)
 	require.False(t, w.CanRight)
+}
+
+// A column behind an unfittable one is reachable when it fits beside
+// the pinned column exactly, separator included, and not one cell
+// past that.
+func TestWindowAt_CanRightOnAnExactFit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		width int
+		want  bool
+	}{
+		{name: "exact fit is reachable", width: 14, want: true},
+		{name: "one cell over is not", width: 15, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cols := []format.Column{
+				{Min: 10, Content: 10},
+				{Min: 30, Content: 30},
+				{Min: tc.width, Content: tc.width},
+			}
+			require.Equal(t, tc.want, format.WindowAt(cols, 25, 1, 0).CanRight)
+		})
+	}
 }

@@ -56,6 +56,19 @@ func TestHanging(t *testing.T) {
 			hangingCols: 13,
 			want:        []string{"             HighCPU"},
 		},
+		{
+			name:        "indent as wide as the width returns input verbatim",
+			s:           "abcdef",
+			width:       3,
+			hangingCols: 3,
+			want:        []string{"abcdef"},
+		},
+		{
+			name:  "a rune wider than the width is emitted whole",
+			s:     "\u4f60",
+			width: 1,
+			want:  []string{"\u4f60"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

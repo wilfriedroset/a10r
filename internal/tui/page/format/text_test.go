@@ -58,6 +58,7 @@ func TestSGRTruncate(t *testing.T) {
 		{name: "escape after content stays attached and closes with reset", s: "abc" + red + "def" + reset, w: 4, want: "abc" + red + "d" + reset},
 		{name: "zero width returns empty", s: red + "abc" + reset, w: 0, want: ""},
 		{name: "negative width returns empty", s: red + "abc" + reset, w: -1, want: ""},
+		{name: "a modifier cluster at its width is kept whole", s: "\U0001F44D\U0001F3FD", w: 2, want: "\U0001F44D\U0001F3FD"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,6 +88,9 @@ func TestTruncate(t *testing.T) {
 		{name: "zero width returns empty", s: "abc", w: 0, want: ""},
 		{name: "negative width returns empty", s: "abc", w: -1, want: ""},
 		{name: "empty string returns empty", s: "", w: 5, want: ""},
+		{name: "zero width drops a zero-width rune", s: "\u0301", w: 0, want: ""},
+		{name: "a modifier cluster at its width is kept whole", s: "\U0001F44D\U0001F3FD", w: 2, want: "\U0001F44D\U0001F3FD"},
+		{name: "control bytes take no cell", s: "a\x01\x7fbc", w: 2, want: "a\x01\x7fb"},
 		// Width-aware: CJK chars count as 2 cells each. Two CJK chars
 		// fit into width 4; a third would push width to 6 and be
 		// dropped before being emitted.
