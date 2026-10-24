@@ -115,6 +115,9 @@ func TestRemaining(t *testing.T) {
 		{"hours and minutes", 2*time.Hour + 13*time.Minute, "2h13m"},
 		{"whole hours drop the m suffix", 3 * time.Hour, "3h"},
 		{"days swallow hours and minutes", 49 * time.Hour, "2d"},
+		{"exactly one day renders days", 24 * time.Hour, "1d"},
+		{"exactly one hour renders hours", time.Hour, "1h"},
+		{"exactly one minute renders minutes", time.Minute, "1m"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,6 +148,7 @@ func TestParse(t *testing.T) {
 		{name: "0.5d", in: "0.5d", want: 12 * time.Hour},
 		{name: "spaces between terms", in: "1w 2d", want: 9 * 24 * time.Hour},
 		{name: "30s", in: "30s", want: 30 * time.Second},
+		{name: "90m", in: "90m", want: 90 * time.Minute},
 		{name: "all five units largest-first", in: "1w1d1h1m1s", want: 8*24*time.Hour + time.Hour + time.Minute + time.Second},
 		{name: "leading and trailing whitespace tolerated", in: "  2h  ", want: 2 * time.Hour},
 		{name: "float rounds to nearest second", in: "0.3333h", want: 1200 * time.Second},
@@ -158,8 +162,11 @@ func TestParse(t *testing.T) {
 		{name: "unknown unit days", in: "7days", wantErr: `unknown unit "days" (use s m h d w)`},
 		{name: "unknown unit x", in: "7x", wantErr: `unknown unit "x" (use s m h d w)`},
 		{name: "unknown unit xyz", in: "7xyz", wantErr: `unknown unit "xyz" (use s m h d w)`},
+		{name: "unknown unit A", in: "5A", wantErr: `unknown unit "A" (use s m h d w)`},
+		{name: "unknown unit Z", in: "5Z", wantErr: `unknown unit "Z" (use s m h d w)`},
 		{name: "out of order 2h7d", in: "2h7d", wantErr: "units must be ordered largest-first; rewrite as 7d2h"},
 		{name: "out of order 5m30s2h", in: "5m30s2h", wantErr: "units must be ordered largest-first; rewrite as 2h5m30s"},
+		{name: "out of order keeps a decimal term", in: "30m1.25h", wantErr: "units must be ordered largest-first; rewrite as 1.25h30m"},
 		{name: "repeated unit", in: "1d1d", wantErr: `unit "d" appears more than once`},
 		{name: "no unit number only", in: "7", wantErr: "missing unit; use s m h d w"},
 		{name: "no number before unit dx", in: "dx", wantErr: `expected number before unit "d"`},
