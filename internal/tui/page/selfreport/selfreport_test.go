@@ -88,6 +88,8 @@ func TestPage_ZeroSizeFrameRendersNothing(t *testing.T) {
 		Render: func() string { return "body" },
 	})
 	require.Empty(t, p.View(0, 0))
+	require.Empty(t, p.View(0, 10))
+	require.Empty(t, p.View(80, 0))
 }
 
 // The `gg` chord is registered as a chord at keys.LayerTable, which
