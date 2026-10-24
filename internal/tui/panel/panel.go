@@ -10,6 +10,7 @@ package panel
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -436,7 +437,9 @@ const MinBodyWidth = 60
 // Returns a string exactly width columns wide and at most height
 // rows tall. The body content is sliced / padded to fit the
 // inner rectangle (width-2, height-2). Empty footer renders the
-// bottom edge as a plain rule.
+// bottom edge as a plain rule. Below 4 columns or 2 rows no frame
+// fits, so the body comes back unframed, clipped to height rows; its
+// width is not clipped.
 //
 // When width < MinBodyWidth the body content is replaced by a
 // short "terminal too narrow" placeholder so the page does not
@@ -449,7 +452,8 @@ const MinBodyWidth = 60
 // so per-cell colouring inside the body keeps showing through.
 func RenderBody(width, height int, body, title, footer string, styles *theme.Styles) string {
 	if width < 4 || height < 2 {
-		return body
+		rows := strings.SplitN(body, "\n", max(height, 0)+1)
+		return strings.Join(rows[:min(len(rows), max(height, 0))], "\n")
 	}
 	if width < MinBodyWidth {
 		body = narrowPlaceholder(width-2, height-2)
@@ -483,7 +487,7 @@ func RenderBody(width, height int, body, title, footer string, styles *theme.Sty
 
 	bottom := buildLabelBorder(innerWidth, footer, "└", "┘", styles)
 
-	return top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
+	return strings.Join(slices.Concat([]string{top}, lines, []string{bottom}), "\n")
 }
 
 // Used by the App for the ':' / '/' prompt panel.

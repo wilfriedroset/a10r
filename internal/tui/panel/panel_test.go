@@ -393,6 +393,30 @@ func TestRenderBody_AtMinWidthRendersBody(t *testing.T) {
 	require.NotContains(t, testutil.StripStyle(out), "narrow")
 }
 
+func TestRenderBody_NeverExceedsHeight(t *testing.T) {
+	t.Parallel()
+
+	styles := testutil.LoadStyles(t)
+	cases := []struct {
+		name          string
+		width, height int
+		body          string
+		want          string
+	}{
+		{name: "height 2 is the two borders", width: 4, height: 2, body: "x", want: "┌──┐\n└──┘"},
+		{name: "height 1 keeps one body row", width: 4, height: 1, body: "x\ny", want: "x"},
+		{name: "height 0 renders nothing", width: 4, height: 0, body: "x", want: ""},
+		{name: "too narrow for a frame clamps rows", width: 3, height: 2, body: "a\nb\nc", want: "a\nb"},
+		{name: "negative height renders nothing", width: 3, height: -1, body: "a\nb", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, testutil.StripStyle(RenderBody(tc.width, tc.height, tc.body, "", "", styles)))
+		})
+	}
+}
+
 func TestRenderBody_TitleInTopBorder(t *testing.T) {
 	t.Parallel()
 	out := RenderBody(40, 6, "row1\nrow2", "alerts(all)[2]", "", testutil.LoadStyles(t))
