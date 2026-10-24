@@ -174,6 +174,60 @@ func TestLoad_UserSkinShadowsBundledLogsWarning(t *testing.T) {
 		"shadow warning must fire when user file matches a bundled name")
 }
 
+func TestLoad_NoShadowWarningWithoutABundledNameClash(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "mine.yaml"), []byte(`
+k9s:
+  body: { fgColor: "#ffffff", bgColor: "#000000" }
+`), 0o600))
+
+	for _, name := range []string{"mine", "catppuccin-mocha"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&buf, nil))
+			_, err := (&Loader{UserDir: dir, Logger: logger}).Load(name)
+			require.NoError(t, err)
+			require.NotContains(t, buf.String(), "user skin shadows bundled skin")
+		})
+	}
+}
+
+func TestLoad_CursorFallsBackToBodyColors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		table  string
+		wantFg [3]uint8
+		wantBg [3]uint8
+	}{
+		{name: "neither axis set inverts body", table: "{}", wantFg: [3]uint8{0, 0, 0}, wantBg: [3]uint8{0xff, 0xff, 0xff}},
+		{name: "only fg set keeps body bg", table: `{ cursorFgColor: "#112233" }`, wantFg: [3]uint8{0x11, 0x22, 0x33}, wantBg: [3]uint8{0, 0, 0}},
+		{name: "only bg set keeps body fg", table: `{ cursorBgColor: "#112233" }`, wantFg: [3]uint8{0xff, 0xff, 0xff}, wantBg: [3]uint8{0x11, 0x22, 0x33}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "cursor.yaml"), []byte(`
+k9s:
+  body: { fgColor: "#ffffff", bgColor: "#000000" }
+  views:
+    table: `+tt.table+`
+`), 0o600))
+			styles, err := (&Loader{UserDir: dir}).Load("cursor")
+			require.NoError(t, err)
+			r, g, b := colorRGBA(styles.Table.Cursor.GetForeground())
+			require.Equal(t, tt.wantFg, [3]uint8{r, g, b}, "cursor fg")
+			r, g, b = colorRGBA(styles.Table.Cursor.GetBackground())
+			require.Equal(t, tt.wantBg, [3]uint8{r, g, b}, "cursor bg")
+		})
+	}
+}
+
 func TestLoad_RejectsMalformedYAML(t *testing.T) {
 	t.Parallel()
 
@@ -250,6 +304,10 @@ k9s:
 	require.Equal(t, wantR, r, "severity.critical R")
 	require.Equal(t, wantG, g, "severity.critical G")
 	require.Equal(t, wantB, b, "severity.critical B")
+
+	r, g, b = colorRGBA(styles.Table.Dimmed.GetForeground())
+	require.Equal(t, [3]uint8{0x77, 0x88, 0x99}, [3]uint8{r, g, b},
+		"table.dimmed must take stock completedColor (lightslategray)")
 }
 
 func TestLoad_DefaultKeywordOnBgLeavesBackgroundUnset(t *testing.T) {
@@ -342,6 +400,24 @@ k9s:
   body: { fgColor: "#ffffff", bgColor: "#000000" }
   frame:
     menu: { numKeyColor: "borked" }
+`,
+		},
+		{
+			role: "table.header.bg",
+			yaml: `
+k9s:
+  body: { fgColor: "#ffffff", bgColor: "#000000" }
+  views:
+    table: { header: { bgColor: "borked" } }
+`,
+		},
+		{
+			role: "header.ok",
+			yaml: `
+k9s:
+  body: { fgColor: "#ffffff", bgColor: "#000000" }
+  frame:
+    status: { addColor: "borked" }
 `,
 		},
 		{
