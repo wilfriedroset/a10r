@@ -211,13 +211,13 @@ func TestEdit_NoEditorConfigured(t *testing.T) {
 	require.Error(t, fin.Err)
 }
 
-// TestEdit_TempfileNameUsesRandomSuffix pins the random-suffix
+// TestEdit_TempfileNameUsesRandomSuffixAndYAMLExt pins the random-suffix
 // tempfile guard: each Edit call must produce a tempfile whose
 // basename is unguessable from the resource id alone. Two calls
 // with the same id must yield different paths so a co-tenant
 // pre-creating a symlink at the obvious legacy path
 // (`edit-<sanitized-id>.yaml`) cannot intercept the buffer.
-func TestEdit_TempfileNameUsesRandomSuffix(t *testing.T) {
+func TestEdit_TempfileNameUsesRandomSuffixAndYAMLExt(t *testing.T) {
 	t.Parallel()
 
 	if runtime.GOOS == windowsGOOS {
@@ -250,6 +250,7 @@ func TestEdit_TempfileNameUsesRandomSuffix(t *testing.T) {
 		"two Edit() calls for the same resource must produce distinct tempfile paths so a symlink swap cannot target the next call")
 	require.Contains(t, filepath.Base(capturedPaths[0]), "edit-sil-x-",
 		"tempfile basename must still embed the sanitized id for operator-side debugging")
+	require.Equal(t, ".yaml", filepath.Ext(capturedPaths[0]))
 }
 
 // TestEdit_RejectsSymlinkAtTempfilePath belt-and-braces the
