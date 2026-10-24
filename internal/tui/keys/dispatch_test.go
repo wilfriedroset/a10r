@@ -240,6 +240,21 @@ func TestHandleChordExpired_RoundTripClearsState(t *testing.T) {
 		"the original chord must NOT have completed retroactively after expiry")
 }
 
+func TestHandleChordExpired_ClearsTheChordAheadOfTheDispatchClock(t *testing.T) {
+	t.Parallel()
+
+	r := &recorder{}
+	clock := newFakeClock()
+	d := New(clock)
+	d.Set(LayerTable, "gg", r.handler("first row"))
+
+	_, _ = d.Dispatch("g")
+	_ = d.HandleChordExpired(ChordExpiredMsg{At: clock.Now().Add(ChordTimeout)})
+	_, _ = d.Dispatch("g")
+
+	require.EqualValues(t, 0, r.count.Load())
+}
+
 func TestSetAction_RegistersKeyAndExposesActionName(t *testing.T) {
 	t.Parallel()
 
