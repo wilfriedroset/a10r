@@ -203,6 +203,50 @@ func TestPartialRedact_HandlesMultibyteRunes(t *testing.T) {
 	require.Contains(t, got, redactionMarker, "must still redact the tail")
 }
 
+func TestPartialRedact_LengthFloor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: ""},
+		{in: "abc", want: redactionMarker},
+		{in: "abcd", want: "ab" + redactionMarker},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, partialRedact(tt.in))
+		})
+	}
+}
+
+func TestNew_FetchTimeout(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{name: "unset defaults to 30s", want: 30 * time.Second},
+		{name: "set is kept", in: 5 * time.Second, want: 5 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Tenant: "prod", FetchTimeout: tt.in, Styles: testutil.LoadStyles(t)})
+			require.Equal(t, tt.want, p.fetchTimeout)
+		})
+	}
+}
+
+func TestPage_ViewEmptyWhenSizeIsZero(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Tenant: "prod", Backend: config.Backend{Name: "prod"}, Styles: testutil.LoadStyles(t)})
+	require.Empty(t, p.View(0, 10))
+	require.Empty(t, p.View(80, 0))
+}
+
 func TestRedactedBackendYAML_RedactionDoesNotMutateInput(t *testing.T) {
 	t.Parallel()
 	cfg := config.Backend{
