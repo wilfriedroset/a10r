@@ -95,3 +95,36 @@ func TestBody_PreservesLineCount(t *testing.T) {
 	out := Body(in, styles)
 	require.Equal(t, in, testutil.StripStyle(out))
 }
+
+func TestLine_SplitsIndentKeyPunctValue(t *testing.T) {
+	t.Parallel()
+	styles := testutil.LoadStyles(t)
+	y := styles.YAML
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			name: "indent and list marker stay unstyled",
+			line: "  - name: foo",
+			want: "  - " + y.Key.Render("name") + y.Punct.Render(": ") + y.Value.Render("foo"),
+		},
+		{
+			name: "space after colon joins the punct",
+			line: "id: abc",
+			want: y.Key.Render("id") + y.Punct.Render(": ") + y.Value.Render("abc"),
+		},
+		{
+			name: "no space after colon keeps a bare punct",
+			line: "id:abc",
+			want: y.Key.Render("id") + y.Punct.Render(":") + y.Value.Render("abc"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, Line(tt.line, styles))
+		})
+	}
+}
