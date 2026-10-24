@@ -88,6 +88,23 @@ func TestToAlert_CleanInputKeepsTheDecodedMaps(t *testing.T) {
 	require.Equal(t, "eu-1", got.Labels["cluster"],
 		"a clean map is aliased, so every poll of a healthy backend copies nothing")
 	require.Nil(t, got.Annotations, "a wire response with no annotations stays nil")
+	require.Nil(t, got.Receivers, "a wire response with no receivers stays nil")
+}
+
+func TestToAlert_SanitisesLabelWhenOnlyTheKeyIsDirty(t *testing.T) {
+	t.Parallel()
+
+	got := toAlert(wireAlert{
+		Labels: map[string]string{"alert\tname": "HighCPU"},
+		Status: wireAlertStatus{State: "active"},
+	})
+	require.Equal(t, map[string]string{"alert name": "HighCPU"}, got.Labels)
+}
+
+func TestToSilence_NoMatchersStaysNil(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, toSilence(wireSilence{ID: "id42"}).Matchers)
 }
 
 func TestToReceiver_SanitisesName(t *testing.T) {
@@ -106,7 +123,8 @@ func TestToStatus_SanitisesRenderedText(t *testing.T) {
 		},
 		VersionInfo: wireVersionInfo{Version: "0.28\x1b.0", BuildUser: "root\x00"},
 		Config:      wireConfigBlock{Original: "route:\n  receiver: web\n"},
-	}, func() time.Time { return time.Unix(0, 0) })
+		Uptime:      time.Unix(0, 0),
+	}, func() time.Time { return time.Unix(90, 0) })
 
 	require.Equal(t, "rea dy", got.Cluster.Status)
 	require.Equal(t, "peer 1", got.Cluster.Peers[0].Name)
@@ -115,6 +133,7 @@ func TestToStatus_SanitisesRenderedText(t *testing.T) {
 	require.Equal(t, "root ", got.Version.BuildUser)
 	require.Equal(t, "route:\n  receiver: web\n", got.Config,
 		"the backend config is a document the status page splits on newlines")
+	require.Equal(t, 90*time.Second, got.Uptime)
 }
 
 func TestToSilence_KeepsRemoteTextVerbatim(t *testing.T) {

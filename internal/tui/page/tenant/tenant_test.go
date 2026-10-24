@@ -200,6 +200,60 @@ func TestPage_TitleAndScopeMirrorGlobal(t *testing.T) {
 	require.Equal(t, "tenants(all)[3]", p.Title())
 }
 
+func TestPage_ScopeGlyphMarksOnlyScopedTenants(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p.SetRows(sampleRows())
+	_, _ = p.Update(app.ScopeChangedMsg{Scope: "staging, prod"})
+	out := testutil.StripStyle(p.View(120, 10))
+	require.Contains(t, out, "[1]   dev")
+	require.Contains(t, out, "[2] ● prod")
+	require.Contains(t, out, "[3] ● staging")
+}
+
+func TestPage_VersionSortTiesEmptyVersionsByName(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p.SetRows([]Row{{Name: "zulu"}, {Name: "alpha"}, {Name: "mid", Version: "1.0.0"}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'V', Text: "V", Mod: tea.ModShift})
+	names := make([]string, 0, 3)
+	for _, r := range p.rowsSorted() {
+		names = append(names, r.Name)
+	}
+	require.Equal(t, []string{"mid", "alpha", "zulu"}, names)
+}
+
+func TestPage_ViewEmptyWhenSizeIsZero(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p.SetRows(sampleRows())
+	require.Empty(t, p.View(0, 10))
+	require.Empty(t, p.View(80, 0))
+}
+
+func TestPage_ViewScrollsToCursorWithinHeight(t *testing.T) {
+	t.Parallel()
+	rows := make([]Row, 10)
+	for i := range rows {
+		rows[i] = Row{Name: fmt.Sprintf("t%d", i)}
+	}
+	p := New(Options{Styles: testutil.LoadStyles(t)})
+	p.SetRows(rows)
+	requireBody := func(want []string, cursorLine int) {
+		t.Helper()
+		lines := strings.Split(testutil.StripStyle(p.View(80, 4)), "\n")
+		require.Len(t, lines, 1+len(want))
+		require.Contains(t, lines[0], "NAME ↑")
+		for i, name := range want {
+			require.Contains(t, lines[i+1], " "+name+" ")
+		}
+		require.True(t, strings.HasPrefix(lines[cursorLine], "▸ "), lines[cursorLine])
+	}
+	requireBody([]string{"t0", "t1", "t2"}, 1)
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'G', Text: "G"})
+	requireBody([]string{"t7", "t8", "t9"}, 3)
+}
+
 // TestPage_VimMotions is the wiring smoke for the cursor module:
 // pressing `j` in Update must route into Window.MoveCursor. The
 // full motion contract (j/k/G/g/Ctrl+D/U/F/B, clamps, empty-view)
@@ -229,6 +283,8 @@ func TestSemverLess(t *testing.T) {
 		{"2.13.0", "0.27.0", false},   // major dominates
 		{"0.27.0", "2.13.0", true},    // major dominates — reverse
 		{"1.0.0", "1.0.0-rc.1", true}, // shorter parts sort before longer
+		{"1.0.2-rc.1", "1.0.1", false},
+		{"v1.0.0-rc.1", "1.0.0-rc.1", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.a+"_vs_"+tc.b, func(t *testing.T) {

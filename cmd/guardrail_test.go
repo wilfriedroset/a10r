@@ -289,16 +289,30 @@ func TestRunDryRun_GuardrailConfirmTenantNote(t *testing.T) {
 func TestRunDryRun_ReadOnlyOutranksTheGuardrail(t *testing.T) {
 	t.Parallel()
 
-	cfg := cfgWith(config.Backend{Name: "prod-eu", ReadOnly: true})
-	cfg.Guardrails = guardrail.Set{{Deny: true, Reason: "frozen"}}
-	targets := []writeTarget{{tenant: "prod-eu", id: "sil-1"}}
+	tests := []struct {
+		name           string
+		backend        config.Backend
+		globalReadOnly bool
+	}{
+		{name: "read-only backend", backend: config.Backend{Name: "prod-eu", ReadOnly: true}},
+		{name: "global read-only", backend: config.Backend{Name: "prod-eu"}, globalReadOnly: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var out, errOut bytes.Buffer
-	err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, false, nil)
-	require.Error(t, err)
-	require.Equal(t, ExitRuntimeError, exitCodeFor(err), "read-only owns the exit code too")
-	require.Contains(t, out.String(), "[read-only: apply would be refused]")
-	require.NotContains(t, out.String(), "guardrail")
+			cfg := cfgWith(tt.backend)
+			cfg.Guardrails = guardrail.Set{{Deny: true, Reason: "frozen"}}
+			targets := []writeTarget{{tenant: "prod-eu", id: "sil-1"}}
+
+			var out, errOut bytes.Buffer
+			err := runDryRun(&out, &errOut, cfg, "", guardrail.ActionSilenceExpire, targets, tt.globalReadOnly, nil)
+			require.Error(t, err)
+			require.Equal(t, ExitRuntimeError, exitCodeFor(err), "read-only owns the exit code too")
+			require.Contains(t, out.String(), "[read-only: apply would be refused]")
+			require.NotContains(t, out.String(), "guardrail")
+		})
+	}
 }
 
 func TestRunDryRun_GuardrailStructuredField(t *testing.T) {

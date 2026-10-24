@@ -54,7 +54,7 @@ func TestNames_SkipsFilesTheLoaderWouldRefuse(t *testing.T) {
 	got := Names(dir)
 
 	require.NotContains(t, got, "not a skin")
-	require.NotContains(t, got, "readme")
+	require.NotContains(t, got, "readme.md")
 }
 
 func countOf(names []string, want string) int {

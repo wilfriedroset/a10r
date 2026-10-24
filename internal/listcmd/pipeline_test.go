@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -83,7 +85,7 @@ func TestRun_HappyPath_FansOutAndRenders(t *testing.T) {
 	var out bytes.Buffer
 	spec := newSpec(t, []config.Backend{{Name: "alpha"}, {Name: "beta"}},
 		func(_ context.Context, name string, _ backend.Client) ([]fakeRow, error) {
-			return []fakeRow{{Backend: name, Value: "one"}, {Backend: name, Value: "two"}}, nil
+			return []fakeRow{{Backend: name, Value: "two"}, {Backend: name, Value: "one"}}, nil
 		},
 	)
 	spec.Out = &out
@@ -301,6 +303,50 @@ func TestRun_PagerFactoryInjected_LifecycleHonoured(t *testing.T) {
 	require.Equal(t, 1, opened, "pager opened exactly once")
 	require.Equal(t, 1, closed, "pager closed exactly once")
 	require.Equal(t, "n=v\n", pager.buf.String())
+}
+
+func TestRun_PagerFactory_OutIsTerminalOnlyForATableOnATerminal(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS does not report the /dev/ptmx master side as a terminal")
+	}
+
+	tty, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	if err != nil {
+		t.Skipf("no pseudo-terminal available: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	tests := []struct {
+		name   string
+		format output.Format
+		out    io.Writer
+		want   bool
+	}{
+		{"table on a buffer", output.FormatTable, &bytes.Buffer{}, false},
+		{"table on a terminal", output.FormatTable, tty, true},
+		{"json on a terminal", output.FormatJSON, tty, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := !tt.want
+			factory := func(_ context.Context, _ io.Writer, outIsTerminal, _ bool) (io.WriteCloser, error) {
+				got = outIsTerminal
+				return &trackingPager{}, nil
+			}
+			spec := newSpec(t, []config.Backend{{Name: "n"}}, func(_ context.Context, name string, _ backend.Client) ([]fakeRow, error) {
+				return []fakeRow{{Backend: name, Value: "v"}}, nil
+			})
+			spec.Format = tt.format
+			spec.Out = tt.out
+			spec.Deps.PagerFactory = factory
+
+			require.NoError(t, listcmd.Run(context.Background(), spec))
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestRun_PagerFactoryError_ReturnsAsIs(t *testing.T) {

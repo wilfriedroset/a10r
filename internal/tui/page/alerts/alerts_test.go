@@ -427,17 +427,16 @@ func TestSort_TotalOrderTieBreakAlertnameThenTenant(t *testing.T) {
 		{tenant: "a", alertName: "Same", count: 1, severityRank: 2},
 		{tenant: "m", alertName: "Other", count: 1, severityRank: 2},
 	}
-	cols := alertSortColumns(nil)
-	var sevLess func(a, b *alertGroup) bool
-	for _, c := range cols {
-		if c.Key == sortKeySeverity {
-			sevLess = c.Less
-		}
+	for _, c := range alertSortColumns(nil) {
+		t.Run(c.Key, func(t *testing.T) {
+			t.Parallel()
+			// Other < Same by alertName; among the two "Same", tenant a < z.
+			require.True(t, c.Less(&in[2], &in[1]), "Other before Same (alertname)")
+			require.False(t, c.Less(&in[1], &in[2]), "Same never before Other")
+			require.True(t, c.Less(&in[1], &in[0]), "Same/a before Same/z (tenant)")
+			require.False(t, c.Less(&in[0], &in[1]), "Same/z never before Same/a")
+		})
 	}
-	require.NotNil(t, sevLess)
-	// Other < Same by alertName; among the two "Same", tenant a < z.
-	require.True(t, sevLess(&in[2], &in[1]), "Other before Same (alertname)")
-	require.True(t, sevLess(&in[1], &in[0]), "Same/a before Same/z (tenant)")
 }
 
 func TestSort_StateSortDropped(t *testing.T) {
@@ -489,11 +488,8 @@ func TestEnter_CountOnePushesInstanceDetail(t *testing.T) {
 	_, ok := page.(*alert.Page)
 	require.True(t, ok, "COUNT==1 drills to the L3 instance-detail page")
 
-	// The keypress still yields a non-flash push Cmd.
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.NotNil(t, cmd)
-	_, isFlash := cmd().(footer.FlashShowMsg)
-	require.False(t, isFlash)
+	require.IsType(t, &alert.Page{}, pagetest.PushedPage(t, cmd))
 }
 
 func TestEnter_CountManyPushesGroupDetail(t *testing.T) {
@@ -509,9 +505,7 @@ func TestEnter_CountManyPushesGroupDetail(t *testing.T) {
 	require.True(t, ok, "COUNT>1 drills to the L2 group-detail page")
 
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.NotNil(t, cmd)
-	_, isFlash := cmd().(footer.FlashShowMsg)
-	require.False(t, isFlash)
+	require.IsType(t, &groupdetail.Page{}, pagetest.PushedPage(t, cmd))
 }
 
 func TestEnter_EmptyViewFlashes(t *testing.T) {
@@ -1583,4 +1577,215 @@ func TestGroupDetail_PollsTheAlertsResource(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, (*Page)(nil).PollResources(), (*groupdetail.Page)(nil).PollResources())
+}
+
+func TestFocus_ClearedWhenGroupResolvesOutBehindAFilter(t *testing.T) {
+	t.Parallel()
+
+	alpha := mkAlert("Alpha", "warning", backend.AlertStateActive, "fp1", time.Minute, nil)
+	beta := mkAlert("Beta", "warning", backend.AlertStateActive, "fp2", time.Minute, nil)
+	zeta := mkAlert("Zeta", "warning", backend.AlertStateActive, "fp3", time.Minute, nil)
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{alpha, beta, zeta}})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	require.Equal(t, "Alpha", p.groups[p.Index()].alertName)
+
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "no-such-alert"})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{beta, zeta}})
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{alpha, beta, zeta}})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: ""})
+
+	require.Equal(t, "Zeta", p.groups[p.Index()].alertName,
+		"a focus resolved out while hidden must not re-anchor when the group returns")
+}
+
+func TestHeaderContent_EmptyWithoutFilterOrMarks(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+	}})
+	require.Empty(t, p.HeaderContent())
+}
+
+func TestSilenceAll_EmptyViewFlashesNoAlert(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+		Session: testutil.Session(),
+	})
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Equal(t, "no alert under the cursor", msg.Text)
+}
+
+func TestConfirmResult_NoAnswerDropsThePendingSilence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		names [2]string
+		mark  bool
+	}{
+		{name: "silence-all", names: [2]string{"HighCPU", "HighCPU"}},
+		{name: "bulk silence", names: [2]string{"HighCPU", "DiskFull"}, mark: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{
+				Styles:  pagetest.Styles(t),
+				Now:     func() time.Time { return fixedNow },
+				Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+				Session: testutil.Session(),
+			})
+			_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
+				mkAlert(tc.names[0], "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+				mkAlert(tc.names[1], "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+			}})
+			if tc.mark {
+				_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+				_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+				_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+			}
+			_, open := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+			pagetest.OpenedModal(t, open)
+
+			_, cmd := p.Update(modal.ConfirmResultMsg{})
+			require.Nil(t, cmd)
+			_, cmd = p.Update(modal.ConfirmResultMsg{Yes: true})
+			require.Nil(t, cmd)
+		})
+	}
+}
+
+func TestBulkSilenceTargets_OrderedByTenantThenAlertname(t *testing.T) {
+	t.Parallel()
+
+	p := New(Options{
+		Styles:  pagetest.Styles(t),
+		Now:     func() time.Time { return fixedNow },
+		Tenants: []string{"prod", "stg"},
+		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}, "stg": &fakeSilenceClient{}},
+		Session: testutil.Session(),
+	})
+	_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
+		mkAlert("Zeta", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+		mkAlert("Alpha", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+	}})
+	_, _ = p.Update(poll.DataMsg{Tenant: "stg", Resource: []backend.Alert{
+		mkAlert("Beta", "warning", backend.AlertStateActive, "fp3", time.Minute, nil),
+	}})
+	for _, g := range p.groups {
+		p.marks[g.key()] = struct{}{}
+	}
+
+	targets, tenants := p.resolveBulkSilenceTargets()
+	got := make([]string, 0, len(targets))
+	for _, tgt := range targets {
+		got = append(got, tgt.Tenant+"/"+tgt.AlertName)
+	}
+	require.Equal(t, []string{"prod/Alpha", "prod/Zeta", "stg/Beta"}, got)
+	require.Equal(t, []string{"prod", "stg"}, tenants)
+}
+
+func TestBulkSilenceForm_Creator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		creator string
+		want    string
+	}{
+		{name: "configured creator", creator: "wilfried", want: "wilfried"},
+		{name: "default creator", want: "a10r"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{
+				Styles:  pagetest.Styles(t),
+				Now:     func() time.Time { return fixedNow },
+				Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+				Creator: tc.creator,
+				Session: testutil.Session(),
+			})
+			_, _ = p.Update(poll.DataMsg{Tenant: "prod", Resource: []backend.Alert{
+				mkAlert("HighCPU", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+			}})
+			_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+			require.Equal(t, tc.want, submitBulkForm(t, cmd).Creator)
+		})
+	}
+}
+
+func submitBulkForm(t *testing.T, push tea.Cmd) silenceform.BulkSubmittedMsg {
+	t.Helper()
+	form, ok := pagetest.PushedPage(t, push).(*silenceform.Form)
+	require.True(t, ok)
+	for range 3 {
+		_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	for _, r := range "ack" {
+		_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, cmd := form.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(silenceform.BulkSubmittedMsg)
+	require.True(t, ok)
+	return msg
+}
+
+func TestBulkSilenceBanner(t *testing.T) {
+	t.Parallel()
+
+	two := []bulkSilenceTarget{{Tenant: "prod", AlertName: "A"}, {Tenant: "stg", AlertName: "B"}}
+	tests := []struct {
+		name    string
+		tenants []string
+		want    string
+	}{
+		{name: "one tenant", tenants: []string{"prod"}, want: "applies to 2 alerts (tenant prod) — one alertname silence each"},
+		{name: "two tenants", tenants: []string{"prod", "stg"}, want: "applies to 2 alerts across 2 tenants — one alertname silence each"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, bulkSilenceBanner(two, tc.tenants))
+		})
+	}
+}
+
+func TestAlertLowerComposite_EmptyValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		labels      map[string]string
+		annotations map[string]string
+		want        string
+	}{
+		{name: "empty label", labels: map[string]string{"alertname": ""}, want: ""},
+		{
+			name:        "empty annotations",
+			labels:      map[string]string{"alertname": "X"},
+			annotations: map[string]string{"a": "", "b": "", "c": ""},
+			want:        "x\x00\x00\x00",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := alertLowerComposite(backend.Alert{Labels: tc.labels, Annotations: tc.annotations})
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

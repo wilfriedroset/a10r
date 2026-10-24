@@ -104,3 +104,13 @@ func TestRunInfo_ReportsTheResolvedLogPathAndTheme(t *testing.T) {
 	require.Contains(t, buf.String(), "log path:   "+logPath)
 	require.Contains(t, buf.String(), "theme:      catppuccin-latte")
 }
+
+func TestStateReport_NilConfigReportsNoScope(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	want, err := xdg.DefaultStateDir()
+	require.NoError(t, err)
+
+	dir, scope := stateReport(nil)
+	require.Equal(t, want, dir)
+	require.Empty(t, scope)
+}

@@ -3,6 +3,7 @@
 package poll
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -10,9 +11,7 @@ import (
 )
 
 // Deterministic-curve tests reuse the noJitter Backoff already
-// defined in poll_test.go. Random jitter is exercised end-to-end
-// by TestPoller_JitterEnvelope rather than mocked at the Backoff
-// layer (no caller varies on randomness).
+// defined in poll_test.go.
 
 func TestBackoff_Delay_ZeroFailuresReturnsInterval(t *testing.T) {
 	t.Parallel()
@@ -65,18 +64,27 @@ func TestBackoff_ApplyJitter_ZeroFractionPassesThrough(t *testing.T) {
 	require.Equal(t, d, bo.applyJitter(d))
 }
 
-func TestBackoff_ApplyJitter_StaysInEnvelope(t *testing.T) {
+func TestBackoff_ApplyJitter_ScalesSpanByDraw(t *testing.T) {
 	t.Parallel()
-	bo := Backoff{Base: time.Second, CapMultiplier: 6, JitterFraction: 0.1}
 	d := time.Second
-	lo := time.Duration(float64(d) * 0.9)
-	hi := time.Duration(float64(d) * 1.1)
-	// 1000 draws is enough for the envelope check to be useful while
-	// keeping the test inexpensive. Per-draw bounds are the contract;
-	// distribution shape is not asserted.
-	for range 1000 {
-		got := bo.applyJitter(d)
-		require.GreaterOrEqual(t, got, lo)
-		require.LessOrEqual(t, got, hi)
+	cases := []struct {
+		name     string
+		fraction float64
+		draw     float64
+		want     time.Duration
+	}{
+		{"lowest draw subtracts the full span", 0.1, 0, 900 * time.Millisecond},
+		{"midpoint draw leaves d unchanged", 0.1, 0.5, d},
+		{"quarter draw subtracts half the span", 0.1, 0.25, 950 * time.Millisecond},
+		{"highest draw rounds to the full span", 0.1, math.Nextafter(1, 0), 1100 * time.Millisecond},
+		{"span larger than d clamps at zero", 2, 0, 0},
+		{"span equal to d reaches zero", 1, 0, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bo := Backoff{JitterFraction: tc.fraction, randFloat: func() float64 { return tc.draw }}
+			require.Equal(t, tc.want, bo.applyJitter(d))
+		})
 	}
 }

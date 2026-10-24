@@ -76,7 +76,7 @@ func TestLayout_HeaderWithoutASorter(t *testing.T) {
 	t.Parallel()
 
 	var s table.Scroll
-	require.Contains(t, s.Layout(threeCols(), 100).Header(table.Sort{}, table.Chrome{}), "A")
+	require.Equal(t, "    A     B     C    ", s.Layout(threeCols(), 21).Header(table.Sort{}, table.Chrome{}))
 }
 
 // A row shorter than the column set renders its tail empty rather
@@ -177,6 +177,7 @@ func TestLayout_ClipMiddleKeepsTheTail(t *testing.T) {
 		{name: "exact fit returns unchanged", text: "db-1", width: 4, want: "db-1"},
 		{name: "one cell has no middle to split", text: "abcdefgh", width: 1, want: "…"},
 		{name: "two cells keep the head", text: "abcdefgh", width: 2, want: "a…"},
+		{name: "two cells drop a zero-width tail rune", text: "abcde\u0301", width: 2, want: "a…"},
 		{name: "three cells is the byte-compare boundary", text: "abcdefgh", width: 3, want: "a…h"},
 		{name: "a wide column splits head and tail", text: "abcdefgh", width: 6, want: "abc…gh"},
 		{name: "smallest middle split", text: long, width: 4},
@@ -248,6 +249,19 @@ func TestScroll_StepBackRecoversTheLeftEdge(t *testing.T) {
 	}
 	_ = s.Layout(threeCols(), 20)
 	require.Equal(t, 1, s.Offset)
+	s.Step(-1)
+	_ = s.Layout(threeCols(), 20)
+	require.Zero(t, s.Offset)
+}
+
+// An offset written past the last useful position still walks back
+// one column per press from where the window sits.
+func TestScroll_StepBackFromAStaleOffset(t *testing.T) {
+	t.Parallel()
+
+	var s table.Scroll
+	_ = s.Layout(threeCols(), 20)
+	s.Offset = 9
 	s.Step(-1)
 	_ = s.Layout(threeCols(), 20)
 	require.Zero(t, s.Offset)

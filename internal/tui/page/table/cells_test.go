@@ -147,9 +147,9 @@ func TestLabelColumn_ResolveEmptyStaysNil(t *testing.T) {
 func TestCellLessRanksMarkersAfterPlainValuesThenByteWise(t *testing.T) {
 	t.Parallel()
 
-	in := []string{table.RollupMarker(2), "zebra", "alpha", table.RollupMarker(10)}
+	in := []string{table.RollupMarker(2), "zebra", "alpha", table.RollupMarker(10), "<unset>"}
 	sort.SliceStable(in, func(i, j int) bool { return table.CellLess(in[i], in[j]) })
-	require.Equal(t, []string{"alpha", "zebra", "<10 values>", "<2 values>"}, in)
+	require.Equal(t, []string{"<unset>", "alpha", "zebra", "<10 values>", "<2 values>"}, in)
 }
 
 func TestCellEmptyPinsTheTail(t *testing.T) {

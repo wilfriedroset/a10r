@@ -144,6 +144,24 @@ func TestPage_SortByCreatedBy(t *testing.T) {
 	require.Equal(t, "alice", p.view[0].s.CreatedBy)
 }
 
+func TestPage_SortByCreatedByKeepsTiesInEndsAtOrder(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	silences := []backend.Silence{
+		pagetest.Silence(pagetest.SilenceOptions{ID: "a", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "b", CreatedBy: "carol", State: backend.SilenceStateActive, EndsIn: 2 * time.Hour}),
+		pagetest.Silence(pagetest.SilenceOptions{ID: "c", CreatedBy: "alice", State: backend.SilenceStateActive, EndsIn: 3 * time.Hour}),
+	}
+	_, _ = p.Update(poll.DataMsg{Resource: silences})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'C', Text: "C", Mod: tea.ModShift})
+	ids := make([]string, 0, len(p.view))
+	for _, e := range p.view {
+		ids = append(ids, e.s.ID)
+	}
+	require.Equal(t, []string{"c", "a", "b"}, ids)
+}
+
 // TestPage_VimMotions is the wiring smoke for the cursor module:
 // pressing `j` in Update must route into Window.MoveCursor with
 // len(p.view) as the row count, and the new index must land on
@@ -1546,15 +1564,28 @@ func pageWithRows(t *testing.T, fake *fakeSilenceClient, count int) *Page {
 
 func TestPage_EditKeyOnEmptyViewFlashesHint(t *testing.T) {
 	t.Parallel()
-	p := New(Options{
-		Styles:  pagetest.Styles(t),
-		Now:     func() time.Time { return fixedNow },
-		Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
-		Session: testutil.Session(),
-	})
-	_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
-	msg := cmd().(footer.FlashShowMsg)
-	require.Contains(t, msg.Text, "no silence under the cursor")
+
+	tests := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"edit form", tea.KeyPressMsg{Code: 'e', Text: "e"}},
+		{"editor handoff", tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{
+				Styles:  pagetest.Styles(t),
+				Now:     func() time.Time { return fixedNow },
+				Clients: map[string]silenceform.Client{"prod": &fakeSilenceClient{}},
+				Session: testutil.Session(),
+			})
+			_, cmd := p.Update(tt.key)
+			msg := cmd().(footer.FlashShowMsg)
+			require.Equal(t, "no silence under the cursor", msg.Text)
+		})
+	}
 }
 
 func TestPage_EditKeyWithoutClientsFlashesHint(t *testing.T) {
@@ -2378,8 +2409,13 @@ func TestPage_OpenNewSilenceFormPrefillsMatchersFromAlertLabels(t *testing.T) {
 	_, _ = p.Update(poll.DataMsg{Resource: silences, Tenant: "prod"})
 	_, cmd := p.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	require.NotNil(t, cmd, "n with clients must produce a Cmd")
-	_, isFlash := cmd().(footer.FlashShowMsg)
-	require.False(t, isFlash, "n with AlertLabels must push the form, not flash")
+	submit := silencetest.Submit(t, cmd, "")
+	require.NotNil(t, submit)
+	_ = submit()
+	require.Equal(t, []backend.Matcher{
+		{Name: "alertname", Value: "HighCPU", IsEqual: true},
+		{Name: "severity", Value: "critical", IsEqual: true},
+	}, fake.created.Matchers)
 }
 
 // TestPage_RestrictIDsNilPreservesPriorBehaviour confirms that a page
@@ -2912,16 +2948,29 @@ func TestGuardrail_ATypedRuleAsksBeforeTheEditorOpens(t *testing.T) {
 func TestGuardrail_ACancelledEditorPromptOpensNothing(t *testing.T) {
 	t.Parallel()
 
-	p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
-		Tenants:      []string{"prod"},
-		Actions:      []string{"silence.update"},
-		Confirmation: guardrail.ConfirmationTypeTenantName,
-	}})
-	_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	tests := []struct {
+		name   string
+		answer modal.ConfirmResultMsg
+	}{
+		{"cancelled", modal.ConfirmResultMsg{Cancelled: true}},
+		{"answered no", modal.ConfirmResultMsg{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, cmd := p.Update(modal.ConfirmResultMsg{Cancelled: true})
-	require.Nil(t, cmd)
-	require.Equal(t, pendingEdit{}, p.pendingEdit)
+			p := guardedEditorPage(t, &fakeSilenceClient{}, &recordingResolver{}, guardrail.Set{{
+				Tenants:      []string{"prod"},
+				Actions:      []string{"silence.update"},
+				Confirmation: guardrail.ConfirmationTypeTenantName,
+			}})
+			_, _ = p.Update(tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+
+			_, cmd := p.Update(tt.answer)
+			require.Nil(t, cmd)
+			require.Equal(t, pendingEdit{}, p.pendingEdit)
+		})
+	}
 }
 
 // TestGuardrail_APlainRuleAsksBeforeTheEditorOpens keeps the weaker
@@ -3118,4 +3167,166 @@ func hasBinding(p app.Page, key string) bool {
 		}
 	}
 	return false
+}
+
+func TestPage_EditFormCarriesTheCreator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		createdBy   string
+		pageCreator string
+		want        string
+	}{
+		{"the silence's own creator", "alice", "wilfried", "alice"},
+		{"the page creator when the silence has none", "", "wilfried", "wilfried"},
+		{"a10r when neither is set", "", "", "a10r"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeSilenceClient{}
+			p := New(Options{
+				Styles:  pagetest.Styles(t),
+				Now:     func() time.Time { return fixedNow },
+				Clients: map[string]silenceform.Client{"prod": fake},
+				Creator: tt.pageCreator,
+				Session: testutil.Session(),
+			})
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{{
+				ID: "sil-a", CreatedBy: tt.createdBy, Comment: "ack", State: backend.SilenceStateActive,
+				StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+				Matchers: []backend.Matcher{{Name: "alertname", Value: "HighCPU", IsEqual: true}},
+			}}, Tenant: "prod"})
+
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+			submit := silencetest.Submit(t, cmd, "")
+			require.NotNil(t, submit)
+			_ = submit()
+			require.Equal(t, "sil-a", fake.lastUpdateID)
+			require.Equal(t, tt.want, fake.updated.CreatedBy)
+		})
+	}
+}
+
+func TestPage_BulkExpireAsksAboutTheMarkedRowsInIDOrder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		marks        int
+		wantQuestion string
+		wantIDs      []string
+	}{
+		{"one mark names the silence", 1, "expire silence sil-a?", []string{"sil-a"}},
+		{"several marks count them", 3, "expire 3 silences? (tenant prod)", []string{"sil-a", "sil-b", "sil-c"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeSilenceClient{}
+			p := pageWithRows(t, fake, 3)
+			p.session = session.New(config.Config{Defaults: config.Defaults{BulkConcurrency: 1}})
+			for range tt.marks {
+				_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+				_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+			}
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+			m := pagetest.OpenedModal(t, cmd)
+			require.Contains(t, testutil.StripStyle(m.View(80, 10)), tt.wantQuestion)
+			_, dispatch := p.Update(modal.ConfirmResultMsg{Yes: true})
+			require.NotNil(t, dispatch)
+			_ = dispatch()
+			require.Equal(t, tt.wantIDs, fake.expiredIDs)
+		})
+	}
+}
+
+func TestPage_RowLayoutPinsEveryCell(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
+		{ID: "sil-a", CreatedBy: "fifteen-chars-x", Comment: "ack", State: backend.SilenceStateActive, StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour)},
+		{ID: "sil-b", CreatedBy: "sixteen-chars-xy", Comment: "ack", State: backend.SilenceStateActive, StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(2 * time.Hour)},
+	}})
+	raw := p.View(100, 6)
+	lines := strings.Split(testutil.StripStyle(raw), "\n")
+	require.Len(t, lines, 3)
+	col := func(line, cell string) int {
+		i := strings.Index(line, cell)
+		if i < 0 {
+			return i
+		}
+		return lipgloss.Width(line[:i])
+	}
+	for cell, want := range map[string]int{"UUID": 2, "BY": 12, "COMMENT": 28, "STARTS": 62, "ENDS ↑": 76, "STATE": 90} {
+		require.Equal(t, want, col(lines[0], cell), cell)
+	}
+	require.Equal(t, 12, col(lines[1], "fifteen-chars-x ack"))
+	require.Equal(t, 12, col(lines[2], "sixteen-chars-… ack"))
+
+	headerLine, _, _ := strings.Cut(raw, "\n")
+	require.Contains(t, headerLine, p.styles.Table.HeaderActiveFg.Render("ENDS ↑"))
+	require.Contains(t, headerLine, p.styles.Table.HeaderFg.Render("UUID"))
+	require.Contains(t, headerLine, p.styles.Table.HeaderFg.Render("STATE"))
+}
+
+func TestPage_HeaderContentChips(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		filter string
+		mark   bool
+		want   string
+	}{
+		{"nothing active", "", false, ""},
+		{"filter only", "alice", false, "filter:alice"},
+		{"marks only", "", true, "marked:1"},
+		{"filter and marks", "alice", true, "filter:alice · marked:1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := pageWithRows(t, &fakeSilenceClient{}, 1)
+			if tt.mark {
+				_, _ = p.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+			}
+			if tt.filter != "" {
+				_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: tt.filter})
+			}
+			require.Equal(t, tt.want, p.HeaderContent())
+		})
+	}
+}
+
+func TestPage_FilterMatchesATerseSilenceWithManyMatchers(t *testing.T) {
+	t.Parallel()
+
+	p := newPage(t)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Silence{
+		{
+			ID: "s1", State: backend.SilenceStateActive,
+			StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			Matchers: []backend.Matcher{
+				{Name: "a", Value: "alpha", IsEqual: true},
+				{Name: "b", Value: "beta", IsEqual: true},
+			},
+		},
+		{
+			ID: "s2", State: backend.SilenceStateActive,
+			StartsAt: fixedNow.Add(-time.Hour), EndsAt: fixedNow.Add(time.Hour),
+			Matchers: []backend.Matcher{
+				{Name: "a", Value: "alpha", IsEqual: true},
+				{Name: "b", Value: "gamma", IsEqual: true},
+			},
+		},
+	}})
+	_, _ = p.Update(footer.PromptSubmittedMsg{Mode: footer.PromptFilter, Value: "beta"})
+	ids := make([]string, 0, len(p.view))
+	for _, e := range p.view {
+		ids = append(ids, e.s.ID)
+	}
+	require.Equal(t, []string{"s1"}, ids)
 }

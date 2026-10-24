@@ -73,11 +73,20 @@ type Store struct {
 	// first failed write. Reads keep working; writes stop for the
 	// rest of the process.
 	disabled bool
+
+	// afterFlush, when set, runs on the writer goroutine after each
+	// flush. A test seam: a flush is otherwise invisible to callers.
+	// Set only through openWithFlushHook, before the goroutine starts.
+	afterFlush func()
 }
 
 // Open loads `<dir>/ui-state.yaml`. An empty dir disables the store. A
 // malformed file also disables it, so a hand-edited typo is never flushed over.
 func Open(dir string) *Store {
+	return openWithFlushHook(dir, nil)
+}
+
+func openWithFlushHook(dir string, afterFlush func()) *Store {
 	if dir == "" {
 		return &Store{}
 	}
@@ -87,10 +96,11 @@ func Open(dir string) *Store {
 		return &Store{}
 	}
 	s := &Store{
-		path:  path,
-		state: st,
-		sig:   make(chan struct{}, 1),
-		done:  make(chan struct{}),
+		path:       path,
+		state:      st,
+		sig:        make(chan struct{}, 1),
+		done:       make(chan struct{}),
+		afterFlush: afterFlush,
 	}
 	go s.run()
 	return s
@@ -226,6 +236,9 @@ func (s *Store) run() {
 	defer close(s.done)
 	for range s.sig {
 		s.flush()
+		if s.afterFlush != nil {
+			s.afterFlush()
+		}
 	}
 }
 

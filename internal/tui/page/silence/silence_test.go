@@ -430,3 +430,43 @@ func TestPage_BindingsAdvertiseCopyField(t *testing.T) {
 	}
 	require.Equal(t, []string{"y", "Y"}, keys)
 }
+
+func TestPage_CopyFieldsListEveryMatcherOfALongSelector(t *testing.T) {
+	t.Parallel()
+
+	s := sample()
+	s.Matchers = nil
+	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		s.Matchers = append(s.Matchers, backend.Matcher{Name: name, Value: "1", IsEqual: true})
+	}
+	p := New(Options{Silence: s, Styles: testutil.LoadStyles(t)})
+	names := make([]string, 0, len(p.copyFields()))
+	for _, f := range p.copyFields() {
+		names = append(names, f.Name)
+	}
+	require.Equal(t, []string{
+		"id", "creator", "comment", "matchers",
+		"matcher a", "matcher b", "matcher c", "matcher d",
+		"matcher e", "matcher f", "matcher g", "matcher h",
+		"startsAt", "endsAt", "state",
+	}, names)
+}
+
+func TestPage_ViewWithoutRoomIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		width, height int
+	}{
+		{"zero width", 0, 40},
+		{"zero height", 120, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Silence: sample(), Styles: testutil.LoadStyles(t)})
+			require.Empty(t, p.View(tt.width, tt.height))
+		})
+	}
+}

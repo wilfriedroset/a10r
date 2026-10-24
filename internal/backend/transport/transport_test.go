@@ -236,6 +236,12 @@ func TestWithUserAgent_Injects(t *testing.T) {
 	require.Equal(t, "a10r/1.2.3", srvCap.headers.Get("User-Agent"))
 }
 
+func TestWithUserAgent_NilBaseDefaultsToDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	require.Same(t, http.DefaultTransport, WithUserAgent(nil, ""))
+}
+
 func TestWithUserAgent_OverridesCallerSetUA(t *testing.T) {
 	t.Parallel()
 
@@ -347,25 +353,26 @@ func TestNewBase_AppliesProxyURL(t *testing.T) {
 func TestNewBase_NoProxyMatchesExactAndSuffix(t *testing.T) {
 	t.Parallel()
 
-	rt, err := NewBase(BaseOptions{
-		ProxyURL: "http://proxy.internal:3128",
-		NoProxy:  "localhost,127.0.0.1,.svc.cluster.local",
-	})
-	require.NoError(t, err)
-	tt := rt.(*http.Transport)
-
+	const fullSpec = "localhost,127.0.0.1,.svc.cluster.local"
 	cases := []struct {
+		noProxy string
 		host    string
 		bypass  bool
 		comment string
 	}{
-		{host: "localhost:9093", bypass: true, comment: "exact (with port stripped)"},
-		{host: "127.0.0.1:80", bypass: true, comment: "exact IPv4"},
-		{host: "alertmanager.svc.cluster.local:9093", bypass: true, comment: "suffix match"},
-		{host: "am.example.com", bypass: false, comment: "no match — must use proxy"},
+		{noProxy: fullSpec, host: "localhost:9093", bypass: true, comment: "exact (with port stripped)"},
+		{noProxy: fullSpec, host: "127.0.0.1:80", bypass: true, comment: "exact IPv4"},
+		{noProxy: fullSpec, host: "alertmanager.svc.cluster.local:9093", bypass: true, comment: "suffix match"},
+		{noProxy: fullSpec, host: "am.example.com", bypass: false, comment: "no match — must use proxy"},
+		{noProxy: "localhost", host: "localhost:9093", bypass: true, comment: "exact-only spec"},
+		{noProxy: ".svc.cluster.local", host: "am.svc.cluster.local:9093", bypass: true, comment: "suffix-only spec"},
 	}
 
 	for _, tc := range cases {
+		rt, err := NewBase(BaseOptions{ProxyURL: "http://proxy.internal:3128", NoProxy: tc.noProxy})
+		require.NoError(t, err)
+		tt := rt.(*http.Transport)
+
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+tc.host+"/api/v2/alerts", http.NoBody)
 		require.NoError(t, err)
 		got, err := tt.Proxy(req)
@@ -374,7 +381,7 @@ func TestNewBase_NoProxyMatchesExactAndSuffix(t *testing.T) {
 			require.Nil(t, got, "host %q must bypass proxy (%s)", tc.host, tc.comment)
 			continue
 		}
-		require.NotNil(t, got, "host %q must route through proxy", tc.host)
+		require.NotNil(t, got, "host %q must route through proxy (%s)", tc.host, tc.comment)
 	}
 }
 

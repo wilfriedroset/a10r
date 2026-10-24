@@ -3,6 +3,7 @@
 package modal
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -220,4 +221,13 @@ func TestNewGuardedConfirm(t *testing.T) {
 			require.Contains(t, got.View(60, 12), "expire silence sil-1?")
 		})
 	}
+}
+
+func TestTypedConfirm_SingleTenantViewHidesTheProgress(t *testing.T) {
+	t.Parallel()
+
+	view := NewTypedConfirm("expire", []string{"prod-eu"}).View(60, 12)
+	require.NotContains(t, view, "tenant 1 of 1")
+	lines := strings.Split(view, "\n")
+	require.Equal(t, "Enter=confirm   Esc=cancel", strings.TrimRight(lines[len(lines)-1], " "))
 }

@@ -5,6 +5,7 @@ package output
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,22 @@ func TestIsTerminal_NilFile(t *testing.T) {
 	t.Parallel()
 
 	require.False(t, IsTerminal(nil), "nil file is not a terminal")
+}
+
+func TestIsTerminal_PseudoTerminal(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS does not report the /dev/ptmx master side as a terminal")
+	}
+
+	tty, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	if err != nil {
+		t.Skipf("no pseudo-terminal available: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	require.True(t, IsTerminal(tty))
 }
 
 func TestIsTerminal_RegularFile(t *testing.T) {

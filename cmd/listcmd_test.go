@@ -3,11 +3,17 @@
 package cmd
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/config"
 )
 
 // threeBackendConfig writes a config fixture with prod/staging/dev and
@@ -134,4 +140,27 @@ func TestLoadCmdConfig_EmptyConfigNoError(t *testing.T) {
 	cfg, err := loadCmdConfig(&GlobalFlags{ConfigPath: cfgPath})
 	require.NoError(t, err)
 	require.Empty(t, cfg.Backends)
+}
+
+func TestBuildClientFactory_DebugHTTPLogsEveryRequest(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "a10r.log")
+	build, closer, err := buildClientFactory(&GlobalFlags{DebugHTTP: true, Debug: true, LogPath: logPath, LogFormat: "json"})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := build(config.Backend{Name: "prod", URL: srv.URL})
+	require.NoError(t, err)
+	_, err = client.ListSilences(context.Background(), backend.SilenceFilter{})
+	require.NoError(t, err)
+	require.NoError(t, closer.Close())
+
+	raw, err := os.ReadFile(logPath)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"url":"`+srv.URL+`/api/v2/silences"`)
 }

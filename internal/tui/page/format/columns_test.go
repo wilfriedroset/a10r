@@ -165,6 +165,48 @@ func TestDistribute(t *testing.T) {
 			// col) wins the cell.
 			want: []int{1, 2, 4},
 		},
+		{
+			name: "equal weights hand the residual to the first column",
+			cols: []format.Column{
+				{Min: 0, Content: 100, Weight: 1},
+				{Min: 0, Content: 100, Weight: 1},
+			},
+			total:     3,
+			separator: 0,
+			want:      []int{2, 1},
+		},
+		{
+			name: "a flex column with no content does not dilute its peers' shares",
+			cols: []format.Column{
+				{Min: 0, Content: 0, Weight: 1},
+				{Min: 0, Content: 5, Weight: 1},
+				{Min: 0, Content: 6, Weight: 2},
+			},
+			total:     3,
+			separator: 0,
+			want:      []int{0, 1, 2},
+		},
+		{
+			name: "a flex column's Min counts toward its Content cap",
+			cols: []format.Column{
+				{Min: 2, Content: 6, Weight: 1},
+				{Min: 0, Content: 200, Weight: 1},
+			},
+			total:     100,
+			separator: 0,
+			want:      []int{6, 94},
+		},
+		{
+			name: "proportional shrink hands the residual to the first widest column",
+			cols: []format.Column{
+				{Min: 3, Content: 3, Weight: 0},
+				{Min: 3, Content: 3, Weight: 0},
+				{Min: 3, Content: 3, Weight: 0},
+			},
+			total:     4,
+			separator: 0,
+			want:      []int{2, 1, 1},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

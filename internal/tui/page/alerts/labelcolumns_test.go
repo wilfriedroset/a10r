@@ -182,6 +182,34 @@ func TestLabelColumn_SortKeyAppearsInBindings(t *testing.T) {
 	require.True(t, found, "Shift+L must be advertised in the help registry")
 }
 
+func TestLabelColumn_MoreSortableLabelColumnsThanBuiltinsBindAndRender(t *testing.T) {
+	t.Parallel()
+
+	const keys = "BDEHIJKLM"
+	cols := make([]config.Column, 0, len(keys))
+	extra := map[string]string{}
+	for i, k := range keys {
+		name := "l" + strconv.Itoa(i)
+		cols = append(cols, config.Column{Label: name, SortKey: string(k)})
+		extra[name] = "v" + strconv.Itoa(i)
+	}
+	p := newColumnPage(t, cols...)
+	_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+		mkAlert("DiskFull", "warning", backend.AlertStateActive, "fp1", time.Minute, extra),
+	}})
+
+	sorts := 0
+	for _, b := range p.Bindings() {
+		if strings.HasPrefix(b.Description, "sort by l") {
+			sorts++
+		}
+	}
+	require.Equal(t, len(keys), sorts)
+
+	out := testutil.StripStyle(p.View(400, 10))
+	require.Contains(t, rowContaining(t, out, "DiskFull"), "v8")
+}
+
 // A column without a sort key is not a sort axis at all. It carries
 // no Shift+<letter> entry in help, and the h/l walk never lands on
 // it — walking onto it would make a column the operator declared

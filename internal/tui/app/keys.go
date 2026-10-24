@@ -30,13 +30,9 @@ func normalizeKey(k tea.KeyPressMsg) string {
 
 	special := specialName(key.Code)
 
-	// Modifier-only events have no Code — drop them.
-	if special == "" && key.Code == 0 {
-		return ""
-	}
-
 	if special == "" {
-		// A printable rune. Use the lower-case Code for the binding
+		// A printable rune; a modifier-only event (Code 0) fails
+		// IsPrint and drops. Use the lower-case Code for the binding
 		// name; Shift+letter is reported separately as "Shift+X" via
 		// the modifier path so a plain `g` stays `"g"` for the chord
 		// dispatcher, while a shifted `G` becomes `"Shift+G"`.

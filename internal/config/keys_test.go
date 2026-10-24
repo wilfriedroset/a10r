@@ -88,6 +88,7 @@ func TestLoadKeys_EmptyFileVariants(t *testing.T) {
 		"completely empty":          "",
 		"whitespace only":           "\n\n  \n",
 		"explicit null":             "null\n",
+		"upper-case null":           "NULL\n",
 		"comment only":              "# nothing here\n",
 		"empty mapping placeholder": "{}\n",
 	}
@@ -181,10 +182,19 @@ func TestLoadKeys_RejectsEmptyAction(t *testing.T) {
 func TestLoadKeys_RejectsNonMappingTopLevel(t *testing.T) {
 	t.Parallel()
 
-	dir := writeKeys(t, "- quit\n- refresh\n")
-	_, err := LoadKeys(dir, "default")
-	require.ErrorIs(t, err, ErrKeyOverrideInvalid)
-	require.Contains(t, err.Error(), "top-level must be a mapping")
+	cases := map[string]string{
+		"sequence": "- quit\n- refresh\n",
+		"scalar":   "quit\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeKeys(t, body)
+			_, err := LoadKeys(dir, "default")
+			require.ErrorIs(t, err, ErrKeyOverrideInvalid)
+			require.Contains(t, err.Error(), "top-level must be a mapping")
+		})
+	}
 }
 
 func TestLoadKeys_RejectsNestedMappingValue(t *testing.T) {
@@ -213,6 +223,8 @@ func TestCanonicaliseKey(t *testing.T) {
 		// Bare uppercase rewrites to Shift+ form.
 		{"Q", "Shift+Q"},
 		{"G", "Shift+G"},
+		{"A", "Shift+A"},
+		{"Z", "Shift+Z"},
 		// Lowercase letters and named keys pass through untouched.
 		{"q", "q"},
 		{"Esc", "Esc"},

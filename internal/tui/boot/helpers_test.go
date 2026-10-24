@@ -5,6 +5,7 @@ package boot
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,12 +18,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wilfriedroset/a10r/internal/backend"
+	"github.com/wilfriedroset/a10r/internal/backend/factory"
 	"github.com/wilfriedroset/a10r/internal/config"
 	"github.com/wilfriedroset/a10r/internal/guardrail"
 	a10rlog "github.com/wilfriedroset/a10r/internal/log"
 	"github.com/wilfriedroset/a10r/internal/tui/app"
 	"github.com/wilfriedroset/a10r/internal/tui/keys"
+	"github.com/wilfriedroset/a10r/internal/tui/stateformat"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
+	"github.com/wilfriedroset/a10r/internal/tui/timerender"
 )
 
 // TestLogTransportSurprises pins the startup transport-warning
@@ -353,6 +357,14 @@ func TestFetchTenantVersions_AggregatesByBackendName(t *testing.T) {
 	require.Equal(t, "0.26.1", got["staging"])
 }
 
+func TestFetchTenantVersions_WaitsForASlowBackend(t *testing.T) {
+	t.Parallel()
+	clients := map[string]backend.Client{
+		"slow": &fakeStatusBackend{version: "0.26.1", delay: time.Millisecond},
+	}
+	require.Equal(t, map[string]string{"slow": "0.26.1"}, fetchTenantVersions(t.Context(), clients))
+}
+
 // TestFetchTenantVersions_SkipsErroringBackends covers the
 // resilience contract: a backend whose Status call fails is left
 // out of the result rather than failing the entire startup.
@@ -613,4 +625,83 @@ func TestQuitFilter_PassesQuitMsgThroughWhenAppAuthorised(t *testing.T) {
 	require.IsType(t, tea.QuitMsg{}, out,
 		"once quitWithCleanup has authorised the quit, the filter must "+
 			"let tea.QuitMsg through so bubbletea's eventLoop exits")
+}
+
+func TestBuildClients_WiresTheDebugLogOnlyWhenSet(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		debugLog *slog.Logger
+		wantOpts int
+	}{
+		{name: "no debug log", debugLog: nil, wantOpts: 0},
+		{name: "debug log", debugLog: slog.New(slog.DiscardHandler), wantOpts: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Backends: []config.Backend{{Name: "prod"}}}
+			gotOpts := -1
+			build := func(_ config.Backend, _ string, opts ...factory.Option) (backend.Client, error) {
+				gotOpts = len(opts)
+				return &fakeStatusBackend{}, nil
+			}
+			got := buildClients(cfg, "ua", tc.debugLog, build, io.Discard)
+			require.Len(t, got, 1)
+			require.Equal(t, tc.wantOpts, gotOpts)
+		})
+	}
+}
+
+type errCloser struct{ err error }
+
+func (c errCloser) Close() error { return c.err }
+
+func TestCloseLogger(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		closer io.Closer
+		want   string
+	}{
+		{name: "nil closer", closer: nil, want: ""},
+		{name: "clean close", closer: errCloser{}, want: ""},
+		{name: "failed close", closer: errCloser{err: errors.New("disk full")}, want: "warning: log file close failed: disk full\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out strings.Builder
+			closeLogger(tc.closer, &out)
+			require.Equal(t, tc.want, out.String())
+		})
+	}
+}
+
+func TestBuildInfoReport_NamesTheStateDir(t *testing.T) {
+	t.Parallel()
+	deps := testDeps(t)
+	deps.HistoryDir = func() (string, error) { return "/var/state/a10r", nil }
+	render := buildInfoReport(infoInputs{
+		deps:       deps.resolved(),
+		cfg:        &config.Config{},
+		aliasCount: func() int { return 0 },
+		skinName:   func() string { return "" },
+	})
+	require.Equal(t, "/var/state/a10r", render().StateDir)
+}
+
+func TestBuild_PageEnvReadsTheLiveFormats(t *testing.T) {
+	t.Parallel()
+	res, err := Build(t.Context(), &config.CLIFlags{}, testDeps(t))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Close() })
+	require.Equal(t, timerender.Relative, res.env.TimeFormat())
+	require.Equal(t, stateformat.Full, res.env.StateFormat())
+
+	_, _ = res.App().Update(tea.KeyPressMsg{Code: 't', Text: "t"})
+	_, _ = res.App().Update(app.StateFormatToggleMsg{})
+
+	require.Equal(t, timerender.Absolute, res.env.TimeFormat())
+	require.Equal(t, stateformat.Compact, res.env.StateFormat())
 }

@@ -86,7 +86,7 @@ func TestSilenceExpire_NotFoundIDIsPerIDFailureLenient(t *testing.T) {
 	require.ErrorAs(t, err, &ex)
 	require.Equal(t, []string{"sil-1"}, client.expired, "the present id is still expired (lenient per-id)")
 	require.Equal(t, "prod\tsil-1\n", out.String())
-	require.Contains(t, errOut.String(), "ghost")
+	require.Equal(t, "ghost: not found in scope\nrecreate with: a10r silences recreate sil-1\n", errOut.String())
 }
 
 // TestSilenceExpire_AllNotFoundExits5 locks the not-found contract: when

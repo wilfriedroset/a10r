@@ -99,3 +99,40 @@ func TestRender_StateBreakdownEllipsizesUnderCap(t *testing.T) {
 	row = rowContaining(t, out, "9ac")
 	require.Contains(t, row, "9ac 3su 1un", "compact breakdown stays dense and full")
 }
+
+func TestRenderRows_CursorPrefixAndLineBreaks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		maxRows   int
+		wantLines []string
+	}{
+		{name: "negative height renders nothing", maxRows: -1},
+		{name: "zero height renders nothing", maxRows: 0},
+		{name: "every row on its own line", maxRows: 5, wantLines: []string{"  ", "▸ ", "  "}},
+		{name: "window stops at maxRows", maxRows: 2, wantLines: []string{"  ", "▸ "}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newPage(t)
+			_, _ = p.Update(poll.DataMsg{Resource: []backend.Alert{
+				mkAlert("Alpha", "warning", backend.AlertStateActive, "fp1", time.Minute, nil),
+				mkAlert("Beta", "warning", backend.AlertStateActive, "fp2", time.Minute, nil),
+				mkAlert("Gamma", "warning", backend.AlertStateActive, "fp3", time.Minute, nil),
+			}})
+			p.SetIndex(1, len(p.groups))
+			out := testutil.StripStyle(p.renderRows(p.scroll.Layout(p.columns(), 80), 80, tc.maxRows))
+			if tc.wantLines == nil {
+				require.Empty(t, out)
+				return
+			}
+			lines := strings.Split(out, "\n")
+			require.Len(t, lines, len(tc.wantLines))
+			for i, prefix := range tc.wantLines {
+				require.True(t, strings.HasPrefix(lines[i], prefix), "line %d %q", i, lines[i])
+			}
+		})
+	}
+}

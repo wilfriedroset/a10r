@@ -29,16 +29,16 @@ func TestCrumbs_PushPopRender(t *testing.T) {
 	require.Equal(t, 2, c.Len())
 	require.Equal(t, "detail", c.Top())
 
-	out := testutil.StripStyle(c.Render(styles))
-	require.Contains(t, out, "<alerts>")
-	require.Contains(t, out, "<detail>")
-	require.Contains(t, out, crumbSeparator)
+	require.NotEqual(t, styles.Crumbs.DefaultBold.Render("<detail>"), styles.Crumbs.ActivePill.Render("<detail>"))
+	require.Equal(t,
+		styles.Crumbs.DefaultBold.Render("<alerts>")+crumbSeparator+styles.Crumbs.ActivePill.Render("<detail>"),
+		c.Render(styles), "only the top crumb wears the active pill")
 
 	c = c.Pop()
 	require.Equal(t, 1, c.Len())
 	require.Equal(t, "alerts", c.Top())
 
-	out = testutil.StripStyle(c.Render(styles))
+	out := testutil.StripStyle(c.Render(styles))
 	require.Contains(t, out, "<alerts>")
 	require.NotContains(t, out, "<detail>")
 	require.NotContains(t, out, crumbSeparator,
@@ -773,6 +773,7 @@ func TestFlash_WeakYieldsToAFreshFlash(t *testing.T) {
 		wantShown   bool
 	}{
 		{name: "weak yields to a fresh flash from a keystroke", seed: "silenced", age: 500 * time.Millisecond, weak: true, wantText: "silenced"},
+		{name: "weak replaces a flash exactly as old as the guard", seed: "silenced", age: WeakFlashGuard, weak: true, wantText: "+1 new", wantShown: true},
 		{name: "weak replaces a flash older than the guard", seed: "silenced", age: 2 * time.Second, weak: true, wantText: "+1 new", wantShown: true},
 		{name: "weak shows when no flash is active", seed: "", age: 0, weak: true, wantText: "+1 new", wantShown: true},
 		{name: "strong replaces a fresh flash", seed: "silenced", age: 500 * time.Millisecond, weak: false, wantText: "+1 new", wantShown: true},

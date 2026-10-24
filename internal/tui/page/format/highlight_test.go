@@ -105,6 +105,18 @@ func TestHighlighter_Cell(t *testing.T) {
 			want: "high cpu",
 		},
 		{
+			name: "a span that starts in the padding is dropped",
+			hl:   format.Highlighter{Spans: func(string) [][2]int { return [][2]int{{4, 6}} }, Match: mark},
+			text: "high  ",
+			want: "high  ",
+		},
+		{
+			name: "an accented cell still marks the hit",
+			hl:   format.Highlighter{Spans: spansOf("cpu"), Match: mark},
+			text: "caf\u00e9 cpu",
+			want: "caf\u00e9 <cpu>",
+		},
+		{
 			name: "overlapping spans do not double mark",
 			hl:   format.Highlighter{Spans: func(string) [][2]int { return [][2]int{{0, 4}, {2, 6}} }, Match: mark},
 			text: "high cpu",

@@ -388,3 +388,78 @@ func TestGuardrail_ATypedRuleAsksOnASingleMarkedInstance(t *testing.T) {
 	_, push := p.Update(modal.ConfirmResultMsg{Yes: true})
 	require.IsType(t, &silenceform.Form{}, pagetest.PushedPage(t, push))
 }
+
+func TestSilenceOne_EmptyViewFlashesNoInstance(t *testing.T) {
+	t.Parallel()
+	p := newWritablePage(t)
+	_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.NotNil(t, cmd)
+	msg := cmd().(footer.FlashShowMsg)
+	require.Equal(t, footer.FlashInfo, msg.Level)
+	require.Equal(t, "no instance under the cursor", msg.Text)
+}
+
+func TestBulkSilenceConfirm_NoAnswerDropsThePendingSilence(t *testing.T) {
+	t.Parallel()
+	p := newWritablePage(t,
+		instance("fp-0", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst0}),
+		instance("fp-1", "warning", backend.AlertStateActive, map[string]string{sortKeyInstance: webInst1}),
+	)
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, _ = p.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	_, open := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	pagetest.OpenedModal(t, open)
+
+	_, cmd := p.Update(modal.ConfirmResultMsg{})
+	require.Nil(t, cmd)
+	_, cmd = p.Update(modal.ConfirmResultMsg{Yes: true})
+	require.Nil(t, cmd)
+}
+
+func TestBulkSilenceForm_Creator(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		creator string
+		want    string
+	}{
+		{name: "configured creator", creator: "alice", want: "alice"},
+		{name: "default creator", want: "a10r"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{
+				Styles:    pagetest.Styles(t),
+				Now:       func() time.Time { return fixedNow },
+				Tenant:    tenant,
+				AlertName: alertName,
+				Clients:   map[string]silenceform.Client{tenant: &testutil.FakeSilenceClient{}},
+				Creator:   tc.creator,
+				Instances: []backend.Alert{instance("fp-1", "warning", backend.AlertStateActive, nil)},
+				Session:   testutil.Session(),
+			})
+			_, _ = p.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+			_, cmd := p.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+			require.Equal(t, tc.want, submitBulkForm(t, cmd).Creator)
+		})
+	}
+}
+
+func submitBulkForm(t *testing.T, push tea.Cmd) silenceform.BulkSubmittedMsg {
+	t.Helper()
+	form, ok := pagetest.PushedPage(t, push).(*silenceform.Form)
+	require.True(t, ok)
+	for range 3 {
+		_, _ = form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	for _, r := range "ack" {
+		_, _ = form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, cmd := form.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	msg, ok := cmd().(silenceform.BulkSubmittedMsg)
+	require.True(t, ok)
+	return msg
+}

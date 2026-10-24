@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -141,6 +143,36 @@ func TestEnableColor_DisabledWhenStdoutIsNotATerminal(t *testing.T) {
 		"pipe handle isn't a TTY — color must be off")
 }
 
+func TestEnableColor_TerminalHonoursEnv(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS does not report the /dev/ptmx master side as a terminal")
+	}
+
+	tty, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	if err != nil {
+		t.Skipf("no pseudo-terminal available: %v", err)
+	}
+	t.Cleanup(func() { _ = tty.Close() })
+
+	tests := []struct {
+		name    string
+		noColor string
+		term    string
+		want    bool
+	}{
+		{name: "plain terminal", noColor: "", term: "xterm-256color", want: true},
+		{name: "NO_COLOR set", noColor: "1", term: "xterm-256color", want: false},
+		{name: "dumb terminal", noColor: "", term: "dumb", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("NO_COLOR", tc.noColor)
+			t.Setenv("TERM", tc.term)
+			require.Equal(t, tc.want, enableColor(tty))
+		})
+	}
+}
+
 func TestFrom_NonFileHandlesRouteToPlainConstructor(t *testing.T) {
 	t.Parallel()
 
@@ -153,6 +185,25 @@ func TestFrom_NonFileHandlesRouteToPlainConstructor(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, out.String(), "\x1b[",
 		"non-file handles must produce a colour-off prompter; got %q", out.String())
+}
+
+func TestFrom_FileInputWithNonFileOutputRoutesToPlainConstructor(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "answer")
+	require.NoError(t, os.WriteFile(path, []byte("staging\n"), 0o600))
+	in, err := os.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = in.Close() })
+
+	var out, want bytes.Buffer
+	got, err := From(in, &out).String("name", "prod", nil)
+	require.NoError(t, err)
+	require.Equal(t, "staging", got)
+
+	_, err = New(strings.NewReader("staging\n"), &want).String("name", "prod", nil)
+	require.NoError(t, err)
+	require.Equal(t, want.String(), out.String())
 }
 
 func TestPrompter_SecretReturnsLineInNonTTYFallback(t *testing.T) {

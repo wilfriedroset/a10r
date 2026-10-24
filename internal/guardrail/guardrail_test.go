@@ -36,6 +36,7 @@ func TestMatch(t *testing.T) {
 		{name: "leading and inner star", patterns: []string{"*b*"}, value: "abc", want: true},
 		{name: "prefix and suffix must not overlap", patterns: []string{"ab*ba"}, value: "aba", want: false},
 		{name: "two stars in order", patterns: []string{"a*b*c"}, value: "a/c/b", want: false},
+		{name: "repeated inner part needs two occurrences", patterns: []string{"*a*a*"}, value: "xay", want: false},
 	}
 
 	for _, tt := range tests {

@@ -135,11 +135,12 @@ type Page struct {
 
 	// focusName / focusTenant identify the row the cursor was on
 	// before the most recent recompute — used to restore the cursor
-	// onto the same receiver after a re-sort, scope change, or poll
-	// refresh. Both are needed because a receiver name is unique
-	// only within a tenant, so the cross-tenant view can hold two
-	// rows sharing a name. Mirrors focusFingerprint / focusID /
-	// focusKey on the alerts / silences pages.
+	// onto the same receiver after a scope change or poll refresh. A
+	// re-sort clears them and keeps the row index. Both are needed
+	// because a receiver name is unique only within a tenant, so the
+	// cross-tenant view can hold two rows sharing a name. Mirrors
+	// focusFingerprint / focusID / focusKey on the alerts / silences
+	// pages.
 	focusName   string
 	focusTenant string
 }
@@ -323,9 +324,10 @@ func (p *Page) recompute() {
 	// DESC case reverses per the helper's flipped-arg comparator.
 	p.sorter.Apply(p.view)
 	// Resolve cursor by (name, tenant) when we have a focus to
-	// follow so the user stays on the same receiver across re-sort /
-	// scope / poll. Falls through to the clamp + re-snapshot path
-	// when focus is empty or the focused row vanished.
+	// follow so the user stays on the same receiver across scope and
+	// poll. Re-sort clears focus first and stays index-stable. Falls
+	// through to the clamp + re-snapshot path when focus is empty or
+	// the focused row vanished.
 	if p.focusName != "" {
 		for i, e := range p.view {
 			if e.name == p.focusName && e.tenant == p.focusTenant {

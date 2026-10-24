@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -215,4 +216,24 @@ func TestStore_PruneDropsUnknownSortKeys(t *testing.T) {
 	onDisk, err := os.ReadFile(filepath.Join(dir, statePath))
 	require.NoError(t, err)
 	require.Contains(t, string(onDisk), "retired", "the prune itself must not write")
+}
+
+func TestStore_KeepsWritingAfterASuccessfulFlush(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	s := uistate.Open(dir)
+	s.SetScope("prod")
+	require.Eventually(t, func() bool {
+		reopened := uistate.Open(dir)
+		defer func() { _ = reopened.Close() }()
+		return reopened.Scope() == "prod"
+	}, 5*time.Second, 10*time.Millisecond)
+
+	s.SetScope("staging")
+	require.NoError(t, s.Close())
+
+	reopened := uistate.Open(dir)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	require.Equal(t, "staging", reopened.Scope())
 }

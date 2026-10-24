@@ -1046,3 +1046,24 @@ func TestForm_SubmitFailsWhenTenantUnreachable(t *testing.T) {
 	require.Contains(t, strings.ToLower(flash.Text), "tenant",
 		"unreachable-tenant flash must mention the tenant so a future refactor can locate the broken wiring")
 }
+
+func TestForm_SubmitFailsWhenTenantClientIsNil(t *testing.T) {
+	t.Parallel()
+
+	f := newMultiTenantForm(t, nil, &fakeClient{})
+	fillValidScalars(t, f)
+	_, cmd := f.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.NotNil(t, cmd)
+	flash, ok := cmd().(footer.FlashShowMsg)
+	require.True(t, ok, "a nil client refuses the submit instead of writing")
+	require.Equal(t, footer.FlashError, flash.Level)
+	require.Equal(t, "silence: no client for tenant prod", flash.Text)
+}
+
+func TestForm_ForeignPickerSubmitLeavesTenantAlone(t *testing.T) {
+	t.Parallel()
+
+	f := newMultiTenantForm(t, &fakeClient{}, &fakeClient{})
+	_, _ = f.Update(modal.PickerSubmittedMsg{Origin: "another-picker", Selections: []string{"staging"}})
+	require.Equal(t, "prod", f.tenant)
+}

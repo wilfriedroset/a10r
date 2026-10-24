@@ -69,7 +69,7 @@ func TestProcessSecret_CtrlDOnEmptyBufferCancels(t *testing.T) {
 	t.Parallel()
 
 	got, err := processSecret(strings.NewReader("\x04"), &bytes.Buffer{})
-	require.Error(t, err)
+	require.ErrorIs(t, err, errSecretCancelled)
 	require.Empty(t, got)
 }
 
@@ -91,6 +91,30 @@ func TestProcessSecret_ArrowKeyEscapeSequenceIsDiscarded(t *testing.T) {
 	require.Equal(t, "abcd", got)
 	// four stars only — the three escape bytes must be eaten silently
 	require.Equal(t, "****\r\n", out.String())
+}
+
+func TestProcessSecret_KeystrokeSequences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "space is printable", in: "a b\r", want: "a b"},
+		{name: "SS3 function key is discarded", in: "a\x1bOPb\r", want: "ab"},
+		{name: "CSI with parameters is discarded", in: "a\x1b[1;5Ab\r", want: "ab"},
+		{name: "CSI ending on @ is discarded", in: "a\x1b[@b\r", want: "ab"},
+		{name: "CSI ending on tilde is discarded", in: "a\x1b[3~b\r", want: "ab"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := processSecret(strings.NewReader(tc.in), &bytes.Buffer{})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestProcessSecret_TabIsDiscarded(t *testing.T) {

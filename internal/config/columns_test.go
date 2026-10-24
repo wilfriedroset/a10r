@@ -51,6 +51,11 @@ func TestColumns_ValidateRejections(t *testing.T) {
 			wantErr: `pages.alerts.columns[0].sort_key: "S" is already bound on the alerts page`,
 		},
 		{
+			name:    "sort key collides with the first letter",
+			cfg:     alertsColumns(Column{Label: "cluster", SortKey: "A"}),
+			wantErr: `pages.alerts.columns[0].sort_key: "A" is already bound on the alerts page`,
+		},
+		{
 			name:    "sort key collides with the wide toggle",
 			cfg:     alertsColumns(Column{Label: "cluster", SortKey: "W"}),
 			wantErr: `pages.alerts.columns[0].sort_key: "W" is already bound on the alerts page`,
@@ -112,6 +117,7 @@ func TestColumns_ValidateAccepts(t *testing.T) {
 			{Label: "cluster", Title: "CLUSTER", SortKey: "L", Width: 12},
 			{Label: "pod", Wide: true},
 			{Label: "tenant", Title: "TEAM"},
+			{Label: "zone", SortKey: "Z", Width: 3},
 		}},
 		GroupDetail: GroupDetailConfig{Columns: []Column{
 			{Label: "pod", SortKey: "P", Wide: true},

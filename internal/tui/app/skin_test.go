@@ -175,3 +175,22 @@ func TestApp_OpenSkinPickerRefusesWithoutALoader(t *testing.T) {
 	require.NotNil(t, cmd)
 	require.Equal(t, footer.FlashShowMsg{Level: footer.FlashWarn, Text: "skin switching is unavailable"}, cmd())
 }
+
+func TestApp_ApplySkinRefusesWithoutSkinNames(t *testing.T) {
+	t.Parallel()
+
+	styles, err := (&theme.Loader{}).Load(theme.DefaultSkinName)
+	require.NoError(t, err)
+	a := NewApp(Options{
+		Styles:     styles,
+		Dispatcher: keys.New(nil),
+		LoadStyles: func(string) (*theme.Styles, error) { return markerStyles(), nil },
+		SkinName:   theme.DefaultSkinName,
+		Session:    testutil.Session(),
+	})
+
+	_, cmd := a.Update(ApplySkinMsg{Name: "nord"})
+
+	require.NotNil(t, cmd)
+	require.Equal(t, footer.FlashShowMsg{Level: footer.FlashWarn, Text: "skin switching is unavailable"}, cmd())
+}

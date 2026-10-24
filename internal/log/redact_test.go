@@ -4,9 +4,11 @@ package log
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -182,6 +184,9 @@ func TestNew_StripsURLUserinfoFromMsg(t *testing.T) {
 	t.Cleanup(func() { _ = closer.Close() })
 
 	logger.Info("connect failed: Get https://alice:hunter2@am.example.com/api/v2/alerts: i/o timeout")
+	rec := slog.NewRecord(time.Time{}, slog.LevelInfo,
+		"connect failed: Get https://alice:hunter2@am.example.com/api/v2/alerts: i/o timeout", 0)
+	require.NoError(t, logger.Handler().Handle(context.Background(), rec))
 	out := buf.String()
 	require.NotContains(t, out, "hunter2",
 		"password in URL userinfo must not land in the log file")

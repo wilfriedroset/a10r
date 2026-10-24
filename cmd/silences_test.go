@@ -104,10 +104,16 @@ func TestFilterSilenceRows_ByMatcherStrictTuple(t *testing.T) {
 				{Name: "severity", Value: "critical", IsEqual: true},
 			},
 		},
+		{
+			ID: "other-name",
+			Matchers: []matcherRow{
+				{Name: "team", Value: "critical", IsEqual: true},
+			},
+		},
 	}
 	wanted := backend.Matcher{Name: "severity", Value: "critical", IsEqual: true}
 	got := filterSilenceRows(rows, "", &wanted)
-	require.Len(t, got, 1, "regex variant must NOT match a literal predicate even when value strings collide")
+	require.Len(t, got, 1, "only the literal row with the same name and value matches")
 	require.Equal(t, "literal", got[0].ID)
 }
 

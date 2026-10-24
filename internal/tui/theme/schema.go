@@ -141,7 +141,7 @@ func (f *k9sSkinFile) validate() error {
 	return nil
 }
 
-// applyStockFallback fills the five severity-driving status fields
+// applyStockFallback fills the status fields a10r binds a role to
 // from the k9s upstream stock skin when the user's skin omits them.
 // The unconditional final fallback to body.fg in compile() handles
 // the truly-pathological case where stock somehow doesn't help, but
@@ -163,12 +163,6 @@ func (f *k9sSkinFile) applyStockFallback() {
 	}
 	if s.HighlightColor == "" {
 		s.HighlightColor = stockStatus.HighlightColor
-	}
-	// The remaining two (modify, completed) are not load-bearing
-	// for any a10r role today — but keep them populated in case a
-	// future role binds to them, and so debug dumps look complete.
-	if s.ModifyColor == "" {
-		s.ModifyColor = stockStatus.ModifyColor
 	}
 	if s.CompletedColor == "" {
 		s.CompletedColor = stockStatus.CompletedColor

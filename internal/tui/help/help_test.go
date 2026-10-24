@@ -3,10 +3,12 @@
 package help
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/stretchr/testify/require"
 
@@ -147,6 +149,48 @@ func TestHelp_CommandsColumnFoldsSynonyms(t *testing.T) {
 	} {
 		require.Containsf(t, out, want, "COMMANDS column must surface %q", want)
 	}
+}
+
+func TestHelp_ViewFillsTheBox(t *testing.T) {
+	t.Parallel()
+	opts := sampleOpts(t)
+	opts.Tenants = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i"}
+	tests := []struct {
+		name          string
+		width, height int
+		wantLines     int
+	}{
+		{name: "overflowing content fills the height", width: 80, height: 5, wantLines: 5},
+		{name: "zero width renders nothing", width: 0, height: 10, wantLines: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := New(opts).View(tt.width, tt.height)
+			if tt.wantLines == 0 {
+				require.Empty(t, out)
+				return
+			}
+			lines := strings.Split(testutil.StripStyle(out), "\n")
+			require.Len(t, lines, tt.wantLines)
+			for _, l := range lines {
+				require.Equal(t, tt.width, lipgloss.Width(l), "row=%q", l)
+			}
+		})
+	}
+}
+
+func TestHelp_LastColumnUsesTheGapColumns(t *testing.T) {
+	t.Parallel()
+	const colWidth = 12
+	name := strings.Repeat("x", colWidth-1)
+	opts := sampleOpts(t)
+	opts.Commands = []cmdbar.AliasGroup{{Names: []string{name}}}
+	lines := strings.Split(testutil.StripStyle(New(opts).View(4*colWidth, 40)), "\n")
+	idx := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, name) })
+	require.NotEqual(t, -1, idx, "the last column has no neighbour, so its cell may use the full column width")
+	require.Equal(t, 4*colWidth, lipgloss.Width(lines[idx]))
+	require.True(t, strings.HasSuffix(strings.TrimRight(lines[idx], " "), name), "row=%q", lines[idx])
 }
 
 // TestHelp_CommandsColumnRendersUserSubsection pins the USER
@@ -465,6 +509,12 @@ func TestHelp_WheelUpClampsAtTop(t *testing.T) {
 	again := testutil.StripStyle(h.View(w, hgt))
 	require.Equal(t, first, again,
 		"wheel-up at scroll=0 must clamp — visible rows unchanged")
+
+	_, _ = h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	_, _ = h.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	scrolled := strings.Split(testutil.StripStyle(h.View(w, hgt)), "\n")
+	require.Equal(t, strings.Split(first, "\n")[1], scrolled[0],
+		"wheel-down after a clamped wheel-up must scroll one row from the top")
 }
 
 // TestHelp_WheelDownClampsAtBottom covers the lower-bound edge
@@ -637,6 +687,8 @@ func TestChipText(t *testing.T) {
 	}{
 		{"lowercase letter", "s", "<s>"},
 		{"bare uppercase letter expands to shift", "S", "<shift-s>"},
+		{"first uppercase letter expands to shift", "A", "<shift-a>"},
+		{"last uppercase letter expands to shift", "Z", "<shift-z>"},
 		{"shift chord", "Shift+F", "<shift-f>"},
 		{"ctrl chord", "Ctrl+E", "<ctrl-e>"},
 		{"word key", "Enter", "<enter>"},
