@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wilfriedroset/a10r/internal/tui/page/cursor"
 	"github.com/wilfriedroset/a10r/internal/tui/page/listpage"
 	"github.com/wilfriedroset/a10r/internal/tui/testutil"
 )
@@ -77,6 +78,33 @@ func TestBase_RenderListFrame(t *testing.T) {
 		require.Equal(t, []string{"HDR", "r0"}, lines[1:])
 		require.Equal(t, 8, gotMaxRows, "band costs the body one row (height-1-1)")
 	})
+}
+
+func TestBase_RenderListFrame_ViewportFollowsBodyHeight(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		health map[string]listpage.BackendHealth
+		band   int
+	}{
+		{name: "no band leaves height-1 rows"},
+		{name: "band leaves height-2 rows", health: map[string]listpage.BackendHealth{"prod": {Detail: "boom"}}, band: 1},
+	}
+	const cursorRow, height = 20, 10
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			bodyRows := height - 1 - tc.band
+			wantTopRow := cursorRow - bodyRows + 1
+			b := &listpage.Base{Window: cursor.NewWindow(cursorRow, 0, 0), Scope: listpage.ScopeAll, BackendHealth: tc.health}
+			b.RenderListFrame(listpage.ListFrame{
+				Width: 80, Height: height, Count: 50, Now: frozenNow,
+				Header: func(int) string { return "HDR" },
+				Rows:   func(int, int) string { return "" },
+			})
+			require.Equal(t, wantTopRow, b.TopRow())
+		})
+	}
 }
 
 // trimmedLines splits s into lines with each line's right-padding

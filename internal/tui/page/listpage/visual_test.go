@@ -67,6 +67,11 @@ func TestVisualPreview(t *testing.T) {
 		wantOpen  bool
 	}{
 		{name: "visual off", view: visualView("a", "b", "c"), cursorIdx: 1},
+		{name: "visual off with an unkeyed row", view: visualView("", "b"), cursorIdx: 1},
+		{
+			name: "cursor on the first row", anchor: "c", view: visualView("a", "b", "c"),
+			cursorIdx: 0, wantLo: 0, wantHi: 2, wantOpen: true,
+		},
 		{
 			name: "anchor above cursor", anchor: "a", view: visualView("a", "b", "c", "d"),
 			cursorIdx: 2, wantLo: 0, wantHi: 2, wantOpen: true,
@@ -81,6 +86,7 @@ func TestVisualPreview(t *testing.T) {
 		},
 		{name: "anchor row gone", anchor: "z", view: visualView("a", "b"), cursorIdx: 0},
 		{name: "cursor past the view", anchor: "a", view: visualView("a", "b"), cursorIdx: 7},
+		{name: "cursor one past the last row", anchor: "a", view: visualView("a", "b"), cursorIdx: 2},
 		{name: "empty view", anchor: "a", view: nil, cursorIdx: 0},
 	}
 	for _, tc := range tests {
@@ -154,6 +160,27 @@ func TestMarkOrCommit_TogglesWhenNoRangeIsOpen(t *testing.T) {
 	require.Empty(t, marksOf(marks), "a second Space untoggles the cursor row")
 }
 
+func TestMarkOrCommit_CursorRow(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		cursorIdx int
+		wantMarks []string
+	}{
+		{name: "first row", cursorIdx: 0, wantMarks: []string{"a"}},
+		{name: "last row", cursorIdx: 2, wantMarks: []string{"c"}},
+		{name: "one past the last row", cursorIdx: 3, wantMarks: []string{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			marks := map[string]struct{}{}
+			listpage.MarkOrCommit(visualBase("", tc.cursorIdx), visualView("a", "b", "c"), marks, visualKey)
+			require.ElementsMatch(t, tc.wantMarks, marksOf(marks))
+		})
+	}
+}
+
 func TestMarkOrCommit_CommitsAnOpenRange(t *testing.T) {
 	t.Parallel()
 	b := visualBase("a", 2)
@@ -178,6 +205,15 @@ func TestStartOrCommitVisual(t *testing.T) {
 	require.ElementsMatch(t, []string{"b", "c"}, marksOf(marks), "the second V commits the span")
 }
 
+func TestStartOrCommitVisual_FirstRowAnchors(t *testing.T) {
+	t.Parallel()
+	b := &listpage.Base{Window: cursor.NewWindow(0, 0, 10)}
+	view := visualView("a", "b", "c")
+	listpage.StartOrCommitVisual(b, view, map[string]struct{}{}, visualKey)
+	require.True(t, b.Visual.On())
+	require.True(t, listpage.VisualPreview(b, view, visualKey).Covers(0))
+}
+
 func TestStartOrCommitVisual_EmptyViewDoesNotAnchor(t *testing.T) {
 	t.Parallel()
 	b := &listpage.Base{}
@@ -193,6 +229,7 @@ func TestCancelVisualOnLostAnchor(t *testing.T) {
 		view       []visualRow
 		wantCancel bool
 	}{
+		{name: "anchor on the first row", anchor: "a", view: visualView("a", "b"), wantCancel: false},
 		{name: "anchor still present", anchor: "b", view: visualView("a", "b"), wantCancel: false},
 		{name: "anchor filtered out", anchor: "b", view: visualView("a", "c"), wantCancel: true},
 		{name: "view emptied", anchor: "b", view: nil, wantCancel: true},
