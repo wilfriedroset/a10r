@@ -904,28 +904,25 @@ func TestClipComment_NeverExceedsBudget(t *testing.T) {
 	// by one column (the "…" was appended without making room for
 	// it); this test pins the corrected contract.
 	cases := []struct {
-		name    string
-		s       string
-		budget  int
-		wantMax int
+		name   string
+		s      string
+		budget int
+		want   string
 	}{
-		{"single-line short fits", "ok", 10, 10},
-		{"single-line at budget", "abcde", 5, 5},
-		{"single-line over budget cuts", "abcdefgh", 5, 5},
-		{"multiline short adds ellipsis", "ok\nmore", 10, 10},
-		{"multiline at budget cuts to leave room for ellipsis", "abcde\nmore", 5, 5},
-		{"multiline over budget cuts", "abcdefgh\nmore", 5, 5},
-		{"budget 1 returns ellipsis", "abc", 1, 1},
-		{"budget 0 returns empty", "abc", 0, 0},
-		{"budget negative returns empty", "abc", -3, 0},
+		{"single-line short fits", "ok", 10, "ok"},
+		{"single-line at budget", "abcde", 5, "abcde"},
+		{"single-line over budget cuts", "abcdefgh", 5, "abcd…"},
+		{"multiline short adds ellipsis", "ok\nmore", 10, "ok…"},
+		{"multiline at budget cuts to leave room for ellipsis", "abcde\nmore", 5, "abcd…"},
+		{"multiline over budget cuts", "abcdefgh\nmore", 5, "abcd…"},
+		{"budget 1 returns ellipsis", "abc", 1, "…"},
+		{"budget 0 returns empty", "abc", 0, ""},
+		{"budget negative returns empty", "abc", -3, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := clipComment(tc.s, tc.budget)
-			require.LessOrEqual(t, lipgloss.Width(got), tc.wantMax,
-				"clipComment(%q, %d) returned %q (width %d) — must not exceed budget",
-				tc.s, tc.budget, got, lipgloss.Width(got))
+			require.Equal(t, tc.want, clipComment(tc.s, tc.budget))
 		})
 	}
 }
@@ -1097,6 +1094,59 @@ func TestPage_TitleMarksRawYAMLMode(t *testing.T) {
 	_, _ = p.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	require.NotContains(t, p.Title(), "[raw yaml]",
 		"a second toggle drops the indicator alongside the body flip")
+}
+
+func TestPage_TitleScope(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		tenant string
+		want   string
+	}{
+		{name: "tenant", tenant: "prod", want: "Describe(prod/HighCPU)"},
+		{name: "no tenant", want: "Describe(—/HighCPU)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := New(Options{Alert: sample(), Tenant: tc.tenant, Styles: pagetest.Styles(t), Session: testutil.Session()})
+			require.Equal(t, tc.want, p.Title())
+		})
+	}
+}
+
+func TestPage_ViewNonPositiveDimensionsRenderNothing(t *testing.T) {
+	t.Parallel()
+	p := New(Options{Alert: sample(), Styles: pagetest.Styles(t), Session: testutil.Session()})
+	require.Empty(t, p.View(0, 30))
+	require.Empty(t, p.View(120, 0))
+}
+
+func TestPage_CopyFieldsCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		labels      int
+		annotations int
+		want        int
+	}{
+		{name: "labels outnumber annotations", labels: 6, want: 2 + len(sample().Labels) + 6 + len(sample().Annotations)},
+		{name: "annotations outnumber labels", annotations: 9, want: 2 + len(sample().Labels) + len(sample().Annotations) + 9},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a := sample()
+			for i := range tc.labels {
+				a.Labels[fmt.Sprintf("l%d", i)] = "v"
+			}
+			for i := range tc.annotations {
+				a.Annotations[fmt.Sprintf("a%d", i)] = "v"
+			}
+			p := New(Options{Alert: a, Styles: pagetest.Styles(t), Session: testutil.Session()})
+			require.Len(t, p.copyFields(), tc.want)
+		})
+	}
 }
 
 func TestPage_CopyFieldsOrder(t *testing.T) {
