@@ -571,18 +571,21 @@ func TestResolver_RegisterAndRegisterGroupSingletonAreEquivalent(t *testing.T) {
 // `:reload` re-runs the alias loader, so the previous read has to
 // come off. Without this an alias the user deleted from the file
 // keeps resolving until the next restart.
-func TestResolver_ReplaceUserDropsThePreviousRead(t *testing.T) {
+func TestResolver_ReplaceUserRegistersEveryAliasAndDropsThePreviousRead(t *testing.T) {
 	t.Parallel()
 
 	r := New()
 	r.Register("tenant", func([]string) tea.Cmd { return nil })
 	require.NoError(t, r.ReplaceUser(map[string]string{"prod": "tenant prod"}))
 
-	require.NoError(t, r.ReplaceUser(map[string]string{"eu": "tenant eu"}))
+	require.NoError(t, r.ReplaceUser(map[string]string{"eu": "tenant eu", "us": "tenant us"}))
 
 	_, err := r.Resolve("prod")
 	require.ErrorIs(t, err, ErrUnknown)
-	require.Equal(t, []UserAlias{{Short: "eu", Expanded: "tenant eu"}}, r.UserAliases())
+	require.Equal(t, []UserAlias{
+		{Short: "eu", Expanded: "tenant eu"},
+		{Short: "us", Expanded: "tenant us"},
+	}, r.UserAliases())
 
 	_, err = r.Resolve("tenant")
 	require.NoError(t, err, "a built-in must survive the replacement")
