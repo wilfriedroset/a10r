@@ -86,6 +86,14 @@ func TestSnapshotCmd_UnknownPageLeavesStdoutEmpty(t *testing.T) {
 	require.Empty(t, stdout)
 }
 
+// TestSnapshotCmd_OversizedFrameLeavesStdoutEmpty: a size bubbletea
+// would drop fails loudly instead of printing an unsized frame.
+func TestSnapshotCmd_OversizedFrameLeavesStdoutEmpty(t *testing.T) {
+	stdout, err := runSnapshotCmd(t, "alerts", "--width", "5000")
+	require.ErrorIs(t, err, boot.ErrFrameSize)
+	require.Empty(t, stdout)
+}
+
 // TestSnapshotCmd_RequiresExactlyOnePage: no page and two pages are
 // both a mistake, and neither may put half a frame on stdout.
 func TestSnapshotCmd_RequiresExactlyOnePage(t *testing.T) {
