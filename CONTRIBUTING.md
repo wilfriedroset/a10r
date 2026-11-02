@@ -79,6 +79,10 @@ agent skill.
 a10r snapshot alerts --width 100 --height 30 -c examples/demo.yaml
 ```
 
+The command refuses a frame wider or taller than 4096 cells, or
+larger than 1,048,576 cells in total. bubbletea drops a larger window
+size without an error, so the frame does not get the requested size.
+
 `a10r snapshot` never notifies. The render path builds a disabled
 notifier whatever the configuration says, so a screenshot run on a
 machine with `tui.notify` on rings no bell and starts no subprocess.

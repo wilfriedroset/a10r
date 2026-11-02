@@ -33,11 +33,20 @@ const (
 	// short enough that CI does not stall on a dead one. No flag
 	// sets it, so every run pays it.
 	DefaultSnapshotWait = 3 * time.Second
+
+	// Copies of bubbletea's isPlausibleWindowSize limits (screen.go),
+	// which drops a larger WindowSizeMsg without an error.
+	maxSnapshotSide  = 4096
+	maxSnapshotCells = 1 << 20
 )
 
 // ErrUnknownPage is returned when SnapshotOptions.Page is not one
 // of SnapshotPages.
 var ErrUnknownPage = errors.New("unknown page")
+
+// ErrFrameSize is returned when the requested frame is larger than
+// bubbletea accepts.
+var ErrFrameSize = errors.New("frame size out of range")
 
 // SnapshotPages lists the pages Snapshot can render, in the order
 // the error message offers them.
@@ -70,7 +79,10 @@ func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, er
 		return "", err
 	}
 
-	width, height := sizeOr(opts.Width, DefaultSnapshotWidth), sizeOr(opts.Height, DefaultSnapshotHeight)
+	width, height, err := snapshotSize(opts)
+	if err != nil {
+		return "", err
+	}
 	prog := r.snapshotProgram(ctx, width, height)
 
 	done := make(chan struct{})
@@ -132,12 +144,17 @@ func (r *Result) Snapshot(ctx context.Context, opts SnapshotOptions) (string, er
 	if runErr != nil {
 		return "", fmt.Errorf("render frame: %w", runErr)
 	}
+	return frameOf(final, opts.Color)
+}
+
+// frameOf reads the frame from the model a finished Run returned.
+func frameOf(final tea.Model, color bool) (string, error) {
 	a, ok := final.(*app.App)
 	if !ok {
 		return "", fmt.Errorf("render frame: bubbletea returned a %T, not the App model", final)
 	}
 	frame := a.View().Content
-	if !opts.Color {
+	if !color {
 		frame = ansi.Strip(frame)
 	}
 	return frame, nil
@@ -183,6 +200,17 @@ func (r *Result) clientlessBackends() []string {
 		}
 	}
 	return out
+}
+
+// snapshotSize applies the defaults to a zero size and refuses a frame
+// bubbletea would drop.
+func snapshotSize(opts SnapshotOptions) (width, height int, err error) {
+	width, height = sizeOr(opts.Width, DefaultSnapshotWidth), sizeOr(opts.Height, DefaultSnapshotHeight)
+	if width > maxSnapshotSide || height > maxSnapshotSide || width*height > maxSnapshotCells {
+		return 0, 0, fmt.Errorf("%w: %dx%d, want each side <= %d and at most %d cells",
+			ErrFrameSize, width, height, maxSnapshotSide, maxSnapshotCells)
+	}
+	return width, height, nil
 }
 
 func sizeOr(got, fallback int) int {

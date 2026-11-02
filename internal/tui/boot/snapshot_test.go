@@ -168,6 +168,40 @@ func TestSnapshot_UnknownPageRejected(t *testing.T) {
 	}
 }
 
+// TestSnapshot_FrameSize pins the size limits bubbletea enforces: an
+// implausible WindowSizeMsg is dropped without an error, which would
+// leave the frame unsized.
+func TestSnapshot_FrameSize(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name          string
+		width, height int
+		wantErr       bool
+	}{
+		{name: "widest side at the cell limit", width: 4096, height: 256},
+		{name: "tallest side at the cell limit", width: 256, height: 4096},
+		{name: "width over the side limit", width: 4097, height: 10, wantErr: true},
+		{name: "height over the side limit", width: 10, height: 4097, wantErr: true},
+		{name: "both sides fit but the cells do not", width: 1025, height: 1024, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			res := newSnapshotResult(t, snapshotBackend{})
+			frame, err := res.Snapshot(t.Context(), SnapshotOptions{
+				Page: resourceAlerts, Width: tc.width, Height: tc.height,
+			})
+			if tc.wantErr {
+				require.ErrorIs(t, err, ErrFrameSize)
+				return
+			}
+			require.NoError(t, err)
+			lines := strings.Split(strings.TrimRight(frame, "\n"), "\n")
+			require.Len(t, lines, tc.height, "the frame must fill the requested height")
+		})
+	}
+}
+
 // TestSnapshot_DeadlineRendersAnyway covers the hung-backend case:
 // the wait is a cap, not a requirement, so a backend that never
 // answers still produces a frame instead of hanging the command.
