@@ -129,7 +129,7 @@ linters:
 
     iface:
       # opaque + unused are deliberately NOT enabled: both fight this
-      # codebase's DI-via-interface pattern (CLAUDE.md: "functions take
+      # codebase's DI-via-interface pattern (CONTRIBUTING.md: "Functions take
       # interfaces"). `unused` only checks within-package, so every
       # cross-package seam (clock.Clock, backend.Prober, modal.ResultMsg)
       # reads as unused; `opaque` flags "constructor returns interface,
