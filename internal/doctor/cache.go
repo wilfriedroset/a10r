@@ -79,7 +79,7 @@ type cacheEntry struct {
 // calls on the same cachedChecker for many tenants.
 //
 // entries grows monotonically — no eviction. Acceptable while
-// tenant counts stay in single digits per CLAUDE.md; revisit
+// tenant counts stay in single digits; revisit
 // when a future deployment fans out across hundreds.
 type cachedChecker struct {
 	inner   Checker
